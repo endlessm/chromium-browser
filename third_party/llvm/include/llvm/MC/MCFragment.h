@@ -56,7 +56,7 @@ protected:
   bool HasInstructions;
 
 private:
-  /// \brief Should this fragment be aligned to the end of a bundle?
+  /// Should this fragment be aligned to the end of a bundle?
   bool AlignToBundleEnd;
 
   uint8_t BundlePadding;
@@ -67,7 +67,7 @@ private:
   /// The data for the section this fragment is in.
   MCSection *Parent;
 
-  /// Atom - The atom this fragment is in, as represented by it's defining
+  /// Atom - The atom this fragment is in, as represented by its defining
   /// symbol.
   const MCSymbol *Atom;
 
@@ -110,26 +110,26 @@ public:
   unsigned getLayoutOrder() const { return LayoutOrder; }
   void setLayoutOrder(unsigned Value) { LayoutOrder = Value; }
 
-  /// \brief Does this fragment have instructions emitted into it? By default
+  /// Does this fragment have instructions emitted into it? By default
   /// this is false, but specific fragment types may set it to true.
   bool hasInstructions() const { return HasInstructions; }
 
-  /// \brief Should this fragment be placed at the end of an aligned bundle?
+  /// Should this fragment be placed at the end of an aligned bundle?
   bool alignToBundleEnd() const { return AlignToBundleEnd; }
   void setAlignToBundleEnd(bool V) { AlignToBundleEnd = V; }
 
-  /// \brief Get the padding size that must be inserted before this fragment.
+  /// Get the padding size that must be inserted before this fragment.
   /// Used for bundling. By default, no padding is inserted.
   /// Note that padding size is restricted to 8 bits. This is an optimization
   /// to reduce the amount of space used for each fragment. In practice, larger
   /// padding should never be required.
   uint8_t getBundlePadding() const { return BundlePadding; }
 
-  /// \brief Set the padding size for this fragment. By default it's a no-op,
+  /// Set the padding size for this fragment. By default it's a no-op,
   /// and only some fragments have a meaningful implementation.
   void setBundlePadding(uint8_t N) { BundlePadding = N; }
 
-  /// \brief Return true if given frgment has FT_Dummy type.
+  /// Return true if given frgment has FT_Dummy type.
   bool isDummy() const { return Kind == FT_Dummy; }
 
   void dump() const;
@@ -419,22 +419,23 @@ public:
 
 class MCFillFragment : public MCFragment {
   /// Value to use for filling bytes.
-  uint8_t Value;
-
+  uint64_t Value;
+  uint8_t ValueSize;
   /// The number of bytes to insert.
-  const MCExpr &Size;
+  const MCExpr &NumValues;
 
   /// Source location of the directive that this fragment was created for.
   SMLoc Loc;
 
 public:
-  MCFillFragment(uint8_t Value, const MCExpr &Size, SMLoc Loc,
-                 MCSection *Sec = nullptr)
-      : MCFragment(FT_Fill, false, 0, Sec), Value(Value), Size(Size), Loc(Loc) {
-  }
+  MCFillFragment(uint64_t Value, uint8_t VSize, const MCExpr &NumValues,
+                 SMLoc Loc, MCSection *Sec = nullptr)
+      : MCFragment(FT_Fill, false, 0, Sec), Value(Value), ValueSize(VSize),
+        NumValues(NumValues), Loc(Loc) {}
 
-  uint8_t getValue() const { return Value; }
-  const MCExpr &getSize() const { return Size; }
+  uint64_t getValue() const { return Value; }
+  uint8_t getValueSize() const { return ValueSize; }
+  const MCExpr &getNumValues() const { return NumValues; }
 
   SMLoc getLoc() const { return Loc; }
 

@@ -7,6 +7,7 @@
 import json
 import logging
 import sys
+import zlib
 
 from google.appengine.api import taskqueue
 from google.appengine.ext import ndb
@@ -64,11 +65,16 @@ class AddHistogramsHandler(api_request_handler.ApiRequestHandler):
   def AuthorizedPost(self):
     datastore_hooks.SetPrivilegedRequest()
 
-    data_str = self.request.get('data')
+    try:
+      data_str = zlib.decompress(self.request.body)
+      logging.info('Recieved compressed data.')
+    except zlib.error:
+      data_str = self.request.get('data')
+      logging.info('Recieved uncompressed data.')
     if not data_str:
       raise api_request_handler.BadRequestError('Missing "data" parameter')
 
-    logging.info('Received data: %s', data_str)
+    logging.info('Received data: %s', data_str[:200])
 
     histogram_dicts = json.loads(data_str)
     ProcessHistogramSet(histogram_dicts)
@@ -113,7 +119,6 @@ def ProcessHistogramSet(histogram_dicts):
   # https://github.com/catapult-project/catapult/issues/4242
   _PurgeHistogramBinData(histograms)
 
-  revision = ComputeRevision(histograms)
   master = _GetDiagnosticValue(
       reserved_infos.MASTERS.name, histograms.GetFirstHistogram())
   bot = _GetDiagnosticValue(
@@ -127,6 +132,10 @@ def ProcessHistogramSet(histogram_dicts):
   _ValidateMasterBotBenchmarkName(master, bot, benchmark)
 
   suite_key = utils.TestKey('%s/%s/%s' % (master, bot, benchmark))
+
+  logging.info('Suite: %s', suite_key.id())
+
+  revision = ComputeRevision(histograms)
 
   bot_whitelist = bot_whitelist_future.get_result()
   internal_only = add_point_queue.BotInternalOnly(bot, bot_whitelist)
@@ -270,7 +279,7 @@ def DeduplicateAndPutAsync(new_entities, test, rev):
         new_entity.name, diagnostic_entities)
     if old_entity is not None:
       # Case 1: One in datastore, different from new one.
-      if _IsDifferent(old_entity.data, new_entity.data):
+      if old_entity.IsDifferent(new_entity):
         old_entity.end_revision = rev - 1
         entity_futures.append(old_entity.put_async())
         new_entity.start_revision = rev
@@ -291,11 +300,6 @@ def _GetDiagnosticEntityMatchingName(name, diagnostic_entities):
     if entity.name == name:
       return entity
   return None
-
-
-def _IsDifferent(diagnostic_a, diagnostic_b):
-  return (diagnostic.Diagnostic.FromDict(diagnostic_a) !=
-          diagnostic.Diagnostic.FromDict(diagnostic_b))
 
 
 def FindSuiteLevelSparseDiagnostics(
@@ -364,7 +368,7 @@ def _GetDiagnosticValue(name, hist, optional=False):
 
   _CheckRequest(
       name in hist.diagnostics,
-      'Histograms must have "%s" diagnostic' % name)
+      'Histogram [%s] missing "%s" diagnostic' % (hist.name, name))
   value = hist.diagnostics[name]
   _CheckRequest(
       len(value) == 1,

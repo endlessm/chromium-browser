@@ -48,8 +48,8 @@ import org.chromium.base.test.util.TestFileUtil;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.content.browser.test.util.DOMUtils;
 import org.chromium.content.browser.test.util.HistoryUtils;
-import org.chromium.content.common.ContentSwitches;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.common.ContentSwitches;
 import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.net.test.util.TestWebServer;
@@ -2145,7 +2145,7 @@ public class AwSettingsTest {
             int count = callback.getCallCount();
             mActivityTestRule.loadDataSync(awContents, contentClient.getOnPageFinishedHelper(),
                     pageHtml, "text/html", false);
-            DOMUtils.clickNode(testContainer.getContentViewCore(), "play");
+            DOMUtils.clickNode(testContainer.getWebContents(), "play");
             callback.waitForCallback(count, 1);
             Assert.assertEquals(0, webServer.getRequestCount(httpPath));
 
@@ -2632,28 +2632,23 @@ public class AwSettingsTest {
                 viewportTagSpecifiedWidth, mActivityTestRule.getTitleOnUiThread(awContents));
     }
 
-    // WebView layout width tests are flaky: http://crbug.com/746264
     @Test
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
-    @DisabledTest(message = "crbug.com/746264")
     public void testUseWideViewportLayoutWidth() throws Throwable {
         TestAwContentsClient contentClient = new TestAwContentsClient();
         AwTestContainerView testContainerView =
-                mActivityTestRule.createAwTestContainerViewOnMainSync(contentClient);
+                mActivityTestRule.createAwTestContainerViewOnMainSync(contentClient, true);
         useWideViewportLayoutWidthTest(testContainerView, contentClient.getOnPageFinishedHelper());
     }
 
-    // WebView layout width tests are flaky: http://crbug.com/746264
-    @RetryOnFailure
     @Test
     @SmallTest
     @Feature({"AndroidWebView", "Preferences"})
-    @DisabledTest(message = "crbug.com/746264")
     public void testUseWideViewportLayoutWidthNoQuirks() throws Throwable {
         TestAwContentsClient contentClient = new TestAwContentsClient();
         AwTestContainerView testContainerView =
-                mActivityTestRule.createAwTestContainerViewOnMainSync(contentClient, false);
+                mActivityTestRule.createAwTestContainerViewOnMainSync(contentClient);
         useWideViewportLayoutWidthTest(testContainerView, contentClient.getOnPageFinishedHelper());
     }
 

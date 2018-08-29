@@ -16,8 +16,12 @@ class CrostiniShelfContextMenu : public LauncherContextMenu {
                            int64_t display_id);
   ~CrostiniShelfContextMenu() override;
 
+  // LauncherContextMenu:
+  void GetMenuModel(GetMenuModelCallback callback) override;
+  void ExecuteCommand(int command_id, int event_flags) override;
+
  private:
-  void Init();
+  void BuildMenu(ui::SimpleMenuModel* menu_model);
 
   DISALLOW_COPY_AND_ASSIGN(CrostiniShelfContextMenu);
 };

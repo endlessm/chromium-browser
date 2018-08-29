@@ -63,6 +63,7 @@ private:
   void readExtern();
   void readGroup();
   void readInclude();
+  void readInput();
   void readMemory();
   void readOutput();
   void readOutputArch();
@@ -74,7 +75,7 @@ private:
   void readVersion();
   void readVersionScriptCommand();
 
-  SymbolAssignment *readAssignment(StringRef Name);
+  SymbolAssignment *readSymbolAssignment(StringRef Name);
   ByteCommand *readByteCommand(StringRef Tok);
   uint32_t readFill();
   uint32_t parseFill(StringRef Tok);
@@ -88,10 +89,9 @@ private:
   unsigned readPhdrType();
   SortSectionPolicy readSortKind();
   SymbolAssignment *readProvideHidden(bool Provide, bool Hidden);
-  SymbolAssignment *readProvideOrAssignment(StringRef Tok);
+  SymbolAssignment *readAssignment(StringRef Tok);
   void readSort();
-  AssertCommand *readAssert();
-  Expr readAssertExpr();
+  Expr readAssert();
   Expr readConstant();
   Expr getPageSize();
 
@@ -227,16 +227,16 @@ void ScriptParser::readLinkerScript() {
     if (Tok == ";")
       continue;
 
-    if (Tok == "ASSERT") {
-      Script->SectionCommands.push_back(readAssert());
-    } else if (Tok == "ENTRY") {
+    if (Tok == "ENTRY") {
       readEntry();
     } else if (Tok == "EXTERN") {
       readExtern();
-    } else if (Tok == "GROUP" || Tok == "INPUT") {
+    } else if (Tok == "GROUP") {
       readGroup();
     } else if (Tok == "INCLUDE") {
       readInclude();
+    } else if (Tok == "INPUT") {
+      readInput();
     } else if (Tok == "MEMORY") {
       readMemory();
     } else if (Tok == "OUTPUT") {
@@ -255,7 +255,7 @@ void ScriptParser::readLinkerScript() {
       readSections();
     } else if (Tok == "VERSION") {
       readVersion();
-    } else if (SymbolAssignment *Cmd = readProvideOrAssignment(Tok)) {
+    } else if (SymbolAssignment *Cmd = readAssignment(Tok)) {
       Script->SectionCommands.push_back(Cmd);
     } else {
       setError("unknown directive: " + Tok);
@@ -267,8 +267,7 @@ void ScriptParser::readDefsym(StringRef Name) {
   Expr E = readExpr();
   if (!atEOF())
     setError("EOF expected, but got " + next());
-  SymbolAssignment *Cmd = make<SymbolAssignment>(Name, E, getCurrentLocation(),
-                                                 "" /*CommandString*/);
+  SymbolAssignment *Cmd = make<SymbolAssignment>(Name, E, getCurrentLocation());
   Script->SectionCommands.push_back(Cmd);
 }
 
@@ -327,13 +326,12 @@ void ScriptParser::readExtern() {
 }
 
 void ScriptParser::readGroup() {
-  expect("(");
-  while (!errorCount() && !consume(")")) {
-    if (consume("AS_NEEDED"))
-      readAsNeeded();
-    else
-      addFile(unquote(next()));
-  }
+  bool Orig = InputFile::IsInGroup;
+  InputFile::IsInGroup = true;
+  readInput();
+  InputFile::IsInGroup = Orig;
+  if (!Orig)
+    ++InputFile::NextGroupId;
 }
 
 void ScriptParser::readInclude() {
@@ -350,6 +348,16 @@ void ScriptParser::readInclude() {
     return;
   }
   setError("cannot find linker script " + Tok);
+}
+
+void ScriptParser::readInput() {
+  expect("(");
+  while (!errorCount() && !consume(")")) {
+    if (consume("AS_NEEDED"))
+      readAsNeeded();
+    else
+      addFile(unquote(next()));
+  }
 }
 
 void ScriptParser::readOutput() {
@@ -440,14 +448,10 @@ void ScriptParser::readSections() {
   std::vector<BaseCommand *> V;
   while (!errorCount() && !consume("}")) {
     StringRef Tok = next();
-    BaseCommand *Cmd = readProvideOrAssignment(Tok);
-    if (!Cmd) {
-      if (Tok == "ASSERT")
-        Cmd = readAssert();
-      else
-        Cmd = readOutputSectionDescription(Tok);
-    }
-    V.push_back(Cmd);
+    if (BaseCommand *Cmd = readAssignment(Tok))
+      V.push_back(Cmd);
+    else
+      V.push_back(readOutputSectionDescription(Tok));
   }
 
   if (!atEOF() && consume("INSERT")) {
@@ -597,11 +601,7 @@ void ScriptParser::readSort() {
   expect(")");
 }
 
-AssertCommand *ScriptParser::readAssert() {
-  return make<AssertCommand>(readAssertExpr());
-}
-
-Expr ScriptParser::readAssertExpr() {
+Expr ScriptParser::readAssert() {
   expect("(");
   Expr E = readExpr();
   expect(",");
@@ -702,13 +702,10 @@ OutputSection *ScriptParser::readOutputSectionDescription(StringRef OutSec) {
     StringRef Tok = next();
     if (Tok == ";") {
       // Empty commands are allowed. Do nothing here.
-    } else if (SymbolAssignment *Assign = readProvideOrAssignment(Tok)) {
+    } else if (SymbolAssignment *Assign = readAssignment(Tok)) {
       Cmd->SectionCommands.push_back(Assign);
     } else if (ByteCommand *Data = readByteCommand(Tok)) {
       Cmd->SectionCommands.push_back(Data);
-    } else if (Tok == "ASSERT") {
-      Cmd->SectionCommands.push_back(readAssert());
-      expect(";");
     } else if (Tok == "CONSTRUCTORS") {
       // CONSTRUCTORS is a keyword to make the linker recognize C++ ctors/dtors
       // by name. This is for very old file formats such as ECOFF/XCOFF.
@@ -769,31 +766,39 @@ uint32_t ScriptParser::parseFill(StringRef Tok) {
 
 SymbolAssignment *ScriptParser::readProvideHidden(bool Provide, bool Hidden) {
   expect("(");
-  SymbolAssignment *Cmd = readAssignment(next());
+  SymbolAssignment *Cmd = readSymbolAssignment(next());
   Cmd->Provide = Provide;
   Cmd->Hidden = Hidden;
   expect(")");
-  expect(";");
   return Cmd;
 }
 
-SymbolAssignment *ScriptParser::readProvideOrAssignment(StringRef Tok) {
+SymbolAssignment *ScriptParser::readAssignment(StringRef Tok) {
+  // Assert expression returns Dot, so this is equal to ".=."
+  if (Tok == "ASSERT")
+    return make<SymbolAssignment>(".", readAssert(), getCurrentLocation());
+
+  size_t OldPos = Pos;
   SymbolAssignment *Cmd = nullptr;
-  if (peek() == "=" || peek() == "+=") {
-    Cmd = readAssignment(Tok);
-    expect(";");
-  } else if (Tok == "PROVIDE") {
+  if (peek() == "=" || peek() == "+=")
+    Cmd = readSymbolAssignment(Tok);
+  else if (Tok == "PROVIDE")
     Cmd = readProvideHidden(true, false);
-  } else if (Tok == "HIDDEN") {
+  else if (Tok == "HIDDEN")
     Cmd = readProvideHidden(false, true);
-  } else if (Tok == "PROVIDE_HIDDEN") {
+  else if (Tok == "PROVIDE_HIDDEN")
     Cmd = readProvideHidden(true, true);
+
+  if (Cmd) {
+    Cmd->CommandString =
+        Tok.str() + " " +
+        llvm::join(Tokens.begin() + OldPos, Tokens.begin() + Pos, " ");
+    expect(";");
   }
   return Cmd;
 }
 
-SymbolAssignment *ScriptParser::readAssignment(StringRef Name) {
-  size_t OldPos = Pos;
+SymbolAssignment *ScriptParser::readSymbolAssignment(StringRef Name) {
   StringRef Op = next();
   assert(Op == "=" || Op == "+=");
   Expr E = readExpr();
@@ -801,11 +806,7 @@ SymbolAssignment *ScriptParser::readAssignment(StringRef Name) {
     std::string Loc = getCurrentLocation();
     E = [=] { return add(Script->getSymbolValue(Name, Loc), E()); };
   }
-
-  std::string CommandString =
-      Name.str() + " " +
-      llvm::join(Tokens.begin() + OldPos, Tokens.begin() + Pos, " ");
-  return make<SymbolAssignment>(Name, E, getCurrentLocation(), CommandString);
+  return make<SymbolAssignment>(Name, E, getCurrentLocation());
 }
 
 // This is an operator-precedence parser to parse a linker
@@ -1046,7 +1047,7 @@ Expr ScriptParser::readPrimary() {
     };
   }
   if (Tok == "ASSERT")
-    return readAssertExpr();
+    return readAssert();
   if (Tok == "CONSTANT")
     return readConstant();
   if (Tok == "DATA_SEGMENT_ALIGN") {

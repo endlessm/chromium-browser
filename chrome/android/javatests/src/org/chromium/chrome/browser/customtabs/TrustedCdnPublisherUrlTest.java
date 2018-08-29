@@ -115,7 +115,7 @@ public class TrustedCdnPublisherUrlTest {
         ThreadUtils.runOnUiThreadBlocking(() -> FirstRunStatus.setFirstRunFlowComplete(true));
 
         PathUtils.setPrivateDataDirectorySuffix(PRIVATE_DATA_DIRECTORY_SUFFIX);
-        LibraryLoader.get(LibraryProcessType.PROCESS_BROWSER).ensureInitialized();
+        LibraryLoader.getInstance().ensureInitialized(LibraryProcessType.PROCESS_BROWSER);
         mWebServer = TestWebServer.start();
         if (mOverrideTrustedCdn.isEnabled()) {
             CommandLine.getInstance().appendSwitchWithValue(
@@ -295,7 +295,7 @@ public class TrustedCdnPublisherUrlTest {
                 () -> { Assert.assertNull(tab.getTrustedCdnPublisherUrl()); });
 
         String testUrl = mWebServer.getResponseUrl("/test.html");
-        String expectedUrl = UrlFormatter.formatUrlForDisplay(testUrl);
+        String expectedUrl = UrlFormatter.formatUrlForDisplayOmitScheme(testUrl);
 
         CriteriaHelper.pollUiThread(Criteria.equals(expectedUrl, () -> {
             UrlBar urlBar = newActivity.findViewById(R.id.url_bar);
@@ -355,10 +355,12 @@ public class TrustedCdnPublisherUrlTest {
         ThreadUtils.runOnUiThreadBlocking(
                 () -> { NetworkChangeNotifier.forceConnectivityState(false); });
 
-        // With no connectivity, loading the offline page should succeed,
-        // but not show a publisher URL.
-        runTrustedCdnPublisherUrlTest(
-                publisherUrl, "com.example.test", null, getDefaultSecurityIcon());
+        // Load the URL in the same tab. With no connectivity, loading the offline page should
+        // succeed, but not show a publisher URL.
+        String testUrl = mWebServer.getResponseUrl("/test.html");
+        mCustomTabActivityTestRule.loadUrl(testUrl);
+        verifyUrl(UrlFormatter.formatUrlForSecurityDisplay(testUrl, false));
+        verifySecurityIcon(R.drawable.offline_pin_round);
     }
 
     private void runTrustedCdnPublisherUrlTest(@Nullable String publisherUrl, String clientPackage,

@@ -8,7 +8,7 @@
  */
 
 Polymer({
-  is: 'arc-tos-md',
+  is: 'arc-tos-root',
 
   properties: {
     /**
@@ -33,6 +33,13 @@ Polymer({
    */
   getElement: function(id) {
     return this.$[id];
+  },
+
+  /**
+   * Returns focused element inside this element.
+   */
+  getActiveElement: function(id) {
+    return this.shadowRoot.activeElement;
   },
 
   /**

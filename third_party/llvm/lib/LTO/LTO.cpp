@@ -12,11 +12,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/LTO/LTO.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/CodeGen/Analysis.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/AutoUpgrade.h"
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/LegacyPassManager.h"
@@ -136,6 +138,7 @@ static void computeCacheKey(
   AddString(Conf.AAPipeline);
   AddString(Conf.OverrideTriple);
   AddString(Conf.DefaultTriple);
+  AddString(Conf.DwoDir);
 
   // Include the hash for the current module
   auto ModHash = Index.getModuleHash(ModuleID);
@@ -790,9 +793,26 @@ Error LTO::run(AddStreamFn AddStream, NativeObjectCache Cache) {
   };
   computeDeadSymbols(ThinLTO.CombinedIndex, GUIDPreservedSymbols, isPrevailing);
 
-  if (auto E = runRegularLTO(AddStream))
-    return E;
-  return runThinLTO(AddStream, Cache);
+  // Setup output file to emit statistics.
+  std::unique_ptr<ToolOutputFile> StatsFile = nullptr;
+  if (!Conf.StatsFile.empty()) {
+    EnableStatistics(false);
+    std::error_code EC;
+    StatsFile =
+        llvm::make_unique<ToolOutputFile>(Conf.StatsFile, EC, sys::fs::F_None);
+    if (EC)
+      return errorCodeToError(EC);
+    StatsFile->keep();
+  }
+
+  Error Result = runRegularLTO(AddStream);
+  if (!Result)
+    Result = runThinLTO(AddStream, Cache);
+
+  if (StatsFile)
+    PrintStatisticsJSON(StatsFile->os());
+
+  return Result;
 }
 
 Error LTO::runRegularLTO(AddStreamFn AddStream) {
@@ -1206,6 +1226,8 @@ Expected<std::unique_ptr<ToolOutputFile>>
 lto::setupOptimizationRemarks(LLVMContext &Context,
                               StringRef LTORemarksFilename,
                               bool LTOPassRemarksWithHotness, int Count) {
+  if (LTOPassRemarksWithHotness)
+    Context.setDiagnosticsHotnessRequested(true);
   if (LTORemarksFilename.empty())
     return nullptr;
 
@@ -1220,8 +1242,6 @@ lto::setupOptimizationRemarks(LLVMContext &Context,
     return errorCodeToError(EC);
   Context.setDiagnosticsOutputFile(
       llvm::make_unique<yaml::Output>(DiagnosticFile->os()));
-  if (LTOPassRemarksWithHotness)
-    Context.setDiagnosticsHotnessRequested(true);
   DiagnosticFile->keep();
   return std::move(DiagnosticFile);
 }

@@ -44,6 +44,7 @@ enum ThemeBackgroundImageTiling {
 // The RGBA color components for the text and links of the theme.
 struct RGBAColor {
   RGBAColor();
+  RGBAColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
   ~RGBAColor();
 
   bool operator==(const RGBAColor& rhs) const;
@@ -65,6 +66,9 @@ struct ThemeBackgroundInfo {
 
   // True if the default theme is selected.
   bool using_default_theme;
+
+  // Url of the custom background selected by the user.
+  GURL custom_background_url;
 
   // The theme background color in RGBA format always valid.
   RGBAColor background_color;

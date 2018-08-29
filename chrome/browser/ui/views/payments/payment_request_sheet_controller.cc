@@ -92,7 +92,10 @@ class SheetView : public views::View, public views::FocusTraversable {
       views::FocusTraversable* dummy_focus_traversable;
       views::View* dummy_focus_traversable_view;
       first_focusable = focus_search_->FindNextFocusableView(
-          nullptr, false, views::FocusSearch::DOWN, false,
+          nullptr, views::FocusSearch::SearchDirection::kForwards,
+          views::FocusSearch::TraversalDirection::kDown,
+          views::FocusSearch::StartingViewPolicy::kSkipStartingView,
+          views::FocusSearch::AnchoredDialogPolicy::kCanGoIntoAnchoredDialog,
           &dummy_focus_traversable, &dummy_focus_traversable_view);
     }
 
@@ -161,7 +164,7 @@ class BorderedScrollView : public views::ScrollView {
 
   BorderedScrollView() : views::ScrollView() {
     SetBackground(views::CreateThemedSolidBackground(
-        this, ui::NativeTheme::kColorId_WindowBackground));
+        this, ui::NativeTheme::kColorId_DialogBackground));
     SetBorder(views::CreateBorderPainter(
         std::make_unique<BorderedScrollViewBorderPainter>(
             GetNativeTheme()->GetSystemColor(
@@ -202,7 +205,7 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
   // before creating the sheet view. This way, it's possible to determine
   // whether there's something to do when the user hits enter.
   std::unique_ptr<views::View> footer = CreateFooterView();
-  std::unique_ptr<SheetView> view = std::make_unique<SheetView>(
+  auto view = std::make_unique<SheetView>(
       primary_button_
           ? base::Bind(
                 &PaymentRequestSheetController::PerformPrimaryButtonAction,
@@ -214,7 +217,7 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
     view->set_id(static_cast<int>(sheet_id));
 
   view->SetBackground(views::CreateThemedSolidBackground(
-      view.get(), ui::NativeTheme::kColorId_WindowBackground));
+      view.get(), ui::NativeTheme::kColorId_DialogBackground));
 
   // Paint the sheets to layers, otherwise the MD buttons (which do paint to a
   // layer) won't do proper clipping.
@@ -236,6 +239,12 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
   header_view_->set_owned_by_client();
   layout->AddView(header_view_.get());
 
+  layout->StartRow(0, 0);
+  header_content_separator_container_ = std::make_unique<views::View>();
+  header_content_separator_container_->set_owned_by_client();
+  layout->AddView(header_content_separator_container_.get());
+  UpdateHeaderContentSeparatorView();
+
   layout->StartRow(1, 0);
   // |content_view| will go into a views::ScrollView so it needs to be sized now
   // otherwise it'll be sized to the ScrollView's viewport height, preventing
@@ -254,12 +263,14 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
   content_view_->SetPaintToLayer();
   content_view_->layer()->SetFillsBoundsOpaquely(true);
   content_view_->SetBackground(views::CreateThemedSolidBackground(
-      content_view_, ui::NativeTheme::kColorId_WindowBackground));
+      content_view_, ui::NativeTheme::kColorId_DialogBackground));
   content_view_->set_id(static_cast<int>(DialogViewID::CONTENT_VIEW));
   pane_layout->AddView(content_view_);
   pane_->SizeToPreferredSize();
 
-  scroll_ = std::make_unique<BorderedScrollView>();
+  scroll_ = DisplayDynamicBorderForHiddenContents()
+                ? std::make_unique<BorderedScrollView>()
+                : std::make_unique<views::ScrollView>();
   scroll_->set_owned_by_client();
   scroll_->set_hide_horizontal_scrollbar(true);
   scroll_->SetContents(pane_);
@@ -273,7 +284,7 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
   UpdateContentView();
 
   view->SetFirstFocusableView(GetFirstFocusedView());
-  return std::move(view);
+  return view;
 }
 
 void PaymentRequestSheetController::UpdateContentView() {
@@ -289,6 +300,29 @@ void PaymentRequestSheetController::UpdateHeaderView() {
                           GetHeaderBackground());
   header_view_->Layout();
   header_view_->SchedulePaint();
+}
+
+void PaymentRequestSheetController::UpdateHeaderContentSeparatorView() {
+  header_content_separator_container_->RemoveAllChildViews(true);
+  views::View* separator = CreateHeaderContentSeparatorView();
+  if (separator) {
+    header_content_separator_container_->SetLayoutManager(
+        std::make_unique<views::FillLayout>());
+    header_content_separator_container_->AddChildView(separator);
+  }
+
+  // Relayout sheet view after updating header content separator.
+  DialogViewID sheet_id;
+  if (!GetSheetId(&sheet_id))
+    return;
+  SheetView* sheet_view = static_cast<SheetView*>(
+      dialog()->GetViewByID(static_cast<int>(sheet_id)));
+  // This will be null on first call since it's not been set until CreateView
+  // returns, and the first call to UpdateHeaderContentSeparatorView comes
+  // from CreateView.
+  if (sheet_view) {
+    sheet_view->Layout();
+  }
 }
 
 void PaymentRequestSheetController::UpdateFocus(views::View* focused_view) {
@@ -346,10 +380,14 @@ PaymentRequestSheetController::CreateHeaderContentView() {
   return title_label;
 }
 
+views::View* PaymentRequestSheetController::CreateHeaderContentSeparatorView() {
+  return nullptr;
+}
+
 std::unique_ptr<views::Background>
 PaymentRequestSheetController::GetHeaderBackground() {
   return views::CreateThemedSolidBackground(
-      header_view_.get(), ui::NativeTheme::kColorId_WindowBackground);
+      header_view_.get(), ui::NativeTheme::kColorId_DialogBackground);
 }
 
 void PaymentRequestSheetController::ButtonPressed(views::Button* sender,
@@ -439,6 +477,10 @@ views::View* PaymentRequestSheetController::GetFirstFocusedView() {
 
 bool PaymentRequestSheetController::GetSheetId(DialogViewID* sheet_id) {
   return false;
+}
+
+bool PaymentRequestSheetController::DisplayDynamicBorderForHiddenContents() {
+  return true;
 }
 
 bool PaymentRequestSheetController::PerformPrimaryButtonAction() {

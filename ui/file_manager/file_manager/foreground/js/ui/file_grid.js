@@ -117,7 +117,6 @@ FileGrid.GridSize = 180; // px
 /**
  * Sets list thumbnail loader.
  * @param {ListThumbnailLoader} listThumbnailLoader A list thumbnail loader.
- * @private
  */
 FileGrid.prototype.setListThumbnailLoader = function(listThumbnailLoader) {
   if (this.listThumbnailLoader_) {
@@ -812,9 +811,10 @@ FileGrid.Item.prototype.decorate = function() {
   // Override the default role 'listitem' to 'option' to match the parent's
   // role (listbox).
   this.setAttribute('role', 'option');
-  var nameId = this.id + 'entry-name';
+  var nameId = this.id + '-entry-name';
   this.querySelector('.entry-name').setAttribute('id', nameId);
   this.querySelector('.img-container').setAttribute('aria-labelledby', nameId);
+  this.setAttribute('aria-labelledby', nameId);
 };
 
 /**

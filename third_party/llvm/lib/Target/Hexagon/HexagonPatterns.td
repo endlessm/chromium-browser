@@ -616,27 +616,40 @@ def: Pat<(i1 (setle I32:$Rs, anyimm:$u5)),
 def: Pat<(i1 (setule I32:$Rs, anyimm:$u5)),
          (C2_not (C2_cmpgtui I32:$Rs, imm:$u5))>;
 
-def: Pat<(i1 (setne I32:$Rs, I32:$Rt)),
-         (C2_not (C2_cmpeq I32:$Rs, I32:$Rt))>;
-def: Pat<(i1 (setle I32:$Rs, I32:$Rt)),
-         (C2_not (C2_cmpgt I32:$Rs, I32:$Rt))>;
-def: Pat<(i1 (setule I32:$Rs, I32:$Rt)),
-         (C2_not (C2_cmpgtu I32:$Rs, I32:$Rt))>;
-def: Pat<(i1 (setge I32:$Rs, I32:$Rt)),
-         (C2_not (C2_cmpgt I32:$Rt, I32:$Rs))>;
-def: Pat<(i1 (setuge I32:$Rs, I32:$Rt)),
-         (C2_not (C2_cmpgtu I32:$Rt, I32:$Rs))>;
+class OpmR_RR_pat<PatFrag Output, PatFrag Op, ValueType ResType,
+                  PatFrag RsPred, PatFrag RtPred = RsPred>
+  : Pat<(ResType (Op RsPred:$Rs, RtPred:$Rt)),
+        (Output RsPred:$Rs, RtPred:$Rt)>;
 
-def: Pat<(i1 (setle I64:$Rs, I64:$Rt)),
-         (C2_not (C2_cmpgtp I64:$Rs, I64:$Rt))>;
-def: Pat<(i1 (setne I64:$Rs, I64:$Rt)),
-         (C2_not (C2_cmpeqp I64:$Rs, I64:$Rt))>;
-def: Pat<(i1 (setge I64:$Rs, I64:$Rt)),
-         (C2_not (C2_cmpgtp I64:$Rt, I64:$Rs))>;
-def: Pat<(i1 (setuge I64:$Rs, I64:$Rt)),
-         (C2_not (C2_cmpgtup I64:$Rt, I64:$Rs))>;
-def: Pat<(i1 (setule I64:$Rs, I64:$Rt)),
-         (C2_not (C2_cmpgtup I64:$Rs, I64:$Rt))>;
+class Outn<InstHexagon MI>
+  : OutPatFrag<(ops node:$Rs, node:$Rt),
+               (C2_not (MI $Rs, $Rt))>;
+
+def: OpmR_RR_pat<Outn<C2_cmpeq>,    setne,          i1,   I32>;
+def: OpmR_RR_pat<Outn<C2_cmpgt>,    setle,          i1,   I32>;
+def: OpmR_RR_pat<Outn<C2_cmpgtu>,   setule,         i1,   I32>;
+def: OpmR_RR_pat<Outn<C2_cmpgt>,    RevCmp<setge>,  i1,   I32>;
+def: OpmR_RR_pat<Outn<C2_cmpgtu>,   RevCmp<setuge>, i1,   I32>;
+def: OpmR_RR_pat<Outn<C2_cmpeqp>,   setne,          i1,   I64>;
+def: OpmR_RR_pat<Outn<C2_cmpgtp>,   setle,          i1,   I64>;
+def: OpmR_RR_pat<Outn<C2_cmpgtup>,  setule,         i1,   I64>;
+def: OpmR_RR_pat<Outn<C2_cmpgtp>,   RevCmp<setge>,  i1,   I64>;
+def: OpmR_RR_pat<Outn<C2_cmpgtup>,  RevCmp<setuge>, i1,   I64>;
+def: OpmR_RR_pat<Outn<A2_vcmpbeq>,  setne,          v8i1, V8I8>;
+def: OpmR_RR_pat<Outn<A4_vcmpbgt>,  setle,          v8i1, V8I8>;
+def: OpmR_RR_pat<Outn<A2_vcmpbgtu>, setule,         v8i1, V8I8>;
+def: OpmR_RR_pat<Outn<A4_vcmpbgt>,  RevCmp<setge>,  v8i1, V8I8>;
+def: OpmR_RR_pat<Outn<A2_vcmpbgtu>, RevCmp<setuge>, v8i1, V8I8>;
+def: OpmR_RR_pat<Outn<A2_vcmpheq>,  setne,          v4i1, V4I16>;
+def: OpmR_RR_pat<Outn<A2_vcmphgt>,  setle,          v4i1, V4I16>;
+def: OpmR_RR_pat<Outn<A2_vcmphgtu>, setule,         v4i1, V4I16>;
+def: OpmR_RR_pat<Outn<A2_vcmphgt>,  RevCmp<setge>,  v4i1, V4I16>;
+def: OpmR_RR_pat<Outn<A2_vcmphgtu>, RevCmp<setuge>, v4i1, V4I16>;
+def: OpmR_RR_pat<Outn<A2_vcmpweq>,  setne,          v2i1, V2I32>;
+def: OpmR_RR_pat<Outn<A2_vcmpwgt>,  setle,          v2i1, V2I32>;
+def: OpmR_RR_pat<Outn<A2_vcmpwgtu>, setule,         v2i1, V2I32>;
+def: OpmR_RR_pat<Outn<A2_vcmpwgt>,  RevCmp<setge>,  v2i1, V2I32>;
+def: OpmR_RR_pat<Outn<A2_vcmpwgtu>, RevCmp<setuge>, v2i1, V2I32>;
 
 let AddedComplexity = 100 in {
   def: Pat<(i1 (seteq (and (xor I32:$Rs, I32:$Rt), 255), 0)),
@@ -703,33 +716,11 @@ def: Pat<(i1 (setne I1:$Ps, (i1 -1))), (C2_not I1:$Ps)>;
 def: Pat<(i1 (seteq I1:$Ps, I1:$Pt)),  (C2_xor I1:$Ps, (C2_not I1:$Pt))>;
 def: Pat<(i1 (setne I1:$Ps, I1:$Pt)),  (C2_xor I1:$Ps, I1:$Pt)>;
 
-def: Pat<(v4i1 (seteq V4I8:$Rs, V4I8:$Rt)),
-         (A2_vcmpbeq (ToZext64 $Rs), (ToZext64 $Rt))>;
-def: Pat<(v4i1 (setgt V4I8:$Rs, V4I8:$Rt)),
-         (A4_vcmpbgt (ToZext64 $Rs), (ToZext64 $Rt))>;
-def: Pat<(v4i1 (setugt V4I8:$Rs, V4I8:$Rt)),
-         (A2_vcmpbgtu (ToZext64 $Rs), (ToZext64 $Rt))>;
-
-def: Pat<(v2i1 (seteq V2I16:$Rs, V2I16:$Rt)),
-         (A2_vcmpheq (ToZext64 $Rs), (ToZext64 $Rt))>;
-def: Pat<(v2i1 (setgt V2I16:$Rs, V2I16:$Rt)),
-         (A2_vcmphgt (ToZext64 $Rs), (ToZext64 $Rt))>;
-def: Pat<(v2i1 (setugt V2I16:$Rs, V2I16:$Rt)),
-         (A2_vcmphgtu (ToZext64 $Rs), (ToZext64 $Rt))>;
-
-def: Pat<(v2i1 (setne V2I32:$Rs, V2I32:$Rt)),
-         (C2_not (v2i1 (A2_vcmpbeq V2I32:$Rs, V2I32:$Rt)))>;
-
 // Floating-point comparisons with checks for ordered/unordered status.
 
 class T3<InstHexagon MI1, InstHexagon MI2, InstHexagon MI3>
   : OutPatFrag<(ops node:$Rs, node:$Rt),
                (MI1 (MI2 $Rs, $Rt), (MI3 $Rs, $Rt))>;
-
-class OpmR_RR_pat<PatFrag Output, PatFrag Op, ValueType ResType,
-                  PatFrag RsPred, PatFrag RtPred = RsPred>
-  : Pat<(ResType (Op RsPred:$Rs, RtPred:$Rt)),
-        (Output RsPred:$Rs, RtPred:$Rt)>;
 
 class Cmpuf<InstHexagon MI>:  T3<C2_or,  F2_sfcmpuo, MI>;
 class Cmpud<InstHexagon MI>:  T3<C2_or,  F2_dfcmpuo, MI>;
@@ -752,10 +743,6 @@ let Predicates = [HasV5T] in {
   def: OpmR_RR_pat<Cmpud<F2_dfcmpgt>,  RevCmp<setult>, i1, F64>;
   def: OpmR_RR_pat<Cmpudn<F2_dfcmpeq>, setune,         i1, F64>;
 }
-
-class Outn<InstHexagon MI>
-  : OutPatFrag<(ops node:$Rs, node:$Rt),
-               (C2_not (MI $Rs, $Rt))>;
 
 let Predicates = [HasV5T] in {
   def: OpmR_RR_pat<Outn<F2_sfcmpeq>, setone, i1, F32>;
@@ -1221,18 +1208,20 @@ def: OpR_RR_pat<A2_vsubub,    Sub,        v8i8,  V8I8>;
 def: OpR_RR_pat<A2_vsubh,     Sub,        v4i16, V4I16>;
 def: OpR_RR_pat<A2_vsubw,     Sub,        v2i32, V2I32>;
 
+def: OpR_RR_pat<A2_and,       And,        v4i8,  V4I8>;
+def: OpR_RR_pat<A2_xor,       Xor,        v4i8,  V4I8>;
+def: OpR_RR_pat<A2_or,        Or,         v4i8,  V4I8>;
 def: OpR_RR_pat<A2_and,       And,        v2i16, V2I16>;
 def: OpR_RR_pat<A2_xor,       Xor,        v2i16, V2I16>;
 def: OpR_RR_pat<A2_or,        Or,         v2i16, V2I16>;
-
 def: OpR_RR_pat<A2_andp,      And,        v8i8,  V8I8>;
-def: OpR_RR_pat<A2_andp,      And,        v4i16, V4I16>;
-def: OpR_RR_pat<A2_andp,      And,        v2i32, V2I32>;
 def: OpR_RR_pat<A2_orp,       Or,         v8i8,  V8I8>;
-def: OpR_RR_pat<A2_orp,       Or,         v4i16, V4I16>;
-def: OpR_RR_pat<A2_orp,       Or,         v2i32, V2I32>;
 def: OpR_RR_pat<A2_xorp,      Xor,        v8i8,  V8I8>;
+def: OpR_RR_pat<A2_andp,      And,        v4i16, V4I16>;
+def: OpR_RR_pat<A2_orp,       Or,         v4i16, V4I16>;
 def: OpR_RR_pat<A2_xorp,      Xor,        v4i16, V4I16>;
+def: OpR_RR_pat<A2_andp,      And,        v2i32, V2I32>;
+def: OpR_RR_pat<A2_orp,       Or,         v2i32, V2I32>;
 def: OpR_RR_pat<A2_xorp,      Xor,        v2i32, V2I32>;
 
 def: OpR_RR_pat<M2_mpyi,      Mul,        i32,   I32>;
@@ -2592,8 +2581,10 @@ multiclass Memopxr_add_pat<PatFrag Load, PatFrag Store, PatFrag ImmPred,
 
 multiclass Memopxr_pat<PatFrag Load, PatFrag Store, PatFrag ImmPred,
                        SDNode Oper, InstHexagon MI> {
-  defm: Memopxr_base_pat <Load, Store,          Oper, MI>;
-  defm: Memopxr_add_pat  <Load, Store, ImmPred, Oper, MI>;
+  let Predicates = [UseMEMOPS] in {
+    defm: Memopxr_base_pat <Load, Store,          Oper, MI>;
+    defm: Memopxr_add_pat  <Load, Store, ImmPred, Oper, MI>;
+  }
 }
 
 let AddedComplexity = 200 in {
@@ -2691,8 +2682,10 @@ multiclass Memopxi_add_pat<PatFrag Load, PatFrag Store, PatFrag ImmPred,
 multiclass Memopxi_pat<PatFrag Load, PatFrag Store, PatFrag ImmPred,
                        SDNode Oper, PatFrag Arg, SDNodeXForm ArgMod,
                        InstHexagon MI> {
-  defm: Memopxi_base_pat <Load, Store,          Oper, Arg, ArgMod, MI>;
-  defm: Memopxi_add_pat  <Load, Store, ImmPred, Oper, Arg, ArgMod, MI>;
+  let Predicates = [UseMEMOPS] in {
+    defm: Memopxi_base_pat <Load, Store,          Oper, Arg, ArgMod, MI>;
+    defm: Memopxi_add_pat  <Load, Store, ImmPred, Oper, Arg, ArgMod, MI>;
+  }
 }
 
 let AddedComplexity = 220 in {
@@ -2921,3 +2914,18 @@ def HexagonREADCYCLE: SDNode<"HexagonISD::READCYCLE", SDTInt64Leaf,
   [SDNPHasChain]>;
 
 def: Pat<(HexagonREADCYCLE), (A4_tfrcpp UPCYCLE)>;
+
+// The declared return value of the store-locked intrinsics is i32, but
+// the instructions actually define i1. To avoid register copies from
+// IntRegs to PredRegs and back, fold the entire pattern checking the
+// result against true/false.
+let AddedComplexity = 100 in {
+  def: Pat<(i1 (setne (int_hexagon_S2_storew_locked I32:$Rs, I32:$Rt), 0)),
+           (S2_storew_locked I32:$Rs, I32:$Rt)>;
+  def: Pat<(i1 (seteq (int_hexagon_S2_storew_locked I32:$Rs, I32:$Rt), 0)),
+           (C2_not (S2_storew_locked I32:$Rs, I32:$Rt))>;
+  def: Pat<(i1 (setne (int_hexagon_S4_stored_locked I32:$Rs, I64:$Rt), 0)),
+           (S4_stored_locked I32:$Rs, I64:$Rt)>;
+  def: Pat<(i1 (seteq (int_hexagon_S4_stored_locked I32:$Rs, I64:$Rt), 0)),
+           (C2_not (S4_stored_locked I32:$Rs, I64:$Rt))>;
+}

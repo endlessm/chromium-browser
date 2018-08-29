@@ -15,7 +15,6 @@ import java.util.List;
 import java.util.Iterator;
 
 /** Java wrapper for a C++ MediaStreamInterface. */
-@JNINamespace("webrtc::jni")
 public class MediaStream {
   private static final String TAG = "MediaStream";
 
@@ -86,12 +85,6 @@ public class MediaStream {
       removeTrack(preservedVideoTracks.get(0 /* index */));
     }
     JniCommon.nativeReleaseRef(nativeStream);
-  }
-
-  // TODO(shampson): Remove this when downstreams have moved to using id() instead.
-  @Deprecated
-  public String label() {
-    return nativeGetId(nativeStream);
   }
 
   public String getId() {

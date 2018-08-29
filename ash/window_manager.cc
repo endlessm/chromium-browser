@@ -16,15 +16,9 @@
 #include "ash/drag_drop/drag_image_view.h"
 #include "ash/event_matcher_util.h"
 #include "ash/host/ash_window_tree_host.h"
-#include "ash/public/cpp/config.h"
-#include "ash/public/cpp/shelf_types.h"
-#include "ash/public/cpp/window_pin_type.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/public/cpp/window_state_type.h"
 #include "ash/public/interfaces/window_actions.mojom.h"
-#include "ash/public/interfaces/window_pin_type.mojom.h"
-#include "ash/public/interfaces/window_properties.mojom.h"
-#include "ash/public/interfaces/window_state_type.mojom.h"
 #include "ash/root_window_controller.h"
 #include "ash/root_window_settings.h"
 #include "ash/session/session_controller.h"
@@ -59,11 +53,11 @@
 #include "ui/aura/window.h"
 #include "ui/base/class_property.h"
 #include "ui/base/hit_test.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/display/display_observer.h"
 #include "ui/events/mojo/event.mojom.h"
 #include "ui/views/mus/pointer_watcher_event_router.h"
 #include "ui/wm/core/capture_controller.h"
-#include "ui/wm/core/shadow_types.h"
 #include "ui/wm/core/window_animations.h"
 #include "ui/wm/core/wm_state.h"
 #include "ui/wm/public/activation_client.h"
@@ -81,53 +75,13 @@ struct WindowManager::DragState {
 
 // TODO: need to register OSExchangeDataProviderMus. http://crbug.com/665077.
 WindowManager::WindowManager(service_manager::Connector* connector,
-                             Config config,
                              bool show_primary_host_on_connect)
     : connector_(connector),
-      config_(config),
       show_primary_host_on_connect_(show_primary_host_on_connect),
       wm_state_(std::make_unique<::wm::WMState>()),
       property_converter_(std::make_unique<aura::PropertyConverter>()) {
-  property_converter_->RegisterPrimitiveProperty(
-      kCanConsumeSystemKeysKey, ash::mojom::kCanConsumeSystemKeys_Property,
-      aura::PropertyConverter::CreateAcceptAnyValueCallback());
-  property_converter_->RegisterPrimitiveProperty(
-      aura::client::kDrawAttentionKey,
-      ui::mojom::WindowManager::kDrawAttention_Property,
-      aura::PropertyConverter::CreateAcceptAnyValueCallback());
-  property_converter_->RegisterPrimitiveProperty(
-      kPanelAttachedKey, ui::mojom::WindowManager::kPanelAttached_Property,
-      aura::PropertyConverter::CreateAcceptAnyValueCallback());
-  property_converter_->RegisterPrimitiveProperty(
-      kRenderTitleAreaProperty,
-      ui::mojom::WindowManager::kRenderParentTitleArea_Property,
-      aura::PropertyConverter::CreateAcceptAnyValueCallback());
-  property_converter_->RegisterPrimitiveProperty(
-      kShelfItemTypeKey, ui::mojom::WindowManager::kShelfItemType_Property,
-      base::Bind(&IsValidShelfItemType));
-  property_converter_->RegisterPrimitiveProperty(
-      ::wm::kShadowElevationKey,
-      ui::mojom::WindowManager::kShadowElevation_Property,
-      aura::PropertyConverter::CreateAcceptAnyValueCallback());
-  property_converter_->RegisterPrimitiveProperty(
-      kWindowStateTypeKey, mojom::kWindowStateType_Property,
-      base::Bind(&ash::IsValidWindowStateType));
-  property_converter_->RegisterPrimitiveProperty(
-      kWindowPinTypeKey, ash::mojom::kWindowPinType_Property,
-      base::Bind(&ash::IsValidWindowPinType));
-  property_converter_->RegisterPrimitiveProperty(
-      kWindowPositionManagedTypeKey,
-      ash::mojom::kWindowPositionManaged_Property,
-      aura::PropertyConverter::CreateAcceptAnyValueCallback());
-  property_converter_->RegisterStringProperty(
-      kShelfIDKey, ui::mojom::WindowManager::kShelfID_Property);
-  property_converter_->RegisterPrimitiveProperty(
-      kRestoreBoundsOverrideKey, ash::mojom::kRestoreBoundsOverride_Property,
-      aura::PropertyConverter::CreateAcceptAnyValueCallback());
-  property_converter_->RegisterPrimitiveProperty(
-      kRestoreWindowStateTypeOverrideKey,
-      ash::mojom::kRestoreWindowStateTypeOverride_Property,
-      base::BindRepeating(&ash::IsValidWindowStateType));
+  DCHECK(features::IsMashEnabled());
+  RegisterWindowProperties(property_converter_.get());
 }
 
 WindowManager::~WindowManager() {
@@ -138,21 +92,14 @@ WindowManager::~WindowManager() {
 
 void WindowManager::Init(
     std::unique_ptr<aura::WindowTreeClient> window_tree_client,
-    std::unique_ptr<ShellDelegate> shell_delegate) {
-  // Only create InputDeviceClient in MASH mode. For MUS mode WindowManager is
-  // created by chrome, which creates InputDeviceClient.
-  if (config_ == Config::MASH) {
-    input_device_client_ = std::make_unique<ui::InputDeviceClient>();
+    std::unique_ptr<base::Value> initial_display_prefs) {
+  input_device_client_ = std::make_unique<ui::InputDeviceClient>();
 
-    // |connector_| can be nullptr in tests.
-    if (connector_) {
-      ui::mojom::InputDeviceServerPtr server;
-      connector_->BindInterface(ui::mojom::kServiceName, &server);
-      input_device_client_->Connect(std::move(server));
-    }
-  } else {
-    // In Config::MUS ash handles all drag and drop.
-    window_tree_client->DisableDragDropClient();
+  // |connector_| can be nullptr in tests.
+  if (connector_) {
+    ui::mojom::InputDeviceServerPtr server;
+    connector_->BindInterface(ui::mojom::kServiceName, &server);
+    input_device_client_->Connect(std::move(server));
   }
 
   DCHECK(window_manager_client_);
@@ -174,18 +121,9 @@ void WindowManager::Init(
   window_tree_client_->capture_synchronizer()->AttachToCaptureClient(
       capture_client);
 
-  if (shell_delegate)
-    shell_delegate_ = std::move(shell_delegate);
+  initial_display_prefs_ = std::move(initial_display_prefs);
 
   InitCursorOnKeyList();
-}
-
-void WindowManager::SetLostConnectionCallback(base::OnceClosure closure) {
-  lost_connection_callback_ = std::move(closure);
-}
-
-bool WindowManager::WaitForInitialDisplays() {
-  return window_manager_client_->WaitForInitialDisplays();
 }
 
 bool WindowManager::GetNextAcceleratorNamespaceId(uint16_t* id) {
@@ -216,51 +154,46 @@ void WindowManager::CreateShell() {
   DCHECK(!created_shell_);
   created_shell_ = true;
   ShellInitParams init_params;
-  if (config_ == Config::MUS) {
-    init_params.shell_port = std::make_unique<ShellPortMus>(this);
-  } else {
-    init_params.shell_port = std::make_unique<ShellPortMash>(
-        this, pointer_watcher_event_router_.get());
-  }
+  init_params.shell_port = std::make_unique<ShellPortMash>(
+      this, pointer_watcher_event_router_.get());
   init_params.delegate = shell_delegate_
                              ? std::move(shell_delegate_)
                              : std::make_unique<ShellDelegateMus>(connector_);
+  init_params.initial_display_prefs = std::move(initial_display_prefs_);
   Shell::CreateInstance(std::move(init_params));
 }
 
 void WindowManager::InitCursorOnKeyList() {
   DCHECK(window_manager_client_);
-  if (config_ == Config::MASH) {
-    // In Mash, we build a list of keys and send them to the window
-    // server. This controls which keys *don't* hide the cursors.
+  // In Mash, we build a list of keys and send them to the window
+  // server. This controls which keys *don't* hide the cursors.
 
-    // TODO(erg): This needs to also check the case of the accessibility
-    // keyboard being shown, since clicking a key on the keyboard shouldn't
-    // hide the cursor.
-    std::vector<ui::mojom::EventMatcherPtr> cursor_key_list;
-    cursor_key_list.push_back(BuildKeyReleaseMatcher());
-    cursor_key_list.push_back(BuildAltMatcher());
-    cursor_key_list.push_back(BuildControlMatcher());
+  // TODO(erg): This needs to also check the case of the accessibility
+  // keyboard being shown, since clicking a key on the keyboard shouldn't
+  // hide the cursor.
+  std::vector<ui::mojom::EventMatcherPtr> cursor_key_list;
+  cursor_key_list.push_back(BuildKeyReleaseMatcher());
+  cursor_key_list.push_back(BuildAltMatcher());
+  cursor_key_list.push_back(BuildControlMatcher());
 
-    BuildKeyMatcherRange(ui::mojom::KeyboardCode::F1,
-                         ui::mojom::KeyboardCode::F24, &cursor_key_list);
-    BuildKeyMatcherRange(ui::mojom::KeyboardCode::BROWSER_BACK,
-                         ui::mojom::KeyboardCode::MEDIA_LAUNCH_APP2,
-                         &cursor_key_list);
-    BuildKeyMatcherList(
-        {ui::mojom::KeyboardCode::SHIFT, ui::mojom::KeyboardCode::CONTROL,
-         ui::mojom::KeyboardCode::MENU,
-         ui::mojom::KeyboardCode::LWIN,  // Search key == VKEY_LWIN.
-         ui::mojom::KeyboardCode::WLAN, ui::mojom::KeyboardCode::POWER,
-         ui::mojom::KeyboardCode::BRIGHTNESS_DOWN,
-         ui::mojom::KeyboardCode::BRIGHTNESS_UP,
-         ui::mojom::KeyboardCode::KBD_BRIGHTNESS_DOWN,
-         ui::mojom::KeyboardCode::KBD_BRIGHTNESS_UP},
-        &cursor_key_list);
+  BuildKeyMatcherRange(ui::mojom::KeyboardCode::F1,
+                       ui::mojom::KeyboardCode::F24, &cursor_key_list);
+  BuildKeyMatcherRange(ui::mojom::KeyboardCode::BROWSER_BACK,
+                       ui::mojom::KeyboardCode::MEDIA_LAUNCH_APP2,
+                       &cursor_key_list);
+  BuildKeyMatcherList(
+      {ui::mojom::KeyboardCode::SHIFT, ui::mojom::KeyboardCode::CONTROL,
+       ui::mojom::KeyboardCode::MENU,
+       ui::mojom::KeyboardCode::LWIN,  // Search key == VKEY_LWIN.
+       ui::mojom::KeyboardCode::WLAN, ui::mojom::KeyboardCode::POWER,
+       ui::mojom::KeyboardCode::BRIGHTNESS_DOWN,
+       ui::mojom::KeyboardCode::BRIGHTNESS_UP,
+       ui::mojom::KeyboardCode::KBD_BRIGHTNESS_DOWN,
+       ui::mojom::KeyboardCode::KBD_BRIGHTNESS_UP},
+      &cursor_key_list);
 
-    window_manager_client_->SetKeyEventsThatDontHideCursor(
-        std::move(cursor_key_list));
-  }
+  window_manager_client_->SetKeyEventsThatDontHideCursor(
+      std::move(cursor_key_list));
 }
 
 void WindowManager::InstallFrameDecorationValues() {
@@ -307,17 +240,15 @@ void WindowManager::OnEmbedRootDestroyed(
 
 void WindowManager::OnLostConnection(aura::WindowTreeClient* client) {
   DCHECK_EQ(client, window_tree_client_.get());
-  if (!lost_connection_callback_.is_null()) {
-    base::ResetAndReturn(&lost_connection_callback_).Run();
-    return;
-  }
   Shutdown();
   // TODO(sky): this case should trigger shutting down WindowManagerService too.
 }
 
 void WindowManager::OnPointerEventObserved(const ui::PointerEvent& event,
+                                           int64_t display_id,
                                            aura::Window* target) {
-  pointer_watcher_event_router_->OnPointerEventObserved(event, target);
+  pointer_watcher_event_router_->OnPointerEventObserved(event, display_id,
+                                                        target);
 }
 
 aura::PropertyConverter* WindowManager::GetPropertyConverter() {
@@ -338,13 +269,8 @@ void WindowManager::OnWmConnected() {
   if (show_primary_host_on_connect_)
     Shell::GetPrimaryRootWindow()->GetHost()->Show();
 
-  // We only create controller in the ash process for mash.
-  if (Shell::GetAshConfig() == Config::MASH) {
-    // TODO(penghuang): wire up notification surface manager.
-    // https://crbug.com/768439
-    // TODO(hirono): wire up the file helper. http://crbug.com/768395
-    Shell::Get()->InitWaylandServer(nullptr, nullptr);
-  }
+  // TODO(hirono): wire up the file helper. http://crbug.com/768395
+  Shell::Get()->InitWaylandServer(nullptr);
 }
 
 void WindowManager::OnWmAcceleratedWidgetAvailableForDisplay(
@@ -407,7 +333,8 @@ aura::Window* WindowManager::OnWmCreateTopLevelWindow(
     return nullptr;
   }
 
-  return CreateAndParentTopLevelWindow(this, window_type, properties);
+  return CreateAndParentTopLevelWindow(this, window_type,
+                                       property_converter_.get(), properties);
 }
 
 void WindowManager::OnWmClientJankinessChanged(
@@ -513,7 +440,7 @@ void WindowManager::OnWmCancelMoveLoop(aura::Window* window) {
 ui::mojom::EventResult WindowManager::OnAccelerator(
     uint32_t id,
     const ui::Event& event,
-    std::unordered_map<std::string, std::vector<uint8_t>>* properties) {
+    base::flat_map<std::string, std::vector<uint8_t>>* properties) {
   auto iter = accelerator_handlers_.find(GetAcceleratorNamespaceId(id));
   if (iter == accelerator_handlers_.end())
     return ui::mojom::EventResult::HANDLED;
@@ -522,9 +449,7 @@ ui::mojom::EventResult WindowManager::OnAccelerator(
 }
 
 void WindowManager::OnCursorTouchVisibleChanged(bool enabled) {
-  // Not applicable to Config::MUS.
-  if (config_ == Config::MASH)
-    ShellPortMash::Get()->OnCursorTouchVisibleChanged(enabled);
+  ShellPortMash::Get()->OnCursorTouchVisibleChanged(enabled);
 }
 
 void WindowManager::OnWmSetClientArea(

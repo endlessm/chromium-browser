@@ -65,6 +65,7 @@
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
+#include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
@@ -91,7 +92,6 @@
 #include "llvm/IR/Type.h"
 #include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
-#include "llvm/IR/ValueTypes.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCInstrDesc.h"
 #include "llvm/MC/MCRegisterInfo.h"
@@ -112,6 +112,11 @@
 using namespace llvm;
 
 #define DEBUG_TYPE "isel"
+
+// FIXME: Remove this after the feature has proven reliable.
+static cl::opt<bool> SinkLocalValues("fast-isel-sink-local-values",
+                                     cl::init(true), cl::Hidden,
+                                     cl::desc("Sink local values in FastISel"));
 
 STATISTIC(NumFastIselSuccessIndependent, "Number of insts selected by "
                                          "target-independent selector");
@@ -180,7 +185,7 @@ void FastISel::flushLocalValueMap() {
   // Try to sink local values down to their first use so that we can give them a
   // better debug location. This has the side effect of shrinking local value
   // live ranges, which helps out fast regalloc.
-  if (LastLocalValue != EmitStartPt) {
+  if (SinkLocalValues && LastLocalValue != EmitStartPt) {
     // Sink local value materialization instructions between EmitStartPt and
     // LastLocalValue. Visit them bottom-up, starting from LastLocalValue, to
     // avoid inserting into the range that we're iterating over.
@@ -208,6 +213,7 @@ void FastISel::flushLocalValueMap() {
   LastLocalValue = EmitStartPt;
   recomputeInsertPt();
   SavedInsertPt = FuncInfo.InsertPt;
+  LastFlushPoint = FuncInfo.InsertPt;
 }
 
 static bool isRegUsedByPhiNodes(unsigned DefReg,
@@ -221,7 +227,8 @@ static bool isRegUsedByPhiNodes(unsigned DefReg,
 /// Build a map of instruction orders. Return the first terminator and its
 /// order. Consider EH_LABEL instructions to be terminators as well, since local
 /// values for phis after invokes must be materialized before the call.
-void FastISel::InstOrderMap::initialize(MachineBasicBlock *MBB) {
+void FastISel::InstOrderMap::initialize(
+    MachineBasicBlock *MBB, MachineBasicBlock::iterator LastFlushPoint) {
   unsigned Order = 0;
   for (MachineInstr &I : *MBB) {
     if (!FirstTerminator &&
@@ -230,6 +237,10 @@ void FastISel::InstOrderMap::initialize(MachineBasicBlock *MBB) {
       FirstTerminatorOrder = Order;
     }
     Orders[&I] = Order++;
+
+    // We don't need to order instructions past the last flush point.
+    if (I.getIterator() == LastFlushPoint)
+      break;
   }
 }
 
@@ -250,7 +261,8 @@ void FastISel::sinkLocalValueMaterialization(MachineInstr &LocalMI,
   if (!UsedByPHI && MRI.use_nodbg_empty(DefReg)) {
     if (EmitStartPt == &LocalMI)
       EmitStartPt = EmitStartPt->getPrevNode();
-    DEBUG(dbgs() << "removing dead local value materialization " << LocalMI);
+    LLVM_DEBUG(dbgs() << "removing dead local value materialization "
+                      << LocalMI);
     OrderMap.Orders.erase(&LocalMI);
     LocalMI.eraseFromParent();
     return;
@@ -259,13 +271,16 @@ void FastISel::sinkLocalValueMaterialization(MachineInstr &LocalMI,
   // Number the instructions if we haven't yet so we can efficiently find the
   // earliest use.
   if (OrderMap.Orders.empty())
-    OrderMap.initialize(FuncInfo.MBB);
+    OrderMap.initialize(FuncInfo.MBB, LastFlushPoint);
 
   // Find the first user in the BB.
   MachineInstr *FirstUser = nullptr;
   unsigned FirstOrder = std::numeric_limits<unsigned>::max();
   for (MachineInstr &UseInst : MRI.use_nodbg_instructions(DefReg)) {
-    unsigned UseOrder = OrderMap.Orders[&UseInst];
+    auto I = OrderMap.Orders.find(&UseInst);
+    assert(I != OrderMap.Orders.end() &&
+           "local value used by instruction outside local region");
+    unsigned UseOrder = I->second;
     if (UseOrder < FirstOrder) {
       FirstOrder = UseOrder;
       FirstUser = &UseInst;
@@ -298,7 +313,7 @@ void FastISel::sinkLocalValueMaterialization(MachineInstr &LocalMI,
   }
 
   // Sink LocalMI before SinkPos and assign it the same DebugLoc.
-  DEBUG(dbgs() << "sinking local value to first use " << LocalMI);
+  LLVM_DEBUG(dbgs() << "sinking local value to first use " << LocalMI);
   FuncInfo.MBB->remove(&LocalMI);
   FuncInfo.MBB->insert(SinkPos, &LocalMI);
   if (SinkPos != FuncInfo.MBB->end())
@@ -834,7 +849,7 @@ bool FastISel::selectStackmap(const CallInst *I) {
   return true;
 }
 
-/// \brief Lower an argument list according to the target calling convention.
+/// Lower an argument list according to the target calling convention.
 ///
 /// This is a helper for lowering intrinsics that follow a target calling
 /// convention or require stack pointer adjustment. Only a subset of the
@@ -1032,6 +1047,26 @@ bool FastISel::selectXRayCustomEvent(const CallInst *I) {
   return true;
 }
 
+bool FastISel::selectXRayTypedEvent(const CallInst *I) {
+  const auto &Triple = TM.getTargetTriple();
+  if (Triple.getArch() != Triple::x86_64 || !Triple.isOSLinux())
+    return true; // don't do anything to this instruction.
+  SmallVector<MachineOperand, 8> Ops;
+  Ops.push_back(MachineOperand::CreateReg(getRegForValue(I->getArgOperand(0)),
+                                          /*IsDef=*/false));
+  Ops.push_back(MachineOperand::CreateReg(getRegForValue(I->getArgOperand(1)),
+                                          /*IsDef=*/false));
+  Ops.push_back(MachineOperand::CreateReg(getRegForValue(I->getArgOperand(2)),
+                                          /*IsDef=*/false));
+  MachineInstrBuilder MIB =
+      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
+              TII.get(TargetOpcode::PATCHABLE_TYPED_EVENT_CALL));
+  for (auto &MO : Ops)
+    MIB.add(MO);
+
+  // Insert the Patchable Typed Event Call instruction, that gets lowered properly.
+  return true;
+}
 
 /// Returns an AttributeList representing the attributes applied to the return
 /// value of the given call.
@@ -1295,13 +1330,13 @@ bool FastISel::selectIntrinsicCall(const IntrinsicInst *II) {
     const DbgDeclareInst *DI = cast<DbgDeclareInst>(II);
     assert(DI->getVariable() && "Missing variable");
     if (!FuncInfo.MF->getMMI().hasDebugInfo()) {
-      DEBUG(dbgs() << "Dropping debug info for " << *DI << "\n");
+      LLVM_DEBUG(dbgs() << "Dropping debug info for " << *DI << "\n");
       return true;
     }
 
     const Value *Address = DI->getAddress();
     if (!Address || isa<UndefValue>(Address)) {
-      DEBUG(dbgs() << "Dropping debug info for " << *DI << "\n");
+      LLVM_DEBUG(dbgs() << "Dropping debug info for " << *DI << "\n");
       return true;
     }
 
@@ -1353,7 +1388,7 @@ bool FastISel::selectIntrinsicCall(const IntrinsicInst *II) {
     } else {
       // We can't yet handle anything else here because it would require
       // generating code, thus altering codegen because of debug info.
-      DEBUG(dbgs() << "Dropping debug info for " << *DI << "\n");
+      LLVM_DEBUG(dbgs() << "Dropping debug info for " << *DI << "\n");
     }
     return true;
   }
@@ -1396,7 +1431,7 @@ bool FastISel::selectIntrinsicCall(const IntrinsicInst *II) {
     } else {
       // We can't yet handle anything else here because it would require
       // generating code, thus altering codegen because of debug info.
-      DEBUG(dbgs() << "Dropping debug info for " << *DI << "\n");
+      LLVM_DEBUG(dbgs() << "Dropping debug info for " << *DI << "\n");
     }
     return true;
   }
@@ -1410,7 +1445,7 @@ bool FastISel::selectIntrinsicCall(const IntrinsicInst *II) {
     updateValueMap(II, ResultReg);
     return true;
   }
-  case Intrinsic::invariant_group_barrier:
+  case Intrinsic::launder_invariant_group:
   case Intrinsic::expect: {
     unsigned ResultReg = getRegForValue(II->getArgOperand(0));
     if (!ResultReg)
@@ -1426,6 +1461,8 @@ bool FastISel::selectIntrinsicCall(const IntrinsicInst *II) {
 
   case Intrinsic::xray_customevent:
     return selectXRayCustomEvent(II);
+  case Intrinsic::xray_typedevent:
+    return selectXRayTypedEvent(II);
   }
 
   return fastLowerIntrinsicCall(II);

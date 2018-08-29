@@ -238,10 +238,9 @@ define i32 @compute_min_pessimization(i32 %x, i32 %y) {
 ; CHECK-LABEL: @compute_min_pessimization(
 ; CHECK-NEXT:    [[NOT_VALUE:%.*]] = sub i32 3, [[X:%.*]]
 ; CHECK-NEXT:    call void @fake_use(i32 [[NOT_VALUE]])
-; CHECK-NEXT:    [[NOT_Y:%.*]] = xor i32 [[Y:%.*]], -1
-; CHECK-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[NOT_VALUE]], [[NOT_Y]]
-; CHECK-NEXT:    [[NOT_MIN:%.*]] = select i1 [[CMP]], i32 [[NOT_VALUE]], i32 [[NOT_Y]]
-; CHECK-NEXT:    [[MIN:%.*]] = xor i32 [[NOT_MIN]], -1
+; CHECK-NEXT:    [[TMP1:%.*]] = add i32 [[X]], -4
+; CHECK-NEXT:    [[TMP2:%.*]] = icmp sgt i32 [[TMP1]], [[Y:%.*]]
+; CHECK-NEXT:    [[MIN:%.*]] = select i1 [[TMP2]], i32 [[Y]], i32 [[TMP1]]
 ; CHECK-NEXT:    ret i32 [[MIN]]
 ;
   %not_value = sub i32 3, %x
@@ -278,9 +277,9 @@ define i32 @abs_of_min_of_not(i32 %x, i32 %y) {
 ; CHECK-NEXT:    [[YADD:%.*]] = add i32 [[Y:%.*]], 2
 ; CHECK-NEXT:    [[COND_I:%.*]] = icmp slt i32 [[YADD]], [[XORD]]
 ; CHECK-NEXT:    [[MIN:%.*]] = select i1 [[COND_I]], i32 [[YADD]], i32 [[XORD]]
-; CHECK-NEXT:    [[CMP2:%.*]] = icmp sgt i32 [[MIN]], -1
+; CHECK-NEXT:    [[CMP2:%.*]] = icmp slt i32 [[MIN]], 0
 ; CHECK-NEXT:    [[SUB:%.*]] = sub i32 0, [[MIN]]
-; CHECK-NEXT:    [[ABS:%.*]] = select i1 [[CMP2]], i32 [[MIN]], i32 [[SUB]]
+; CHECK-NEXT:    [[ABS:%.*]] = select i1 [[CMP2]], i32 [[SUB]], i32 [[MIN]]
 ; CHECK-NEXT:    ret i32 [[ABS]]
 ;
 

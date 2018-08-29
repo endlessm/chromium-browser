@@ -41,7 +41,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
-#include "llvm/Config/llvm-config.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Format.h"
@@ -1016,7 +1015,7 @@ MacroArgs *Preprocessor::ReadMacroCallArgumentList(Token &MacroName,
   return MacroArgs::create(MI, ArgTokens, isVarargsElided, *this);
 }
 
-/// \brief Keeps macro expanded tokens for TokenLexers.
+/// Keeps macro expanded tokens for TokenLexers.
 //
 /// Works like a stack; a TokenLexer adds the macro expanded tokens that is
 /// going to lex in the cache and when it finishes the tokens are removed
@@ -1105,7 +1104,8 @@ static bool HasFeature(const Preprocessor &PP, StringRef Feature) {
             LangOpts.Sanitize.hasOneOf(SanitizerKind::Address |
                                        SanitizerKind::KernelAddress))
       .Case("hwaddress_sanitizer",
-            LangOpts.Sanitize.hasOneOf(SanitizerKind::HWAddress))
+            LangOpts.Sanitize.hasOneOf(SanitizerKind::HWAddress |
+                                       SanitizerKind::KernelHWAddress))
       .Case("assume_nonnull", true)
       .Case("attribute_analyzer_noreturn", true)
       .Case("attribute_availability", true)
@@ -1275,6 +1275,8 @@ static bool HasFeature(const Preprocessor &PP, StringRef Feature) {
       .Case("is_union", LangOpts.CPlusPlus)
       .Case("modules", LangOpts.Modules)
       .Case("safe_stack", LangOpts.Sanitize.has(SanitizerKind::SafeStack))
+      .Case("shadow_call_stack",
+            LangOpts.Sanitize.has(SanitizerKind::ShadowCallStack))
       .Case("tls", PP.getTargetInfo().isTLSSupported())
       .Case("underlying_type", LangOpts.CPlusPlus)
       .Default(false);
@@ -1483,7 +1485,7 @@ static bool EvaluateHasIncludeNext(Token &Tok,
   return EvaluateHasIncludeCommon(Tok, II, PP, Lookup, LookupFromFile);
 }
 
-/// \brief Process single-argument builtin feature-like macros that return
+/// Process single-argument builtin feature-like macros that return
 /// integer values.
 static void EvaluateFeatureLikeBuiltinMacro(llvm::raw_svector_ostream& OS,
                                             Token &Tok, IdentifierInfo *II,
@@ -1586,7 +1588,7 @@ already_lexed:
   }
 }
 
-/// \brief Helper function to return the IdentifierInfo structure of a Token
+/// Helper function to return the IdentifierInfo structure of a Token
 /// or generate a diagnostic if none available.
 static IdentifierInfo *ExpectFeatureIdentifierInfo(Token &Tok,
                                                    Preprocessor &PP,
@@ -1687,7 +1689,7 @@ void Preprocessor::ExpandBuiltinMacro(Token &Tok) {
     // can matter for a function-like macro that expands to contain __LINE__.
     // Skip down through expansion points until we find a file loc for the
     // end of the expansion history.
-    Loc = SourceMgr.getExpansionRange(Loc).second;
+    Loc = SourceMgr.getExpansionRange(Loc).getEnd();
     PresumedLoc PLoc = SourceMgr.getPresumedLoc(Loc);
 
     // __LINE__ expands to a simple numeric value.

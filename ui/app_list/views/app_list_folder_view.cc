@@ -8,10 +8,10 @@
 
 #include "ash/app_list/model/app_list_folder_item.h"
 #include "ash/app_list/model/app_list_model.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/app_list_features.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/accessibility/ax_node_data.h"
-#include "ui/app_list/app_list_constants.h"
-#include "ui/app_list/app_list_features.h"
 #include "ui/app_list/app_list_metrics.h"
 #include "ui/app_list/app_list_util.h"
 #include "ui/app_list/pagination_model.h"
@@ -590,7 +590,7 @@ void AppListFolderView::UpdatePreferredBounds() {
     // This view should be on top of on-screen keyboard to prevent the folder
     // title from being blocked.
     gfx::Point keyboard_top_right =
-        keyboard_controller->current_keyboard_bounds().top_right();
+        keyboard_controller->GetWorkspaceOccludedBounds().top_right();
     ConvertPointFromScreen(parent(), &keyboard_top_right);
     int y_offset = keyboard_top_right.y() - kOnscreenKeyboardTopPadding -
                    preferred_bounds_.bottom();

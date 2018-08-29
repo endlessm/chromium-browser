@@ -9,6 +9,7 @@
 
 #include "base/logging.h"
 #include "base/sys_info.h"
+#include "base/task_scheduler/post_task.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "components/viz/common/gpu/context_provider.h"
 #include "content/public/browser/android/compositor.h"
@@ -138,8 +139,9 @@ GLuint ConsumeTexture(gpu::gles2::GLES2Interface* gl,
 
 namespace vr {
 
-MailboxToSurfaceBridge::MailboxToSurfaceBridge(base::OnceClosure on_initialized)
-    : on_initialized_(std::move(on_initialized)), weak_ptr_factory_(this) {
+MailboxToSurfaceBridge::MailboxToSurfaceBridge()
+    : constructor_thread_task_runner_(base::ThreadTaskRunnerHandle::Get()),
+      weak_ptr_factory_(this) {
   DVLOG(1) << __FUNCTION__;
 }
 
@@ -163,15 +165,31 @@ bool MailboxToSurfaceBridge::IsGpuWorkaroundEnabled(int32_t workaround) {
   return context_provider_->GetGpuFeatureInfo().IsWorkaroundEnabled(workaround);
 }
 
-void MailboxToSurfaceBridge::OnContextAvailable(
-    std::unique_ptr<gl::ScopedJavaSurface> surface,
+void MailboxToSurfaceBridge::OnContextAvailableOnUiThread(
     scoped_refptr<viz::ContextProvider> provider) {
   DVLOG(1) << __FUNCTION__;
-
   // Must save a reference to the viz::ContextProvider to keep it alive,
-  // otherwise the GL context created from it becomes invalid.
+  // otherwise the GL context created from it becomes invalid on its
+  // destruction.
   context_provider_ = std::move(provider);
 
+  if (on_context_provider_ready_) {
+    // We have a custom callback from CreateUnboundContextProvider. Run that.
+    // The client is responsible for running BindContextProviderToCurrentThread
+    // before use.
+    constructor_thread_task_runner_->PostTask(
+        FROM_HERE, base::ResetAndReturn(&on_context_provider_ready_));
+  } else {
+    DCHECK(on_context_bound_);
+    constructor_thread_task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(
+            &MailboxToSurfaceBridge::BindContextProviderToCurrentThread,
+            base::Unretained(this)));
+  }
+}
+
+void MailboxToSurfaceBridge::BindContextProviderToCurrentThread() {
   auto result = context_provider_->BindToCurrentThread();
   if (result != gpu::ContextResult::kSuccess) {
     DLOG(ERROR) << "Failed to init viz::ContextProvider";
@@ -192,8 +210,8 @@ void MailboxToSurfaceBridge::OnContextAvailable(
   InitializeRenderer();
 
   DVLOG(1) << __FUNCTION__ << ": Context ready";
-  if (on_initialized_) {
-    base::ResetAndReturn(&on_initialized_).Run();
+  if (on_context_bound_) {
+    base::ResetAndReturn(&on_context_bound_).Run();
   }
 }
 
@@ -203,30 +221,36 @@ void MailboxToSurfaceBridge::CreateSurface(
   gpu::GpuSurfaceTracker* tracker = gpu::GpuSurfaceTracker::Get();
   ANativeWindow_acquire(window);
   // Skip ANativeWindow_setBuffersGeometry, the default size appears to work.
-  auto surface = std::make_unique<gl::ScopedJavaSurface>(surface_texture);
+  surface_ = std::make_unique<gl::ScopedJavaSurface>(surface_texture);
   surface_handle_ =
       tracker->AddSurfaceForNativeWidget(gpu::GpuSurfaceTracker::SurfaceRecord(
-          window, surface->j_surface().obj()));
+          window, surface_->j_surface().obj()));
   // Unregistering happens in the destructor.
   ANativeWindow_release(window);
+}
 
+void MailboxToSurfaceBridge::CreateUnboundContextProvider(
+    base::OnceClosure callback) {
+  on_context_provider_ready_ = std::move(callback);
+  DCHECK(!on_context_bound_);
+  CreateContextProviderInternal();
+}
+
+void MailboxToSurfaceBridge::CreateAndBindContextProvider(
+    base::OnceClosure on_bound_callback) {
+  on_context_bound_ = std::move(on_bound_callback);
+  DCHECK(!on_context_provider_ready_);
+  CreateContextProviderInternal();
+}
+
+void MailboxToSurfaceBridge::CreateContextProviderInternal() {
   // The callback to run in this thread. It is necessary to keep |surface| alive
   // until the context becomes available. So pass it on to the callback, so that
   // it stays alive, and is destroyed on the same thread once done.
-  auto callback = base::BindRepeating(
-      &MailboxToSurfaceBridge::OnContextAvailable,
-      weak_ptr_factory_.GetWeakPtr(), base::Passed(&surface));
-  // The callback that runs in the UI thread, and triggers |callback| to be run
-  // in this thread.
-  auto relay_callback = base::BindRepeating(
-      [](scoped_refptr<base::SequencedTaskRunner> runner,
-         const content::Compositor::ContextProviderCallback& callback,
-         scoped_refptr<viz::ContextProvider> provider) {
-        runner->PostTask(FROM_HERE,
-                         base::BindRepeating(callback, std::move(provider)));
+  auto callback =
+      base::BindRepeating(&MailboxToSurfaceBridge::OnContextAvailableOnUiThread,
+                          weak_ptr_factory_.GetWeakPtr());
 
-      },
-      base::SequencedTaskRunnerHandle::Get(), std::move(callback));
   content::BrowserThread::PostTask(
       content::BrowserThread::UI, FROM_HERE,
       base::BindOnce(
@@ -259,7 +283,7 @@ void MailboxToSurfaceBridge::CreateSurface(
                 surface_handle, attributes,
                 gpu::SharedMemoryLimits::ForMailboxContext(), callback);
           },
-          surface_handle_, relay_callback));
+          surface_handle_, callback));
 }
 
 void MailboxToSurfaceBridge::ResizeSurface(int width, int height) {
@@ -294,7 +318,7 @@ bool MailboxToSurfaceBridge::CopyMailboxToSurfaceAndSwap(
   GLuint sourceTexture = ConsumeTexture(gl_, mailbox);
   DrawQuad(sourceTexture);
   gl_->DeleteTextures(1, &sourceTexture);
-  gl_->SwapBuffers();
+  gl_->SwapBuffers(swap_id_++);
   return true;
 }
 
@@ -362,17 +386,13 @@ void MailboxToSurfaceBridge::DestroyMailboxTexture(const gpu::Mailbox& mailbox,
 }
 
 uint32_t MailboxToSurfaceBridge::BindSharedBufferImage(
-    const gfx::GpuMemoryBufferHandle& handle,
+    gfx::GpuMemoryBuffer* buffer,
     const gfx::Size& size,
     gfx::BufferFormat format,
     gfx::BufferUsage usage,
     uint32_t texture_id) {
   TRACE_EVENT0("gpu", __FUNCTION__);
   DCHECK(IsConnected());
-
-  auto buffer = gpu::GpuMemoryBufferImplAndroidHardwareBuffer::CreateFromHandle(
-      handle, size, format, usage,
-      gpu::GpuMemoryBufferImpl::DestructionCallback());
 
   auto img = gl_->CreateImageCHROMIUM(buffer->AsClientBuffer(), size.width(),
                                       size.height(), GL_RGBA);

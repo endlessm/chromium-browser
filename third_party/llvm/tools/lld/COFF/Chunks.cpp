@@ -31,8 +31,7 @@ namespace coff {
 
 SectionChunk::SectionChunk(ObjFile *F, const coff_section *H)
     : Chunk(SectionKind), Repl(this), Header(H), File(F),
-      Relocs(File->getCOFFObj()->getRelocations(Header)),
-      NumRelocs(std::distance(Relocs.begin(), Relocs.end())) {
+      Relocs(File->getCOFFObj()->getRelocations(Header)) {
   // Initialize SectionName.
   File->getCOFFObj()->getSectionName(Header, SectionName);
 
@@ -163,7 +162,7 @@ void SectionChunk::applyRelARM(uint8_t *Off, uint16_t Type, OutputSection *OS,
                                uint64_t S, uint64_t P) const {
   // Pointer to thumb code must have the LSB set.
   uint64_t SX = S;
-  if (OS && (OS->getPermissions() & IMAGE_SCN_MEM_EXECUTE))
+  if (OS && (OS->Header.Characteristics & IMAGE_SCN_MEM_EXECUTE))
     SX |= 1;
   switch (Type) {
   case IMAGE_REL_ARM_ADDR32:    add32(Off, SX + Config->ImageBase); break;
@@ -182,11 +181,11 @@ void SectionChunk::applyRelARM(uint8_t *Off, uint16_t Type, OutputSection *OS,
 // Interpret the existing immediate value as a byte offset to the
 // target symbol, then update the instruction with the immediate as
 // the page offset from the current instruction to the target.
-static void applyArm64Addr(uint8_t *Off, uint64_t S, uint64_t P) {
+static void applyArm64Addr(uint8_t *Off, uint64_t S, uint64_t P, int Shift) {
   uint32_t Orig = read32le(Off);
   uint64_t Imm = ((Orig >> 29) & 0x3) | ((Orig >> 3) & 0x1FFFFC);
   S += Imm;
-  Imm = (S >> 12) - (P >> 12);
+  Imm = (S >> Shift) - (P >> Shift);
   uint32_t ImmLo = (Imm & 0x3) << 29;
   uint32_t ImmHi = (Imm & 0x1FFFFC) << 3;
   uint64_t Mask = (0x3 << 29) | (0x1FFFFC << 3);
@@ -248,13 +247,34 @@ static void applySecRelLdr(const SectionChunk *Sec, uint8_t *Off,
     applyArm64Ldr(Off, (S - OS->getRVA()) & 0xfff);
 }
 
+static void applyArm64Branch26(uint8_t *Off, int64_t V) {
+  if (!isInt<28>(V))
+    fatal("relocation out of range");
+  or32(Off, (V & 0x0FFFFFFC) >> 2);
+}
+
+static void applyArm64Branch19(uint8_t *Off, int64_t V) {
+  if (!isInt<21>(V))
+    fatal("relocation out of range");
+  or32(Off, (V & 0x001FFFFC) << 3);
+}
+
+static void applyArm64Branch14(uint8_t *Off, int64_t V) {
+  if (!isInt<16>(V))
+    fatal("relocation out of range");
+  or32(Off, (V & 0x0000FFFC) << 3);
+}
+
 void SectionChunk::applyRelARM64(uint8_t *Off, uint16_t Type, OutputSection *OS,
                                  uint64_t S, uint64_t P) const {
   switch (Type) {
-  case IMAGE_REL_ARM64_PAGEBASE_REL21: applyArm64Addr(Off, S, P); break;
+  case IMAGE_REL_ARM64_PAGEBASE_REL21: applyArm64Addr(Off, S, P, 12); break;
+  case IMAGE_REL_ARM64_REL21:          applyArm64Addr(Off, S, P, 0); break;
   case IMAGE_REL_ARM64_PAGEOFFSET_12A: applyArm64Imm(Off, S & 0xfff, 0); break;
   case IMAGE_REL_ARM64_PAGEOFFSET_12L: applyArm64Ldr(Off, S & 0xfff); break;
-  case IMAGE_REL_ARM64_BRANCH26:       or32(Off, ((S - P) & 0x0FFFFFFC) >> 2); break;
+  case IMAGE_REL_ARM64_BRANCH26:       applyArm64Branch26(Off, S - P); break;
+  case IMAGE_REL_ARM64_BRANCH19:       applyArm64Branch19(Off, S - P); break;
+  case IMAGE_REL_ARM64_BRANCH14:       applyArm64Branch14(Off, S - P); break;
   case IMAGE_REL_ARM64_ADDR32:         add32(Off, S + Config->ImageBase); break;
   case IMAGE_REL_ARM64_ADDR32NB:       add32(Off, S); break;
   case IMAGE_REL_ARM64_ADDR64:         add64(Off, S + Config->ImageBase); break;
@@ -262,6 +282,7 @@ void SectionChunk::applyRelARM64(uint8_t *Off, uint16_t Type, OutputSection *OS,
   case IMAGE_REL_ARM64_SECREL_LOW12A:  applySecRelLow12A(this, Off, OS, S); break;
   case IMAGE_REL_ARM64_SECREL_HIGH12A: applySecRelHigh12A(this, Off, OS, S); break;
   case IMAGE_REL_ARM64_SECREL_LOW12L:  applySecRelLdr(this, Off, OS, S); break;
+  case IMAGE_REL_ARM64_SECTION:        applySecIdx(Off, OS); break;
   default:
     fatal("unsupported relocation type 0x" + Twine::utohexstr(Type));
   }
@@ -272,7 +293,8 @@ void SectionChunk::writeTo(uint8_t *Buf) const {
     return;
   // Copy section contents from source object file to output file.
   ArrayRef<uint8_t> A = getContents();
-  memcpy(Buf + OutputSectionOff, A.data(), A.size());
+  if (!A.empty())
+    memcpy(Buf + OutputSectionOff, A.data(), A.size());
 
   // Apply relocations.
   size_t InputSize = getSize();
@@ -388,8 +410,8 @@ bool SectionChunk::hasData() const {
   return !(Header->Characteristics & IMAGE_SCN_CNT_UNINITIALIZED_DATA);
 }
 
-uint32_t SectionChunk::getPermissions() const {
-  return Header->Characteristics & PermMask;
+uint32_t SectionChunk::getOutputCharacteristics() const {
+  return Header->Characteristics & (PermMask | TypeMask);
 }
 
 bool SectionChunk::isCOMDAT() const {
@@ -416,6 +438,7 @@ ArrayRef<uint8_t> SectionChunk::getContents() const {
 }
 
 void SectionChunk::replace(SectionChunk *Other) {
+  Alignment = std::max(Alignment, Other->Alignment);
   Other->Repl = Repl;
   Other->Live = false;
 }
@@ -426,7 +449,7 @@ CommonChunk::CommonChunk(const COFFSymbolRef S) : Sym(S) {
   Alignment = std::min(uint64_t(32), PowerOf2Ceil(Sym.getValue()));
 }
 
-uint32_t CommonChunk::getPermissions() const {
+uint32_t CommonChunk::getOutputCharacteristics() const {
   return IMAGE_SCN_CNT_UNINITIALIZED_DATA | IMAGE_SCN_MEM_READ |
          IMAGE_SCN_MEM_WRITE;
 }
@@ -471,7 +494,7 @@ void ImportThunkChunkARM::writeTo(uint8_t *Buf) const {
 void ImportThunkChunkARM64::writeTo(uint8_t *Buf) const {
   int64_t Off = ImpSymbol->getRVA() & 0xfff;
   memcpy(Buf + OutputSectionOff, ImportThunkARM64, sizeof(ImportThunkARM64));
-  applyArm64Addr(Buf + OutputSectionOff, ImpSymbol->getRVA(), RVA);
+  applyArm64Addr(Buf + OutputSectionOff, ImpSymbol->getRVA(), RVA, 12);
   applyArm64Ldr(Buf + OutputSectionOff + 4, Off);
 }
 
@@ -601,7 +624,7 @@ void MergeChunk::finalizeContents() {
   }
 }
 
-uint32_t MergeChunk::getPermissions() const {
+uint32_t MergeChunk::getOutputCharacteristics() const {
   return IMAGE_SCN_MEM_READ | IMAGE_SCN_CNT_INITIALIZED_DATA;
 }
 

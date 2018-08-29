@@ -14,12 +14,13 @@
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
+#include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
 #include "chrome/browser/chromeos/genius_app/app_id.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/app_list/app_list_model_updater.h"
-#include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_item.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_model_builder.h"
@@ -27,9 +28,9 @@
 #include "chrome/browser/ui/app_list/chrome_app_list_item.h"
 #include "chrome/browser/ui/app_list/chrome_app_list_model_updater.h"
 #include "chrome/browser/ui/app_list/crostini/crostini_app_model_builder.h"
-#include "chrome/browser/ui/app_list/crostini/crostini_util.h"
 #include "chrome/browser/ui/app_list/extension_app_item.h"
 #include "chrome/browser/ui/app_list/extension_app_model_builder.h"
+#include "chrome/browser/ui/app_list/internal_app/internal_app_model_builder.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
@@ -185,13 +186,6 @@ void UpdateSyncItemInLocalStorage(
                       : std::string()));
   dict_item->SetKey(kTypeKey,
                     base::Value(static_cast<int>(sync_item->item_type)));
-}
-
-bool IsDefaultSyncItem(const AppListSyncableService::SyncItem* sync_item) {
-  DCHECK(sync_item->item_ordinal.IsValid());
-  return sync_item->parent_id.empty() &&
-         sync_item->item_ordinal.Equals(
-             syncer::StringOrdinal::CreateInitialOrdinal());
 }
 
 AppListSyncableService::ModelUpdaterFactoryCallback*
@@ -393,23 +387,24 @@ void AppListSyncableService::BuildModel() {
   // TODO(calamity): make this a DCHECK after a dev channel release.
   CHECK(IsExtensionServiceReady());
   AppListControllerDelegate* controller = NULL;
-  AppListService* service = AppListService::Get();
-  if (service)
-    controller = service->GetControllerDelegate();
+  AppListClientImpl* client = AppListClientImpl::GetInstance();
+  if (client)
+    controller = client->GetControllerDelegate();
   apps_builder_.reset(new ExtensionAppModelBuilder(controller));
   if (arc::IsArcAllowedForProfile(profile_))
     arc_apps_builder_.reset(new ArcAppModelBuilder(controller));
-  if (IsExperimentalCrostiniUIAvailable())
+  if (IsCrostiniUIAllowedForProfile(profile_))
     crostini_apps_builder_.reset(new CrostiniAppModelBuilder(controller));
+  internal_apps_builder_.reset(new InternalAppModelBuilder(controller));
 
   DCHECK(profile_);
   SyncStarted();
   apps_builder_->Initialize(this, profile_, model_updater_.get());
   if (arc_apps_builder_.get())
     arc_apps_builder_->Initialize(this, profile_, model_updater_.get());
-
   if (crostini_apps_builder_.get())
     crostini_apps_builder_->Initialize(this, profile_, model_updater_.get());
+  internal_apps_builder_->Initialize(this, profile_, model_updater_.get());
 
   HandleUpdateFinished();
 }
@@ -452,7 +447,6 @@ void AppListSyncableService::SetOemFolderName(const std::string& name) {
 }
 
 AppListModelUpdater* AppListSyncableService::GetModelUpdater() {
-  DCHECK(IsInitialized());
   return model_updater_.get();
 }
 
@@ -845,8 +839,6 @@ syncer::SyncMergeResult AppListSyncableService::MergeDataAndStartSyncing(
                                      GetSyncDataFromSyncItem(sync_item)));
   }
 
-  MaybeImportLegacyPlayStorePosition(&change_list);
-
   sync_processor_->ProcessSyncChanges(FROM_HERE, change_list);
 
   HandleUpdateFinished();
@@ -906,6 +898,13 @@ syncer::SyncError AppListSyncableService::ProcessSyncChanges(
   HandleUpdateFinished();
 
   return syncer::SyncError();
+}
+
+void AppListSyncableService::Shutdown() {
+  internal_apps_builder_.reset();
+  crostini_apps_builder_.reset();
+  arc_apps_builder_.reset();
+  apps_builder_.reset();
 }
 
 // AppListSyncableService private
@@ -1120,31 +1119,6 @@ std::string AppListSyncableService::SyncItem::ToString() const {
     res += " [" + item_pin_ordinal.ToDebugString() + "]";
   }
   return res;
-}
-
-void AppListSyncableService::MaybeImportLegacyPlayStorePosition(
-    syncer::SyncChangeList* change_list) {
-  SyncItem* play_store_sync_item = FindSyncItem(arc::kPlayStoreAppId);
-  if (!play_store_sync_item || !IsDefaultSyncItem(play_store_sync_item))
-    return;
-
-  const SyncItem* legacy_play_store_sync_item =
-      FindSyncItem(arc::kLegacyPlayStoreAppId);
-  if (!legacy_play_store_sync_item ||
-      IsDefaultSyncItem(legacy_play_store_sync_item)) {
-    return;
-  }
-
-  play_store_sync_item->parent_id = legacy_play_store_sync_item->parent_id;
-  play_store_sync_item->item_ordinal =
-      legacy_play_store_sync_item->item_ordinal;
-  DCHECK(!IsDefaultSyncItem(play_store_sync_item));
-  ProcessExistingSyncItem(play_store_sync_item);
-  UpdateSyncItemInLocalStorage(profile_, play_store_sync_item);
-  change_list->push_back(
-      SyncChange(FROM_HERE, SyncChange::ACTION_UPDATE,
-                 GetSyncDataFromSyncItem(play_store_sync_item)));
-  DVLOG(2) << "Play Store app list item was updated from the legacy entry";
 }
 
 void AppListSyncableService::RemoveDriveAppItems() {

@@ -40,15 +40,53 @@ Non-comprehensive list of changes in this release
    functionality, or simply have a lot to talk about), see the `NOTE` below
    for adding a new subsection.
 
+* Libraries have been renamed from 7.0 to 7. This change also impacts
+  downstream libraries like lldb.
+
 * The LoopInstSimplify pass (-loop-instsimplify) has been removed.
 
 * Symbols starting with ``?`` are no longer mangled by LLVM when using the
   Windows ``x`` or ``w`` IR mangling schemes.
 
+* A new tool named :doc:`llvm-exegesis <CommandGuide/llvm-exegesis>` has been
+  added. :program:`llvm-exegesis` automatically measures instruction scheduling
+  properties (latency/uops) and provides a principled way to edit scheduling
+  models.
+
 * A new tool named :doc:`llvm-mca <CommandGuide/llvm-mca>` has been added.
   :program:`llvm-mca` is a  static performance analysis tool that uses
   information available in LLVM to statically predict the performance of
   machine code for a specific CPU.
+
+* The optimization flag to merge constants (-fmerge-all-constants) is no longer
+  applied by default.
+
+* Optimization of floating-point casts is improved. This may cause surprising
+  results for code that is relying on the undefined behavior of overflowing 
+  casts. The optimization can be disabled by specifying a function attribute:
+  "strict-float-cast-overflow"="false". This attribute may be created by the
+  clang option :option:`-fno-strict-float-cast-overflow`.
+  Code sanitizers can be used to detect affected patterns. The option for
+  detecting this problem alone is "-fsanitize=float-cast-overflow":
+
+.. code-block:: c
+
+    int main() {
+      float x = 4294967296.0f;
+      x = (float)((int)x);
+      printf("junk in the ftrunc: %f\n", x);
+      return 0;
+    }
+
+.. code-block:: bash
+
+    clang -O1 ftrunc.c -fsanitize=float-cast-overflow ; ./a.out 
+    ftrunc.c:5:15: runtime error: 4.29497e+09 is outside the range of representable values of type 'int'
+    junk in the ftrunc: 0.000000
+
+* ``LLVM_ON_WIN32`` is no longer set by ``llvm/Config/config.h`` and
+  ``llvm/Config/llvm-config.h``.  If you used this macro, use the compiler-set
+  ``_WIN32`` instead which is set exactly when ``LLVM_ON_WIN32`` used to be set.
 
 * Note..
 
@@ -68,6 +106,10 @@ Changes to the LLVM IR
 * The signatures for the builtins @llvm.memcpy, @llvm.memmove, and @llvm.memset
   have changed. Alignment is no longer an argument, and are instead conveyed as
   parameter attributes.
+
+* invariant.group.barrier has been renamed to launder.invariant.group.
+
+* invariant.group metadata can now refer only empty metadata nodes.
 
 Changes to the ARM Backend
 --------------------------

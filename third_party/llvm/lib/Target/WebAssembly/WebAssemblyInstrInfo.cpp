@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 ///
 /// \file
-/// \brief This file contains the WebAssembly implementation of the
+/// This file contains the WebAssembly implementation of the
 /// TargetInstrInfo class.
 ///
 //===----------------------------------------------------------------------===//
@@ -151,7 +151,7 @@ unsigned WebAssemblyInstrInfo::removeBranch(MachineBasicBlock &MBB,
 
   while (I != MBB.instr_begin()) {
     --I;
-    if (I->isDebugValue())
+    if (I->isDebugInstr())
       continue;
     if (!I->isTerminator())
       break;

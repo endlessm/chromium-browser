@@ -299,7 +299,7 @@ public class AnchoredPopupWindow implements OnTouchListener, RectProvider.Observ
      * @param focusable True if the popup is focusable, false otherwise.
      */
     public void setFocusable(boolean focusable) {
-        mPopupWindow.setFocusable(true);
+        mPopupWindow.setFocusable(focusable);
     }
 
     /**
@@ -372,7 +372,7 @@ public class AnchoredPopupWindow implements OnTouchListener, RectProvider.Observ
         int paddingY = mCachedPaddingRect.top + mCachedPaddingRect.bottom;
 
         int maxContentWidth =
-                getMaxContentWidth(mMaxWidthPx, mRootView.getWidth(), mMarginPx, paddingY);
+                getMaxContentWidth(mMaxWidthPx, mRootView.getWidth(), mMarginPx, paddingX);
 
         // Determine whether or not the popup should be above or below the anchor.
         // Aggressively try to put it below the anchor.  Put it above only if it would fit better.

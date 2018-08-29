@@ -17,7 +17,7 @@
 #include "ash/session/teleport_warning_dialog.h"
 #include "ash/shell.h"
 #include "ash/system/power/power_event_observer.h"
-#include "ash/system/tray/system_tray.h"
+#include "ash/system/screen_security/screen_switch_check_controller.h"
 #include "ash/wm/lock_state_controller.h"
 #include "ash/wm/overview/window_selector_controller.h"
 #include "ash/wm/window_state.h"
@@ -27,9 +27,9 @@
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "chromeos/chromeos_switches.h"
+#include "components/account_id/account_id.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user_type.h"
 #include "services/preferences/public/cpp/pref_service_factory.h"
 #include "services/preferences/public/mojom/preferences.mojom.h"
@@ -332,6 +332,11 @@ void SessionController::SetUserSessionOrder(
   if (user_sessions_[0]->session_id != active_session_id_) {
     active_session_id_ = user_sessions_[0]->session_id;
 
+    if (!last_active_account_id.is_valid()) {
+      for (auto& observer : observers_)
+        observer.OnFirstSessionStarted();
+    }
+
     session_activation_observer_holder_.NotifyActiveSessionChanged(
         last_active_account_id, user_sessions_[0]->user_info->account_id);
 
@@ -417,8 +422,9 @@ void SessionController::CanSwitchActiveUser(
   if (controller->IsSelecting())
     controller->ToggleOverview();
 
-  ash::Shell::Get()->GetPrimarySystemTray()->CanSwitchAwayFromActiveUser(
-      std::move(callback));
+  ash::Shell::Get()
+      ->screen_switch_check_controller()
+      ->CanSwitchAwayFromActiveUser(std::move(callback));
 }
 
 void SessionController::ShowMultiprofilesIntroDialog(

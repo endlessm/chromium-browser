@@ -37,9 +37,7 @@ class ProfileManager;
 class StatusTray;
 class SystemNetworkContextManager;
 class WatchDogThread;
-#if BUILDFLAG(ENABLE_WEBRTC)
 class WebRtcLogUploader;
-#endif
 
 namespace content {
 class NetworkConnectionTracker;
@@ -92,10 +90,6 @@ class NetworkTimeTracker;
 
 namespace optimization_guide {
 class OptimizationGuideService;
-}
-
-namespace physical_web {
-class PhysicalWebDataSource;
 }
 
 namespace policy {
@@ -275,9 +269,7 @@ class BrowserProcess {
 
   virtual MediaFileSystemRegistry* media_file_system_registry() = 0;
 
-#if BUILDFLAG(ENABLE_WEBRTC)
   virtual WebRtcLogUploader* webrtc_log_uploader() = 0;
-#endif
 
   virtual network_time::NetworkTimeTracker* network_time_tracker() = 0;
 
@@ -291,9 +283,6 @@ class BrowserProcess {
   // process startup and now.
   virtual shell_integration::DefaultWebClientState
   CachedDefaultWebClientState() = 0;
-
-  // Returns the Physical Web data source.
-  virtual physical_web::PhysicalWebDataSource* GetPhysicalWebDataSource() = 0;
 
   virtual prefs::InProcessPrefServiceFactory* pref_service_factory() const = 0;
 

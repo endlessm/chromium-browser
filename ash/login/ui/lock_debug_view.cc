@@ -21,7 +21,6 @@
 #include "ash/shell.h"
 #include "base/optional.h"
 #include "base/strings/utf_string_conversions.h"
-#include "mojo/common/values_struct_traits.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/views/controls/button/md_text_button.h"
 #include "ui/views/layout/box_layout.h"
@@ -50,6 +49,7 @@ struct UserMetadata {
   AccountId account_id;
   bool enable_pin = false;
   bool enable_click_to_unlock = false;
+  bool enable_auth = true;
   mojom::EasyUnlockIconId easy_unlock_id = mojom::EasyUnlockIconId::NONE;
 
   views::View* view = nullptr;
@@ -200,6 +200,24 @@ class LockDebugView::DebugDataDispatcherTransformer
         debug_user->account_id, debug_user->enable_click_to_unlock);
   }
 
+  // Force online sign-in for the user at |user_index|.
+  void ForceOnlineSignInForUserIndex(size_t user_index) {
+    DCHECK(user_index >= 0 && user_index < debug_users_.size());
+    debug_dispatcher_.SetForceOnlineSignInForUser(
+        debug_users_[user_index].account_id);
+  }
+
+  // Toggle the unlock allowed state for the user at |user_index|.
+  void ToggleAuthEnabledForUserIndex(size_t user_index) {
+    DCHECK(user_index >= 0 && user_index < debug_users_.size());
+    UserMetadata& user = debug_users_[user_index];
+    user.enable_auth = !user.enable_auth;
+    debug_dispatcher_.SetAuthEnabledForUser(
+        user.account_id, user.enable_auth,
+        base::Time::Now() + base::TimeDelta::FromHours(user_index) +
+            base::TimeDelta::FromHours(8));
+  }
+
   void ToggleLockScreenNoteButton() {
     if (lock_screen_note_state_ == mojom::TrayActionState::kAvailable) {
       lock_screen_note_state_ = mojom::TrayActionState::kNotAvailable;
@@ -262,6 +280,14 @@ class LockDebugView::DebugDataDispatcherTransformer
   void OnDetachableBasePairingStatusChanged(
       DetachableBasePairingStatus pairing_status) override {
     debug_dispatcher_.SetDetachableBasePairingStatus(pairing_status);
+  }
+
+  void OnPublicSessionKeyboardLayoutsChanged(
+      const AccountId& account_id,
+      const std::string& locale,
+      const std::vector<mojom::InputMethodItemPtr>& keyboard_layouts) override {
+    debug_dispatcher_.SetPublicSessionKeyboardLayouts(account_id, locale,
+                                                      keyboard_layouts);
   }
 
  private:
@@ -609,12 +635,28 @@ void LockDebugView::ButtonPressed(views::Button* sender,
     if (per_user_action_column_cycle_easy_unlock_state_[i] == sender)
       debug_data_dispatcher_->CycleEasyUnlockForUserIndex(i);
   }
+
+  // Force online sign-in.
+  for (size_t i = 0u; i < per_user_action_column_force_online_sign_in_.size();
+       ++i) {
+    if (per_user_action_column_force_online_sign_in_[i] == sender)
+      debug_data_dispatcher_->ForceOnlineSignInForUserIndex(i);
+  }
+
+  // Enable or disable auth.
+  for (size_t i = 0u; i < per_user_action_column_toggle_auth_enabled_.size();
+       ++i) {
+    if (per_user_action_column_toggle_auth_enabled_[i] == sender)
+      debug_data_dispatcher_->ToggleAuthEnabledForUserIndex(i);
+  }
 }
 
 void LockDebugView::RebuildDebugUserColumn() {
   per_user_action_column_->RemoveAllChildViews(true /*delete_children*/);
   per_user_action_column_toggle_pin_.clear();
   per_user_action_column_cycle_easy_unlock_state_.clear();
+  per_user_action_column_force_online_sign_in_.clear();
+  per_user_action_column_toggle_auth_enabled_.clear();
   per_user_action_column_use_detachable_base_.clear();
 
   for (size_t i = 0u; i < num_users_; ++i) {
@@ -632,6 +674,17 @@ void LockDebugView::RebuildDebugUserColumn() {
     per_user_action_column_cycle_easy_unlock_state_.push_back(
         toggle_click_auth);
     row->AddChildView(toggle_click_auth);
+
+    views::View* force_online_sign_in =
+        AddButton("Force online sign-in", false /*add_to_debug_row*/);
+    per_user_action_column_force_online_sign_in_.push_back(
+        force_online_sign_in);
+    row->AddChildView(force_online_sign_in);
+
+    views::View* toggle_auth_enabled =
+        AddButton("Toggle auth enabled", false /*add_to_debug_row*/);
+    per_user_action_column_toggle_auth_enabled_.push_back(toggle_auth_enabled);
+    row->AddChildView(toggle_auth_enabled);
 
     if (debug_detachable_base_model_->debugging_pairing_state() &&
         debug_detachable_base_model_->GetPairingStatus() ==

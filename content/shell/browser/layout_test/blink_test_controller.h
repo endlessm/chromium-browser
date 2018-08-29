@@ -27,8 +27,8 @@
 #include "content/public/browser/render_process_host_observer.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/web_preferences.h"
+#include "content/shell/browser/layout_test/leak_detector.h"
 #include "content/shell/common/layout_test.mojom.h"
-#include "content/shell/common/leak_detection_result.h"
 #include "ui/gfx/geometry/size.h"
 
 #if defined(OS_ANDROID)
@@ -140,7 +140,8 @@ class BlinkTestController : public WebContentsObserver,
       int sender_process_host_id,
       const base::DictionaryValue& changed_layout_test_runtime_flags);
   void OnTestFinishedInSecondaryRenderer();
-  void OnInitiateCaptureDump(bool capture_navigation_history);
+  void OnInitiateCaptureDump(bool capture_navigation_history,
+                             bool capture_pixels);
   void OnInspectSecondaryWindow();
 
   // Makes sure that the potentially new renderer associated with |frame| is 1)
@@ -173,8 +174,7 @@ class BlinkTestController : public WebContentsObserver,
   void RenderProcessHostDestroyed(
       RenderProcessHost* render_process_host) override;
   void RenderProcessExited(RenderProcessHost* render_process_host,
-                           base::TerminationStatus status,
-                           int exit_code) override;
+                           const ChildProcessTerminationInfo& info) override;
 
   // NotificationObserver implementation.
   void Observe(int type,
@@ -194,6 +194,19 @@ class BlinkTestController : public WebContentsObserver,
     BETWEEN_TESTS,
     DURING_TEST,
     CLEAN_UP
+  };
+
+  // Node structure to construct a RenderFrameHost tree.
+  struct Node {
+    Node();
+    explicit Node(RenderFrameHost* host);
+    Node(Node&& other);
+    ~Node();
+
+    RenderFrameHost* render_frame_host = nullptr;
+    std::vector<Node*> children;
+
+    DISALLOW_COPY_AND_ASSIGN(Node);
   };
 
   static BlinkTestController* instance_;
@@ -221,16 +234,24 @@ class BlinkTestController : public WebContentsObserver,
   void OnCaptureSessionHistory();
   void OnCloseRemainingWindows();
   void OnResetDone();
-  void OnLeakDetectionDone(const content::LeakDetectionResult& result);
+  void OnLeakDetectionDone(const LeakDetector::LeakDetectionReport& report);
   void OnSetBluetoothManualChooser(bool enable);
   void OnGetBluetoothManualChooserEvents();
   void OnSendBluetoothManualChooserEvent(const std::string& event,
                                          const std::string& argument);
+  void OnBlockThirdPartyCookies(bool block);
   mojom::LayoutTestControl* GetLayoutTestControlPtr(RenderFrameHost* frame);
   void HandleLayoutTestControlError(RenderFrameHost* frame);
 
   void OnCleanupFinished();
   void OnCaptureDumpCompleted(mojom::LayoutTestDumpPtr dump);
+  void OnPixelDumpCaptured(const SkBitmap& snapshot);
+  void ReportResults();
+
+  void CompositeAllFrames();
+  Node* BuildFrameTree(const std::vector<RenderFrameHost*>& frames,
+                       std::vector<Node>* storage) const;
+  void CompositeDepthFirst(Node* node);
 
   std::unique_ptr<BlinkTestResultPrinter> printer_;
 
@@ -277,8 +298,8 @@ class BlinkTestController : public WebContentsObserver,
 
   NotificationRegistrar registrar_;
 
-  const bool is_leak_detection_enabled_;
   bool crash_when_leak_found_;
+  std::unique_ptr<LeakDetector> leak_detector_;
 
   std::unique_ptr<LayoutTestBluetoothChooserFactory> bluetooth_chooser_factory_;
 
@@ -299,6 +320,11 @@ class BlinkTestController : public WebContentsObserver,
   base::DictionaryValue accumulated_layout_test_runtime_flags_changes_;
 
   std::string navigation_history_dump_;
+  base::Optional<SkBitmap> pixel_dump_;
+  std::string actual_pixel_hash_;
+  mojom::LayoutTestDumpPtr main_frame_dump_;
+  bool waiting_for_pixel_results_ = false;
+  bool waiting_for_main_frame_dump_ = false;
 
   // Map from one frame to one mojo pipe.
   std::map<RenderFrameHost*, mojom::LayoutTestControlAssociatedPtr>

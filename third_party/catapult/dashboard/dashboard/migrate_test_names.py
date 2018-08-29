@@ -30,6 +30,7 @@ from dashboard.common import request_handler
 from dashboard.common import utils
 from dashboard.models import anomaly
 from dashboard.models import graph_data
+from dashboard.models import histogram
 
 _MAX_DATASTORE_PUTS_PER_PUT_MULTI_CALL = 50
 
@@ -60,12 +61,14 @@ _TEST_DEPRECATED_PROPERTIES = [
     'units_x',
     'buildername',
     'masterid',
-    'stoppage_alert'
+    'stoppage_alert',
+    'code',
+    'command_line'
 ]
 _TEST_EXCLUDE = _TEST_COMPUTED_PROPERTIES + _TEST_DEPRECATED_PROPERTIES
 
 # Properties of Row that shouldn't be copied.
-_ROW_EXCLUDE = ['parent_test', 'revision', 'id']
+_ROW_EXCLUDE = ['parent_test', 'revision', 'id', 'internal_only']
 
 _SHERIFF_ALERT_EMAIL_BODY = """
 The test %(old_test_path)s has been migrated to %(new_test_path)s.
@@ -80,6 +83,11 @@ _BRACKETS_REGEX = r'\[([^\]]*)\]'
 
 # Queue name needs to be listed in queue.yaml.
 _TASK_QUEUE_NAME = 'migrate-test-names-queue'
+_TASK_INTERVAL = 1
+
+_MIGRATE_TEST_LOOKUP_PATTERNS = 'migrate-lookup-patterns'
+_MIGRATE_TEST_CREATE = 'migrate-test-create'
+_MIGRATE_TEST_COPY_DATA = 'migrate-test-copy-data'
 
 
 class BadInputPatternError(Exception):
@@ -105,41 +113,43 @@ class MigrateTestNamesHandler(request_handler.RequestHandler):
     """
     datastore_hooks.SetPrivilegedRequest()
 
-    old_pattern = self.request.get('old_pattern')
-    new_pattern = self.request.get('new_pattern')
-    kicked_off = self.request.get('kicked_off')
-    old_test_key = self.request.get('old_test_key')
-    new_test_key = self.request.get('new_test_key')
+    status = self.request.get('status')
 
-    if old_pattern and new_pattern:
-      if not kicked_off:
-        try:
-          _AddKickoffTask(old_pattern, new_pattern)
-          self.RenderHtml('result.html', {
-              'headline': 'Test name migration task started.'
-          })
-        except BadInputPatternError as error:
-          self.ReportError('Error: %s' % error.message, status=400)
-      else:
-        _AddTasksForPattern(old_pattern, new_pattern)
-    elif old_test_key and new_test_key:
-      _MigrateOldTest(old_test_key, new_test_key)
+    if not status:
+      try:
+        old_pattern = self.request.get('old_pattern')
+        new_pattern = self.request.get('new_pattern')
+        _MigrateTestBegin(old_pattern, new_pattern)
+        self.RenderHtml('result.html', {
+            'headline': 'Test name migration task started.'
+        })
+      except BadInputPatternError as error:
+        self.ReportError('Error: %s' % error.message, status=400)
+    elif status:
+      if status == _MIGRATE_TEST_LOOKUP_PATTERNS:
+        old_pattern = self.request.get('old_pattern')
+        new_pattern = self.request.get('new_pattern')
+        _MigrateTestLookupPatterns(old_pattern, new_pattern)
+      elif status == _MIGRATE_TEST_CREATE:
+        old_test_key = ndb.Key(urlsafe=self.request.get('old_test_key'))
+        new_test_key = ndb.Key(urlsafe=self.request.get('new_test_key'))
+        _MigrateTestCreateTest(old_test_key, new_test_key)
+      elif status == _MIGRATE_TEST_COPY_DATA:
+        old_test_key = ndb.Key(urlsafe=self.request.get('old_test_key'))
+        new_test_key = ndb.Key(urlsafe=self.request.get('new_test_key'))
+        _MigrateTestCopyData(old_test_key, new_test_key)
     else:
       self.ReportError('Missing required parameters of /migrate_test_names.')
 
 
-def _AddKickoffTask(old_pattern, new_pattern):
+def _MigrateTestBegin(old_pattern, new_pattern):
   _ValidateTestPatterns(old_pattern, new_pattern)
 
-  task_params = {
+  _QueueTask({
       'old_pattern': old_pattern,
       'new_pattern': new_pattern,
-      'kicked_off': '1',
-  }
-  taskqueue.add(
-      url='/migrate_test_names',
-      params=task_params,
-      queue_name=_TASK_QUEUE_NAME)
+      'status': _MIGRATE_TEST_LOOKUP_PATTERNS,
+  }).get_result()
 
 
 def _ValidateTestPatterns(old_pattern, new_pattern):
@@ -149,7 +159,7 @@ def _ValidateTestPatterns(old_pattern, new_pattern):
     _ValidateAndGetNewTestPath(old_path, new_pattern)
 
 
-def _AddTasksForPattern(old_pattern, new_pattern):
+def _MigrateTestLookupPatterns(old_pattern, new_pattern):
   """Enumerates individual test migration tasks and enqueues them.
 
   Typically, this function is called by a request initiated by the user.
@@ -163,33 +173,19 @@ def _AddTasksForPattern(old_pattern, new_pattern):
   Raises:
     BadInputPatternError: Something was wrong with the input patterns.
   """
-  tests = list_tests.GetTestsMatchingPattern(old_pattern, list_entities=True)
+  futures = []
+  tests = list_tests.GetTestsMatchingPattern(old_pattern, list_entities=False)
   for test in tests:
-    _AddTaskForTest(test, new_pattern)
-
-
-def _AddTaskForTest(test, new_pattern):
-  """Adds a task to the task queue to migrate a TestMetadata entity
-     and its descendants.
-
-  Args:
-    test: A TestMetadata entity.
-    new_pattern: A test path pattern which determines the new name.
-  """
-  old_path = utils.TestPath(test.key)
-  new_path = _ValidateAndGetNewTestPath(old_path, new_pattern)
-
-  # Copy the new test from the old test. The new parent should exist.
-  new_test_key = _CreateRenamedEntityIfNotExists(
-      graph_data.TestMetadata, test, new_path, None, _TEST_EXCLUDE).put()
-  task_params = {
-      'old_test_key': test.key.urlsafe(),
-      'new_test_key': new_test_key.urlsafe(),
-  }
-  taskqueue.add(
-      url='/migrate_test_names',
-      params=task_params,
-      queue_name=_TASK_QUEUE_NAME)
+    old_test_key = utils.TestKey(test)
+    new_test_key = utils.TestKey(
+        _ValidateAndGetNewTestPath(old_test_key.id(), new_pattern))
+    futures.append(_QueueTask({
+        'old_test_key': old_test_key.urlsafe(),
+        'new_test_key': new_test_key.urlsafe(),
+        'status': _MIGRATE_TEST_CREATE
+    }))
+  for f in futures:
+    f.get_result()
 
 
 def _ValidateAndGetNewTestPath(old_path, new_pattern):
@@ -272,32 +268,16 @@ def _RemoveBracketedSubstring(old_part, new_part):
   return modified_old_part
 
 
-def _MigrateOldTest(old_test_key_urlsafe, new_test_key_urlsafe):
-  """Migrates Rows for one test.
-
-  This migrates up to _MAX_DATASTORE_PUTS_PER_PUT_MULTI_CALL Rows at once
-  for one level of descendant tests of old_test_key. Adds tasks to the task
-  queue so that it will be called again until there is nothing to migrate.
-
-  Args:
-    old_test_key_urlsafe: Key of old TestMetadata entity in urlsafe form.
-    new_test_key_urlsafe: Key of new TestMetadata entity in urlsafe form.
-  """
-  old_test_key = ndb.Key(urlsafe=old_test_key_urlsafe)
-  new_test_key = ndb.Key(urlsafe=new_test_key_urlsafe)
-  finished = _MigrateTestToNewKey(old_test_key, new_test_key)
-  if not finished:
-    task_params = {
-        'old_test_key': old_test_key_urlsafe,
-        'new_test_key': new_test_key_urlsafe,
-    }
-    taskqueue.add(
-        url='/migrate_test_names',
-        params=task_params,
-        queue_name=_TASK_QUEUE_NAME)
+def _QueueTask(task_params, countdown=None):
+  queue = taskqueue.Queue(_TASK_QUEUE_NAME)
+  return queue.add_async(taskqueue.Task(
+      url='/migrate_test_names',
+      params=task_params,
+      countdown=countdown))
 
 
-def _MigrateTestToNewKey(old_test_key, new_test_key):
+@ndb.synctasklet
+def _MigrateTestCreateTest(old_test_key, new_test_key):
   """Migrates data (Row entities) from the old to the new test.
 
   Migrating all rows in one request is usually too much work to do before
@@ -311,59 +291,70 @@ def _MigrateTestToNewKey(old_test_key, new_test_key):
   Returns:
     True if finished or False if there is more work.
   """
+  new_test_entity = yield _GetOrCreate(
+      graph_data.TestMetadata, old_test_key.get(), new_test_key.id(),
+      None, _TEST_EXCLUDE)
+
+  yield (
+      new_test_entity.put_async(),
+      _MigrateTestScheduleChildTests(old_test_key, new_test_key))
+
+  # Now migrate the actual row data and any associated data (ex. anomalies).
+  # Do this in a seperate task that just spins on the row data.
+  _QueueTask({
+      'old_test_key': old_test_key.urlsafe(),
+      'new_test_key': new_test_key.urlsafe(),
+      'status': _MIGRATE_TEST_COPY_DATA
+  }).get_result()
+
+
+@ndb.tasklet
+def _MigrateTestScheduleChildTests(old_test_key, new_test_key):
+  # Try to re-parent children test first. We'll do this by creating a seperate
+  # task for each child test.
+  tests_to_reparent = yield graph_data.TestMetadata.query(
+      graph_data.TestMetadata.parent_test == old_test_key).fetch_async(
+          limit=_MAX_DATASTORE_PUTS_PER_PUT_MULTI_CALL,
+          keys_only=True, use_cache=False, use_memcache=False)
+
   futures = []
-
-  # Try to re-parent children test first. If this does not complete in one
-  # request, the reset of the actions should be done in a separate request.
-  if not _ReparentChildTests(old_test_key, new_test_key):
-    return False
-
-  migrate_rows_result = _MigrateTestRows(old_test_key, new_test_key)
-  if migrate_rows_result['moved_rows']:
-    futures += migrate_rows_result['put_future']
-    futures += migrate_rows_result['delete_future']
-    ndb.Future.wait_all(futures)
-    return False
-
-  futures += _MigrateAnomalies(old_test_key, new_test_key)
-
-  if not futures:
-    _SendNotificationEmail(old_test_key, new_test_key)
-    old_test_key.delete()
-  else:
-    ndb.Future.wait_all(futures)
-    return False
-
-  return True
+  for old_child_test_key in tests_to_reparent:
+    old_child_test_parts = old_child_test_key.id().split('/')
+    new_child_test_key = utils.TestKey(
+        '%s/%s' % (utils.TestPath(new_test_key), old_child_test_parts[-1]))
+    futures.append(
+        _QueueTask({
+            'old_test_key': old_child_test_key.urlsafe(),
+            'new_test_key': new_child_test_key.urlsafe(),
+            'status': _MIGRATE_TEST_CREATE
+        }))
+  for f in futures:
+    f.get_result()
 
 
-def _ReparentChildTests(old_parent_key, new_parent_key):
-  """Migrates child tests from one parent test to another.
+@ndb.synctasklet
+def _MigrateTestCopyData(old_test_key, new_test_key):
 
-  This will involve calling |_MigrateTestToNewKey|, which then
-  recursively moves children under these children until all of
-  the children are moved.
+  more = yield (
+      _MigrateTestRows(old_test_key, new_test_key),
+      _MigrateAnomalies(old_test_key, new_test_key),
+      _MigrateHistogramData(old_test_key, new_test_key))
 
-  Args:
-    old_parent_key: TestMetadata entity key of the test to move from.
-    new_parent_key: TestMetadata entity key of the test to move to.
+  if any(more):
+    # Rows at a specific test path are contained in a single entity group, thus
+    # we space out writes to avoid data contention.
+    _QueueTask({
+        'old_test_key': old_test_key.urlsafe(),
+        'new_test_key': new_test_key.urlsafe(),
+        'status': _MIGRATE_TEST_COPY_DATA
+    }, countdown=_TASK_INTERVAL).get_result()
+    return
 
-  Returns:
-    True if finished, False otherwise.
-  """
-  tests_to_reparent = graph_data.TestMetadata.query(
-      graph_data.TestMetadata.parent_test == old_parent_key).fetch(
-          limit=_MAX_DATASTORE_PUTS_PER_PUT_MULTI_CALL)
-  for test in tests_to_reparent:
-    new_test_path = '%s/%s' % (utils.TestPath(new_parent_key), test.test_name)
-    new_subtest_key = _CreateRenamedEntityIfNotExists(
-        graph_data.TestMetadata, test, new_test_path, None, _TEST_EXCLUDE).put()
-    finished = _MigrateTestToNewKey(test.key, new_subtest_key)
-    if not finished:
-      return False
-  return True
+  _SendNotificationEmail(old_test_key, new_test_key)
+  old_test_key.delete()
 
 
+@ndb.tasklet
 def _MigrateTestRows(old_parent_key, new_parent_key):
   """Copies Row entities from one parent to another, deleting old ones.
 
@@ -372,10 +363,9 @@ def _MigrateTestRows(old_parent_key, new_parent_key):
     new_parent_key: TestMetadata entity key of the test to move to.
 
   Returns:
-    A dictionary with the following keys:
-      put_future: A list of Future objects for entities being put.
-      delete_future: A list of Future objects for entities being deleted.
-      moved_rows: Whether or not any entities were moved.
+    A tuple of (futures, more)
+      futures: A list of Future objects for entities being put.
+      more: Whether or not there's more work to do on the row data.
   """
   # In this function we'll build up lists of entities to put and delete
   # before returning Future objects for the entities being put and deleted.
@@ -385,25 +375,36 @@ def _MigrateTestRows(old_parent_key, new_parent_key):
   # Add some Row entities to the lists of entities to put and delete.
   rows = graph_data.GetLatestRowsForTest(
       old_parent_key, _MAX_DATASTORE_PUTS_PER_PUT_MULTI_CALL)
-  for row in rows:
-    rows_to_put.append(_CreateRenamedEntityIfNotExists(
-        graph_data.Row, row, row.key.id(), new_parent_key, _ROW_EXCLUDE))
-    rows_to_delete.append(row.key)
+
+  rows_to_put = yield [
+      _GetOrCreate(
+          graph_data.Row, r, r.key.id(), new_parent_key, _ROW_EXCLUDE)
+      for r in rows]
+  rows_to_delete = [r.key for r in rows]
 
   # Clear the cached revision range selector data for both the old and new
   # tests because it will no longer be valid after migration. The cache should
   # be updated with accurate data the next time it's set, which will happen
   # when someone views the graph.
-  graph_revisions.DeleteCache(utils.TestPath(old_parent_key))
-  graph_revisions.DeleteCache(utils.TestPath(new_parent_key))
 
-  return {
-      'put_future': ndb.put_multi_async(rows_to_put),
-      'delete_future': ndb.delete_multi_async(rows_to_delete),
-      'moved_rows': bool(rows_to_put),
-  }
+  futures = ndb.put_multi_async(
+      rows_to_put, use_cache=False, use_memcache=False)
+
+  if rows_to_put:
+    futures.append(rows_to_put[0].UpdateParentAsync())
+
+  futures.extend(ndb.delete_multi_async(rows_to_delete))
+  futures.append(
+      graph_revisions.DeleteCacheAsync(utils.TestPath(old_parent_key)))
+  futures.append(
+      graph_revisions.DeleteCacheAsync(utils.TestPath(new_parent_key)))
+
+  yield futures
+
+  raise ndb.Return(bool(rows_to_put))
 
 
+@ndb.tasklet
 def _MigrateAnomalies(old_parent_key, new_parent_key):
   """Copies the Anomaly entities from one test to another.
 
@@ -414,13 +415,41 @@ def _MigrateAnomalies(old_parent_key, new_parent_key):
   Returns:
     A list of Future objects for Anomaly entities to update.
   """
-  anomalies_to_update = anomaly.Anomaly.GetAlertsForTest(
+  anomalies_to_update = yield anomaly.Anomaly.GetAlertsForTestAsync(
       old_parent_key, limit=_MAX_DATASTORE_PUTS_PER_PUT_MULTI_CALL)
   if not anomalies_to_update:
-    return []
+    raise ndb.Return([])
+
   for anomaly_entity in anomalies_to_update:
     anomaly_entity.test = new_parent_key
-  return ndb.put_multi_async(anomalies_to_update)
+
+  yield ndb.put_multi_async(anomalies_to_update)
+
+  raise ndb.Return(bool(anomalies_to_update))
+
+
+@ndb.tasklet
+def _MigrateHistogramClassData(cls, old_parent_key, new_parent_key):
+  query = cls.query(cls.test == old_parent_key)
+  entities = yield query.fetch_async(
+      limit=_MAX_DATASTORE_PUTS_PER_PUT_MULTI_CALL,
+      use_cache=False, use_memcache=False)
+  for e in entities:
+    e.test = new_parent_key
+  yield ndb.put_multi_async(entities)
+  raise ndb.Return(bool(entities))
+
+
+@ndb.tasklet
+def _MigrateHistogramData(old_parent_key, new_parent_key):
+  result = yield (
+      _MigrateHistogramClassData(
+          histogram.SparseDiagnostic, old_parent_key, new_parent_key),
+      _MigrateHistogramClassData(
+          histogram.Histogram, old_parent_key, new_parent_key),
+  )
+
+  raise ndb.Return(any(result))
 
 
 def _SendNotificationEmail(old_test_key, new_test_key):
@@ -448,7 +477,8 @@ def _SendNotificationEmail(old_test_key, new_test_key):
                  body=body)
 
 
-def _CreateRenamedEntityIfNotExists(
+@ndb.tasklet
+def _GetOrCreate(
     cls, old_entity, new_name, parent_key, exclude):
   """Create an entity with the desired name if one does not exist.
 
@@ -462,9 +492,9 @@ def _CreateRenamedEntityIfNotExists(
   Returns:
     The new Row or TestMetadata entity (or the existing one).
   """
-  new_entity = cls.get_by_id(new_name, parent=parent_key)
+  new_entity = yield cls.get_by_id_async(new_name, parent=parent_key)
   if new_entity:
-    return new_entity
+    raise ndb.Return(new_entity)
   if old_entity.key.kind() == 'Row':
     parent_key = utils.GetTestContainerKey(parent_key)
   create_args = {
@@ -474,4 +504,4 @@ def _CreateRenamedEntityIfNotExists(
   for prop, val in old_entity.to_dict(exclude=exclude).iteritems():
     create_args[prop] = val
   new_entity = cls(**create_args)
-  return new_entity
+  raise ndb.Return(new_entity)

@@ -14,6 +14,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/blink/common/oom_intervention/oom_intervention_types.h"
 
 DEFINE_WEB_CONTENTS_USER_DATA_KEY(OomInterventionTabHelper);
 
@@ -60,6 +61,7 @@ void RecordInterventionStateOnCrash(bool accepted) {
 // Field trial parameter names.
 const char kRendererPauseParamName[] = "pause_renderer";
 const char kShouldDetectInRenderer[] = "detect_in_renderer";
+const char kRendererWorkloadThreshold[] = "renderer_workload_threshold";
 
 bool RendererPauseIsEnabled() {
   static bool enabled = base::GetFieldTrialParamByFeatureAsBool(
@@ -71,6 +73,18 @@ bool ShouldDetectInRenderer() {
   static bool enabled = base::GetFieldTrialParamByFeatureAsBool(
       features::kOomIntervention, kShouldDetectInRenderer, true);
   return enabled;
+}
+
+uint64_t GetRendererMemoryWorkloadThreshold() {
+  const uint64_t kDefaultMemoryWorkloadThreshold = 80 * 1024 * 1024;
+
+  std::string threshold_str = base::GetFieldTrialParamValueByFeature(
+      features::kOomIntervention, kRendererWorkloadThreshold);
+  uint64_t threshold = 0;
+  if (!base::StringToUint64(threshold_str, &threshold)) {
+    return kDefaultMemoryWorkloadThreshold;
+  }
+  return threshold;
 }
 
 }  // namespace
@@ -86,8 +100,12 @@ OomInterventionTabHelper::OomInterventionTabHelper(
       decider_(OomInterventionDecider::GetForBrowserContext(
           web_contents->GetBrowserContext())),
       binding_(this),
+      renderer_memory_workload_threshold_(GetRendererMemoryWorkloadThreshold()),
       weak_ptr_factory_(this) {
   OutOfMemoryReporter::FromWebContents(web_contents)->AddObserver(this);
+  shared_metrics_buffer_ = base::UnsafeSharedMemoryRegion::Create(
+      sizeof(blink::OomInterventionMetrics));
+  metrics_mapping_ = shared_metrics_buffer_.Map();
 }
 
 OomInterventionTabHelper::~OomInterventionTabHelper() = default;
@@ -116,6 +134,10 @@ void OomInterventionTabHelper::DeclineIntervention() {
     const std::string& host = web_contents()->GetVisibleURL().host();
     decider_->OnInterventionDeclined(host);
   }
+}
+
+void OomInterventionTabHelper::DeclineInterventionSticky() {
+  NOTREACHED();
 }
 
 void OomInterventionTabHelper::WebContentsDestroyed() {
@@ -229,6 +251,19 @@ void OomInterventionTabHelper::OnForegroundOOMDetected(
         NearOomDetectionEndReason::OOM_PROTECTED_CRASH);
   }
 
+  blink::OomInterventionMetrics* metrics =
+      static_cast<blink::OomInterventionMetrics*>(metrics_mapping_.memory());
+
+  UMA_HISTOGRAM_MEMORY_LARGE_MB(
+      "Memory.Experimental.OomIntervention.RendererPrivateMemoryFootprintAtOOM",
+      metrics->current_private_footprint_kb / 1024);
+  UMA_HISTOGRAM_MEMORY_MB(
+      "Memory.Experimental.OomIntervention.RendererSwapFootprintAtOOM",
+      metrics->current_swap_kb / 1024);
+  UMA_HISTOGRAM_MEMORY_MB(
+      "Memory.Experimental.OomIntervention.RendererBlinkUsageAtOOM",
+      metrics->current_blink_usage_kb / 1024);
+
   if (decider_) {
     DCHECK(!web_contents()->GetBrowserContext()->IsOffTheRecord());
     const std::string& host = web_contents()->GetVisibleURL().host();
@@ -282,7 +317,9 @@ void OomInterventionTabHelper::StartDetectionInRenderer() {
   DCHECK(!binding_.is_bound());
   blink::mojom::OomInterventionHostPtr host;
   binding_.Bind(mojo::MakeRequest(&host));
-  intervention_->StartDetection(std::move(host), trigger_intervention);
+  intervention_->StartDetection(
+      std::move(host), shared_metrics_buffer_.Duplicate(),
+      renderer_memory_workload_threshold_, trigger_intervention);
 }
 
 void OomInterventionTabHelper::OnNearOomDetected() {

@@ -42,9 +42,6 @@ class AppBannerService;
 
 namespace content {
 
-class LeakDetector;
-struct LeakDetectionResult;
-
 // This is the renderer side of the webkit test runner.
 // TODO(lukasza): Rename to LayoutTestRenderViewObserver for consistency with
 // LayoutTestRenderFrameObserver.
@@ -73,8 +70,8 @@ class BlinkTestRunner : public RenderViewObserver,
   void SetDeviceOrientationData(const device::OrientationData& data) override;
   void PrintMessageToStderr(const std::string& message) override;
   void PrintMessage(const std::string& message) override;
-  void PostTask(const base::Closure& task) override;
-  void PostDelayedTask(const base::Closure& task, long long ms) override;
+  void PostTask(base::OnceClosure task) override;
+  void PostDelayedTask(base::OnceClosure task, base::TimeDelta delay) override;
   blink::WebString RegisterIsolatedFileSystem(
       const blink::WebVector<blink::WebString>& absolute_filenames) override;
   long long GetCurrentTimeInMillisecond() override;
@@ -111,10 +108,10 @@ class BlinkTestRunner : public RenderViewObserver,
   void EnableUseZoomForDSF() override;
   bool IsUseZoomForDSFEnabled() override;
   void SetBluetoothFakeAdapter(const std::string& adapter_name,
-                               const base::Closure& callback) override;
+                               base::OnceClosure callback) override;
   void SetBluetoothManualChooser(bool enable) override;
   void GetBluetoothManualChooserEvents(
-      const base::Callback<void(const std::vector<std::string>&)>& callback)
+      base::OnceCallback<void(const std::vector<std::string>&)> callback)
       override;
   void SendBluetoothManualChooserEvent(const std::string& event,
                                        const std::string& argument) override;
@@ -135,7 +132,8 @@ class BlinkTestRunner : public RenderViewObserver,
   bool AllowExternalPages() override;
   void FetchManifest(
       blink::WebView* view,
-      base::OnceCallback<void(const GURL&, const Manifest&)> callback) override;
+      base::OnceCallback<void(const GURL&, const blink::Manifest&)> callback)
+      override;
   void SetPermission(const std::string& name,
                      const std::string& value,
                      const GURL& origin,
@@ -145,16 +143,15 @@ class BlinkTestRunner : public RenderViewObserver,
       blink::WebMediaStream* stream) override;
   bool AddMediaStreamAudioSourceAndTrack(
       blink::WebMediaStream* stream) override;
-  viz::SharedBitmapManager* GetSharedBitmapManager() override;
   void DispatchBeforeInstallPromptEvent(
       const std::vector<std::string>& event_platforms,
-      const base::Callback<void(bool)>& callback) override;
+      base::OnceCallback<void(bool)> callback) override;
   void ResolveBeforeInstallPromptPromise(
       const std::string& platform) override;
   blink::WebPlugin* CreatePluginPlaceholder(
     const blink::WebPluginParams& params) override;
   float GetDeviceScaleFactor() const override;
-  void RunIdleTasks(const base::Closure& callback) override;
+  void RunIdleTasks(base::OnceClosure callback) override;
   void ForceTextInputStateUpdate(blink::WebLocalFrame* frame) override;
   bool IsNavigationInitiatedByRenderer(
       const blink::WebURLRequest& request) override;
@@ -166,8 +163,6 @@ class BlinkTestRunner : public RenderViewObserver,
   // also resets additional state, like the main frame's name and opener.
   void Reset(bool for_new_test);
 
-  void ReportLeakDetectionResult(const LeakDetectionResult& result);
-
   // Message handlers forwarded by LayoutTestRenderFrameObserver.
   void OnSetTestConfiguration(mojom::ShellTestConfigurationPtr params);
   void OnReplicateTestConfiguration(mojom::ShellTestConfigurationPtr params);
@@ -178,7 +173,6 @@ class BlinkTestRunner : public RenderViewObserver,
   // Message handlers.
   void OnReset();
   void OnTestFinishedInSecondaryRenderer();
-  void OnTryLeakDetection();
   void OnReplyBluetoothManualChooserEvents(
       const std::vector<std::string>& events);
 
@@ -201,7 +195,8 @@ class BlinkTestRunner : public RenderViewObserver,
   void CaptureDumpComplete();
   void CaptureLocalAudioDump();
   void CaptureLocalLayoutDump();
-  void CaptureLocalPixelsDump();
+  // Returns true if the browser should capture pixels instead.
+  bool CaptureLocalPixelsDump();
 
   mojom::LayoutTestBluetoothFakeAdapterSetter&
   GetBluetoothFakeAdapterSetter();
@@ -211,7 +206,8 @@ class BlinkTestRunner : public RenderViewObserver,
 
   mojom::ShellTestConfigurationPtr test_config_;
 
-  base::circular_deque<base::Callback<void(const std::vector<std::string>&)>>
+  base::circular_deque<
+      base::OnceCallback<void(const std::vector<std::string>&)>>
       get_bluetooth_events_callbacks_;
 
   bool is_main_window_;
@@ -219,8 +215,6 @@ class BlinkTestRunner : public RenderViewObserver,
   bool focus_on_next_commit_;
 
   std::unique_ptr<test_runner::AppBannerService> app_banner_service_;
-
-  std::unique_ptr<LeakDetector> leak_detector_;
 
   mojom::LayoutTestControl::CaptureDumpCallback dump_callback_;
   mojom::LayoutTestDumpPtr dump_result_;

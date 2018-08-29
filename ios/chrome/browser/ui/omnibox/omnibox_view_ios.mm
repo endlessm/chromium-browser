@@ -202,7 +202,7 @@ UIColor* IncognitoSecureTextColor() {
 
 OmniboxViewIOS::OmniboxViewIOS(OmniboxTextFieldIOS* field,
                                WebOmniboxEditController* controller,
-                               LeftImageProvider* left_image_provider,
+                               id<OmniboxLeftImageConsumer> left_image_consumer,
                                ios::ChromeBrowserState* browser_state)
     : OmniboxView(
           controller,
@@ -210,7 +210,7 @@ OmniboxViewIOS::OmniboxViewIOS(OmniboxTextFieldIOS* field,
       browser_state_(browser_state),
       field_(field),
       controller_(controller),
-      left_image_provider_(left_image_provider),
+      left_image_consumer_(left_image_consumer),
       ignore_popup_updates_(false),
       attributing_display_string_(nil),
       popup_provider_(nullptr) {
@@ -397,6 +397,9 @@ int OmniboxViewIOS::GetWidth() const {
 }
 
 void OmniboxViewIOS::OnDidBeginEditing() {
+  // Reset the changed flag.
+  omnibox_interacted_while_focused_ = NO;
+
   // If Open from Clipboard offers a suggestion, the popup may be opened when
   // |OnSetFocus| is called on the model. The state of the popup is saved early
   // to ignore that case.
@@ -449,6 +452,11 @@ void OmniboxViewIOS::OnDidEndEditing() {
   // Blow away any in-progress edits.
   RevertAll();
   DCHECK(![field_ hasAutocompleteText]);
+
+  if (!omnibox_interacted_while_focused_) {
+    RecordAction(
+        UserMetricsAction("Mobile_FocusedDefocusedOmnibox_WithNoAction"));
+  }
 }
 
 bool OmniboxViewIOS::OnWillChange(NSRange range, NSString* new_text) {
@@ -536,6 +544,8 @@ bool OmniboxViewIOS::OnWillChange(NSRange range, NSString* new_text) {
 }
 
 void OmniboxViewIOS::OnDidChange(bool processing_user_event) {
+  omnibox_interacted_while_focused_ = YES;
+
   // Sanitize pasted text.
   if (model()->is_pasting()) {
     base::string16 pastedText = base::SysNSStringToUTF16([field_ text]);
@@ -611,23 +621,17 @@ void OmniboxViewIOS::OnClear() {
 }
 
 bool OmniboxViewIOS::OnCopy() {
+  omnibox_interacted_while_focused_ = YES;
   UIPasteboard* board = [UIPasteboard generalPasteboard];
   NSString* selectedText = nil;
-  BOOL is_select_all = NO;
   NSInteger start_location = 0;
   if ([field_ isPreEditing]) {
     selectedText = [field_ preEditText];
-    is_select_all = YES;
     start_location = 0;
   } else {
     UITextRange* selected_range = [field_ selectedTextRange];
     selectedText = [field_ textInRange:selected_range];
     UITextPosition* start = [field_ beginningOfDocument];
-    UITextPosition* end = [field_ endOfDocument];
-    is_select_all = ([field_ comparePosition:[selected_range start]
-                                  toPosition:start] == NSOrderedSame) &&
-                    ([field_ comparePosition:[selected_range end]
-                                  toPosition:end] == NSOrderedSame);
     // The following call to |-offsetFromPosition:toPosition:| gives the offset
     // in terms of the number of "visible characters."  The documentation does
     // not specify whether this means glyphs or UTF16 chars.  This does not
@@ -640,8 +644,7 @@ bool OmniboxViewIOS::OnCopy() {
 
   GURL url;
   bool write_url = false;
-  model()->AdjustTextForCopy(start_location, is_select_all, &text, &url,
-                             &write_url);
+  model()->AdjustTextForCopy(start_location, &text, &url, &write_url);
 
   // Create the pasteboard item manually because the pasteboard expects a single
   // item with multiple representations.  This is expressed as a single
@@ -678,6 +681,10 @@ UIColor* OmniboxViewIOS::GetSecureTextColor(
 }
 
 void OmniboxViewIOS::SetEmphasis(bool emphasize, const gfx::Range& range) {
+  if (IsRefreshLocationBarEnabled()) {
+    return;
+  }
+
   NSRange ns_range = range.IsValid()
                          ? range.ToNSRange()
                          : NSMakeRange(0, [attributing_display_string_ length]);
@@ -689,6 +696,10 @@ void OmniboxViewIOS::SetEmphasis(bool emphasize, const gfx::Range& range) {
 }
 
 void OmniboxViewIOS::UpdateSchemeStyle(const gfx::Range& range) {
+  if (IsRefreshLocationBarEnabled()) {
+    return;
+  }
+
   if (!range.IsValid())
     return;
 
@@ -887,9 +898,7 @@ bool OmniboxViewIOS::ShouldIgnoreUserInputDueToPendingVoiceSearch() {
 }
 
 void OmniboxViewIOS::SetLeftImage(int imageId) {
-  if (left_image_provider_) {
-    left_image_provider_->SetLeftImage(imageId);
-  }
+  [left_image_consumer_ setLeftImageId:imageId];
 }
 
 void OmniboxViewIOS::HideKeyboardAndEndEditing() {

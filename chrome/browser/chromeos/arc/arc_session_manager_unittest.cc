@@ -16,8 +16,11 @@
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_command_line.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/arc/arc_optin_uma.h"
+#include "chrome/browser/chromeos/arc/arc_play_store_enabled_preference_handler.h"
 #include "chrome/browser/chromeos/arc/arc_session_manager.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/arc/optin/arc_terms_of_service_oobe_negotiator.h"
@@ -27,6 +30,7 @@
 #include "chrome/browser/chromeos/login/ui/fake_login_display_host.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/policy/profile_policy_connector_factory.h"
 #include "chrome/browser/prefs/pref_service_syncable_util.h"
@@ -38,6 +42,8 @@
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_session_manager_client.h"
+#include "components/account_id/account_id.h"
+#include "components/arc/arc_features.h"
 #include "components/arc/arc_prefs.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_session_runner.h"
@@ -46,7 +52,6 @@
 #include "components/prefs/pref_service.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/session_manager/core/session_manager.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/sync/model/fake_sync_change_processor.h"
 #include "components/sync/model/sync_error_factory_mock.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
@@ -99,7 +104,7 @@ class ArcSessionManagerInLoginScreenTest : public testing::Test {
 
     chromeos::DBusThreadManager::Initialize();
 
-    ArcSessionManager::DisableUIForTesting();
+    ArcSessionManager::SetUiEnabledForTesting(false);
     SetArcBlockedDueToIncompatibleFileSystemForTesting(false);
 
     arc_service_manager_ = std::make_unique<ArcServiceManager>();
@@ -180,7 +185,7 @@ class ArcSessionManagerTestBase : public testing::Test {
 
     SetArcAvailableCommandLineForTesting(
         base::CommandLine::ForCurrentProcess());
-    ArcSessionManager::DisableUIForTesting();
+    ArcSessionManager::SetUiEnabledForTesting(false);
     SetArcBlockedDueToIncompatibleFileSystemForTesting(false);
 
     arc_service_manager_ = std::make_unique<ArcServiceManager>();
@@ -298,6 +303,27 @@ TEST_F(ArcSessionManagerTest, BaseWorkflow) {
   ASSERT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
 
   arc_session_manager()->Shutdown();
+}
+
+// Tests that tying to enable ARC++ with an incompatible file system fails and
+// shows the user a notification to that effect.
+TEST_F(ArcSessionManagerTest, MigrationGuideNotification) {
+  ArcSessionManager::SetUiEnabledForTesting(true);
+  ArcSessionManager::EnableCheckAndroidManagementForTesting(false);
+  SetArcBlockedDueToIncompatibleFileSystemForTesting(true);
+
+  NotificationDisplayServiceTester notification_service(profile());
+
+  arc_session_manager()->SetProfile(profile());
+  arc_session_manager()->Initialize();
+  arc_session_manager()->RequestEnable();
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(ArcSessionManager::State::STOPPED, arc_session_manager()->state());
+  auto notifications = notification_service.GetDisplayedNotificationsForType(
+      NotificationHandler::Type::TRANSIENT);
+  ASSERT_EQ(1U, notifications.size());
+  EXPECT_EQ("arc_fs_migration/suggest", notifications[0].id());
 }
 
 // Tests that OnArcInitialStart is called  after the successful ARC provisioning
@@ -552,6 +578,50 @@ TEST_F(ArcSessionManagerTest, RemoveDataDir_Restart) {
   arc_session_manager()->Shutdown();
 }
 
+TEST_F(ArcSessionManagerTest, RegularToChildTransition_Default) {
+  // Emulate the situation where a regular user has transitioned to a child
+  // account.
+  profile()->GetPrefs()->SetInteger(
+      prefs::kArcSupervisionTransition,
+      static_cast<int>(ArcSupervisionTransition::REGULAR_TO_CHILD));
+  arc_session_manager()->SetProfile(profile());
+  arc_session_manager()->Initialize();
+  EXPECT_TRUE(
+      profile()->GetPrefs()->GetBoolean(prefs::kArcDataRemoveRequested));
+  EXPECT_EQ(
+      static_cast<int>(ArcSupervisionTransition::NO_TRANSITION),
+      profile()->GetPrefs()->GetInteger(prefs::kArcSupervisionTransition));
+  EXPECT_EQ(ArcSessionManager::State::REMOVING_DATA_DIR,
+            arc_session_manager()->state());
+
+  arc_session_manager()->Shutdown();
+}
+
+TEST_F(ArcSessionManagerTest, RegularToChildTransition_FlagOff) {
+  // Emulate the situation where a regular user has transitioned to a child
+  // account, but the feature flag is disabled.
+  profile()->GetPrefs()->SetInteger(
+      prefs::kArcSupervisionTransition,
+      static_cast<int>(ArcSupervisionTransition::REGULAR_TO_CHILD));
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndDisableFeature(
+      kCleanArcDataOnRegularToChildTransitionFeature);
+
+  arc_session_manager()->SetProfile(profile());
+  arc_session_manager()->Initialize();
+  arc_session_manager()->RequestEnable();
+  EXPECT_FALSE(
+      profile()->GetPrefs()->GetBoolean(prefs::kArcDataRemoveRequested));
+  EXPECT_EQ(
+      static_cast<int>(ArcSupervisionTransition::REGULAR_TO_CHILD),
+      profile()->GetPrefs()->GetInteger(prefs::kArcSupervisionTransition));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+            arc_session_manager()->state());
+
+  arc_session_manager()->Shutdown();
+}
+
 TEST_F(ArcSessionManagerTest, IgnoreSecondErrorReporting) {
   arc_session_manager()->SetProfile(profile());
   arc_session_manager()->Initialize();
@@ -639,6 +709,67 @@ TEST_F(ArcSessionManagerTest, IsDirectlyStartedOnInternalRestart) {
   EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
   // directy started flag should be preserved.
   EXPECT_FALSE(arc_session_manager()->is_directly_started());
+  arc_session_manager()->Shutdown();
+}
+
+// In case of the next start ArcSessionManager should go through remove data
+// folder phase before negotiating terms of service.
+TEST_F(ArcSessionManagerTest, DataCleanUpOnFirstStart) {
+  base::test::ScopedCommandLine command_line;
+  command_line.GetProcessCommandLine()->AppendSwitch(
+      chromeos::switches::kArcDataCleanupOnStart);
+
+  arc_session_manager()->SetProfile(profile());
+  arc_session_manager()->Initialize();
+
+  ArcPlayStoreEnabledPreferenceHandler handler(profile(),
+                                               arc_session_manager());
+  handler.Start();
+
+  EXPECT_EQ(ArcSessionManager::State::REMOVING_DATA_DIR,
+            arc_session_manager()->state());
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(ArcSessionManager::State::STOPPED, arc_session_manager()->state());
+
+  profile()->GetPrefs()->SetBoolean(prefs::kArcEnabled, true);
+
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+            arc_session_manager()->state());
+  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
+  EXPECT_EQ(ArcSessionManager::State::CHECKING_ANDROID_MANAGEMENT,
+            arc_session_manager()->state());
+  arc_session_manager()->StartArcForTesting();
+  EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
+
+  arc_session_manager()->Shutdown();
+}
+
+// In case of the next start ArcSessionManager should go through remove data
+// folder phase before activating.
+TEST_F(ArcSessionManagerTest, DataCleanUpOnNextStart) {
+  base::test::ScopedCommandLine command_line;
+  command_line.GetProcessCommandLine()->AppendSwitch(
+      chromeos::switches::kArcDataCleanupOnStart);
+
+  PrefService* const prefs = profile()->GetPrefs();
+  prefs->SetBoolean(prefs::kArcTermsAccepted, true);
+  prefs->SetBoolean(prefs::kArcSignedIn, true);
+  prefs->SetBoolean(prefs::kArcEnabled, true);
+
+  arc_session_manager()->SetProfile(profile());
+  arc_session_manager()->Initialize();
+
+  ArcPlayStoreEnabledPreferenceHandler handler(profile(),
+                                               arc_session_manager());
+  handler.Start();
+
+  EXPECT_EQ(ArcSessionManager::State::REMOVING_DATA_DIR,
+            arc_session_manager()->state());
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
+
   arc_session_manager()->Shutdown();
 }
 

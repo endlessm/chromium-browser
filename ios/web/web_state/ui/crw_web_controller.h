@@ -172,9 +172,6 @@ class WebStateImpl;
 - (void)executeUserJavaScript:(NSString*)script
             completionHandler:(web::JavaScriptResultBlock)completion;
 
-// Dismisses the soft keyboard.
-- (void)dismissKeyboard;
-
 // Requires that the next load rebuild the web view. This is expensive, and
 // should be used only in the case where something has changed that the web view
 // only checks on creation, such that the whole object needs to be rebuilt.
@@ -193,9 +190,6 @@ class WebStateImpl;
 
 // Notifies the CRWWebController that it has been hidden.
 - (void)wasHidden;
-
-// Returns |YES| if the current page should show the keyboard shield.
-- (BOOL)wantsKeyboardShield;
 
 // Returns |YES| if the current page should should the location bar hint text.
 - (BOOL)wantsLocationBarHintText;
@@ -223,7 +217,8 @@ class WebStateImpl;
 // navigation. Updates HTML5 history state, current document URL and sends
 // approprivate navigation and loading WebStateObserver callbacks.
 - (void)didFinishGoToIndexSameDocumentNavigationWithType:
-    (web::NavigationInitiationType)type;
+            (web::NavigationInitiationType)type
+                                          hasUserGesture:(BOOL)hasUserGesture;
 
 @end
 

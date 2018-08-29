@@ -103,7 +103,7 @@ cxtu::CXTUOwner::~CXTUOwner() {
     clang_disposeTranslationUnit(TU);
 }
 
-/// \brief Compare two source ranges to determine their relative position in
+/// Compare two source ranges to determine their relative position in
 /// the translation unit.
 static RangeComparisonResult RangeCompare(SourceManager &SM,
                                           SourceRange R1,
@@ -119,7 +119,7 @@ static RangeComparisonResult RangeCompare(SourceManager &SM,
   return RangeOverlap;
 }
 
-/// \brief Determine if a source location falls within, before, or after a
+/// Determine if a source location falls within, before, or after a
 ///   a given source range.
 static RangeComparisonResult LocationCompare(SourceManager &SM,
                                              SourceLocation L, SourceRange R) {
@@ -134,7 +134,7 @@ static RangeComparisonResult LocationCompare(SourceManager &SM,
   return RangeOverlap;
 }
 
-/// \brief Translate a Clang source range into a CIndex source range.
+/// Translate a Clang source range into a CIndex source range.
 ///
 /// Clang internally represents ranges where the end location points to the
 /// start of the token at the end. However, for external clients it is more
@@ -146,9 +146,13 @@ CXSourceRange cxloc::translateSourceRange(const SourceManager &SM,
   // We want the last character in this location, so we will adjust the
   // location accordingly.
   SourceLocation EndLoc = R.getEnd();
-  if (EndLoc.isValid() && EndLoc.isMacroID() && !SM.isMacroArgExpansion(EndLoc))
-    EndLoc = SM.getExpansionRange(EndLoc).second;
-  if (R.isTokenRange() && EndLoc.isValid()) {
+  bool IsTokenRange = R.isTokenRange();
+  if (EndLoc.isValid() && EndLoc.isMacroID() && !SM.isMacroArgExpansion(EndLoc)) {
+    CharSourceRange Expansion = SM.getExpansionRange(EndLoc);
+    EndLoc = Expansion.getEnd();
+    IsTokenRange = Expansion.isTokenRange();
+  }
+  if (IsTokenRange && EndLoc.isValid()) {
     unsigned Length = Lexer::MeasureTokenLength(SM.getSpellingLoc(EndLoc),
                                                 SM, LangOpts);
     EndLoc = EndLoc.getLocWithOffset(Length);
@@ -174,7 +178,7 @@ RangeComparisonResult CursorVisitor::CompareRegionOfInterest(SourceRange R) {
   return RangeCompare(AU->getSourceManager(), R, RegionOfInterest);
 }
 
-/// \brief Visit the given cursor and, if requested by the visitor,
+/// Visit the given cursor and, if requested by the visitor,
 /// its children.
 ///
 /// \param Cursor the cursor to visit.
@@ -478,7 +482,7 @@ bool CursorVisitor::visitPreprocessedEntities(InputIterator First,
   return false;
 }
 
-/// \brief Visit the children of the given cursor.
+/// Visit the children of the given cursor.
 /// 
 /// \returns true if the visitation should be aborted, false if it
 /// should continue.
@@ -795,7 +799,7 @@ static bool HasTrailingReturnType(FunctionDecl *ND) {
   return false;
 }
 
-/// \brief Compare two base or member initializers based on their source order.
+/// Compare two base or member initializers based on their source order.
 static int CompareCXXCtorInitializers(CXXCtorInitializer *const *X,
                                       CXXCtorInitializer *const *Y) {
   return (*X)->getSourceOrder() - (*Y)->getSourceOrder();
@@ -1796,7 +1800,7 @@ bool CursorVisitor::VisitCXXRecordDecl(CXXRecordDecl *D) {
 
 bool CursorVisitor::VisitAttributes(Decl *D) {
   for (const auto *I : D->attrs())
-    if (Visit(MakeCXCursor(I, D, TU)))
+    if (!I->isImplicit() && Visit(MakeCXCursor(I, D, TU)))
         return true;
 
   return false;
@@ -2115,7 +2119,7 @@ void EnqueueVisitor::EnqueueChildren(const Stmt *S) {
 namespace {
 class OMPClauseEnqueue : public ConstOMPClauseVisitor<OMPClauseEnqueue> {
   EnqueueVisitor *Visitor;
-  /// \brief Process clauses with list of variables.
+  /// Process clauses with list of variables.
   template <typename T>
   void VisitOMPClauseList(T *Node);
 public:
@@ -2593,7 +2597,7 @@ void EnqueueVisitor::VisitMemberExpr(const MemberExpr *M) {
     return;
 
   // Ignore base anonymous struct/union fields, otherwise they will shadow the
-  // real field that that we are interested in.
+  // real field that we are interested in.
   if (auto *SubME = dyn_cast<MemberExpr>(M->getBase())) {
     if (auto *FD = dyn_cast_or_null<FieldDecl>(SubME->getMemberDecl())) {
       if (FD->isAnonymousStructOrUnion()) {
@@ -3376,9 +3380,15 @@ clang_parseTranslationUnit_Impl(CXIndex CIdx, const char *source_filename,
     = options & CXTranslationUnit_CacheCompletionResults;
   bool IncludeBriefCommentsInCodeCompletion
     = options & CXTranslationUnit_IncludeBriefCommentsInCodeCompletion;
-  bool SkipFunctionBodies = options & CXTranslationUnit_SkipFunctionBodies;
   bool SingleFileParse = options & CXTranslationUnit_SingleFileParse;
   bool ForSerialization = options & CXTranslationUnit_ForSerialization;
+  SkipFunctionBodiesScope SkipFunctionBodies = SkipFunctionBodiesScope::None;
+  if (options & CXTranslationUnit_SkipFunctionBodies) {
+    SkipFunctionBodies =
+        (options & CXTranslationUnit_LimitSkipFunctionBodiesToPreamble)
+            ? SkipFunctionBodiesScope::Preamble
+            : SkipFunctionBodiesScope::PreambleAndMainFile;
+  }
 
   // Configure the diagnostics.
   IntrusiveRefCntPtr<DiagnosticsEngine>
@@ -4247,6 +4257,14 @@ int clang_File_isEqual(CXFile file1, CXFile file2) {
   FileEntry *FEnt1 = static_cast<FileEntry *>(file1);
   FileEntry *FEnt2 = static_cast<FileEntry *>(file2);
   return FEnt1->getUniqueID() == FEnt2->getUniqueID();
+}
+
+CXString clang_File_tryGetRealPathName(CXFile SFile) {
+  if (!SFile)
+    return cxstring::createNull();
+
+  FileEntry *FEnt = static_cast<FileEntry *>(SFile);
+  return cxstring::createRef(FEnt->tryGetRealPathName());
 }
 
 //===----------------------------------------------------------------------===//
@@ -5941,7 +5959,7 @@ static SourceRange getRawCursorExtent(CXCursor C) {
   return SourceRange();
 }
 
-/// \brief Retrieves the "raw" cursor extent, which is then extended to include
+/// Retrieves the "raw" cursor extent, which is then extended to include
 /// the decl-specifier-seq for declarations.
 static SourceRange getFullCursorExtent(CXCursor C, SourceManager &SrcMgr) {
   if (clang_isDeclaration(C.kind)) {
@@ -6751,7 +6769,7 @@ public:
   bool postVisitChildren(CXCursor cursor);
   void AnnotateTokens();
   
-  /// \brief Determine whether the annotator saw any cursors that have 
+  /// Determine whether the annotator saw any cursors that have 
   /// context-sensitive keywords.
   bool hasContextSensitiveKeywords() const {
     return HasContextSensitiveKeywords;
@@ -6776,7 +6794,7 @@ static inline void updateCursorAnnotation(CXCursor &Cursor,
   Cursor = updateC;
 }
 
-/// \brief It annotates and advances tokens with a cursor until the comparison
+/// It annotates and advances tokens with a cursor until the comparison
 //// between the cursor location and the source range is the same as
 /// \arg compResult.
 ///
@@ -6801,7 +6819,7 @@ void AnnotateTokensWorker::annotateAndAdvanceTokens(CXCursor updateC,
   }
 }
 
-/// \brief Special annotation handling for macro argument tokens.
+/// Special annotation handling for macro argument tokens.
 /// \returns true if it advanced beyond all macro tokens, false otherwise.
 bool AnnotateTokensWorker::annotateAndAdvanceFunctionMacroTokens(
                                                CXCursor updateC,
@@ -7045,7 +7063,7 @@ static bool AnnotateTokensPostChildrenVisitor(CXCursor cursor,
 
 namespace {
 
-/// \brief Uses the macro expansions in the preprocessing record to find
+/// Uses the macro expansions in the preprocessing record to find
 /// and mark tokens that are macro arguments. This info is used by the
 /// AnnotateTokensWorker.
 class MarkMacroArgTokensVisitor {
@@ -7120,7 +7138,7 @@ MarkMacroArgTokensVisitorDelegate(CXCursor cursor, CXCursor parent,
                                                                      parent);
 }
 
-/// \brief Used by \c annotatePreprocessorTokens.
+/// Used by \c annotatePreprocessorTokens.
 /// \returns true if lexing was finished, false otherwise.
 static bool lexNext(Lexer &Lex, Token &Tok,
                    unsigned &NextIdx, unsigned NumTokens) {
@@ -7694,8 +7712,8 @@ CXTLSKind clang_getCursorTLSKind(CXCursor cursor) {
   return CXTLS_None;
 }
 
- /// \brief If the given cursor is the "templated" declaration
- /// descibing a class or function template, return the class or
+ /// If the given cursor is the "templated" declaration
+ /// describing a class or function template, return the class or
  /// function template.
 static const Decl *maybeGetTemplateCursor(const Decl *D) {
   if (!D)
@@ -8464,7 +8482,7 @@ void cxindex::printDiagsToStderr(ASTUnit *Unit) {
     fprintf(stderr, "%s\n", clang_getCString(Msg));
     clang_disposeString(Msg);
   }
-#ifdef LLVM_ON_WIN32
+#ifdef _WIN32
   // On Windows, force a flush, since there may be multiple copies of
   // stderr and stdout in the file system, all with different buffers
   // but writing to the same device.

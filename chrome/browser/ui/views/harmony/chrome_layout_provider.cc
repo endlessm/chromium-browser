@@ -38,8 +38,7 @@ ChromeLayoutProvider* ChromeLayoutProvider::Get() {
 // static
 std::unique_ptr<views::LayoutProvider>
 ChromeLayoutProvider::CreateLayoutProvider() {
-  if (ui::MaterialDesignController::GetMode() ==
-      ui::MaterialDesignController::MATERIAL_REFRESH)
+  if (ui::MaterialDesignController::IsRefreshUi())
     return std::make_unique<MaterialRefreshLayoutProvider>();
   return ui::MaterialDesignController::IsSecondaryUiMaterial()
              ? std::make_unique<HarmonyLayoutProvider>()
@@ -52,6 +51,10 @@ gfx::Insets ChromeLayoutProvider::GetInsetsMetric(int metric) const {
       return gfx::Insets(3);
     case ChromeInsetsMetric::INSETS_TOAST:
       return gfx::Insets(0, 8);
+    case INSETS_BOOKMARKS_BAR_BUTTON:
+      if (ui::MaterialDesignController::IsTouchOptimizedUiEnabled())
+        return gfx::Insets(8, 12);
+      return GetInsetsMetric(views::InsetsMetric::INSETS_LABEL_BUTTON);
     default:
       return views::LayoutProvider::GetInsetsMetric(metric);
   }
@@ -117,19 +120,4 @@ bool ChromeLayoutProvider::ShouldShowWindowIcon() const {
 
 bool ChromeLayoutProvider::IsHarmonyMode() const {
   return false;
-}
-
-int ChromeLayoutProvider::GetCornerRadiusMetric(
-    ChromeEmphasisMetric emphasis_metric,
-    const gfx::Rect& bounds) const {
-  // Use the current fixed value for non-EMPHASIS_HIGH.
-  return emphasis_metric == EMPHASIS_HIGH
-             ? std::min(bounds.width(), bounds.height()) / 2
-             : 4;
-}
-
-int ChromeLayoutProvider::GetShadowElevationMetric(
-    ChromeEmphasisMetric emphasis_metric) const {
-  // Just return a value for now.
-  return 2;
 }

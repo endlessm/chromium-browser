@@ -11,6 +11,9 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 
+#include <algorithm>
+#include <iterator>
+
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
@@ -275,7 +278,7 @@ bool InstallUtil::IsPerUserInstall() {
 bool InstallUtil::IsFirstRunSentinelPresent() {
   // TODO(msw): Consolidate with first_run::internal::IsFirstRunSentinelPresent.
   base::FilePath user_data_dir;
-  return !PathService::Get(chrome::DIR_USER_DATA, &user_data_dir) ||
+  return !base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir) ||
          base::PathExists(user_data_dir.Append(chrome::kFirstRunSentinel));
 }
 
@@ -325,7 +328,7 @@ base::string16 InstallUtil::GetToastActivatorRegistryPath() {
 // static
 bool InstallUtil::GetEULASentinelFilePath(base::FilePath* path) {
   base::FilePath user_data_dir;
-  if (!PathService::Get(chrome::DIR_USER_DATA, &user_data_dir))
+  if (!base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir))
     return false;
   *path = user_data_dir.Append(installer::kEULASentinelFile);
   return true;
@@ -584,19 +587,20 @@ std::wstring InstallUtil::GetMachineLevelUserCloudPolicyEnrollmentToken() {
                                                             &value_name);
 
   RegKey key;
-  LONG result = key.Open(HKEY_LOCAL_MACHINE, key_path.c_str(), KEY_READ);
+  LONG result = key.Open(HKEY_LOCAL_MACHINE, key_path.c_str(), KEY_QUERY_VALUE);
   if (result != ERROR_SUCCESS) {
-    LOG(ERROR) << "Unable to create registry key HKLM\\" << key_path
-               << " for reading result=" << result;
+    if (result != ERROR_FILE_NOT_FOUND) {
+      ::SetLastError(result);
+      PLOG(ERROR) << "Failed to open HKLM\\" << key_path;
+    }
     return std::wstring();
   }
 
   std::wstring value;
   result = key.ReadValue(value_name.c_str(), &value);
   if (result != ERROR_SUCCESS) {
-    LOG(ERROR) << "Unable to read registry value HKLM\\" << key_path
-               << "\\" << value_name << " for writing result=" << result;
-    return std::wstring();
+    ::SetLastError(result);
+    PLOG(ERROR) << "Failed to read HKLM\\" << key_path << "\\" << value_name;
   }
 
   return value;
@@ -655,4 +659,26 @@ bool InstallUtil::ProgramCompare::EvaluatePath(
           info.dwVolumeSerialNumber == file_info_.dwVolumeSerialNumber &&
           info.nFileIndexHigh == file_info_.nFileIndexHigh &&
           info.nFileIndexLow == file_info_.nFileIndexLow);
+}
+
+// static
+base::string16 InstallUtil::GuidToSquid(base::StringPiece16 guid) {
+  base::string16 squid;
+  squid.reserve(32);
+  auto* input = guid.begin();
+  auto output = std::back_inserter(squid);
+
+  // Reverse-copy relevant characters, skipping separators.
+  std::reverse_copy(input + 0, input + 8, output);
+  std::reverse_copy(input + 9, input + 13, output);
+  std::reverse_copy(input + 14, input + 18, output);
+  std::reverse_copy(input + 19, input + 21, output);
+  std::reverse_copy(input + 21, input + 23, output);
+  std::reverse_copy(input + 24, input + 26, output);
+  std::reverse_copy(input + 26, input + 28, output);
+  std::reverse_copy(input + 28, input + 30, output);
+  std::reverse_copy(input + 30, input + 32, output);
+  std::reverse_copy(input + 32, input + 34, output);
+  std::reverse_copy(input + 34, input + 36, output);
+  return squid;
 }

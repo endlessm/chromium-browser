@@ -53,6 +53,7 @@ import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.document.DocumentUtils;
 import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
+import org.chromium.chrome.browser.fullscreen.FullscreenOptions;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabDelegateFactory;
@@ -178,7 +179,8 @@ public class WebappActivity extends SingleTabActivity {
         }
 
         @Override
-        public void onOriginVerified(String packageName, Origin origin, boolean verified) {
+        public void onOriginVerified(String packageName, Origin origin, boolean verified,
+                Boolean online) {
             mVerificationFailed = !verified;
             mOriginVerifier = null;
             if (mVerificationFailed) getFullscreenManager().setPositionsForTabToNonFullscreen();
@@ -342,7 +344,7 @@ public class WebappActivity extends SingleTabActivity {
                 (ToolbarControlContainer) findViewById(R.id.control_container));
         getToolbarManager().initializeWithNative(getTabModelSelector(),
                 getFullscreenManager().getBrowserVisibilityDelegate(), getFindToolbarManager(),
-                null, layoutDriver, null, null, null, view -> onToolbarCloseButtonClicked());
+                null, layoutDriver, null, null, null, view -> onToolbarCloseButtonClicked(), null);
         getToolbarManager().setShowTitle(true);
         getToolbarManager().setCloseButtonDrawable(null); // Hides close button.
 
@@ -381,7 +383,7 @@ public class WebappActivity extends SingleTabActivity {
         BrowserSessionContentUtils.setActiveContentHandler(null);
         if (getActivityTab() != null) saveState(getActivityDirectory());
         if (getFullscreenManager() != null) {
-            getFullscreenManager().setPersistentFullscreenMode(false);
+            getFullscreenManager().exitPersistentFullscreenMode();
         }
         WebApkDisclosureNotificationManager.dismissNotification(this);
     }
@@ -628,9 +630,15 @@ public class WebappActivity extends SingleTabActivity {
         // Disable HTML5 fullscreen in PWA fullscreen mode.
         return new ChromeFullscreenManager(this, ChromeFullscreenManager.CONTROLS_POSITION_TOP) {
             @Override
-            public void setPersistentFullscreenMode(boolean enabled) {
+            public void enterPersistentFullscreenMode(FullscreenOptions options) {
                 if (mWebappInfo.displayMode() == WebDisplayMode.FULLSCREEN) return;
-                super.setPersistentFullscreenMode(enabled);
+                super.enterPersistentFullscreenMode(options);
+            }
+
+            @Override
+            public void exitPersistentFullscreenMode() {
+                if (mWebappInfo.displayMode() == WebDisplayMode.FULLSCREEN) return;
+                super.exitPersistentFullscreenMode();
             }
 
             @Override
@@ -920,7 +928,7 @@ public class WebappActivity extends SingleTabActivity {
 
     @Override
     protected TabDelegate createTabDelegate(boolean incognito) {
-        return new WebappTabDelegate(incognito, getActivityType(), mWebappInfo.apkPackageName());
+        return new WebappTabDelegate(incognito, getActivityType(), getNativeClientPackageName());
     }
 
     // We're temporarily disable CS on webapp since there are some issues. (http://crbug.com/471950)

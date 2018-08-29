@@ -239,16 +239,17 @@ class MetricsPreferenceCheckbox extends PreferenceCheckbox {
         'click', (event) => this.onLearnMoreLinkClicked(event));
     learnMoreLink.addEventListener(
         'keydown', (event) => this.suppressKeyDown(event));
+    // settings-link is used only in privacy section.
     var settingsLink = label.querySelector('#settings-link');
     settingsLink.addEventListener(
-        'click', (event) => this.onSettingsLinkClicked(event));
+        'click', (event) => this.onPrivacySettingsLinkClicked(event));
     settingsLink.addEventListener(
         'keydown', (event) => this.suppressKeyDown(event));
   }
 
-  /** Called when "settings" link is clicked. */
-  onSettingsLinkClicked(event) {
-    sendNativeMessage('onOpenSettingsPageClicked');
+  /** Called when "privacy settings" link is clicked. */
+  onPrivacySettingsLinkClicked(event) {
+    sendNativeMessage('onOpenPrivacySettingsPageClicked');
     event.stopPropagation();
   }
 }
@@ -478,6 +479,19 @@ class TermsOfServicePage {
     return undefined;
   }
 
+  /** Returns user choices and page configuration for processing. */
+  getPageResults_() {
+    return {
+      tosContent: this.tosContent_,
+      tosShown: this.tosShown_,
+      isMetricsEnabled: this.metricsCheckbox_.isChecked(),
+      isBackupRestoreEnabled: this.backupRestoreCheckbox_.isChecked(),
+      isBackupRestoreManaged: this.backupRestoreCheckbox_.isManaged(),
+      isLocationServiceEnabled: this.locationServiceCheckbox_.isChecked(),
+      isLocationServiceManaged: this.locationServiceCheckbox_.isManaged()
+    };
+  }
+
   /** Called when the terms-view starts to be loaded. */
   onTermsViewLoadStarted_() {
     // Note: Reloading can be triggered by user action. E.g., user may select
@@ -554,19 +568,12 @@ class TermsOfServicePage {
 
   /** Called when "AGREE" button is clicked. */
   onAgree() {
-    sendNativeMessage('onAgreed', {
-      tosContent: this.tosContent_,
-      tosShown: this.tosShown_,
-      isMetricsEnabled: this.metricsCheckbox_.isChecked(),
-      isBackupRestoreEnabled: this.backupRestoreCheckbox_.isChecked(),
-      isBackupRestoreManaged: this.backupRestoreCheckbox_.isManaged(),
-      isLocationServiceEnabled: this.locationServiceCheckbox_.isChecked(),
-      isLocationServiceManaged: this.locationServiceCheckbox_.isManaged()
-    });
+    sendNativeMessage('onAgreed', this.getPageResults_());
   }
 
   /** Called when "CANCEL" button is clicked. */
   onCancel_() {
+    sendNativeMessage('onCanceled', this.getPageResults_());
     closeWindow();
   }
 
@@ -727,6 +734,9 @@ function initialize(data, deviceId) {
   activeDirectoryAuthPage =
       new ActiveDirectoryAuthPage(doc.getElementById('active-directory-auth'));
 
+  doc.getElementById('close-button').title =
+      loadTimeData.getString('overlayClose');
+
   adjustTopMargin();
 }
 
@@ -869,7 +879,10 @@ function showErrorPage(errorMessage, opt_shouldShowSendFeedback) {
 function showOverlay(overlayClass) {
   var doc = appWindow.contentWindow.document;
   var overlayContainer = doc.getElementById('overlay-container');
-  overlayContainer.className = 'overlay ' + overlayClass;
+  overlayContainer.classList.remove('overlay-text');
+  overlayContainer.classList.remove('overlay-url');
+  overlayContainer.classList.add('overlay-loading');
+  overlayContainer.classList.add(overlayClass);
   overlayContainer.hidden = false;
   lastFocusedElement = doc.activeElement;
   doc.getElementById('overlay-close').focus();
@@ -983,6 +996,17 @@ chrome.app.runtime.onLaunched.addListener(function() {
     appWindow.contentWindow.cr.ui.overlay.setupOverlay(overlay);
     appWindow.contentWindow.cr.ui.overlay.globalInitialization();
     overlay.addEventListener('cancelOverlay', hideOverlay);
+
+    var overlayWebview = doc.getElementById('overlay-url');
+    overlayWebview.addEventListener('contentload', function() {
+      overlay.classList.remove('overlay-loading');
+    });
+    overlayWebview.addContentScripts([{
+      name: 'postProcess',
+      matches: ['https://support.google.com/*'],
+      css: {files: ['overlay.css']},
+      run_at: 'document_end'
+    }]);
 
     focusManager = new appWindow.contentWindow.ArcOptInFocusManager();
     focusManager.initialize();

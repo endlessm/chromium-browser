@@ -30,6 +30,7 @@
 
 namespace lld {
 namespace elf {
+class Defined;
 class SharedSymbol;
 
 class SyntheticSection : public InputSection {
@@ -51,7 +52,6 @@ public:
   // If any additional finalization of contents are needed post thunk creation.
   virtual void postThunkContents() {}
   virtual bool empty() const { return false; }
-  uint64_t getVA() const;
 
   static bool classof(const SectionBase *D) {
     return D->kind() == InputSectionBase::Synthetic;
@@ -86,6 +86,10 @@ public:
   ArrayRef<CieRecord *> getCieRecords() const { return CieRecords; }
 
 private:
+  // This is used only when parsing EhInputSection. We keep it here to avoid
+  // allocating one for each EhInputSection.
+  llvm::DenseMap<size_t, CieRecord *> OffsetToCie;
+
   uint64_t Size = 0;
 
   template <class ELFT, class RelTy>
@@ -359,6 +363,7 @@ private:
   void add(int32_t Tag, std::function<uint64_t()> Fn);
   void addInt(int32_t Tag, uint64_t Val);
   void addInSec(int32_t Tag, InputSection *Sec);
+  void addInSecRelative(int32_t Tag, InputSection *Sec);
   void addOutSec(int32_t Tag, OutputSection *Sec);
   void addSize(int32_t Tag, OutputSection *Sec);
   void addSym(int32_t Tag, Symbol *Sym);
@@ -669,7 +674,7 @@ template <class ELFT> class VersionNeedSection final : public SyntheticSection {
 
 public:
   VersionNeedSection();
-  void addSymbol(SharedSymbol *SS);
+  void addSymbol(Symbol *Sym);
   void finalizeContents() override;
   void writeTo(uint8_t *Buf) override;
   size_t getSize() const override;
@@ -823,19 +828,21 @@ public:
   size_t getSize() const override { return Size; }
   void writeTo(uint8_t *Buf) override;
   InputSection *getTargetInputSection() const;
+  bool assignOffsets();
 
 private:
-  std::vector<const Thunk *> Thunks;
+  std::vector<Thunk *> Thunks;
   size_t Size = 0;
 };
 
 InputSection *createInterpSection();
 MergeInputSection *createCommentSection();
 void decompressSections();
+template <class ELFT> void splitSections();
 void mergeSections();
 
-Symbol *addSyntheticLocal(StringRef Name, uint8_t Type, uint64_t Value,
-                          uint64_t Size, InputSectionBase &Section);
+Defined *addSyntheticLocal(StringRef Name, uint8_t Type, uint64_t Value,
+                           uint64_t Size, InputSectionBase &Section);
 
 // Linker generated sections which can be used as inputs.
 struct InX {

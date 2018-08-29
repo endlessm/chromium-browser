@@ -124,7 +124,7 @@ class Shell : public WebContentsDelegate,
   WebContents* OpenURLFromTab(WebContents* source,
                               const OpenURLParams& params) override;
   void AddNewContents(WebContents* source,
-                      WebContents* new_contents,
+                      std::unique_ptr<WebContents> new_contents,
                       WindowOpenDisposition disposition,
                       const gfx::Rect& initial_rect,
                       bool user_gesture,
@@ -137,8 +137,10 @@ class Shell : public WebContentsDelegate,
       GetContentVideoViewEmbedder() override;
   void SetOverlayMode(bool use_overlay_mode) override;
 #endif
-  void EnterFullscreenModeForTab(WebContents* web_contents,
-                                 const GURL& origin) override;
+  void EnterFullscreenModeForTab(
+      WebContents* web_contents,
+      const GURL& origin,
+      const blink::WebFullscreenOptions& options) override;
   void ExitFullscreenModeForTab(WebContents* web_contents) override;
   bool IsFullscreenForTabOrPending(
       const WebContents* web_contents) const override;
@@ -171,6 +173,8 @@ class Shell : public WebContentsDelegate,
                                          bool allowed_per_prefs,
                                          const url::Origin& origin,
                                          const GURL& resource_url) override;
+  gfx::Size EnterPictureInPicture(const viz::SurfaceId&,
+                                  const gfx::Size& natural_size) override;
 
   static gfx::Size GetShellDefaultSize();
 
@@ -183,10 +187,10 @@ class Shell : public WebContentsDelegate,
 
   class DevToolsWebContentsObserver;
 
-  explicit Shell(WebContents* web_contents);
+  explicit Shell(std::unique_ptr<WebContents> web_contents);
 
   // Helper to create a new Shell given a newly created WebContents.
-  static Shell* CreateShell(WebContents* web_contents,
+  static Shell* CreateShell(std::unique_ptr<WebContents> web_contents,
                             const gfx::Size& initial_size);
 
   // Helper for one time initialization of application

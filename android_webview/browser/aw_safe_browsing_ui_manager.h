@@ -11,7 +11,7 @@
 
 #include "components/safe_browsing/base_ui_manager.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/weak_wrapper_shared_url_loader_factory.h"
+#include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 
 class PrefService;
 
@@ -42,7 +42,7 @@ class AwSafeBrowsingUIManager : public safe_browsing::BaseUIManager {
   };
 
   // Construction needs to happen on the UI thread.
-  explicit AwSafeBrowsingUIManager(
+  AwSafeBrowsingUIManager(
       AwURLRequestContextGetter* browser_url_request_context_getter,
       PrefService* pref_service);
 
@@ -79,16 +79,19 @@ class AwSafeBrowsingUIManager : public safe_browsing::BaseUIManager {
 
   // The SafeBrowsingURLRequestContextGetter used to access
   // |url_request_context_|. Accessed on UI thread.
+  // This is only valid if the network service is disabled.
   scoped_refptr<safe_browsing::SafeBrowsingURLRequestContextGetter>
       url_request_context_getter_;
 
-  // A wrapper around |url_request_context_getter_| to allow usage of
+  // If the network service is disabled, this is a wrapper around
+  // |url_request_context_getter_|. Otherwise it's what owns the
+  // URLRequestContext inside the network service. This is used by
   // SimpleURLLoader for safe browsing requests.
   std::unique_ptr<safe_browsing::SafeBrowsingNetworkContext> network_context_;
 
   // A SharedURLLoaderFactory and its interfaceptr used on the IO thread.
   network::mojom::URLLoaderFactoryPtr url_loader_factory_on_io_;
-  scoped_refptr<content::WeakWrapperSharedURLLoaderFactory>
+  scoped_refptr<network::WeakWrapperSharedURLLoaderFactory>
       shared_url_loader_factory_on_io_;
 
   // non-owning

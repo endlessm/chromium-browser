@@ -65,8 +65,7 @@ class EasyUnlockServiceRegular
   void LoadRemoteDevices();
 
   // Called when |remote_device_loader_| completes.
-  void OnRemoteDevicesLoaded(
-      const std::vector<cryptauth::RemoteDevice>& remote_devices);
+  void OnRemoteDevicesLoaded(const cryptauth::RemoteDeviceList& remote_devices);
 
   // True if we should promote EasyUnlock.
   bool ShouldPromote();
@@ -84,7 +83,6 @@ class EasyUnlockServiceRegular
   void ClearPermitAccess() override;
   const base::ListValue* GetRemoteDevices() const override;
   void SetRemoteDevices(const base::ListValue& devices) override;
-  void SetRemoteBleDevices(const base::ListValue& devices) override;
   void RunTurnOffFlow() override;
   void ResetTurnOffFlow() override;
   TurnOffFlowStatus GetTurnOffFlowStatus() const override;

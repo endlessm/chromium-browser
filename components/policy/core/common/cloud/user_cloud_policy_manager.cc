@@ -4,11 +4,13 @@
 
 #include "components/policy/core/common/cloud/user_cloud_policy_manager.h"
 
+#include <string>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/sequenced_task_runner.h"
+#include "components/account_id/account_id.h"
 #include "components/crash/core/common/crash_key.h"
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
@@ -46,8 +48,8 @@ void UserCloudPolicyManager::Shutdown() {
   CloudPolicyManager::Shutdown();
 }
 
-void UserCloudPolicyManager::SetSigninUsername(const std::string& username) {
-  store_->SetSigninUsername(username);
+void UserCloudPolicyManager::SetSigninAccountId(const AccountId& account_id) {
+  store_->SetSigninAccountId(account_id);
 }
 
 void UserCloudPolicyManager::Connect(
@@ -84,7 +86,8 @@ UserCloudPolicyManager::CreateCloudPolicyClient(
     scoped_refptr<net::URLRequestContextGetter> request_context) {
   return std::make_unique<CloudPolicyClient>(
       std::string() /* machine_id */, std::string() /* machine_model */,
-      device_management_service, request_context, nullptr /* signing_service */,
+      std::string() /* brand_code */, device_management_service,
+      request_context, nullptr /* signing_service */,
       CloudPolicyClient::DeviceDMTokenCallback());
 }
 

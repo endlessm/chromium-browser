@@ -1350,13 +1350,10 @@ NSRect FlipRectInView(NSView* view, NSRect rect) {
 
   // Take closing tabs into account.
   if (oldContents) {
-    int oldModelIndex =
-        browser_->tab_strip_model()->GetIndexOfWebContents(oldContents);
-    if (oldModelIndex != -1) {  // When closing a tab, the old tab may be gone.
-      NSInteger oldIndex = [self indexFromModelIndex:oldModelIndex];
-      TabContentsController* oldController =
-          [tabContentsArray_ objectAtIndex:oldIndex];
-      [oldController willBecomeUnselectedTab];
+    for (TabContentsController* controller in tabContentsArray_.get()) {
+      if (controller.webContents == oldContents) {
+        [controller willBecomeUnselectedTab];
+      }
     }
   }
 
@@ -1649,12 +1646,6 @@ NSRect FlipRectInView(NSView* view, NSRect rect) {
 
   TabController* tabController = [tabArray_ objectAtIndex:index];
 
-  if (change == TabChangeType::kTitleNotLoading) {
-    [tabController titleChangedNotLoading];
-    // We'll receive another notification of the change asynchronously.
-    return;
-  }
-
   if (change != TabChangeType::kLoadingOnly)
     [self setTabTitle:tabController withContents:contents];
 
@@ -1835,8 +1826,7 @@ NSRect FlipRectInView(NSView* view, NSRect rect) {
   // Insert it into this tab strip. We want it in the foreground and to not
   // inherit the current tab's group.
   tabStripModel_->InsertWebContentsAt(
-      modelIndex,
-      contents,
+      modelIndex, base::WrapUnique(contents),
       (activate ? TabStripModel::ADD_ACTIVE : TabStripModel::ADD_NONE) |
           (pinned ? TabStripModel::ADD_PINNED : TabStripModel::ADD_NONE));
 }

@@ -17,6 +17,7 @@
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/arc/arc_service_launcher.h"
 #include "chrome/browser/chromeos/boot_times_recorder.h"
+#include "chrome/browser/chromeos/child_accounts/screen_time_controller_factory.h"
 #include "chrome/browser/chromeos/lock_screen_apps/state_controller.h"
 #include "chrome/browser/chromeos/login/lock/webui_screen_locker.h"
 #include "chrome/browser/chromeos/login/login_wizard.h"
@@ -27,16 +28,16 @@
 #include "chrome/browser/chromeos/tether/tether_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
+#include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/assistant/buildflags.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager_client.h"
+#include "components/account_id/account_id.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_names.h"
 #include "components/user_manager/user_type.h"
@@ -46,11 +47,6 @@
 #include "content/public/common/service_manager_connection.h"
 #include "services/identity/public/cpp/identity_manager.h"
 #include "services/service_manager/public/cpp/connector.h"
-
-#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
-#include "chrome/browser/chromeos/assistant/assistant_client.h"
-#include "chromeos/services/assistant/public/mojom/constants.mojom.h"
-#endif
 
 namespace chromeos {
 
@@ -129,12 +125,8 @@ void StartUserSession(Profile* user_profile, const std::string& login_user_id) {
     }
     arc::ArcServiceLauncher::Get()->OnPrimaryUserProfilePrepared(user_profile);
 
-#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
-    if (chromeos::switches::IsAssistantEnabled()) {
-      assistant::AssistantClient::Get()->Start(
-          content::BrowserContext::GetConnectorFor(user_profile));
-    }
-#endif
+    if (user->GetType() == user_manager::USER_TYPE_CHILD)
+      ScreenTimeControllerFactory::GetForBrowserContext(user_profile);
 
     // Send the PROFILE_PREPARED notification and call SessionStarted()
     // so that the Launcher and other Profile dependent classes are created.
@@ -163,6 +155,9 @@ void StartUserSession(Profile* user_profile, const std::string& login_user_id) {
     TetherService* tether_service = TetherService::Get(user_profile);
     if (tether_service)
       tether_service->StartTetherIfPossible();
+
+    // Associates AppListClient with the current active profile.
+    AppListClientImpl::GetInstance()->UpdateProfile();
   }
 
   UserSessionManager::GetInstance()->CheckEolStatus(user_profile);

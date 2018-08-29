@@ -14,6 +14,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -77,13 +78,13 @@ class CustomManagePasswordsUIController : public ManagePasswordsUIController {
  private:
   // PasswordsClientUIDelegate:
   void OnPasswordSubmitted(
-      std::unique_ptr<password_manager::PasswordFormManager> form_manager)
+      std::unique_ptr<password_manager::PasswordFormManagerForUI> form_manager)
       override;
   void OnUpdatePasswordSubmitted(
-      std::unique_ptr<password_manager::PasswordFormManager> form_manager)
+      std::unique_ptr<password_manager::PasswordFormManagerForUI> form_manager)
       override;
   void OnShowManualFallbackForSaving(
-      std::unique_ptr<password_manager::PasswordFormManager> form_manager,
+      std::unique_ptr<password_manager::PasswordFormManagerForUI> form_manager,
       bool has_generated_password,
       bool is_update) override;
   void OnHideManualFallbackForSaving() override;
@@ -163,7 +164,7 @@ void CustomManagePasswordsUIController::WaitForFallbackForSaving() {
 }
 
 void CustomManagePasswordsUIController::OnPasswordSubmitted(
-    std::unique_ptr<password_manager::PasswordFormManager> form_manager) {
+    std::unique_ptr<password_manager::PasswordFormManagerForUI> form_manager) {
   was_prompt_automatically_shown_ = true;
   ProcessStateExpectations(password_manager::ui::PENDING_PASSWORD_STATE);
   return ManagePasswordsUIController::OnPasswordSubmitted(
@@ -171,7 +172,7 @@ void CustomManagePasswordsUIController::OnPasswordSubmitted(
 }
 
 void CustomManagePasswordsUIController::OnUpdatePasswordSubmitted(
-    std::unique_ptr<password_manager::PasswordFormManager> form_manager) {
+    std::unique_ptr<password_manager::PasswordFormManagerForUI> form_manager) {
   was_prompt_automatically_shown_ = true;
   ProcessStateExpectations(password_manager::ui::PENDING_PASSWORD_UPDATE_STATE);
   return ManagePasswordsUIController::OnUpdatePasswordSubmitted(
@@ -179,7 +180,7 @@ void CustomManagePasswordsUIController::OnUpdatePasswordSubmitted(
 }
 
 void CustomManagePasswordsUIController::OnShowManualFallbackForSaving(
-    std::unique_ptr<password_manager::PasswordFormManager> form_manager,
+    std::unique_ptr<password_manager::PasswordFormManagerForUI> form_manager,
     bool has_generated_password,
     bool is_update) {
   if (wait_for_fallback_)
@@ -357,7 +358,9 @@ void BubbleObserver::AcceptSavePrompt() const {
 void BubbleObserver::AcceptUpdatePrompt(
     const autofill::PasswordForm& form) const {
   ASSERT_TRUE(IsUpdatePromptAvailable());
-  passwords_ui_controller_->UpdatePassword(form);
+  passwords_ui_controller_->SavePassword(
+      passwords_ui_controller_->GetPendingPassword().username_value,
+      passwords_ui_controller_->GetPendingPassword().password_value);
   EXPECT_FALSE(IsUpdatePromptAvailable());
 }
 
@@ -430,8 +433,10 @@ void PasswordManagerBrowserTestBase::SetUpOnMainThread() {
   // intercept useful UI events.
   content::WebContents* tab =
       browser()->tab_strip_model()->GetActiveWebContents();
-  web_contents_ = content::WebContents::Create(
-      content::WebContents::CreateParams(tab->GetBrowserContext()));
+  std::unique_ptr<content::WebContents> owned_web_contents =
+      content::WebContents::Create(
+          content::WebContents::CreateParams(tab->GetBrowserContext()));
+  web_contents_ = owned_web_contents.get();
   ASSERT_TRUE(web_contents_);
 
   // ManagePasswordsUIController needs ChromePasswordManagerClient for logging.
@@ -442,7 +447,8 @@ void PasswordManagerBrowserTestBase::SetUpOnMainThread() {
   ASSERT_TRUE(ChromePasswordManagerClient::FromWebContents(web_contents_));
   CustomManagePasswordsUIController* controller =
       new CustomManagePasswordsUIController(web_contents_);
-  browser()->tab_strip_model()->AppendWebContents(web_contents_, true);
+  browser()->tab_strip_model()->AppendWebContents(std::move(owned_web_contents),
+                                                  true);
   browser()->tab_strip_model()->CloseWebContentsAt(0,
                                                    TabStripModel::CLOSE_NONE);
   ASSERT_EQ(controller,
@@ -481,42 +487,6 @@ void PasswordManagerBrowserTestBase::NavigateToFile(const std::string& path) {
   GURL url = embedded_test_server()->GetURL(path);
   ui_test_utils::NavigateToURL(browser(), url);
   observer.Wait();
-}
-
-void PasswordManagerBrowserTestBase::VerifyPasswordIsSavedAndFilled(
-    const std::string& filename,
-    const std::string& submission_script,
-    const std::string& expected_element,
-    const std::string& expected_value) {
-  password_manager::TestPasswordStore* password_store =
-      static_cast<password_manager::TestPasswordStore*>(
-          PasswordStoreFactory::GetForProfile(
-              browser()->profile(), ServiceAccessType::IMPLICIT_ACCESS).get());
-  EXPECT_TRUE(password_store->IsEmpty());
-
-  NavigateToFile(filename);
-
-  NavigationObserver observer(WebContents());
-  ASSERT_TRUE(content::ExecuteScript(RenderFrameHost(), submission_script));
-  observer.Wait();
-  WaitForPasswordStore();
-
-  BubbleObserver(WebContents()).AcceptSavePrompt();
-
-  // Spin the message loop to make sure the password store had a chance to save
-  // the password.
-  WaitForPasswordStore();
-  ASSERT_FALSE(password_store->IsEmpty());
-
-  NavigateToFile(filename);
-
-  // Let the user interact with the page, so that DOM gets modification events,
-  // needed for autofilling fields.
-  content::SimulateMouseClickAt(
-      WebContents(), 0, blink::WebMouseEvent::Button::kLeft, gfx::Point(1, 1));
-
-  // Wait until that interaction causes the password value to be revealed.
-  WaitForElementValue(expected_element, expected_value);
 }
 
 void PasswordManagerBrowserTestBase::WaitForElementValue(
@@ -685,8 +655,8 @@ void PasswordManagerBrowserTestBase::AddHSTSHost(const std::string& host) {
 }
 
 void PasswordManagerBrowserTestBase::CheckThatCredentialsStored(
-    const base::string16& username,
-    const base::string16& password) {
+    const std::string& username,
+    const std::string& password) {
   scoped_refptr<password_manager::TestPasswordStore> password_store =
       static_cast<password_manager::TestPasswordStore*>(
           PasswordStoreFactory::GetForProfile(
@@ -697,6 +667,6 @@ void PasswordManagerBrowserTestBase::CheckThatCredentialsStored(
   auto& passwords_vector = passwords_map.begin()->second;
   ASSERT_EQ(1u, passwords_vector.size());
   const autofill::PasswordForm& form = passwords_vector[0];
-  EXPECT_EQ(username, form.username_value);
-  EXPECT_EQ(password, form.password_value);
+  EXPECT_EQ(base::ASCIIToUTF16(username), form.username_value);
+  EXPECT_EQ(base::ASCIIToUTF16(password), form.password_value);
 }

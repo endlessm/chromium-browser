@@ -240,7 +240,7 @@ test.ENTRIES = {
 
 /**
  * Basic entry set for the local volume.
- * @type {Array<TestEntryInfo>}
+ * @type {!Array<!TestEntryInfo>}
  * @const
  */
 test.BASIC_LOCAL_ENTRY_SET = [
@@ -257,7 +257,7 @@ test.BASIC_LOCAL_ENTRY_SET = [
  * TODO(hirono): Add a case for an entry cached by FileCache. For testing
  *               Drive, create more entries with Drive specific attributes.
  *
- * @type {Array<TestEntryInfo>}
+ * @type {!Array<!TestEntryInfo>}
  * @const
  */
 test.BASIC_DRIVE_ENTRY_SET = [
@@ -272,18 +272,35 @@ test.BASIC_DRIVE_ENTRY_SET = [
 ];
 
 /**
- * Interval milliseconds between checks of repeatUntil.
- * @type {number}
+ * Basic entry set for the local volume.
+ * @type {!Array<!TestEntryInfo>}
  * @const
  */
-test.REPEAT_UNTIL_INTERVAL = 200;
+test.CROSTINI_ENTRY_SET = [
+  test.ENTRIES.hello,
+  test.ENTRIES.world,
+];
 
 /**
- * Interval milliseconds between log output of repeatUntil.
+ * Number of times to repeat immediately before waiting REPEAT_UNTIL_INTERVAL.
  * @type {number}
  * @const
  */
-test.LOG_INTERVAL = 3000;
+test.REPEAT_UNTIL_IMMEDIATE_COUNT = 3;
+
+/**
+ * Interval (ms) between checks of repeatUntil.
+ * @type {number}
+ * @const
+ */
+test.REPEAT_UNTIL_INTERVAL = 100;
+
+/**
+ * Interval (ms) between log output of repeatUntil.
+ * @type {number}
+ * @const
+ */
+test.REPEAT_UNTIL_LOG_INTERVAL = 3000;
 
 /**
  * Returns a pending marker. See also the repeatUntil function.
@@ -311,7 +328,7 @@ test.pending = function(message, var_args) {
 };
 
 /**
- * Waits until the checkFunction returns a value but a pending marker.
+ * Waits until the checkFunction returns a value which is not a pending marker.
  * @param {function():*} checkFunction Function to check a condition. It can
  *     return a pending marker created by a pending function.
  * @return {Promise} Promise to be fulfilled with the return value of
@@ -319,21 +336,26 @@ test.pending = function(message, var_args) {
  *     marker.
  */
 test.repeatUntil = function(checkFunction) {
-  var logTime = Date.now() + test.LOG_INTERVAL;
+  var logTime = Date.now() + test.REPEAT_UNTIL_LOG_INTERVAL;
+  var loopCount = 0;
   var step = function() {
+    loopCount++;
     return Promise.resolve(checkFunction()).then(function(result) {
-      if (result instanceof test.pending) {
-        if (Date.now() > logTime) {
-          console.warn(result.message);
-          logTime += test.LOG_INTERVAL;
-        }
-        return new Promise(resolve => {
-                 setTimeout(resolve, test.REPEAT_UNTIL_INTERVAL);
-               })
-            .then(step);
-      } else {
+      if (!(result instanceof test.pending)) {
         return result;
       }
+      if (Date.now() > logTime) {
+        console.warn(result.message);
+        logTime += test.REPEAT_UNTIL_LOG_INTERVAL;
+      }
+      // Repeat immediately for the first few, then wait between repeats.
+      var interval = loopCount <= test.REPEAT_UNTIL_IMMEDIATE_COUNT ?
+          0 :
+          test.REPEAT_UNTIL_INTERVAL;
+      return new Promise(resolve => {
+               setTimeout(resolve, interval);
+             })
+          .then(step);
     });
   };
   return step();
@@ -370,8 +392,8 @@ test.waitForElementLost = function(query) {
 /**
  * Adds specified TestEntryInfos to downloads and drive.
  *
- * @param {!Array<TestEntryInfo} downloads Entries for downloads.
- * @param {!Array<TestEntryInfo} drive Entries for drive.
+ * @param {!Array<!TestEntryInfo>} downloads Entries for downloads.
+ * @param {!Array<!TestEntryInfo>} drive Entries for drive.
  */
 test.addEntries = function(downloads, drive) {
   var fsDownloads =
@@ -398,7 +420,7 @@ test.addEntries = function(downloads, drive) {
 
 /**
  * Waits for the file list turns to the given contents.
- * @param {Array<Array<string>>} expected Expected contents of file list.
+ * @param {!Array<!Array<string>>} expected Expected contents of file list.
  * @param {{orderCheck:boolean=, ignoreName:boolean=, ignoreSize:boolean=,
  *     ignoreType:boolean=,ignoreDate:boolean=}=} opt_options
  *     Options of the comparison. If orderCheck is true, it also compares the

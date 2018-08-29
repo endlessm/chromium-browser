@@ -105,7 +105,7 @@ void MallocHook(const volatile void *ptr, size_t size) {
       return;
     Printf("MALLOC[%zd] %p %zd\n", N, ptr, size);
     if (TraceLevel >= 2 && EF)
-      EF->__sanitizer_print_stack_trace();
+      PrintStackTrace();
   }
 }
 
@@ -118,7 +118,7 @@ void FreeHook(const volatile void *ptr) {
       return;
     Printf("FREE[%zd]   %p\n", N, ptr);
     if (TraceLevel >= 2 && EF)
-      EF->__sanitizer_print_stack_trace();
+      PrintStackTrace();
   }
 }
 
@@ -129,8 +129,7 @@ void Fuzzer::HandleMalloc(size_t Size) {
   Printf("==%d== ERROR: libFuzzer: out-of-memory (malloc(%zd))\n", GetPid(),
          Size);
   Printf("   To change the out-of-memory limit use -rss_limit_mb=<N>\n\n");
-  if (EF->__sanitizer_print_stack_trace)
-    EF->__sanitizer_print_stack_trace();
+  PrintStackTrace();
   DumpCurrentUnit("oom-");
   Printf("SUMMARY: libFuzzer: out-of-memory\n");
   PrintFinalStats();
@@ -150,7 +149,6 @@ Fuzzer::Fuzzer(UserCallback CB, InputCorpus &Corpus, MutationDispatcher &MD,
     EF->__sanitizer_install_malloc_and_free_hooks(MallocHook, FreeHook);
   TPC.SetUseCounters(Options.UseCounters);
   TPC.SetUseValueProfile(Options.UseValueProfile);
-  TPC.SetUseClangCoverage(Options.UseClangCoverage);
 
   if (Options.Verbosity)
     TPC.PrintModuleInfo();
@@ -161,6 +159,7 @@ Fuzzer::Fuzzer(UserCallback CB, InputCorpus &Corpus, MutationDispatcher &MD,
   AllocateCurrentUnitData();
   CurrentUnitSize = 0;
   memset(BaseSha1, 0, sizeof(BaseSha1));
+  TPC.SetFocusFunction(Options.FocusFunction);
 }
 
 Fuzzer::~Fuzzer() {}
@@ -228,9 +227,10 @@ void Fuzzer::StaticFileSizeExceedCallback() {
 }
 
 void Fuzzer::CrashCallback() {
+  if (EF->__sanitizer_acquire_crash_state)
+    EF->__sanitizer_acquire_crash_state();
   Printf("==%lu== ERROR: libFuzzer: deadly signal\n", GetPid());
-  if (EF->__sanitizer_print_stack_trace)
-    EF->__sanitizer_print_stack_trace();
+  PrintStackTrace();
   Printf("NOTE: libFuzzer has rudimentary signal handlers.\n"
          "      Combine libFuzzer with AddressSanitizer or similar for better "
          "crash reports.\n");
@@ -243,9 +243,11 @@ void Fuzzer::CrashCallback() {
 void Fuzzer::ExitCallback() {
   if (!RunningCB)
     return; // This exit did not come from the user callback
+  if (EF->__sanitizer_acquire_crash_state &&
+      !EF->__sanitizer_acquire_crash_state())
+    return;
   Printf("==%lu== ERROR: libFuzzer: fuzz target exited\n", GetPid());
-  if (EF->__sanitizer_print_stack_trace)
-    EF->__sanitizer_print_stack_trace();
+  PrintStackTrace();
   Printf("SUMMARY: libFuzzer: fuzz target exited\n");
   DumpCurrentUnit("crash-");
   PrintFinalStats();
@@ -282,14 +284,16 @@ void Fuzzer::AlarmCallback() {
   if (Options.Verbosity >= 2)
     Printf("AlarmCallback %zd\n", Seconds);
   if (Seconds >= (size_t)Options.UnitTimeoutSec) {
+    if (EF->__sanitizer_acquire_crash_state &&
+        !EF->__sanitizer_acquire_crash_state())
+      return;
     Printf("ALARM: working on the last Unit for %zd seconds\n", Seconds);
     Printf("       and the timeout value is %d (use -timeout=N to change)\n",
            Options.UnitTimeoutSec);
     DumpCurrentUnit("timeout-");
     Printf("==%lu== ERROR: libFuzzer: timeout after %d seconds\n", GetPid(),
            Seconds);
-    if (EF->__sanitizer_print_stack_trace)
-      EF->__sanitizer_print_stack_trace();
+    PrintStackTrace();
     Printf("SUMMARY: libFuzzer: timeout\n");
     PrintFinalStats();
     _Exit(Options.TimeoutExitCode); // Stop right now.
@@ -297,12 +301,14 @@ void Fuzzer::AlarmCallback() {
 }
 
 void Fuzzer::RssLimitCallback() {
+  if (EF->__sanitizer_acquire_crash_state &&
+      !EF->__sanitizer_acquire_crash_state())
+    return;
   Printf(
       "==%lu== ERROR: libFuzzer: out-of-memory (used: %zdMb; limit: %zdMb)\n",
       GetPid(), GetPeakRSSMb(), Options.RssLimitMb);
   Printf("   To change the out-of-memory limit use -rss_limit_mb=<N>\n\n");
-  if (EF->__sanitizer_print_memory_profile)
-    EF->__sanitizer_print_memory_profile(95, 8);
+  PrintMemoryProfile();
   DumpCurrentUnit("oom-");
   Printf("SUMMARY: libFuzzer: out-of-memory\n");
   PrintFinalStats();
@@ -328,6 +334,8 @@ void Fuzzer::PrintStats(const char *Where, const char *End, size_t Units) {
       else
         Printf("/%zdMb", N >> 20);
     }
+    if (size_t FF = Corpus.NumInputsThatTouchFocusFunction())
+      Printf(" focus: %zd", FF);
   }
   if (TmpMaxMutationLen)
     Printf(" lim: %zd", TmpMaxMutationLen);
@@ -342,8 +350,6 @@ void Fuzzer::PrintStats(const char *Where, const char *End, size_t Units) {
 void Fuzzer::PrintFinalStats() {
   if (Options.PrintCoverage)
     TPC.PrintCoverage();
-  if (Options.DumpCoverage)
-    TPC.DumpCoverage();
   if (Options.PrintCorpusStats)
     Corpus.PrintStats();
   if (!Options.PrintFinalStats)
@@ -461,6 +467,7 @@ bool Fuzzer::RunOne(const uint8_t *Data, size_t Size, bool MayDeleteFile,
   if (NumNewFeatures) {
     TPC.UpdateObservedPCs();
     Corpus.AddToCorpus({Data, Data + Size}, NumNewFeatures, MayDeleteFile,
+                       TPC.ObservedFocusFunction(),
                        UniqFeatureSetTmp);
     return true;
   }
@@ -730,6 +737,10 @@ void Fuzzer::ReadAndExecuteSeedCorpora(const Vector<std::string> &CorpusDirs) {
   }
 
   PrintStats("INITED");
+  if (!Options.FocusFunction.empty())
+    Printf("INFO: %zd/%zd inputs touch the focus function\n",
+           Corpus.NumInputsThatTouchFocusFunction(), Corpus.size());
+
   if (Corpus.empty()) {
     Printf("ERROR: no interesting inputs were found. "
            "Is the code instrumented for coverage? Exiting.\n");

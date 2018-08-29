@@ -63,7 +63,7 @@ struct AutocompleteMatch {
   // This structure holds the classification information for each span.
   struct ACMatchClassification {
     // The values in here are not mutually exclusive -- use them like a
-    // bitfield.  This also means we use "int" instead of this enum type when
+    // bit field.  This also means we use "int" instead of this enum type when
     // passing the values around, so the compiler doesn't complain.
     //
     // A Java counterpart will be generated for this enum.
@@ -294,6 +294,10 @@ struct AutocompleteMatch {
   TemplateURL* GetTemplateURL(TemplateURLService* template_url_service,
                               bool allow_fallback_to_destination_host) const;
 
+  // Gets the URL for the match image (whether it be an answer or entity). If
+  // there isn't an image URL, returns an empty GURL (test with is_empty()).
+  GURL ImageUrl() const;
+
   // Adds optional information to the |additional_info| dictionary.
   void RecordAdditionalInfo(const std::string& property,
                             const std::string& value);
@@ -390,6 +394,11 @@ struct AutocompleteMatch {
   // be navigable or even valid; it's only meant to be used for detecting
   // duplicates.
   GURL stripped_destination_url;
+
+  // Optional image information. Used for entity suggestions. The dominant color
+  // can be used to paint the image placeholder while fetching the image.
+  std::string image_dominant_color;
+  std::string image_url;
 
   // The main text displayed in the address bar dropdown.
   base::string16 contents;

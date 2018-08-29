@@ -274,8 +274,12 @@ class FullscreenTestBrowserWindow : public TestBrowserWindow,
   void UpdateExclusiveAccessExitBubbleContent(
       const GURL& url,
       ExclusiveAccessBubbleType bubble_type,
-      ExclusiveAccessBubbleHideCallback bubble_first_hide_callback) override {}
+      ExclusiveAccessBubbleHideCallback bubble_first_hide_callback,
+      bool force_update) override {}
   void OnExclusiveAccessUserInput() override {}
+  ExclusiveAccessBubbleViews* GetExclusiveAccessBubble() override {
+    return nullptr;
+  }
 
   void set_toolbar_showing(bool showing) { toolbar_showing_ = showing; }
 
@@ -363,7 +367,8 @@ TEST_F(BrowserCommandControllerFullscreenTest,
     { IDC_SHOW_AS_TAB,             false,    false,     false,     false    },
   };
   const content::NativeWebKeyboardEvent key_event(
-      blink::WebInputEvent::kTypeFirst, 0, 0);
+      blink::WebInputEvent::kTypeFirst, 0,
+      blink::WebInputEvent::GetStaticTimeStampForTests());
   // Defaults for a tabbed browser.
   for (size_t i = 0; i < arraysize(commands); i++) {
     SCOPED_TRACE(commands[i].command_id);

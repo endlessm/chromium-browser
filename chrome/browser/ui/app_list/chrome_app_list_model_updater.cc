@@ -7,41 +7,16 @@
 #include <unordered_map>
 #include <utility>
 
-#include "ash/app_list/model/search/search_model.h"
-#include "ash/app_list/model/search/search_result.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/ui/app_list/app_list_service_impl.h"
+#include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/app_list/chrome_app_list_item.h"
+#include "chrome/browser/ui/app_list/search/chrome_search_result.h"
 #include "chrome/browser/ui/ash/ash_util.h"
 #include "extensions/common/constants.h"
 #include "ui/base/models/menu_model.h"
 
-namespace {
-
-// TODO(hejq): Get rid of these after refactoring ChromeSearchResult.
-ChromeSearchResult* ConvertToChromeSearchResult(
-    app_list::SearchResult* result) {
-  return static_cast<ChromeSearchResult*>(result);
-}
-
-std::vector<std::unique_ptr<app_list::SearchResult>> ConvertToSearchResults(
-    std::vector<std::unique_ptr<ChromeSearchResult>> results) {
-  std::vector<std::unique_ptr<app_list::SearchResult>> ash_results;
-  for (auto& result : results) {
-    ash_results.push_back(
-        base::WrapUnique<app_list::SearchResult>(result.release()));
-  }
-  return ash_results;
-}
-
-}  // namespace
-
 ChromeAppListModelUpdater::ChromeAppListModelUpdater(Profile* profile)
-    : profile_(profile), weak_ptr_factory_(this) {
-  // TODO(hejq): remove this when search migration is done.
-  if (!ash_util::IsRunningInMash())
-    search_model_ = AppListServiceImpl::GetInstance()->GetSearchModelFromAsh();
-}
+    : profile_(profile), weak_ptr_factory_(this) {}
 
 ChromeAppListModelUpdater::~ChromeAppListModelUpdater() {}
 
@@ -51,7 +26,7 @@ void ChromeAppListModelUpdater::SetActive(bool active) {
     return;
 
   app_list_controller_ =
-      active ? AppListServiceImpl::GetInstance()->GetAppListController()
+      active ? AppListClientImpl::GetInstance()->GetAppListController()
              : nullptr;
   if (!app_list_controller_)
     return;
@@ -153,16 +128,21 @@ void ChromeAppListModelUpdater::SetSearchHintText(
 
 void ChromeAppListModelUpdater::UpdateSearchBox(const base::string16& text,
                                                 bool initiated_by_user) {
-  if (!ash_util::IsRunningInMash())
-    search_model_->search_box()->Update(text, initiated_by_user);
-  else if (app_list_controller_)
-    app_list_controller_->UpdateSearchBox(text, initiated_by_user);
+  if (!app_list_controller_)
+    return;
+  app_list_controller_->UpdateSearchBox(text, initiated_by_user);
 }
 
 void ChromeAppListModelUpdater::PublishSearchResults(
-    std::vector<std::unique_ptr<ChromeSearchResult>> results) {
-  if (!ash_util::IsRunningInMash())
-    search_model_->PublishResults(ConvertToSearchResults(std::move(results)));
+    const std::vector<ChromeSearchResult*>& results) {
+  for (auto* const result : results)
+    result->set_model_updater(this);
+  if (!app_list_controller_)
+    return;
+  std::vector<ash::mojom::SearchResultMetadataPtr> result_data;
+  for (auto* result : results)
+    result_data.push_back(result->CloneMetadata());
+  app_list_controller_->PublishSearchResults(std::move(result_data));
 }
 
 void ChromeAppListModelUpdater::ActivateChromeItem(const std::string& id,
@@ -275,6 +255,41 @@ void ChromeAppListModelUpdater::SetItemPercentDownloaded(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Methods only used by ChromeSearchResult that talk to ash directly.
+
+void ChromeAppListModelUpdater::SetSearchResultMetadata(
+    const std::string& id,
+    ash::mojom::SearchResultMetadataPtr metadata) {
+  if (!app_list_controller_)
+    return;
+  app_list_controller_->SetSearchResultMetadata(std::move(metadata));
+}
+
+void ChromeAppListModelUpdater::SetSearchResultIsInstalling(
+    const std::string& id,
+    bool is_installing) {
+  if (!app_list_controller_)
+    return;
+  app_list_controller_->SetSearchResultIsInstalling(id, is_installing);
+}
+
+void ChromeAppListModelUpdater::SetSearchResultPercentDownloaded(
+    const std::string& id,
+    int percent_downloaded) {
+  if (!app_list_controller_)
+    return;
+  app_list_controller_->SetSearchResultPercentDownloaded(id,
+                                                         percent_downloaded);
+}
+
+void ChromeAppListModelUpdater::NotifySearchResultItemInstalled(
+    const std::string& id) {
+  if (!app_list_controller_)
+    return;
+  app_list_controller_->NotifySearchResultItemInstalled(id);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // Methods for item querying
 
 ChromeAppListItem* ChromeAppListModelUpdater::FindItem(const std::string& id) {
@@ -312,9 +327,7 @@ bool ChromeAppListModelUpdater::FindItemIndexForTest(const std::string& id,
 }
 
 bool ChromeAppListModelUpdater::SearchEngineIsGoogle() {
-  if (!ash_util::IsRunningInMash())
-    return search_model_->search_engine_is_google();
-  return false;
+  return search_engine_is_google_;
 }
 
 void ChromeAppListModelUpdater::GetIdToAppListIndexMap(
@@ -323,7 +336,7 @@ void ChromeAppListModelUpdater::GetIdToAppListIndexMap(
     return;
   app_list_controller_->GetIdToAppListIndexMap(base::BindOnce(
       [](GetIdToAppListIndexMapCallback callback,
-         const std::unordered_map<std::string, uint16_t>& indexes) {
+         const base::flat_map<std::string, uint16_t>& indexes) {
         std::move(callback).Run(indexes);
       },
       std::move(callback)));
@@ -338,14 +351,17 @@ size_t ChromeAppListModelUpdater::BadgedItemCount() {
   return count;
 }
 
-ui::MenuModel* ChromeAppListModelUpdater::GetContextMenuModel(
-    const std::string& id) {
+void ChromeAppListModelUpdater::GetContextMenuModel(
+    const std::string& id,
+    GetMenuModelCallback callback) {
   ChromeAppListItem* item = FindItem(id);
   // TODO(stevenjb/jennyz): Implement this for folder items.
   // TODO(newcomer): Add histograms for folder items.
-  if (!item || item->is_folder())
-    return nullptr;
-  return item->GetContextMenuModel();
+  if (!item || item->is_folder()) {
+    std::move(callback).Run(nullptr);
+    return;
+  }
+  item->GetContextMenuModel(std::move(callback));
 }
 
 void ChromeAppListModelUpdater::ContextMenuItemSelected(const std::string& id,
@@ -354,33 +370,6 @@ void ChromeAppListModelUpdater::ContextMenuItemSelected(const std::string& id,
   ChromeAppListItem* chrome_item = FindItem(id);
   if (chrome_item)
     chrome_item->ContextMenuItemSelected(command_id, event_flags);
-}
-
-ChromeSearchResult* ChromeAppListModelUpdater::FindSearchResult(
-    const std::string& result_id) {
-  return search_model_ ? ConvertToChromeSearchResult(
-                             search_model_->FindSearchResult(result_id))
-                       : nullptr;
-}
-
-ChromeSearchResult* ChromeAppListModelUpdater::GetResultByTitle(
-    const std::string& title) {
-  if (!search_model_)
-    return nullptr;
-
-  base::string16 target_title = base::ASCIIToUTF16(title);
-  // TODO(hejq): Currently we use a search result's type and diaplay type to
-  //             check whether it's a result of uninstalled result. We might
-  //             have an attribute to do this when we refactor SearchResult.
-  for (const auto& result : *search_model_->results()) {
-    if (result->title() == target_title &&
-        result->result_type() == ash::SearchResultType::kInstalledApp &&
-        result->display_type() !=
-            ash::SearchResultDisplayType::kRecommendation) {
-      return ConvertToChromeSearchResult(result.get());
-    }
-  }
-  return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

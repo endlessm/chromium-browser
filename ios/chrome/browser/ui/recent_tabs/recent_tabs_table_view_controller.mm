@@ -8,6 +8,7 @@
 #include "base/mac/foundation_util.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
+#import "base/numerics/safe_conversions.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/browser_sync/profile_sync_service.h"
 #include "components/sessions/core/tab_restore_service.h"
@@ -29,10 +30,16 @@
 #import "ios/chrome/browser/ui/ntp/recent_tabs/recent_tabs_constants.h"
 #import "ios/chrome/browser/ui/ntp/recent_tabs/recent_tabs_handset_view_controller.h"
 #include "ios/chrome/browser/ui/ntp/recent_tabs/synced_sessions.h"
+#import "ios/chrome/browser/ui/recent_tabs/recent_tabs_image_data_source.h"
 #import "ios/chrome/browser/ui/settings/sync_utils/sync_presenter.h"
+#import "ios/chrome/browser/ui/settings/sync_utils/sync_util.h"
 #import "ios/chrome/browser/ui/signin_interaction/public/signin_presenter.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_accessory_item.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_activity_indicator_header_footer_item.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_disclosure_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_signin_promo_item.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_text_button_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_url_item.h"
 #include "ios/chrome/browser/ui/ui_util.h"
@@ -64,7 +71,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   ItemTypeOtherDevicesSyncOff,
   ItemTypeOtherDevicesNoSessions,
   ItemTypeOtherDevicesSigninPromo,
-  ItemTypeOtherDevicesSyncInProgress,
+  ItemTypeOtherDevicesSyncInProgressHeader,
   ItemTypeSessionHeader,
   ItemTypeSessionTabData,
   ItemTypeShowFullHistory,
@@ -87,6 +94,7 @@ const int kRelativeTimeMaxHours = 4;
 @interface RecentTabsTableViewController ()<SigninPromoViewConsumer,
                                             SigninPresenter,
                                             SyncPresenter,
+                                            TextButtonItemDelegate,
                                             UIGestureRecognizerDelegate> {
   std::unique_ptr<synced_sessions::SyncedSessions> _syncedSessions;
 }
@@ -107,6 +115,7 @@ const int kRelativeTimeMaxHours = 4;
 @synthesize delegate = delegate_;
 @synthesize dispatcher = _dispatcher;
 @synthesize handsetCommandHandler = _handsetCommandHandler;
+@synthesize imageDataSource = _imageDataSource;
 @synthesize lastTappedHeaderSectionIdentifier =
     _lastTappedHeaderSectionIdentifier;
 @synthesize loader = _loader;
@@ -117,7 +126,8 @@ const int kRelativeTimeMaxHours = 4;
 #pragma mark - Public Interface
 
 - (instancetype)init {
-  self = [super initWithStyle:UITableViewStylePlain];
+  self = [super initWithTableViewStyle:UITableViewStylePlain
+                           appBarStyle:ChromeTableViewControllerStyleNoAppBar];
   if (self) {
     _sessionState = SessionsSyncUserState::USER_SIGNED_OUT;
     _syncedSessions.reset(new synced_sessions::SyncedSessions());
@@ -153,6 +163,12 @@ const int kRelativeTimeMaxHours = 4;
                                               action:@selector(handleTap:)];
   tapGesture.delegate = self;
   [self.tableView addGestureRecognizer:tapGesture];
+
+  // If the NavigationBar is not translucent, set
+  // |self.extendedLayoutIncludesOpaqueBars| to YES in order to avoid a top
+  // margin inset on the |_tableViewController| subview.
+  self.extendedLayoutIncludesOpaqueBars = YES;
+  self.title = l10n_util::GetNSString(IDS_IOS_CONTENT_SUGGESTIONS_RECENT_TABS);
 }
 
 #pragma mark - TableViewModel
@@ -184,15 +200,17 @@ const int kRelativeTimeMaxHours = 4;
   header.text = l10n_util::GetNSString(IDS_IOS_RECENT_TABS_RECENTLY_CLOSED);
   [model setHeader:header
       forSectionWithIdentifier:SectionIdentifierRecentlyClosedTabs];
+  header.collapsed = [self.tableViewModel
+      sectionIsCollapsed:SectionIdentifierRecentlyClosedTabs];
 
   // Add Recently Closed Tabs Cells.
   [self addRecentlyClosedTabItems];
 
   // Add show full history item last.
-  TableViewURLItem* historyItem =
-      [[TableViewURLItem alloc] initWithType:ItemTypeShowFullHistory];
+  TableViewAccessoryItem* historyItem =
+      [[TableViewAccessoryItem alloc] initWithType:ItemTypeShowFullHistory];
   historyItem.title = l10n_util::GetNSString(IDS_HISTORY_SHOWFULLHISTORY_LINK);
-  historyItem.favicon = [UIImage imageNamed:@"show_history"];
+  historyItem.image = [UIImage imageNamed:@"show_history"];
   [model addItem:historyItem
       toSectionWithIdentifier:SectionIdentifierRecentlyClosedTabs];
 }
@@ -200,48 +218,21 @@ const int kRelativeTimeMaxHours = 4;
 - (void)addRecentlyClosedTabItems {
   if (!self.tabRestoreService)
     return;
-
-  // Note that std:list<> can only be accessed sequentially, which is
-  // suboptimal when using Cocoa table APIs. This list doesn't appear
-  // to get very long, so it probably won't matter for perf.
   for (auto iter = self.tabRestoreService->entries().begin();
        iter != self.tabRestoreService->entries().end(); ++iter) {
-    DCHECK(iter->get());
     const sessions::TabRestoreService::Entry* entry = iter->get();
     DCHECK(entry);
-    // Use the page's title for the label, or its URL if title is empty.
-    NSString* entryTitle;
-    NSString* entryURL = @"";
-    GURL entryGURL;
-    switch (entry->type) {
-      case sessions::TabRestoreService::TAB: {
-        const sessions::TabRestoreService::Tab* tab =
-            static_cast<const sessions::TabRestoreService::Tab*>(entry);
-        const sessions::SerializedNavigationEntry& entry =
-            tab->navigations[tab->current_navigation_index];
-        // Use the page's title for the label, or its URL if title is empty.
-        if (entry.title().size()) {
-          entryTitle = base::SysUTF16ToNSString(entry.title());
-          entryURL = base::SysUTF8ToNSString(entry.virtual_url().spec());
-        } else {
-          entryTitle = base::SysUTF8ToNSString(entry.virtual_url().spec());
-        }
-        entryGURL = entry.virtual_url();
-        break;
-      }
-      case sessions::TabRestoreService::WINDOW: {
-        // Only TAB type is handled.
-        entryTitle = @"Window type - NOTIMPLEMENTED";
-        break;
-      }
-    }
+    DCHECK_EQ(sessions::TabRestoreService::TAB, entry->type);
+    const sessions::TabRestoreService::Tab* tab =
+        static_cast<const sessions::TabRestoreService::Tab*>(entry);
+    const sessions::SerializedNavigationEntry& navigationEntry =
+        tab->navigations[tab->current_navigation_index];
 
     // Configure and add the Item.
     TableViewURLItem* recentlyClosedTab =
         [[TableViewURLItem alloc] initWithType:ItemTypeRecentlyClosed];
-    recentlyClosedTab.favicon = [UIImage imageNamed:@"default_favicon"];
-    recentlyClosedTab.title = entryTitle;
-    recentlyClosedTab.URL = entryURL;
+    recentlyClosedTab.title = base::SysUTF16ToNSString(navigationEntry.title());
+    recentlyClosedTab.URL = navigationEntry.virtual_url();
     [self.tableViewModel addItem:recentlyClosedTab
          toSectionWithIdentifier:SectionIdentifierRecentlyClosedTabs];
   }
@@ -291,6 +282,7 @@ const int kRelativeTimeMaxHours = 4;
     header.subtitleText = l10n_util::GetNSStringF(
         IDS_IOS_OPEN_TABS_LAST_USED,
         base::SysNSStringToUTF16([self lastSyncStringForSesssion:session]));
+    header.collapsed = [model sectionIsCollapsed:sessionIdentifier];
     [model setHeader:header forSectionWithIdentifier:sessionIdentifier];
     [self addItemsForSession:session];
   }
@@ -298,17 +290,15 @@ const int kRelativeTimeMaxHours = 4;
 
 - (void)addItemsForSession:(synced_sessions::DistantSession const*)session {
   TableViewModel* model = self.tableViewModel;
-  NSInteger numberOfTabs = static_cast<NSInteger>(session->tabs.size());
+  NSInteger numberOfTabs = base::checked_cast<NSInteger>(session->tabs.size());
   for (int i = 0; i < numberOfTabs; i++) {
     synced_sessions::DistantTab const* sessionTab = session->tabs[i].get();
     NSString* title = base::SysUTF16ToNSString(sessionTab->title);
-    GURL url = sessionTab->virtual_url;
 
     TableViewURLItem* sessionTabItem =
         [[TableViewURLItem alloc] initWithType:ItemTypeSessionTabData];
-    sessionTabItem.favicon = [UIImage imageNamed:@"default_favicon"];
     sessionTabItem.title = title;
-    sessionTabItem.URL = base::SysUTF8ToNSString(url.host());
+    sessionTabItem.URL = sessionTab->virtual_url;
     [model addItem:sessionTabItem
         toSectionWithIdentifier:[self sectionIdentifierForSession:session]];
   }
@@ -375,12 +365,28 @@ const int kRelativeTimeMaxHours = 4;
   [model addSectionWithIdentifier:SectionIdentifierOtherDevices];
   [model setSectionIdentifier:SectionIdentifierOtherDevices
                  collapsedKey:kOtherDeviceCollapsedKey];
-  TableViewDisclosureHeaderFooterItem* header =
-      [[TableViewDisclosureHeaderFooterItem alloc]
-          initWithType:ItemTypeRecentlyClosedHeader];
-  header.text = l10n_util::GetNSString(IDS_IOS_RECENT_TABS_OTHER_DEVICES);
-  [model setHeader:header
-      forSectionWithIdentifier:SectionIdentifierOtherDevices];
+  // If user is not signed in, show disclosure view section header so that they
+  // know they can collapse the signin prompt section
+  if (state == SessionsSyncUserState::USER_SIGNED_IN_SYNC_IN_PROGRESS) {
+    TableViewActivityIndicatorHeaderFooterItem* header =
+        [[TableViewActivityIndicatorHeaderFooterItem alloc]
+            initWithType:ItemTypeOtherDevicesSyncInProgressHeader];
+    header.text = l10n_util::GetNSString(IDS_IOS_RECENT_TABS_OTHER_DEVICES);
+    header.subtitleText =
+        l10n_util::GetNSString(IDS_IOS_RECENT_TABS_SYNC_IN_PROGRESS);
+    [model setHeader:header
+        forSectionWithIdentifier:SectionIdentifierOtherDevices];
+    return;
+  } else {
+    TableViewDisclosureHeaderFooterItem* header =
+        [[TableViewDisclosureHeaderFooterItem alloc]
+            initWithType:ItemTypeRecentlyClosedHeader];
+    header.text = l10n_util::GetNSString(IDS_IOS_RECENT_TABS_OTHER_DEVICES);
+    [model setHeader:header
+        forSectionWithIdentifier:SectionIdentifierOtherDevices];
+    header.collapsed = [self.tableViewModel
+        sectionIsCollapsed:SectionIdentifierRecentlyClosedTabs];
+  }
 
   // Adds Other Devices item for |state|.
   TableViewTextItem* dummyCell = nil;
@@ -389,11 +395,8 @@ const int kRelativeTimeMaxHours = 4;
       NOTREACHED();
       return;
     case SessionsSyncUserState::USER_SIGNED_IN_SYNC_OFF:
-      dummyCell =
-          [[TableViewTextItem alloc] initWithType:ItemTypeOtherDevicesSyncOff];
-      dummyCell.text =
-          l10n_util::GetNSString(IDS_IOS_OPEN_TABS_ENABLE_SYNC_MOBILE);
-      break;
+      [self addUserSignedSyncOffItem];
+      return;
     case SessionsSyncUserState::USER_SIGNED_IN_SYNC_ON_NO_SESSIONS:
       dummyCell = [[TableViewTextItem alloc]
           initWithType:ItemTypeOtherDevicesNoSessions];
@@ -404,17 +407,30 @@ const int kRelativeTimeMaxHours = 4;
       [self addSigninPromoViewItem];
       return;
     case SessionsSyncUserState::USER_SIGNED_IN_SYNC_IN_PROGRESS:
-      dummyCell = [[TableViewTextItem alloc]
-          initWithType:ItemTypeOtherDevicesSyncInProgress];
-      dummyCell.text = @"Sync in progress";
+      // Informational text in section header. No need for a cell in the
+      // section.
+      NOTREACHED();
+      return;
   }
   [self.tableViewModel addItem:dummyCell
        toSectionWithIdentifier:SectionIdentifierOtherDevices];
 }
 
+- (void)addUserSignedSyncOffItem {
+  TableViewTextButtonItem* signinSyncOffItem = [[TableViewTextButtonItem alloc]
+      initWithType:ItemTypeOtherDevicesSyncOff];
+  signinSyncOffItem.text =
+      l10n_util::GetNSString(IDS_IOS_OPEN_TABS_SYNC_IS_OFF_MOBILE);
+  signinSyncOffItem.buttonText =
+      l10n_util::GetNSString(IDS_IOS_OPEN_TABS_ENABLE_SYNC_MOBILE);
+  signinSyncOffItem.delegate = self;
+  [self.tableViewModel addItem:signinSyncOffItem
+       toSectionWithIdentifier:SectionIdentifierOtherDevices];
+}
+
 - (void)addSigninPromoViewItem {
   // Init|_signinPromoViewMediator| if nil.
-  if (!self.signinPromoViewMediator) {
+  if (!self.signinPromoViewMediator && self.browserState) {
     self.signinPromoViewMediator = [[SigninPromoViewMediator alloc]
         initWithBrowserState:self.browserState
                  accessPoint:signin_metrics::AccessPoint::
@@ -577,7 +593,6 @@ const int kRelativeTimeMaxHours = 4;
     case ItemTypeOtherDevicesSyncOff:
     case ItemTypeOtherDevicesNoSessions:
     case ItemTypeOtherDevicesSigninPromo:
-    case ItemTypeOtherDevicesSyncInProgress:
       break;
   }
 }
@@ -587,13 +602,21 @@ const int kRelativeTimeMaxHours = 4;
 - (UITableViewCell*)tableView:(UITableView*)tableView
         cellForRowAtIndexPath:(NSIndexPath*)indexPath {
   DCHECK_EQ(tableView, self.tableView);
+  UITableViewCell* cell =
+      [super tableView:tableView cellForRowAtIndexPath:indexPath];
   NSInteger itemTypeSelected =
       [self.tableViewModel itemTypeForIndexPath:indexPath];
   // If SigninPromo will be shown, |self.signinPromoViewMediator| must know.
   if (itemTypeSelected == ItemTypeOtherDevicesSigninPromo) {
     [self.signinPromoViewMediator signinPromoViewVisible];
   }
-  return [super tableView:tableView cellForRowAtIndexPath:indexPath];
+  // Retrieve favicons for closed tabs and remote sessions.
+  if (itemTypeSelected == ItemTypeRecentlyClosed ||
+      itemTypeSelected == ItemTypeSessionTabData) {
+    [self loadFaviconForCell:cell indexPath:indexPath];
+  }
+
+  return cell;
 }
 
 #pragma mark - Recently closed tab helpers
@@ -601,7 +624,8 @@ const int kRelativeTimeMaxHours = 4;
 - (NSInteger)numberOfRecentlyClosedTabs {
   if (!self.tabRestoreService)
     return 0;
-  return static_cast<NSInteger>(self.tabRestoreService->entries().size());
+  return base::checked_cast<NSInteger>(
+      self.tabRestoreService->entries().size());
 }
 
 - (const sessions::TabRestoreService::Entry*)tabRestoreEntryAtIndexPath:
@@ -628,6 +652,30 @@ const int kRelativeTimeMaxHours = 4;
 - (CGFloat)tableView:(UITableView*)tableView
     heightForFooterInSection:(NSInteger)section {
   return 1.0;
+}
+
+// Retrieves favicon from FaviconLoader and sets image in URLCell.
+- (void)loadFaviconForCell:(UITableViewCell*)cell
+                 indexPath:(NSIndexPath*)indexPath {
+  TableViewItem* item = [self.tableViewModel itemAtIndexPath:indexPath];
+  DCHECK(item);
+  DCHECK(cell);
+
+  TableViewURLItem* URLItem = base::mac::ObjCCastStrict<TableViewURLItem>(item);
+  TableViewURLCell* URLCell = base::mac::ObjCCastStrict<TableViewURLCell>(cell);
+
+  NSString* itemIdentifier = URLItem.uniqueIdentifier;
+  UIImage* cachedFavicon = [self.imageDataSource
+      faviconForURL:URLItem.URL
+         completion:^(UIImage* favicon) {
+           // Only set favicon if the cell hasn't been reused.
+           if ([URLCell.cellUniqueIdentifier isEqualToString:itemIdentifier]) {
+             DCHECK(favicon);
+             URLCell.faviconView.image = favicon;
+           }
+         }];
+  DCHECK(cachedFavicon);
+  URLCell.faviconView.image = cachedFavicon;
 }
 
 #pragma mark - Distant Sessions helpers
@@ -761,7 +809,6 @@ const int kRelativeTimeMaxHours = 4;
   ProceduralBlock openHistory = ^{
     [weakSelf.dispatcher showHistory];
   };
-  DCHECK(self.handsetCommandHandler);
   [self.handsetCommandHandler dismissRecentTabsWithCompletion:openHistory];
 }
 
@@ -773,15 +820,30 @@ const int kRelativeTimeMaxHours = 4;
     [self toggleExpansionOfSectionIdentifier:
               self.lastTappedHeaderSectionIdentifier];
 
-    // Highlight the section header being tapped.
     NSInteger section = [self.tableViewModel
         sectionForSectionIdentifier:self.lastTappedHeaderSectionIdentifier];
     UITableViewHeaderFooterView* headerView =
         [self.tableView headerViewForSection:section];
-    TableViewDisclosureHeaderFooterView* headerTextView =
-        base::mac::ObjCCastStrict<TableViewDisclosureHeaderFooterView>(
-            headerView);
-    [headerTextView animateHighlight];
+    ListItem* headerItem = [self.tableViewModel headerForSection:section];
+    // Highlight and collapse the section header being tapped.
+    // Don't for the Loading Other Devices section header.
+    if (headerItem.type == ItemTypeRecentlyClosedHeader ||
+        headerItem.type == ItemTypeSessionHeader) {
+      TableViewDisclosureHeaderFooterView* disclosureHeaderView =
+          base::mac::ObjCCastStrict<TableViewDisclosureHeaderFooterView>(
+              headerView);
+      TableViewDisclosureHeaderFooterItem* disclosureItem =
+          base::mac::ObjCCastStrict<TableViewDisclosureHeaderFooterItem>(
+              headerItem);
+      BOOL collapsed = [self.tableViewModel
+          sectionIsCollapsed:[self.tableViewModel
+                                 sectionIdentifierForSection:section]];
+      DisclosureDirection direction =
+          collapsed ? DisclosureDirectionUp : DisclosureDirectionDown;
+
+      [disclosureHeaderView animateHighlightAndRotateToDirection:direction];
+      disclosureItem.collapsed = collapsed;
+    }
   }
 }
 
@@ -823,63 +885,66 @@ const int kRelativeTimeMaxHours = 4;
 
 - (void)handleLongPress:(UILongPressGestureRecognizer*)longPressGesture {
   DCHECK_EQ(self.tableView, longPressGesture.view);
-  if (longPressGesture.state == UIGestureRecognizerStateBegan) {
-    NSInteger sectionIdentifier = self.lastTappedHeaderSectionIdentifier;
-    if (![self isSessionSectionIdentifier:sectionIdentifier]) {
-      // Only handle LongPress for SessionHeaders.
-      return;
-    }
+  if (longPressGesture.state != UIGestureRecognizerStateBegan)
+    return;
+  NSInteger sectionIdentifier = self.lastTappedHeaderSectionIdentifier;
+  // Only handle LongPress for SessionHeaders.
+  if (![self isSessionSectionIdentifier:sectionIdentifier])
+    return;
 
-    // Highlight the section header being long pressed.
-    NSInteger section = [self.tableViewModel
-        sectionForSectionIdentifier:self.lastTappedHeaderSectionIdentifier];
-    UITableViewHeaderFooterView* headerView =
-        [self.tableView headerViewForSection:section];
-    TableViewDisclosureHeaderFooterView* headerTextView =
+  // Highlight the section header being long pressed.
+  NSInteger section = [self.tableViewModel
+      sectionForSectionIdentifier:self.lastTappedHeaderSectionIdentifier];
+  ListItem* headerItem = [self.tableViewModel headerForSection:section];
+  UITableViewHeaderFooterView* headerView =
+      [self.tableView headerViewForSection:section];
+  if (headerItem.type == ItemTypeRecentlyClosedHeader ||
+      headerItem.type == ItemTypeSessionHeader) {
+    TableViewDisclosureHeaderFooterView* textHeaderView =
         base::mac::ObjCCastStrict<TableViewDisclosureHeaderFooterView>(
             headerView);
-    [headerTextView animateHighlight];
-
-    web::ContextMenuParams params;
-    // Get view coordinates in local space.
-    CGPoint viewCoordinate = [longPressGesture locationInView:self.tableView];
-    params.location = viewCoordinate;
-    params.view = self.tableView;
-
-    // Present sheet/popover using controller that is added to view hierarchy.
-    // TODO(crbug.com/754642): Remove TopPresentedViewController().
-    UIViewController* topController =
-        top_view_controller::TopPresentedViewController();
-
-    self.contextMenuCoordinator =
-        [[ContextMenuCoordinator alloc] initWithBaseViewController:topController
-                                                            params:params];
-
-    // Fill the sheet/popover with buttons.
-    __weak RecentTabsTableViewController* weakSelf = self;
-
-    // "Open all tabs" button.
-    NSString* openAllButtonLabel =
-        l10n_util::GetNSString(IDS_IOS_RECENT_TABS_OPEN_ALL_MENU_OPTION);
-    [self.contextMenuCoordinator
-        addItemWithTitle:openAllButtonLabel
-                  action:^{
-                    [weakSelf
-                        openTabsFromSessionSectionIdentifier:sectionIdentifier];
-                  }];
-
-    // "Hide for now" button.
-    NSString* hideButtonLabel =
-        l10n_util::GetNSString(IDS_IOS_RECENT_TABS_HIDE_MENU_OPTION);
-    [self.contextMenuCoordinator
-        addItemWithTitle:hideButtonLabel
-                  action:^{
-                    [weakSelf removeSessionAtSessionSectionIdentifier:
-                                  sectionIdentifier];
-                  }];
-
-    [self.contextMenuCoordinator start];
+    [textHeaderView animateHighlight];
   }
+
+  web::ContextMenuParams params;
+  // Get view coordinates in local space.
+  CGPoint viewCoordinate = [longPressGesture locationInView:self.tableView];
+  params.location = viewCoordinate;
+  params.view = self.tableView;
+
+  // Present sheet/popover using controller that is added to view hierarchy.
+  // TODO(crbug.com/754642): Remove TopPresentedViewController().
+  UIViewController* topController =
+      top_view_controller::TopPresentedViewController();
+
+  self.contextMenuCoordinator =
+      [[ContextMenuCoordinator alloc] initWithBaseViewController:topController
+                                                          params:params];
+
+  // Fill the sheet/popover with buttons.
+  __weak RecentTabsTableViewController* weakSelf = self;
+
+  // "Open all tabs" button.
+  NSString* openAllButtonLabel =
+      l10n_util::GetNSString(IDS_IOS_RECENT_TABS_OPEN_ALL_MENU_OPTION);
+  [self.contextMenuCoordinator
+      addItemWithTitle:openAllButtonLabel
+                action:^{
+                  [weakSelf
+                      openTabsFromSessionSectionIdentifier:sectionIdentifier];
+                }];
+
+  // "Hide for now" button.
+  NSString* hideButtonLabel =
+      l10n_util::GetNSString(IDS_IOS_RECENT_TABS_HIDE_MENU_OPTION);
+  [self.contextMenuCoordinator
+      addItemWithTitle:hideButtonLabel
+                action:^{
+                  [weakSelf removeSessionAtSessionSectionIdentifier:
+                                sectionIdentifier];
+                }];
+
+  [self.contextMenuCoordinator start];
 }
 
 - (void)openTabsFromSessionSectionIdentifier:(NSInteger)sectionIdentifier {
@@ -1001,6 +1066,20 @@ const int kRelativeTimeMaxHours = 4;
 
 - (void)showSyncPassphraseSettings {
   [self.dispatcher showSyncPassphraseSettingsFromViewController:self];
+}
+
+#pragma mark - TextButtonItemDelegate
+
+- (void)performButtonAction {
+  SyncSetupService::SyncServiceState syncState =
+      GetSyncStateForBrowserState(_browserState);
+  if (ShouldShowSyncSignin(syncState)) {
+    [self showReauthenticateSignin];
+  } else if (ShouldShowSyncSettings(syncState)) {
+    [self showSyncSettings];
+  } else if (ShouldShowSyncPassphraseSettings(syncState)) {
+    [self showSyncPassphraseSettings];
+  }
 }
 
 #pragma mark - SigninPresenter

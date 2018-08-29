@@ -165,7 +165,9 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
 
   // Returns whether the navigation corresponding to |request| should be allowed
   // to continue by asking its policy deciders. Defaults to true.
-  bool ShouldAllowRequest(NSURLRequest* request, ui::PageTransition transition);
+  bool ShouldAllowRequest(NSURLRequest* request,
+                          ui::PageTransition transition,
+                          bool from_main_frame);
   // Returns whether the navigation corresponding to |response| should be
   // allowed to continue by asking its policy deciders. Defaults to true.
   bool ShouldAllowResponse(NSURLResponse* response, bool for_main_frame);
@@ -205,7 +207,7 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
   CRWJSInjectionReceiver* GetJSInjectionReceiver() const override;
   void ExecuteJavaScript(const base::string16& javascript) override;
   void ExecuteJavaScript(const base::string16& javascript,
-                         const JavaScriptResultCallback& callback) override;
+                         JavaScriptResultCallback callback) override;
   void ExecuteUserJavaScript(NSString* javaScript) override;
   const std::string& GetContentsMimeType() const override;
   bool ContentIsHTML() const override;
@@ -280,8 +282,8 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
   // NavigationManagerDelegate:
   void ClearTransientContent() override;
   void RecordPageStateInNavigationItem() override;
-  void OnGoToIndexSameDocumentNavigation(
-      NavigationInitiationType type) override;
+  void OnGoToIndexSameDocumentNavigation(NavigationInitiationType type,
+                                         bool has_user_gesture) override;
   void WillChangeUserAgentType() override;
   void LoadCurrentItem() override;
   void LoadIfNecessary() override;

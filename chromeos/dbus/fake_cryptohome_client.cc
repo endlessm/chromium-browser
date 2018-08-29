@@ -50,16 +50,16 @@ FakeCryptohomeClient::FakeCryptohomeClient()
       system_salt_(GetStubSystemSalt()),
       weak_ptr_factory_(this) {
   base::FilePath cache_path;
-  locked_ = PathService::Get(chromeos::FILE_INSTALL_ATTRIBUTES, &cache_path) &&
-            base::PathExists(cache_path);
+  locked_ =
+      base::PathService::Get(chromeos::FILE_INSTALL_ATTRIBUTES, &cache_path) &&
+      base::PathExists(cache_path);
   if (locked_)
     LoadInstallAttributes();
 }
 
 FakeCryptohomeClient::~FakeCryptohomeClient() = default;
 
-void FakeCryptohomeClient::Init(dbus::Bus* bus) {
-}
+void FakeCryptohomeClient::Init(dbus::Bus* bus) {}
 
 void FakeCryptohomeClient::AddObserver(Observer* observer) {
   observer_list_.AddObserver(observer);
@@ -262,7 +262,7 @@ bool FakeCryptohomeClient::InstallAttributesFinalize(bool* successful) {
   // browser is restarted. This is used for ease of development when device
   // enrollment is required.
   base::FilePath cache_path;
-  if (!PathService::Get(chromeos::FILE_INSTALL_ATTRIBUTES, &cache_path))
+  if (!base::PathService::Get(chromeos::FILE_INSTALL_ATTRIBUTES, &cache_path))
     return false;
 
   cryptohome::SerializedInstallAttributes install_attrs_proto;
@@ -311,6 +311,18 @@ void FakeCryptohomeClient::TpmAttestationIsPrepared(
                     : base::nullopt;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), result));
+}
+
+void FakeCryptohomeClient::TpmAttestationGetEnrollmentId(
+    bool ignore_cache,
+    DBusMethodCallback<TpmAttestationDataResult> callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          std::move(callback),
+          TpmAttestationDataResult{
+              true, ignore_cache ? tpm_attestation_enrollment_id_ignore_cache_
+                                 : tpm_attestation_enrollment_id_}));
 }
 
 void FakeCryptohomeClient::TpmAttestationIsEnrolled(
@@ -510,10 +522,17 @@ void FakeCryptohomeClient::GetKeyDataEx(
   const auto it = key_data_map_.find(cryptohome_id);
   if (it == key_data_map_.end()) {
     reply.set_error(cryptohome::CRYPTOHOME_ERROR_ACCOUNT_NOT_FOUND);
+  } else if (it->second.empty()) {
+    reply.set_error(cryptohome::CRYPTOHOME_ERROR_KEY_NOT_FOUND);
   } else {
-    cryptohome::GetKeyDataReply* key_data_reply =
-        reply.MutableExtension(cryptohome::GetKeyDataReply::reply);
-    *key_data_reply->add_key_data() = it->second;
+    auto key = FindKey(it->second, auth.key().data().label());
+    if (key != it->second.end()) {
+      cryptohome::GetKeyDataReply* key_data_reply =
+          reply.MutableExtension(cryptohome::GetKeyDataReply::reply);
+      *key_data_reply->add_key_data() = key->second.data();
+    } else {
+      reply.set_error(cryptohome::CRYPTOHOME_ERROR_KEY_NOT_FOUND);
+    }
   }
   ReturnProtobufMethodCallback(reply, std::move(callback));
 }
@@ -523,7 +542,25 @@ void FakeCryptohomeClient::CheckKeyEx(
     const cryptohome::AuthorizationRequest& auth,
     const cryptohome::CheckKeyRequest& request,
     DBusMethodCallback<cryptohome::BaseReply> callback) {
-  ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
+  cryptohome::BaseReply reply;
+
+  if (enable_auth_check_) {
+    const auto it = key_data_map_.find(cryptohome_id);
+    if (it == key_data_map_.end()) {
+      reply.set_error(cryptohome::CRYPTOHOME_ERROR_ACCOUNT_NOT_FOUND);
+    } else if (it->second.empty()) {
+      reply.set_error(cryptohome::CRYPTOHOME_ERROR_KEY_NOT_FOUND);
+    } else {
+      auto key = FindKey(it->second, auth.key().data().label());
+      if (key == it->second.end()) {
+        reply.set_error(cryptohome::CRYPTOHOME_ERROR_KEY_NOT_FOUND);
+      } else if (key->second.secret() != auth.key().secret()) {
+        reply.set_error(cryptohome::CRYPTOHOME_ERROR_AUTHORIZATION_KEY_FAILED);
+      }
+    }
+  }
+
+  ReturnProtobufMethodCallback(reply, std::move(callback));
 }
 
 void FakeCryptohomeClient::MountEx(
@@ -540,7 +577,8 @@ void FakeCryptohomeClient::MountEx(
   mount->set_sanitized_username(GetStubSanitizedUsername(cryptohome_id));
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kTestEncryptionMigrationUI) &&
-      !request.to_migrate_from_ecryptfs()) {
+      !request.to_migrate_from_ecryptfs() &&
+      request.force_dircrypto_if_available()) {
     error = cryptohome::CRYPTOHOME_ERROR_MOUNT_OLD_ENCRYPTION;
   }
   reply.set_error(error);
@@ -552,7 +590,7 @@ void FakeCryptohomeClient::AddKeyEx(
     const cryptohome::AuthorizationRequest& auth,
     const cryptohome::AddKeyRequest& request,
     DBusMethodCallback<cryptohome::BaseReply> callback) {
-  key_data_map_.insert(std::make_pair(cryptohome_id, request.key().data()));
+  key_data_map_[cryptohome_id][request.key().data().label()] = request.key();
   ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
 }
 
@@ -561,6 +599,12 @@ void FakeCryptohomeClient::RemoveKeyEx(
     const cryptohome::AuthorizationRequest& auth,
     const cryptohome::RemoveKeyRequest& request,
     DBusMethodCallback<cryptohome::BaseReply> callback) {
+  const auto it = key_data_map_.find(cryptohome_id);
+  if (it != key_data_map_.end()) {
+    auto key = FindKey(it->second, request.key().data().label());
+    if (key != it->second.end())
+      it->second.erase(key);
+  }
   ReturnProtobufMethodCallback(cryptohome::BaseReply(), std::move(callback));
 }
 
@@ -627,6 +671,16 @@ void FakeCryptohomeClient::NeedsDircryptoMigration(
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(callback), needs_dircrypto_migration_));
+}
+
+void FakeCryptohomeClient::GetSupportedKeyPolicies(
+    const cryptohome::GetSupportedKeyPoliciesRequest& request,
+    DBusMethodCallback<cryptohome::BaseReply> callback) {
+  cryptohome::BaseReply reply;
+  cryptohome::GetSupportedKeyPoliciesReply* attr_reply =
+      reply.MutableExtension(cryptohome::GetSupportedKeyPoliciesReply::reply);
+  attr_reply->set_low_entropy_credentials(supports_low_entropy_credentials_);
+  ReturnProtobufMethodCallback(reply, std::move(callback));
 }
 
 void FakeCryptohomeClient::SetServiceIsAvailable(bool is_available) {
@@ -766,7 +820,7 @@ void FakeCryptohomeClient::NotifyDircryptoMigrationProgress(
 bool FakeCryptohomeClient::LoadInstallAttributes() {
   base::FilePath cache_file;
   const bool file_exists =
-      PathService::Get(FILE_INSTALL_ATTRIBUTES, &cache_file) &&
+      base::PathService::Get(FILE_INSTALL_ATTRIBUTES, &cache_file) &&
       base::PathExists(cache_file);
   DCHECK(file_exists);
   // Mostly copied from chrome/browser/chromeos/settings/install_attributes.cc.
@@ -789,6 +843,18 @@ bool FakeCryptohomeClient::LoadInstallAttributes() {
   }
 
   return true;
+}
+
+std::map<std::string, cryptohome::Key>::const_iterator
+FakeCryptohomeClient::FindKey(
+    const std::map<std::string, cryptohome::Key>& keys,
+    const std::string& label) {
+  // Wildcard label.
+  if (label.empty())
+    return keys.begin();
+
+  // Specific label
+  return keys.find(label);
 }
 
 }  // namespace chromeos

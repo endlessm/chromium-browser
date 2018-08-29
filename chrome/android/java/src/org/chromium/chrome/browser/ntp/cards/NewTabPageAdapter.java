@@ -62,7 +62,6 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
     private final @Nullable SignInPromo mSigninPromo;
     private final AllDismissedItem mAllDismissed;
     private final Footer mFooter;
-    private final SpacingItem mBottomSpacer;
 
     /**
      * Creates the adapter that will manage all the cards to display on the NTP.
@@ -116,20 +115,19 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
             mRoot.addChild(mSiteSection);
         }
 
-        mRoot.addChild(mSections);
-        if (mSigninPromo != null) mRoot.addChild(mSigninPromo);
-        mRoot.addChild(mAllDismissed);
+        if (SuggestionsConfig.scrollToLoad()) {
+            // If scroll-to-load is enabled, show the sign-in promo above suggested content.
+            if (mSigninPromo != null) mRoot.addChild(mSigninPromo);
+            mRoot.addChild(mAllDismissed);
+            mRoot.addChild(mSections);
+        } else {
+            mRoot.addChild(mSections);
+            if (mSigninPromo != null) mRoot.addChild(mSigninPromo);
+            mRoot.addChild(mAllDismissed);
+        }
 
         mFooter = new Footer();
         mRoot.addChild(mFooter);
-
-        if (mAboveTheFoldView == null
-                || ChromeFeatureList.isEnabled(ChromeFeatureList.NTP_CONDENSED_LAYOUT)) {
-            mBottomSpacer = null;
-        } else {
-            mBottomSpacer = new SpacingItem();
-            mRoot.addChild(mBottomSpacer);
-        }
 
         mOfflinePageBridge = offlinePageBridge;
 
@@ -167,9 +165,6 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
             case ItemViewType.SNIPPET:
                 return new SnippetArticleViewHolder(mRecyclerView, mContextMenuManager, mUiDelegate,
                         mUiConfig, mOfflinePageBridge);
-
-            case ItemViewType.SPACING:
-                return new NewTabPageViewHolder(SpacingItem.createView(parent));
 
             case ItemViewType.STATUS:
                 return new StatusCardViewHolder(mRecyclerView, mContextMenuManager, mUiConfig);
@@ -240,23 +235,44 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
         return getFirstPositionForType(ItemViewType.HEADER);
     }
 
+    public int getFirstSnippetPosition() {
+        return getFirstPositionForType(ItemViewType.SNIPPET);
+    }
+
+    /**
+     * Returns the position in the adapter of the header to the article suggestions if it exists.
+     * @return The article header position. RecyclerView.NO_POSITION if articles or their header
+     *         does not exist.
+     */
+    public int getArticleHeaderPosition() {
+        SuggestionsSection suggestions = mSections.getSection(KnownCategories.ARTICLES);
+        if (suggestions == null || !suggestions.hasCards()) return RecyclerView.NO_POSITION;
+
+        int articlesRank = RecyclerView.NO_POSITION;
+        int emptySectionCount = 0;
+        int[] categories = mUiDelegate.getSuggestionsSource().getCategories();
+        for (int i = 0; i < categories.length; i++) {
+            // The categories array includes empty sections.
+            if (mSections.getSection(categories[i]) == null) emptySectionCount++;
+            if (categories[i] == KnownCategories.ARTICLES) {
+                articlesRank = i - emptySectionCount;
+                break;
+            }
+        }
+        if (articlesRank == RecyclerView.NO_POSITION) return RecyclerView.NO_POSITION;
+
+        int headerRank = RecyclerView.NO_POSITION;
+        for (int i = 0; i < getItemCount(); i++) {
+            if (getItemViewType(i) == ItemViewType.HEADER && ++headerRank == articlesRank) return i;
+        }
+        return RecyclerView.NO_POSITION;
+    }
+
     public int getFirstCardPosition() {
         for (int i = 0; i < getItemCount(); ++i) {
             if (CardViewHolder.isCard(getItemViewType(i))) return i;
         }
         return RecyclerView.NO_POSITION;
-    }
-
-    int getLastContentItemPosition() {
-        int bottomSpacerPosition = getChildPositionOffset(mBottomSpacer);
-        assert bottomSpacerPosition > 0;
-        return bottomSpacerPosition - 1;
-    }
-
-    int getBottomSpacerPosition() {
-        if (mBottomSpacer == null) return RecyclerView.NO_POSITION;
-
-        return getChildPositionOffset(mBottomSpacer);
     }
 
     private void updateAllDismissedVisibility() {
@@ -271,10 +287,6 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
         mAllDismissed.setVisible(areRemoteSuggestionsEnabled && allDismissed);
         mFooter.setVisible(!SuggestionsConfig.scrollToLoad() && !allDismissed
                 && (areRemoteSuggestionsEnabled || isArticleSectionVisible));
-
-        if (mBottomSpacer != null) {
-            mBottomSpacer.setVisible(areRemoteSuggestionsEnabled || !allDismissed);
-        }
     }
 
     private boolean areArticlesLoading() {
@@ -298,7 +310,6 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
     public void onItemRangeInserted(TreeNode child, int itemPosition, int itemCount) {
         assert child == mRoot;
         notifyItemRangeInserted(itemPosition, itemCount);
-        if (mBottomSpacer != null) mBottomSpacer.refresh();
         if (mRecyclerView != null && FeatureUtilities.isChromeHomeEnabled()
                 && mSections.hasRecentlyInsertedContent()) {
             mRecyclerView.highlightContentLength();
@@ -311,7 +322,6 @@ public class NewTabPageAdapter extends Adapter<NewTabPageViewHolder> implements 
     public void onItemRangeRemoved(TreeNode child, int itemPosition, int itemCount) {
         assert child == mRoot;
         notifyItemRangeRemoved(itemPosition, itemCount);
-        if (mBottomSpacer != null) mBottomSpacer.refresh();
 
         updateAllDismissedVisibility();
     }

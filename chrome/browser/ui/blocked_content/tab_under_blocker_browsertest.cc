@@ -10,6 +10,8 @@
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
+#include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/ui/blocked_content/popup_opener_tab_helper.h"
 #include "chrome/browser/ui/blocked_content/tab_under_navigation_throttle.h"
 #include "chrome/browser/ui/browser.h"
@@ -17,6 +19,9 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/content_settings/core/common/content_settings.h"
+#include "components/content_settings/core/common/content_settings_types.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/policy_constants.h"
@@ -24,6 +29,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/test/test_extension_dir.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -35,7 +41,7 @@
 #include "chrome/browser/ui/blocked_content/framebust_block_tab_helper.h"
 #endif
 
-class TabUnderBlockerBrowserTest : public InProcessBrowserTest {
+class TabUnderBlockerBrowserTest : public extensions::ExtensionBrowserTest {
  public:
   TabUnderBlockerBrowserTest() {
     EXPECT_CALL(provider_, IsInitializationComplete(testing::_))
@@ -46,17 +52,19 @@ class TabUnderBlockerBrowserTest : public InProcessBrowserTest {
   ~TabUnderBlockerBrowserTest() override {}
 
   void SetUpOnMainThread() override {
+    extensions::ExtensionBrowserTest::SetUpOnMainThread();
     scoped_feature_list_.InitAndEnableFeature(
         TabUnderNavigationThrottle::kBlockTabUnders);
     host_resolver()->AddRule("*", "127.0.0.1");
     ASSERT_TRUE(embedded_test_server()->Start());
   }
 
-  void UpdatePolicy(bool allow_tab_under) {
+  void UpdatePopupPolicy(ContentSetting popup_setting) {
     policy::PolicyMap policy;
-    policy.Set(policy::key::kTabUnderAllowed, policy::POLICY_LEVEL_MANDATORY,
-               policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
-               std::make_unique<base::Value>(allow_tab_under),
+    policy.Set(policy::key::kDefaultPopupsSetting,
+               policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
+               policy::POLICY_SOURCE_CLOUD,
+               std::make_unique<base::Value>(popup_setting),
                nullptr /* external_data_fetcher */);
     provider_.UpdateChromePolicy(policy);
   }
@@ -196,7 +204,7 @@ IN_PROC_BROWSER_TEST_F(TabUnderBlockerBrowserTest,
 IN_PROC_BROWSER_TEST_F(TabUnderBlockerBrowserTest,
                        ControlledByEnterprisePolicy) {
   // Allow tab-unders via enterprise policy, should disable tab-under blocking.
-  UpdatePolicy(true /* allow_tab_under */);
+  UpdatePopupPolicy(CONTENT_SETTING_ALLOW);
   ui_test_utils::NavigateToURL(browser(),
                                embedded_test_server()->GetURL("/title1.html"));
   content::WebContents* opener =
@@ -224,7 +232,7 @@ IN_PROC_BROWSER_TEST_F(TabUnderBlockerBrowserTest,
   // Disallow tab-unders via policy and try to tab-under again in the background
   // tab. Should fail to navigate.
   {
-    UpdatePolicy(false /* allow_tab_under */);
+    UpdatePopupPolicy(CONTENT_SETTING_BLOCK);
     content::TestNavigationObserver tab_under_observer(opener, 1);
     const GURL cross_origin_url =
         embedded_test_server()->GetURL("b.com", "/title1.html");
@@ -235,5 +243,83 @@ IN_PROC_BROWSER_TEST_F(TabUnderBlockerBrowserTest,
 
     EXPECT_FALSE(tab_under_observer.last_navigation_succeeded());
     EXPECT_TRUE(IsUiShownForUrl(opener, cross_origin_url));
+  }
+}
+
+// TODO(csharrison): Add a test verifying that navigating _to_ an extension in a
+// tab-under is not blocked. This is a bit trickier to test since it involves
+// ensuring a background page is up and running for the extension, and using the
+// chrome.tabs API.
+IN_PROC_BROWSER_TEST_F(TabUnderBlockerBrowserTest,
+                       NavigateFromExtensions_Allowed) {
+  const extensions::Extension* extension =
+      LoadExtension(test_data_dir_.AppendASCII("simple_with_file"));
+
+  const GURL extension_url = extension->GetResourceURL("file.html");
+  ui_test_utils::NavigateToURL(browser(), extension_url);
+  content::WebContents* opener =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  content::TestNavigationObserver navigation_observer(nullptr, 1);
+  navigation_observer.StartWatchingNewWebContents();
+  EXPECT_TRUE(content::ExecuteScript(opener, "window.open('/title1.html')"));
+  navigation_observer.Wait();
+
+  content::TestNavigationObserver tab_under_observer(opener, 1);
+  const GURL cross_origin_url =
+      embedded_test_server()->GetURL("b.com", "/title1.html");
+  EXPECT_TRUE(content::ExecuteScriptWithoutUserGesture(
+      opener, base::StringPrintf("window.location = '%s';",
+                                 cross_origin_url.spec().c_str())));
+  tab_under_observer.Wait();
+
+  EXPECT_TRUE(tab_under_observer.last_navigation_succeeded());
+  EXPECT_FALSE(IsUiShownForUrl(opener, cross_origin_url));
+}
+
+IN_PROC_BROWSER_TEST_F(TabUnderBlockerBrowserTest, ControlledBySetting) {
+  // Allow tab-unders via popup/redirect blocker settings, should disable
+  // tab-under blocking.
+  const GURL top_level_url = embedded_test_server()->GetURL("/title1.html");
+  ui_test_utils::NavigateToURL(browser(), top_level_url);
+  content::WebContents* opener =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  content::TestNavigationObserver navigation_observer(nullptr, 1);
+  navigation_observer.StartWatchingNewWebContents();
+  EXPECT_TRUE(content::ExecuteScript(opener, "window.open('/title1.html')"));
+  navigation_observer.Wait();
+
+  // First tab-under attempt should be blocked.
+  {
+    content::TestNavigationObserver tab_under_observer(opener, 1);
+    const GURL cross_origin_url =
+        embedded_test_server()->GetURL("b.com", "/title1.html");
+    EXPECT_TRUE(content::ExecuteScriptWithoutUserGesture(
+        opener, base::StringPrintf("window.location = '%s';",
+                                   cross_origin_url.spec().c_str())));
+    tab_under_observer.Wait();
+
+    EXPECT_FALSE(tab_under_observer.last_navigation_succeeded());
+    EXPECT_TRUE(IsUiShownForUrl(opener, cross_origin_url));
+  }
+
+  // Allow tab-unders via settings, should be allowed.
+  {
+    HostContentSettingsMap* settings_map =
+        HostContentSettingsMapFactory::GetForProfile(browser()->profile());
+    settings_map->SetContentSettingDefaultScope(
+        top_level_url, GURL(), CONTENT_SETTINGS_TYPE_POPUPS, std::string(),
+        CONTENT_SETTING_ALLOW);
+    content::TestNavigationObserver tab_under_observer(opener, 1);
+    const GURL cross_origin_url =
+        embedded_test_server()->GetURL("a.com", "/title1.html");
+    EXPECT_TRUE(content::ExecuteScriptWithoutUserGesture(
+        opener, base::StringPrintf("window.location = '%s';",
+                                   cross_origin_url.spec().c_str())));
+    tab_under_observer.Wait();
+
+    EXPECT_TRUE(tab_under_observer.last_navigation_succeeded());
+    EXPECT_FALSE(IsUiShownForUrl(opener, cross_origin_url));
   }
 }

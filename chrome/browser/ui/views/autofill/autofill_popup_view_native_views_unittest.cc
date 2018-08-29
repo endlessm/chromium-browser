@@ -10,10 +10,12 @@
 #include "build/build_config.h"
 #include "chrome/browser/ui/autofill/autofill_popup_controller.h"
 #include "chrome/browser/ui/autofill/autofill_popup_layout_model.h"
+#include "chrome/browser/ui/views/autofill/autofill_popup_view_native_views.h"
 #include "components/autofill/core/browser/popup_item_ids.h"
 #include "components/autofill/core/browser/suggestion.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/aura/test/aura_test_base.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/test/event_generator.h"
@@ -37,7 +39,6 @@ const struct TypeClicks kClickTestCase[] = {
     {autofill::POPUP_ITEM_ID_SCAN_CREDIT_CARD, 1},
     {autofill::POPUP_ITEM_ID_TITLE, 1},
     {autofill::POPUP_ITEM_ID_CREDIT_CARD_SIGNIN_PROMO, 1},
-    {autofill::POPUP_ITEM_ID_HTTP_NOT_SECURE_WARNING_MESSAGE, 1},
     {autofill::POPUP_ITEM_ID_USERNAME_ENTRY, 1},
     {autofill::POPUP_ITEM_ID_CREATE_HINT, 1},
     {autofill::POPUP_ITEM_ID_ALL_SAVED_PASSWORDS_ENTRY, 1},
@@ -58,6 +59,7 @@ class MockAutofillPopupController : public autofill::AutofillPopupController {
   MOCK_METHOD1(SetSelectionAtPoint, void(const gfx::Point& point));
   MOCK_METHOD0(AcceptSelectedLine, bool());
   MOCK_METHOD0(SelectionCleared, void());
+  MOCK_CONST_METHOD0(HasSelection, bool());
   MOCK_CONST_METHOD0(popup_bounds, gfx::Rect());
   MOCK_METHOD0(container_view, gfx::NativeView());
   MOCK_CONST_METHOD0(element_bounds, const gfx::RectF&());
@@ -168,6 +170,54 @@ TEST_F(AutofillPopupViewNativeViewsTest, ShowHideTest) {
   EXPECT_CALL(autofill_popup_controller_, AcceptSuggestion(testing::_))
       .Times(0);
   view()->Hide();
+}
+
+TEST_F(AutofillPopupViewNativeViewsTest, AccessibilityTest) {
+  CreateAndShowView({autofill::POPUP_ITEM_ID_DATALIST_ENTRY,
+                     autofill::POPUP_ITEM_ID_SEPARATOR,
+                     autofill::POPUP_ITEM_ID_AUTOCOMPLETE_ENTRY,
+                     autofill::POPUP_ITEM_ID_AUTOFILL_OPTIONS});
+
+  // Select first item.
+  view()->GetRowsForTesting()[0]->SetSelected(true);
+
+  EXPECT_EQ(view()->GetRowsForTesting().size(), 4u);
+
+  // Item 0.
+  ui::AXNodeData node_data_0;
+  view()->GetRowsForTesting()[0]->GetAccessibleNodeData(&node_data_0);
+  EXPECT_EQ(ax::mojom::Role::kMenuItem, node_data_0.role);
+  EXPECT_EQ(1, node_data_0.GetIntAttribute(ax::mojom::IntAttribute::kPosInSet));
+  EXPECT_EQ(3, node_data_0.GetIntAttribute(ax::mojom::IntAttribute::kSetSize));
+  EXPECT_TRUE(
+      node_data_0.GetBoolAttribute(ax::mojom::BoolAttribute::kSelected));
+
+  // Item 1 (separator).
+  ui::AXNodeData node_data_1;
+  view()->GetRowsForTesting()[1]->GetAccessibleNodeData(&node_data_1);
+  EXPECT_FALSE(node_data_1.HasIntAttribute(ax::mojom::IntAttribute::kPosInSet));
+  EXPECT_FALSE(node_data_1.HasIntAttribute(ax::mojom::IntAttribute::kSetSize));
+  EXPECT_EQ(ax::mojom::Role::kSplitter, node_data_1.role);
+  EXPECT_FALSE(
+      node_data_1.GetBoolAttribute(ax::mojom::BoolAttribute::kSelected));
+
+  // Item 2.
+  ui::AXNodeData node_data_2;
+  view()->GetRowsForTesting()[2]->GetAccessibleNodeData(&node_data_2);
+  EXPECT_EQ(2, node_data_2.GetIntAttribute(ax::mojom::IntAttribute::kPosInSet));
+  EXPECT_EQ(3, node_data_2.GetIntAttribute(ax::mojom::IntAttribute::kSetSize));
+  EXPECT_EQ(ax::mojom::Role::kMenuItem, node_data_2.role);
+  EXPECT_FALSE(
+      node_data_2.GetBoolAttribute(ax::mojom::BoolAttribute::kSelected));
+
+  // Item 3 (footer).
+  ui::AXNodeData node_data_3;
+  view()->GetRowsForTesting()[3]->GetAccessibleNodeData(&node_data_3);
+  EXPECT_EQ(3, node_data_3.GetIntAttribute(ax::mojom::IntAttribute::kPosInSet));
+  EXPECT_EQ(3, node_data_3.GetIntAttribute(ax::mojom::IntAttribute::kSetSize));
+  EXPECT_EQ(ax::mojom::Role::kMenuItem, node_data_3.role);
+  EXPECT_FALSE(
+      node_data_3.GetBoolAttribute(ax::mojom::BoolAttribute::kSelected));
 }
 
 TEST_P(AutofillPopupViewNativeViewsForEveryTypeTest, ShowClickTest) {

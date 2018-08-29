@@ -272,6 +272,9 @@ TEST_P(FramebufferFormatsTest, RenderbufferMultisample_STENCIL_INDEX8)
 // Test that binding an incomplete cube map is rejected by ANGLE.
 TEST_P(FramebufferFormatsTest, IncompleteCubeMap)
 {
+    // TODO(jmadill): Handle cube textures. http://anglebug.com/2470
+    ANGLE_SKIP_TEST_IF(IsVulkan());
+
     // First make a complete CubeMap.
     glGenTextures(1, &mTexture);
     glBindTexture(GL_TEXTURE_CUBE_MAP, mTexture);
@@ -305,11 +308,9 @@ TEST_P(FramebufferFormatsTest, IncompleteCubeMap)
                      glCheckFramebufferStatus(GL_FRAMEBUFFER));
 
     // Verify drawing with the incomplete framebuffer produces a GL error
-    const std::string &vs = "attribute vec4 position; void main() { gl_Position = position; }";
-    const std::string &ps = "void main() { gl_FragColor = vec4(1, 0, 0, 1); }";
-    mProgram = CompileProgram(vs, ps);
+    mProgram = CompileProgram(essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
     ASSERT_NE(0u, mProgram);
-    drawQuad(mProgram, "position", 0.5f);
+    drawQuad(mProgram, essl1_shaders::PositionAttrib(), 0.5f);
     ASSERT_GL_ERROR(GL_INVALID_FRAMEBUFFER_OPERATION);
 }
 
@@ -324,6 +325,7 @@ TEST_P(FramebufferFormatsTest, ZeroHeightRenderbuffer)
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these
 // tests should be run against.
 ANGLE_INSTANTIATE_TEST(FramebufferFormatsTest,
+                       ES2_VULKAN(),
                        ES2_D3D9(),
                        ES2_D3D11(),
                        ES3_D3D11(),

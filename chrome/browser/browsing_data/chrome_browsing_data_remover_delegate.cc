@@ -24,6 +24,8 @@
 #include "chrome/browser/browsing_data/navigation_entry_remover.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
+#include "chrome/browser/custom_handlers/protocol_handler_registry.h"
+#include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "chrome/browser/domain_reliability/service_factory.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
@@ -33,6 +35,7 @@
 #include "chrome/browser/language/url_language_histogram_factory.h"
 #include "chrome/browser/media/media_device_id_salt.h"
 #include "chrome/browser/media/media_engagement_service.h"
+#include "chrome/browser/media/webrtc/webrtc_event_log_manager.h"
 #include "chrome/browser/net/nqe/ui_network_quality_estimator_service.h"
 #include "chrome/browser/net/nqe/ui_network_quality_estimator_service_factory.h"
 #include "chrome/browser/net/predictor.h"
@@ -80,18 +83,16 @@
 #include "components/search_engines/template_url_service.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/web_cache/browser/web_cache_manager.h"
+#include "components/webrtc_logging/browser/log_cleanup.h"
+#include "components/webrtc_logging/browser/log_list.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browsing_data_filter_builder.h"
 #include "content/public/browser/plugin_data_remover.h"
 #include "content/public/browser/ssl_host_state_delegate.h"
 #include "content/public/browser/storage_partition.h"
 #include "media/mojo/services/video_decode_perf_history.h"
-#include "net/cookies/cookie_store.h"
+#include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "net/http/http_transaction_factory.h"
-#include "net/net_buildflags.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_getter.h"
-#include "url/url_util.h"
 
 #if defined(OS_ANDROID)
 #include "chrome/browser/android/oom_intervention/oom_intervention_decider.h"
@@ -124,21 +125,9 @@
 #include "components/user_manager/user.h"
 #endif  // defined(OS_CHROMEOS)
 
-#if BUILDFLAG(ENABLE_WEBRTC)
-#include "chrome/browser/media/webrtc/webrtc_event_log_manager.h"
-#include "components/webrtc_logging/browser/log_cleanup.h"
-#include "components/webrtc_logging/browser/log_list.h"
-#endif  // BUILDFLAG(ENABLE_WEBRTC)
-
 #if BUILDFLAG(ENABLE_PLUGINS)
 #include "chrome/browser/browsing_data/browsing_data_flash_lso_helper.h"
 #endif  // BUILDFLAG(ENABLE_PLUGINS)
-
-#if BUILDFLAG(ENABLE_REPORTING)
-#include "net/network_error_logging/network_error_logging_service.h"
-#include "net/reporting/reporting_browsing_data_remover.h"
-#include "net/reporting/reporting_service.h"
-#endif  // BUILDFLAG(ENABLE_REPORTING)
 
 using base::UserMetricsAction;
 using content::BrowserContext;
@@ -147,6 +136,8 @@ using content::BrowsingDataFilterBuilder;
 
 namespace {
 
+// Generic functions but currently only used when ENABLE_NACL.
+#if BUILDFLAG(ENABLE_NACL)
 void UIThreadTrampolineHelper(base::OnceClosure callback) {
   BrowserThread::PostTask(BrowserThread::UI, FROM_HERE, std::move(callback));
 }
@@ -159,6 +150,7 @@ base::OnceClosure UIThreadTrampoline(base::OnceClosure callback) {
   // task is actually posted.
   return base::BindOnce(&UIThreadTrampolineHelper, std::move(callback));
 }
+#endif  // BUILDFLAG(ENABLE_NACL)
 
 template <typename T>
 void IgnoreArgumentHelper(base::OnceClosure callback, T unused_argument) {
@@ -206,34 +198,6 @@ void ClearPnaclCacheOnIOThread(base::Time begin,
 }
 #endif
 
-void ClearCookiesOnIOThread(base::Time delete_begin,
-                            base::Time delete_end,
-                            net::URLRequestContextGetter* rq_context,
-                            base::OnceClosure callback) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  net::CookieStore* cookie_store =
-      rq_context->GetURLRequestContext()->cookie_store();
-  cookie_store->DeleteAllCreatedBetweenAsync(
-      delete_begin, delete_end,
-      base::AdaptCallbackForRepeating(
-          IgnoreArgument<uint32_t>(std::move(callback))));
-}
-
-void ClearCookiesWithPredicateOnIOThread(
-    base::Time delete_begin,
-    base::Time delete_end,
-    net::CookieStore::CookiePredicate predicate,
-    net::URLRequestContextGetter* rq_context,
-    base::OnceClosure callback) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  net::CookieStore* cookie_store =
-      rq_context->GetURLRequestContext()->cookie_store();
-  cookie_store->DeleteAllCreatedBetweenWithPredicateAsync(
-      delete_begin, delete_end, predicate,
-      base::AdaptCallbackForRepeating(
-          IgnoreArgument<uint32_t>(std::move(callback))));
-}
-
 void ClearNetworkPredictorOnIOThread(chrome_browser_net::Predictor* predictor) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(predictor);
@@ -249,45 +213,6 @@ void ClearHostnameResolutionCacheOnIOThread(
 
   io_thread->ClearHostCache(host_filter);
 }
-
-void ClearHttpAuthCacheOnIOThread(
-    scoped_refptr<net::URLRequestContextGetter> context_getter,
-    base::Time delete_begin) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-
-  net::HttpNetworkSession* http_session = context_getter->GetURLRequestContext()
-                                              ->http_transaction_factory()
-                                              ->GetSession();
-  DCHECK(http_session);
-  http_session->http_auth_cache()->ClearEntriesAddedWithin(base::Time::Now() -
-                                                           delete_begin);
-  http_session->CloseAllConnections();
-}
-
-#if BUILDFLAG(ENABLE_REPORTING)
-void ClearReportingCacheOnIOThread(
-    net::URLRequestContextGetter* context,
-    int data_type_mask,
-    const base::RepeatingCallback<bool(const GURL&)>& origin_filter) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-
-  net::ReportingService* service =
-      context->GetURLRequestContext()->reporting_service();
-  if (service)
-    service->RemoveBrowsingData(data_type_mask, origin_filter);
-}
-
-void ClearNetworkErrorLoggingOnIOThread(
-    net::URLRequestContextGetter* context,
-    const base::RepeatingCallback<bool(const GURL&)>& origin_filter) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-
-  net::NetworkErrorLoggingService* service =
-      context->GetURLRequestContext()->network_error_logging_service();
-  if (service)
-    service->RemoveBrowsingData(origin_filter);
-}
-#endif  // BUILDFLAG(ENABLE_REPORTING)
 
 #if defined(OS_ANDROID)
 void ClearPrecacheInBackground(content::BrowserContext* browser_context) {
@@ -324,6 +249,16 @@ bool DoesOriginMatchEmbedderMask(int origin_type_mask,
       << "DoesOriginMatchEmbedderMask must handle all origin types.";
 
   return false;
+}
+
+// Callback for when cookies have been deleted. Invokes NotifyIfDone.
+// Receiving |cookie_manager| as a parameter so that the receive pipe is
+// not deleted before the response is received.
+void OnClearedCookies(base::OnceClosure done,
+                      network::mojom::CookieManagerPtr cookie_manager,
+                      uint32_t num_deleted) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  std::move(done).Run();
 }
 
 }  // namespace
@@ -600,7 +535,6 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
         data_manager->Refresh();
     }
 
-#if BUILDFLAG(ENABLE_WEBRTC)
     base::PostTaskWithTraitsAndReply(
         FROM_HERE, {base::TaskPriority::USER_VISIBLE, base::MayBlock()},
         base::BindOnce(
@@ -609,7 +543,6 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
                 profile_->GetPath()),
             delete_begin_),
         CreatePendingTaskCompletionClosure());
-#endif
 
 #if defined(OS_ANDROID)
     base::PostTaskWithTraitsAndReply(
@@ -714,31 +647,24 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
       safe_browsing::SafeBrowsingService* sb_service =
           g_browser_process->safe_browsing_service();
       if (sb_service) {
-        scoped_refptr<net::URLRequestContextGetter> sb_context =
-            sb_service->url_request_context();
+        network::mojom::CookieManagerPtr cookie_manager;
+        sb_service->GetNetworkContext()->GetCookieManager(
+            mojo::MakeRequest(&cookie_manager));
 
-        if (filter_builder.IsEmptyBlacklist()) {
-          BrowserThread::PostTask(
-              BrowserThread::IO, FROM_HERE,
-              base::BindOnce(
-                  &ClearCookiesOnIOThread, delete_begin_, delete_end_,
-                  base::RetainedRef(std::move(sb_context)),
-                  UIThreadTrampoline(base::BindOnce(
-                      &ChromeBrowsingDataRemoverDelegate::OnClearedCookies,
-                      weak_ptr_factory_.GetWeakPtr(),
-                      CreatePendingTaskCompletionClosure()))));
-        } else {
-          BrowserThread::PostTask(
-              BrowserThread::IO, FROM_HERE,
-              base::BindOnce(
-                  &ClearCookiesWithPredicateOnIOThread, delete_begin_,
-                  delete_end_, filter_builder.BuildCookieFilter(),
-                  base::RetainedRef(std::move(sb_context)),
-                  UIThreadTrampoline(base::BindOnce(
-                      &ChromeBrowsingDataRemoverDelegate::OnClearedCookies,
-                      weak_ptr_factory_.GetWeakPtr(),
-                      CreatePendingTaskCompletionClosure()))));
-        }
+        network::mojom::CookieManager* manager_ptr = cookie_manager.get();
+
+        network::mojom::CookieDeletionFilterPtr deletion_filter =
+            filter_builder.BuildCookieDeletionFilter();
+        if (!delete_begin_.is_null())
+          deletion_filter->created_after_time = delete_begin_;
+        if (!delete_end_.is_null())
+          deletion_filter->created_before_time = delete_end_;
+
+        manager_ptr->DeleteCookies(
+            std::move(deletion_filter),
+            base::BindOnce(&OnClearedCookies,
+                           CreatePendingTaskCompletionClosure(),
+                           std::move(cookie_manager)));
       }
     }
 
@@ -756,6 +682,12 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
           info->website_settings_info()->type(), delete_begin_, delete_end_,
           HostContentSettingsMap::PatternSourcePredicate());
     }
+
+    auto* handler_registry =
+        ProtocolHandlerRegistryFactory::GetForBrowserContext(profile_);
+    if (handler_registry)
+      handler_registry->ClearUserDefinedHandlers(delete_begin_, delete_end_);
+
 #if !defined(OS_ANDROID)
     content::HostZoomMap* zoom_map =
         content::HostZoomMap::GetDefaultForBrowserContext(profile_);
@@ -839,14 +771,10 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
               CreatePendingTaskCompletionClosure()));
     }
 
-    scoped_refptr<net::URLRequestContextGetter> request_context =
-        BrowserContext::GetDefaultStoragePartition(profile_)
-            ->GetURLRequestContext();
-    BrowserThread::PostTaskAndReply(
-        BrowserThread::IO, FROM_HERE,
-        base::BindOnce(&ClearHttpAuthCacheOnIOThread,
-                       std::move(request_context), delete_begin_),
-        CreatePendingTaskCompletionClosure());
+    BrowserContext::GetDefaultStoragePartition(profile_)
+        ->GetNetworkContext()
+        ->ClearHttpAuthCache(delete_begin_,
+                             CreatePendingTaskCompletionClosureForMojo());
   }
 
   if (remove_mask & content::BrowsingDataRemover::DATA_TYPE_COOKIES) {
@@ -985,7 +913,6 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     }
 #endif
 
-#if BUILDFLAG(ENABLE_WEBRTC)
     // TODO(crbug.com/829321): Remove null-check.
     auto* webrtc_event_log_manager = WebRtcEventLogManager::GetInstance();
     if (webrtc_event_log_manager) {
@@ -995,7 +922,6 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
     } else {
       LOG(ERROR) << "WebRtcEventLogManager not instantiated.";
     }
-#endif
   }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1116,35 +1042,16 @@ void ChromeBrowsingDataRemoverDelegate::RemoveEmbedderData(
   }
 
 #if BUILDFLAG(ENABLE_REPORTING)
-  if ((remove_mask & content::BrowsingDataRemover::DATA_TYPE_COOKIES) ||
-      (remove_mask & DATA_TYPE_HISTORY)) {
-    scoped_refptr<net::URLRequestContextGetter> context =
-        profile_->GetRequestContext();
-
-    int data_type_mask = 0;
-    if (remove_mask & DATA_TYPE_HISTORY)
-      data_type_mask |= net::ReportingBrowsingDataRemover::DATA_TYPE_REPORTS;
-    if (remove_mask & content::BrowsingDataRemover::DATA_TYPE_COOKIES)
-      data_type_mask |= net::ReportingBrowsingDataRemover::DATA_TYPE_CLIENTS;
-
-    BrowserThread::PostTaskAndReply(
-        BrowserThread::IO, FROM_HERE,
-        base::BindOnce(&ClearReportingCacheOnIOThread,
-                       base::RetainedRef(std::move(context)), data_type_mask,
-                       filter),
-        UIThreadTrampoline(CreatePendingTaskCompletionClosure()));
-  }
-
-  if ((remove_mask & content::BrowsingDataRemover::DATA_TYPE_COOKIES) ||
-      (remove_mask & DATA_TYPE_HISTORY)) {
-    scoped_refptr<net::URLRequestContextGetter> context =
-        profile_->GetRequestContext();
-
-    BrowserThread::PostTaskAndReply(
-        BrowserThread::IO, FROM_HERE,
-        base::BindOnce(&ClearNetworkErrorLoggingOnIOThread,
-                       base::RetainedRef(std::move(context)), filter),
-        UIThreadTrampoline(CreatePendingTaskCompletionClosure()));
+  if (remove_mask & DATA_TYPE_HISTORY) {
+    network::mojom::NetworkContext* network_context =
+        BrowserContext::GetDefaultStoragePartition(profile_)
+            ->GetNetworkContext();
+    network_context->ClearReportingCacheReports(
+        filter_builder.BuildNetworkServiceFilter(),
+        CreatePendingTaskCompletionClosureForMojo());
+    network_context->ClearNetworkErrorLogging(
+        filter_builder.BuildNetworkServiceFilter(),
+        CreatePendingTaskCompletionClosureForMojo());
   }
 #endif  // BUILDFLAG(ENABLE_REPORTING)
 
@@ -1182,6 +1089,17 @@ ChromeBrowsingDataRemoverDelegate::CreatePendingTaskCompletionClosure() {
                         weak_ptr_factory_.GetWeakPtr());
 }
 
+base::OnceClosure
+ChromeBrowsingDataRemoverDelegate::CreatePendingTaskCompletionClosureForMojo() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  // Note num_pending_tasks++ unnecessary here because it's done by the call to
+  // CreatePendingTaskCompletionClosure().
+  return mojo::WrapCallbackWithDropHandler(
+      CreatePendingTaskCompletionClosure(),
+      base::BindOnce(&ChromeBrowsingDataRemoverDelegate::OnTaskComplete,
+                     weak_ptr_factory_.GetWeakPtr()));
+}
+
 #if defined(OS_ANDROID)
 void ChromeBrowsingDataRemoverDelegate::OverrideWebappRegistryForTesting(
     std::unique_ptr<WebappRegistry> webapp_registry) {
@@ -1205,12 +1123,6 @@ void ChromeBrowsingDataRemoverDelegate::OnKeywordsLoaded(
   model->RemoveAutoGeneratedForUrlsBetween(url_filter, delete_begin_,
                                            delete_end_);
   template_url_sub_.reset();
-  std::move(done).Run();
-}
-
-void ChromeBrowsingDataRemoverDelegate::OnClearedCookies(
-    base::OnceClosure done) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   std::move(done).Run();
 }
 

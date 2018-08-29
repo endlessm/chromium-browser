@@ -8,13 +8,13 @@
 #include <utility>
 #include <vector>
 
+#include "ash/public/cpp/app_list/answer_card_contents_registry.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
 #include "base/bind.h"
 #include "base/feature_list.h"
 #include "services/ui/public/interfaces/window_tree.mojom.h"
 #include "ui/accessibility/ax_node.h"
 #include "ui/accessibility/ax_node_data.h"
-#include "ui/app_list/answer_card_contents_registry.h"
-#include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_metrics.h"
 #include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/views/search_result_base_view.h"
@@ -30,22 +30,23 @@ namespace app_list {
 namespace {
 
 // Helper to get/create answer card view by token.
-views::View* GetViewByToken(const base::UnguessableToken& token) {
+views::View* GetViewByToken(
+    const base::Optional<base::UnguessableToken>& token) {
   // Bail for invalid token.
-  if (token.is_empty())
+  if (!token.has_value() || token->is_empty())
     return nullptr;
 
   // Use AnswerCardContentsRegistry for an in-process token-to-view map. See
   // answer_card_contents_registry.h. Null check because it could be missing in
   // Mash and for tests.
   if (AnswerCardContentsRegistry::Get())
-    return AnswerCardContentsRegistry::Get()->GetView(token);
+    return AnswerCardContentsRegistry::Get()->GetView(token.value());
 
   // Use RemoteViewHost to embed the answer card contents provided in the
   // browser process in Mash.
   if (base::FeatureList::IsEnabled(features::kMash)) {
     views::RemoteViewHost* view = new views::RemoteViewHost();
-    view->EmbedUsingToken(token,
+    view->EmbedUsingToken(token.value(),
                           ui::mojom::kEmbedFlagEmbedderInterceptsEvents |
                               ui::mojom::kEmbedFlagEmbedderControlsVisibility,
                           base::DoNothing());
@@ -79,20 +80,24 @@ class SearchResultAnswerCardView::SearchAnswerContainerView
   }
 
   bool SetSearchResult(SearchResult* search_result) {
-    views::View* const old_result_view = child_count() ? child_at(0) : nullptr;
-    views::View* const new_result_view =
-        search_result
-            ? GetViewByToken(search_result->answer_card_contents_token())
-            : nullptr;
+    const base::Optional<base::UnguessableToken> old_token =
+        search_result_ ? search_result_->answer_card_contents_token()
+                       : base::nullopt;
+    const base::Optional<base::UnguessableToken> new_token =
+        search_result ? search_result->answer_card_contents_token()
+                      : base::nullopt;
 
-    if (old_result_view != new_result_view) {
-      if (old_result_view != nullptr)
-        RemoveChildView(old_result_view);
-      if (new_result_view != nullptr)
-        AddChildView(new_result_view);
+    views::View* result_view = child_count() ? child_at(0) : nullptr;
+    if (old_token != new_token) {
+      RemoveAllChildViews(true /* delete_children */);
+
+      result_view = GetViewByToken(new_token);
+      if (result_view)
+        AddChildView(result_view);
     }
 
-    base::string16 old_title, new_title;
+    base::string16 old_title;
+    base::string16 new_title;
     if (search_result_) {
       search_result_->RemoveObserver(this);
       old_title = search_result_->title();
@@ -100,6 +105,9 @@ class SearchResultAnswerCardView::SearchAnswerContainerView
     search_result_ = search_result;
     if (search_result_) {
       search_result_->AddObserver(this);
+      if (result_view)
+        result_view->SetPreferredSize(search_result_->answer_card_size());
+
       new_title = search_result_->title();
       SetAccessibleName(new_title);
     }
@@ -152,7 +160,10 @@ class SearchResultAnswerCardView::SearchAnswerContainerView
   }
 
   // SearchResultObserver overrides:
-  void OnResultDestroying() override { search_result_ = nullptr; }
+  void OnResultDestroying() override {
+    RemoveAllChildViews(true /* delete_children */);
+    search_result_ = nullptr;
+  }
 
  private:
   AppListViewDelegate* const view_delegate_;  // Not owned.
@@ -199,7 +210,8 @@ int SearchResultAnswerCardView::DoUpdate() {
       have_result ? display_results[0] : nullptr);
   parent()->SetVisible(have_result);
 
-  set_container_score(have_result ? display_results.front()->relevance() : 0);
+  set_container_score(have_result ? display_results.front()->display_score()
+                                  : 0);
   if (title_changed && search_answer_container_view_->HasFocus()) {
     search_answer_container_view_->NotifyAccessibilityEvent(
         ax::mojom::Event::kSelection, true);

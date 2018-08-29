@@ -9,7 +9,6 @@
 #include "base/base_paths.h"
 #include "base/files/file_path.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/threading/thread_restrictions.h"
 #include "components/autofill/core/browser/autofill_manager.h"
@@ -71,7 +70,7 @@ WebViewBrowserState::WebViewBrowserState(
   // ChromeWebView is not predetermined, so IO access is temporarily allowed.
   bool wasIOAllowed = base::ThreadRestrictions::SetIOAllowed(true);
 
-  CHECK(PathService::Get(base::DIR_APP_DATA, &path_));
+  CHECK(base::PathService::Get(base::DIR_APP_DATA, &path_));
 
   request_context_getter_ = new WebViewURLRequestContextGetter(
       GetStatePath(),

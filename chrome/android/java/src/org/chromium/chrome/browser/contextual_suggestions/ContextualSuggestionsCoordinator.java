@@ -4,15 +4,21 @@
 
 package org.chromium.chrome.browser.contextual_suggestions;
 
+import android.content.Intent;
 import android.support.annotation.Nullable;
 
 import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.browser.ChromeActivity;
+import org.chromium.chrome.browser.help.HelpAndFeedback;
+import org.chromium.chrome.browser.preferences.ContextualSuggestionsPreference;
+import org.chromium.chrome.browser.preferences.PreferencesLauncher;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.suggestions.SuggestionsNavigationDelegate;
 import org.chromium.chrome.browser.suggestions.SuggestionsNavigationDelegateImpl;
 import org.chromium.chrome.browser.suggestions.SuggestionsUiDelegateImpl;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.chrome.browser.util.IntentUtils;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetController;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetObserver;
@@ -26,6 +32,8 @@ import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetObserver;
  * They share a {@link ContextualSuggestionsMediator} and {@link ContextualSuggestionsModel}.
  */
 public class ContextualSuggestionsCoordinator {
+    private static final String FEEDBACK_CONTEXT = "contextual_suggestions";
+
     private final ChromeActivity mActivity;
     private final BottomSheetController mBottomSheetController;
     private final TabModelSelector mTabModelSelector;
@@ -85,7 +93,7 @@ public class ContextualSuggestionsCoordinator {
         mContentCoordinator =
                 new ContentCoordinator(mActivity, mBottomSheetController.getBottomSheet());
         mBottomSheetContent = new ContextualSuggestionsBottomSheetContent(
-                mContentCoordinator, mToolbarCoordinator);
+                mContentCoordinator, mToolbarCoordinator, mModel.isSlimPeekEnabled());
         assert mBottomSheetContent != null;
         mBottomSheetController.requestShowContent(mBottomSheetContent, false);
     }
@@ -150,6 +158,25 @@ public class ContextualSuggestionsCoordinator {
             mBottomSheetContent.destroy();
             mBottomSheetContent = null;
         }
+    }
+
+    /** Show the settings page for contextual suggestions. */
+    void showSettings() {
+        Intent intent = PreferencesLauncher.createIntentForSettingsPage(
+                mActivity, ContextualSuggestionsPreference.class.getName());
+        IntentUtils.safeStartActivity(mActivity, intent);
+    }
+
+    /** Show the feedback page. */
+    void showFeedback() {
+        Tab currentTab = mActivity.getActivityTab();
+        HelpAndFeedback.getInstance(mActivity).showFeedback(mActivity, mProfile,
+                currentTab != null ? currentTab.getUrl() : null, null, FEEDBACK_CONTEXT);
+    }
+
+    /** @return The height of the bottom sheet when it's peeking. */
+    float getSheetPeekHeight() {
+        return mActivity.getBottomSheet().getSheetHeightForState(BottomSheet.SHEET_STATE_PEEK);
     }
 
     @VisibleForTesting

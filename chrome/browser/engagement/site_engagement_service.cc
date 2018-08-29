@@ -574,21 +574,13 @@ bool SiteEngagementService::IsLastEngagementStale() const {
 
 void SiteEngagementService::OnURLsDeleted(
     history::HistoryService* history_service,
-    bool all_history,
-    bool expired,
-    const history::URLRows& deleted_rows,
-    const std::set<GURL>& favicon_urls) {
+    const history::DeletionInfo& deletion_info) {
   std::multiset<GURL> origins;
-  for (const history::URLRow& row : deleted_rows)
+  for (const history::URLRow& row : deletion_info.deleted_rows())
     origins.insert(row.url().GetOrigin());
 
-  history::HistoryService* hs = HistoryServiceFactory::GetForProfile(
-      profile_, ServiceAccessType::EXPLICIT_ACCESS);
-  hs->GetCountsAndLastVisitForOrigins(
-      std::set<GURL>(origins.begin(), origins.end()),
-      base::Bind(
-          &SiteEngagementService::GetCountsAndLastVisitForOriginsComplete,
-          weak_factory_.GetWeakPtr(), hs, origins, expired));
+  UpdateEngagementScores(origins, deletion_info.is_from_expiration(),
+                         deletion_info.deleted_urls_origin_map());
 }
 
 SiteEngagementScore SiteEngagementService::CreateEngagementScore(
@@ -629,8 +621,7 @@ int SiteEngagementService::OriginsWithMaxEngagement(
   return total_origins;
 }
 
-void SiteEngagementService::GetCountsAndLastVisitForOriginsComplete(
-    history::HistoryService* history_service,
+void SiteEngagementService::UpdateEngagementScores(
     const std::multiset<GURL>& deleted_origins,
     bool expired,
     const history::OriginCountAndLastVisitMap& remaining_origins) {
@@ -640,6 +631,9 @@ void SiteEngagementService::GetCountsAndLastVisitForOriginsComplete(
   base::Time now = clock_->Now();
   base::Time four_weeks_ago =
       now - base::TimeDelta::FromDays(FOUR_WEEKS_IN_DAYS);
+
+  HostContentSettingsMap* settings_map =
+      HostContentSettingsMapFactory::GetForProfile(profile_);
 
   for (const auto& origin_to_count : remaining_origins) {
     GURL origin = origin_to_count.first;
@@ -656,6 +650,14 @@ void SiteEngagementService::GetCountsAndLastVisitForOriginsComplete(
     // URL still has entries in history.
     if ((expired && remaining != 0) || deleted == 0)
       continue;
+
+    // Remove origins that have no urls left.
+    if (remaining == 0) {
+      settings_map->SetWebsiteSettingDefaultScope(
+          origin, GURL(), CONTENT_SETTINGS_TYPE_SITE_ENGAGEMENT,
+          content_settings::ResourceIdentifier(), nullptr);
+      continue;
+    }
 
     // Remove engagement proportional to the urls expired from the origin's
     // entire history.

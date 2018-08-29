@@ -13,9 +13,11 @@ class MaterialRefreshLayoutProvider : public HarmonyLayoutProvider {
   MaterialRefreshLayoutProvider() = default;
   ~MaterialRefreshLayoutProvider() override = default;
 
-  int GetCornerRadiusMetric(
-      ChromeEmphasisMetric emphasis_metric,
-      const gfx::Rect& bounds = gfx::Rect()) const override;
+  // HarmonyLayoutProvider:
+  int GetDistanceMetric(int metric) const override;
+  gfx::Insets GetInsetsMetric(int metric) const override;
+  int GetCornerRadiusMetric(views::EmphasisMetric emphasis_metric,
+                            const gfx::Size& size = gfx::Size()) const override;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_HARMONY_MATERIAL_REFRESH_LAYOUT_PROVIDER_H_

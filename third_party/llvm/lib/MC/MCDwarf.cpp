@@ -349,6 +349,34 @@ void MCDwarfLineTableHeader::emitV2FileDirTables(MCStreamer *MCOS) const {
   MCOS->EmitIntValue(0, 1); // Terminate the file list.
 }
 
+static void emitOneV5FileEntry(MCStreamer *MCOS, const MCDwarfFile &DwarfFile,
+                               bool HasMD5, bool HasSource,
+                               Optional<MCDwarfLineStr> &LineStr) {
+  assert(!DwarfFile.Name.empty());
+  if (LineStr)
+    LineStr->emitRef(MCOS, DwarfFile.Name);
+  else {
+    MCOS->EmitBytes(DwarfFile.Name);     // FileName and...
+    MCOS->EmitBytes(StringRef("\0", 1)); // its null terminator.
+  }
+  MCOS->EmitULEB128IntValue(DwarfFile.DirIndex); // Directory number.
+  if (HasMD5) {
+    MD5::MD5Result *Cksum = DwarfFile.Checksum;
+    MCOS->EmitBinaryData(
+        StringRef(reinterpret_cast<const char *>(Cksum->Bytes.data()),
+                  Cksum->Bytes.size()));
+  }
+  if (HasSource) {
+    if (LineStr)
+      LineStr->emitRef(MCOS, DwarfFile.Source.getValueOr(StringRef()));
+    else {
+      MCOS->EmitBytes(
+          DwarfFile.Source.getValueOr(StringRef())); // Source and...
+      MCOS->EmitBytes(StringRef("\0", 1));           // its null terminator.
+    }
+  }
+}
+
 void MCDwarfLineTableHeader::emitV5FileDirTables(
     MCStreamer *MCOS, Optional<MCDwarfLineStr> &LineStr) const {
   // The directory format, which is just a list of the directory paths.  In a
@@ -397,33 +425,12 @@ void MCDwarfLineTableHeader::emitV5FileDirTables(
     MCOS->EmitULEB128IntValue(LineStr ? dwarf::DW_FORM_line_strp
                                       : dwarf::DW_FORM_string);
   }
-  // Then the list of file names. These start at 1.
-  MCOS->EmitULEB128IntValue(MCDwarfFiles.size() - 1);
-  for (unsigned i = 1; i < MCDwarfFiles.size(); ++i) {
-    assert(!MCDwarfFiles[i].Name.empty());
-    if (LineStr)
-      LineStr->emitRef(MCOS, MCDwarfFiles[i].Name);
-    else {
-      MCOS->EmitBytes(MCDwarfFiles[i].Name); // FileName and...
-      MCOS->EmitBytes(StringRef("\0", 1));   // its null terminator.
-    }
-    MCOS->EmitULEB128IntValue(MCDwarfFiles[i].DirIndex); // Directory number.
-    if (HasMD5) {
-      MD5::MD5Result *Cksum = MCDwarfFiles[i].Checksum;
-      MCOS->EmitBinaryData(
-          StringRef(reinterpret_cast<const char *>(Cksum->Bytes.data()),
-                    Cksum->Bytes.size()));
-    }
-    if (HasSource) {
-      if (LineStr)
-        LineStr->emitRef(MCOS, MCDwarfFiles[i].Source.getValueOr(StringRef()));
-      else {
-        MCOS->EmitBytes(
-            MCDwarfFiles[i].Source.getValueOr(StringRef())); // Source and...
-        MCOS->EmitBytes(StringRef("\0", 1)); // its null terminator.
-      }
-    }
-  }
+  // Then the counted list of files. The root file is file #0, then emit the
+  // files as provide by .file directives.
+  MCOS->EmitULEB128IntValue(MCDwarfFiles.size());
+  emitOneV5FileEntry(MCOS, RootFile, HasMD5, HasSource, LineStr);
+  for (unsigned i = 1; i < MCDwarfFiles.size(); ++i)
+    emitOneV5FileEntry(MCOS, MCDwarfFiles[i], HasMD5, HasSource, LineStr);
 }
 
 std::pair<MCSymbol *, MCSymbol *>
@@ -1791,6 +1798,8 @@ void MCDwarfFrameEmitter::EncodeAdvanceLoc(MCContext &Context,
   // Scale the address delta by the minimum instruction length.
   AddrDelta = ScaleAddrDelta(Context, AddrDelta);
 
+  support::endianness E =
+      Context.getAsmInfo()->isLittleEndian() ? support::little : support::big;
   if (AddrDelta == 0) {
   } else if (isUIntN(6, AddrDelta)) {
     uint8_t Opcode = dwarf::DW_CFA_advance_loc | AddrDelta;
@@ -1800,16 +1809,10 @@ void MCDwarfFrameEmitter::EncodeAdvanceLoc(MCContext &Context,
     OS << uint8_t(AddrDelta);
   } else if (isUInt<16>(AddrDelta)) {
     OS << uint8_t(dwarf::DW_CFA_advance_loc2);
-    if (Context.getAsmInfo()->isLittleEndian())
-      support::endian::Writer<support::little>(OS).write<uint16_t>(AddrDelta);
-    else
-      support::endian::Writer<support::big>(OS).write<uint16_t>(AddrDelta);
+    support::endian::write<uint16_t>(OS, AddrDelta, E);
   } else {
     assert(isUInt<32>(AddrDelta));
     OS << uint8_t(dwarf::DW_CFA_advance_loc4);
-    if (Context.getAsmInfo()->isLittleEndian())
-      support::endian::Writer<support::little>(OS).write<uint32_t>(AddrDelta);
-    else
-      support::endian::Writer<support::big>(OS).write<uint32_t>(AddrDelta);
+    support::endian::write<uint32_t>(OS, AddrDelta, E);
   }
 }

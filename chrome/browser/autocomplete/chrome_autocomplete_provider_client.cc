@@ -171,11 +171,6 @@ ChromeAutocompleteProviderClient::GetKeywordExtensionsDelegate(
 #endif
 }
 
-physical_web::PhysicalWebDataSource*
-ChromeAutocompleteProviderClient::GetPhysicalWebDataSource() {
-  return g_browser_process->GetPhysicalWebDataSource();
-}
-
 std::string ChromeAutocompleteProviderClient::GetAcceptLanguages() const {
   return profile_->GetPrefs()->GetString(prefs::kAcceptLanguages);
 }
@@ -398,9 +393,8 @@ bool ChromeAutocompleteProviderClient::StrippedURLsAreEqual(
   if (!input)
     input = &empty_input;
   const TemplateURLService* template_url_service = GetTemplateURLService();
-  return AutocompleteMatch::GURLToStrippedGURL(url1, AutocompleteInput(),
-                                               template_url_service,
-                                               base::string16()) ==
+  return AutocompleteMatch::GURLToStrippedGURL(
+             url1, *input, template_url_service, base::string16()) ==
          AutocompleteMatch::GURLToStrippedGURL(
              url2, *input, template_url_service, base::string16());
 }

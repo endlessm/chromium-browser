@@ -33,7 +33,6 @@
 #include "components/omnibox/browser/history_url_provider.h"
 #include "components/omnibox/browser/keyword_provider.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
-#include "components/omnibox/browser/physical_web_provider.h"
 #include "components/omnibox/browser/search_provider.h"
 #include "components/omnibox/browser/shortcuts_provider.h"
 #include "components/omnibox/browser/zero_suggest_provider.h"
@@ -147,14 +146,6 @@ void AutocompleteMatchToAssistedQuery(
       *subtype = 177;
       return;
     }
-    case AutocompleteMatchType::PHYSICAL_WEB: {
-      *subtype = 190;
-      return;
-    }
-    case AutocompleteMatchType::PHYSICAL_WEB_OVERFLOW: {
-      *subtype = 191;
-      return;
-    }
     default: {
       // This value indicates a native chrome suggestion with no named subtype
       // (yet).
@@ -260,12 +251,6 @@ AutocompleteController::AutocompleteController(
           provider_client_.get(), history_url_provider_,
           ClipboardRecentContent::GetInstance()));
     }
-  }
-  if (provider_types & AutocompleteProvider::TYPE_PHYSICAL_WEB) {
-    PhysicalWebProvider* physical_web_provider = PhysicalWebProvider::Create(
-        provider_client_.get(), history_url_provider_);
-    if (physical_web_provider)
-      providers_.push_back(physical_web_provider);
   }
 
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
@@ -441,7 +426,7 @@ void AutocompleteController::ResetSession() {
 void AutocompleteController::UpdateMatchDestinationURLWithQueryFormulationTime(
     base::TimeDelta query_formulation_time,
     AutocompleteMatch* match) const {
-  if (!match->search_terms_args.get() ||
+  if (!match->search_terms_args ||
       match->search_terms_args->assisted_query_stats.empty())
     return;
 
@@ -506,6 +491,9 @@ void AutocompleteController::UpdateResult(
 
   // Sort the matches and trim to a small number of "best" matches.
   result_.SortAndCull(input_, template_url_service_);
+
+  if (OmniboxFieldTrial::IsTabSwitchSuggestionsEnabled())
+    result_.ConvertOpenTabMatches(provider_client_.get(), &input_);
 
   // Need to validate before invoking CopyOldMatches as the old matches are not
   // valid against the current input.
@@ -672,7 +660,7 @@ void AutocompleteController::UpdateAssistedQueryStats(
     AutocompleteMatch* match = result->match_at(index);
     const TemplateURL* template_url =
         match->GetTemplateURL(template_url_service_, false);
-    if (!template_url || !match->search_terms_args.get())
+    if (!template_url || !match->search_terms_args)
       continue;
     std::string selected_index;
     // Prevent trivial suggestions from getting credit for being selected.

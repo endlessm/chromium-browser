@@ -14,7 +14,6 @@
 #include "base/containers/stack.h"
 #include "base/files/file_util.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
@@ -930,7 +929,7 @@ gfx::Image Create1xFaviconFromPNGFile(const std::string& path) {
     return gfx::Image();
 
   base::FilePath full_path;
-  if (!PathService::Get(chrome::DIR_TEST_DATA, &full_path))
+  if (!base::PathService::Get(chrome::DIR_TEST_DATA, &full_path))
     return gfx::Image();
 
   full_path = full_path.AppendASCII("sync").AppendASCII(path);

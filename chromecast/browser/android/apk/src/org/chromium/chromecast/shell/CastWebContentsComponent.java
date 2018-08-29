@@ -37,6 +37,9 @@ public class CastWebContentsComponent {
      */
     public interface OnKeyDownHandler { void onKeyDown(int keyCode); }
 
+    /**
+     * Callback interface for when UI events occur.
+     */
     public interface SurfaceEventHandler {
         void onVisibilityChange(int visibilityType);
         boolean consumeGesture(int gestureType);
@@ -65,9 +68,10 @@ public class CastWebContentsComponent {
         void stop(Context context);
     }
 
-    private class ActivityDelegate implements Delegate {
+    @VisibleForTesting
+    class ActivityDelegate implements Delegate {
         private static final String TAG = "cr_CastWebContent_AD";
-        private boolean mEnableTouchInput;
+        private boolean mStarted = false;
 
         public ActivityDelegate(boolean enableTouchInput) {
             mEnableTouchInput = enableTouchInput;
@@ -75,19 +79,21 @@ public class CastWebContentsComponent {
 
         @Override
         public void start(StartParams params) {
+            if (mStarted) return; // No-op if already started.
             if (DEBUG) Log.d(TAG, "start: SHOW_WEB_CONTENT in activity");
             startCastActivity(params.context, params.webContents, mEnableTouchInput);
+            mStarted = true;
         }
 
         @Override
         public void stop(Context context) {
             sendStopWebContentEvent();
+            mStarted = false;
         }
     }
 
     private class FragmentDelegate implements Delegate {
         private static final String TAG = "cr_CastWebContent_FD";
-        private boolean mEnableTouchInput;
 
         public FragmentDelegate(boolean enableTouchInput) {
             mEnableTouchInput = enableTouchInput;
@@ -161,6 +167,7 @@ public class CastWebContentsComponent {
     private final Controller<WebContents> mHasWebContentsState = new Controller<>();
     private Delegate mDelegate;
     private boolean mStarted;
+    private boolean mEnableTouchInput;
 
     public CastWebContentsComponent(String instanceId,
             OnComponentClosedHandler onComponentClosedHandler, OnKeyDownHandler onKeyDownHandler,
@@ -289,8 +296,9 @@ public class CastWebContentsComponent {
         sendIntentSync(CastWebContentsIntentUtils.requestMoveOut(mInstanceId));
     }
 
-    public void enableTouchInput(String instanceId, boolean enabled) {
-        if (DEBUG) Log.d(TAG, "enableTouchInput");
+    public void enableTouchInput(boolean enabled) {
+        if (DEBUG) Log.d(TAG, "enableTouchInput enabled:" + enabled);
+        mEnableTouchInput = enabled;
         sendIntentSync(CastWebContentsIntentUtils.enableTouchInput(mInstanceId, enabled));
     }
 

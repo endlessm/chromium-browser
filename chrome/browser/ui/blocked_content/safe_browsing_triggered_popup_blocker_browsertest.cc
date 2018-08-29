@@ -15,6 +15,7 @@
 #include "base/path_service.h"
 #include "base/test/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/profiles/profile.h"
@@ -130,6 +131,7 @@ class SafeBrowsingTriggeredPopupBlockerBrowserTest
   ~SafeBrowsingTriggeredPopupBlockerBrowserTest() override {}
 
   void SetUp() override {
+    FinalizeFeatures();
     database_helper_ = CreateTestDatabase();
     EXPECT_CALL(provider_, IsInitializationComplete(testing::_))
         .WillRepeatedly(testing::Return(true));
@@ -139,7 +141,7 @@ class SafeBrowsingTriggeredPopupBlockerBrowserTest
 
   void SetUpOnMainThread() override {
     base::FilePath test_data_dir;
-    PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
+    base::PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
     embedded_test_server()->ServeFilesFromDirectory(test_data_dir);
     host_resolver()->AddRule("*", "127.0.0.1");
     content::SetupCrossSiteRedirector(embedded_test_server());
@@ -150,6 +152,8 @@ class SafeBrowsingTriggeredPopupBlockerBrowserTest
     InProcessBrowserTest::TearDown();
     database_helper_.reset();
   }
+
+  virtual void FinalizeFeatures() {}
 
   content::WebContents* web_contents() {
     return browser()->tab_strip_model()->GetActiveWebContents();
@@ -199,7 +203,22 @@ class SafeBrowsingTriggeredPopupBlockerBrowserTest
 // The boolean parameter is whether to ignore sublists.
 class SafeBrowsingTriggeredPopupBlockerParamBrowserTest
     : public SafeBrowsingTriggeredPopupBlockerBrowserTest,
-      public testing::WithParamInterface<bool> {};
+      public testing::WithParamInterface<bool> {
+  void FinalizeFeatures() override {
+    std::string ignore_param = GetParam() ? "true" : "false";
+    scoped_feature_list_.InitAndEnableFeatureWithParameters(
+        kAbusiveExperienceEnforce, {{"ignore_sublists", ignore_param}});
+  }
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+class SafeBrowsingTriggeredPopupBlockerDisabledTest
+    : public SafeBrowsingTriggeredPopupBlockerBrowserTest {
+  void FinalizeFeatures() override {
+    scoped_feature_list_.InitAndDisableFeature(kAbusiveExperienceEnforce);
+  }
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
 
 // This test harness does not mock the safe browsing v4 hash protocol manager.
 // Instead, it mocks actual HTTP responses from the v4 server by redirecting
@@ -255,15 +274,8 @@ class SafeBrowsingTriggeredInterceptingBrowserTest
   DISALLOW_COPY_AND_ASSIGN(SafeBrowsingTriggeredInterceptingBrowserTest);
 };
 
-IN_PROC_BROWSER_TEST_F(SafeBrowsingTriggeredPopupBlockerBrowserTest,
+IN_PROC_BROWSER_TEST_F(SafeBrowsingTriggeredPopupBlockerDisabledTest,
                        NoFeature_AllowCreatingNewWindows) {
-  // Disable Abusive enforcement.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(kAbusiveExperienceEnforce);
-  // Open a new tab to ensure it has the right variation params.
-  chrome::NewTab(browser());
-  ASSERT_NO_FATAL_FAILURE(content::WaitForLoadStop(web_contents()));
-
   const char kWindowOpenPath[] = "/subresource_filter/window_open.html";
   GURL a_url(embedded_test_server()->GetURL("a.com", kWindowOpenPath));
   ConfigureAsAbusive(a_url);
@@ -278,6 +290,28 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingTriggeredPopupBlockerBrowserTest,
   EXPECT_TRUE(opened_window);
   EXPECT_FALSE(TabSpecificContentSettings::FromWebContents(web_contents)
                    ->IsContentBlocked(CONTENT_SETTINGS_TYPE_POPUPS));
+}
+
+IN_PROC_BROWSER_TEST_F(SafeBrowsingTriggeredPopupBlockerDisabledTest,
+                       NoFeature_NoMessages) {
+  const char kWindowOpenPath[] = "/subresource_filter/window_open.html";
+  GURL a_url(embedded_test_server()->GetURL("a.com", kWindowOpenPath));
+  ConfigureAsAbusiveWarn(a_url);
+
+  // Navigate to a_url, should not log any warning messages.
+  ScopedLoggingObserver log_observer;
+  ui_test_utils::NavigateToURL(browser(), a_url);
+  bool opened_window = false;
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(web_contents, "openWindow()",
+                                                   &opened_window));
+  EXPECT_TRUE(opened_window);
+  EXPECT_FALSE(TabSpecificContentSettings::FromWebContents(web_contents)
+                   ->IsContentBlocked(CONTENT_SETTINGS_TYPE_POPUPS));
+
+  log_observer.RoundTripAndVerifyLogMessages(
+      web_contents, {}, {kAbusiveWarnMessage, kAbusiveEnforceMessage});
 }
 
 IN_PROC_BROWSER_TEST_F(SafeBrowsingTriggeredPopupBlockerBrowserTest,
@@ -329,37 +363,6 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingTriggeredPopupBlockerBrowserTest,
   // Make sure the popup UI was shown.
   EXPECT_TRUE(TabSpecificContentSettings::FromWebContents(web_contents1)
                   ->IsContentBlocked(CONTENT_SETTINGS_TYPE_POPUPS));
-}
-
-IN_PROC_BROWSER_TEST_F(SafeBrowsingTriggeredPopupBlockerBrowserTest,
-                       NoFeature_NoMessages) {
-  // Disable Abusive enforcement, but keep the notifications coming from the
-  // SubresourceFilter.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitFromCommandLine("SubresourceFilter",
-                                          "AbusiveExperienceEnforce");
-  // Open a new tab to ensure it has the right variation params.
-  chrome::NewTab(browser());
-  ASSERT_NO_FATAL_FAILURE(content::WaitForLoadStop(web_contents()));
-
-  const char kWindowOpenPath[] = "/subresource_filter/window_open.html";
-  GURL a_url(embedded_test_server()->GetURL("a.com", kWindowOpenPath));
-  ConfigureAsAbusiveWarn(a_url);
-
-  // Navigate to a_url, should not log any warning messages.
-  ScopedLoggingObserver log_observer;
-  ui_test_utils::NavigateToURL(browser(), a_url);
-  bool opened_window = false;
-  content::WebContents* web_contents =
-      browser()->tab_strip_model()->GetActiveWebContents();
-  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(web_contents, "openWindow()",
-                                                   &opened_window));
-  EXPECT_TRUE(opened_window);
-  EXPECT_FALSE(TabSpecificContentSettings::FromWebContents(web_contents)
-                   ->IsContentBlocked(CONTENT_SETTINGS_TYPE_POPUPS));
-
-  log_observer.RoundTripAndVerifyLogMessages(
-      web_contents, {}, {kAbusiveWarnMessage, kAbusiveEnforceMessage});
 }
 
 IN_PROC_BROWSER_TEST_F(SafeBrowsingTriggeredPopupBlockerBrowserTest,
@@ -604,15 +607,6 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingTriggeredPopupBlockerBrowserTest,
 
 IN_PROC_BROWSER_TEST_P(SafeBrowsingTriggeredPopupBlockerParamBrowserTest,
                        IgnoreSublist) {
-  std::string ignore_param = GetParam() ? "true" : "false";
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeatureWithParameters(
-      kAbusiveExperienceEnforce, {{"ignore_sublists", ignore_param}});
-
-  // Use a new tab to make sure the tab helper gets the proper variation params.
-  chrome::NewTab(browser());
-  ASSERT_NO_FATAL_FAILURE(content::WaitForLoadStop(web_contents()));
-
   const char kWindowOpenPath[] = "/subresource_filter/window_open.html";
   GURL url(embedded_test_server()->GetURL("a.com", kWindowOpenPath));
 

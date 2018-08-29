@@ -344,6 +344,10 @@ protected:
   /// For example, foo(plt) instead of foo@plt.  Defaults to false.
   bool UseParensForSymbolVariant = false;
 
+  /// True if the target supports flags in ".loc" directive, false if only
+  /// location is allowed.
+  bool SupportsExtendedDwarfLocDirective = true;
+
   //===--- Prologue State ----------------------------------------------===//
 
   std::vector<MCCFIInstruction> InitialFrameState;
@@ -416,7 +420,7 @@ public:
     return nullptr;
   }
 
-  /// \brief True if the section is atomized using the symbols in it.
+  /// True if the section is atomized using the symbols in it.
   /// This is false if the section is not atomized at all (most ELF sections) or
   /// if it is atomized based on its contents (MachO' __TEXT,__cstring for
   /// example).
@@ -579,6 +583,9 @@ public:
   bool doDwarfFDESymbolsUseAbsDiff() const { return DwarfFDESymbolsUseAbsDiff; }
   bool useDwarfRegNumForCFI() const { return DwarfRegNumForCFI; }
   bool useParensForSymbolVariant() const { return UseParensForSymbolVariant; }
+  bool supportsExtendedDwarfLocDirective() const {
+    return SupportsExtendedDwarfLocDirective;
+  }
 
   void addInitialFrameState(const MCCFIInstruction &Inst) {
     InitialFrameState.push_back(Inst);

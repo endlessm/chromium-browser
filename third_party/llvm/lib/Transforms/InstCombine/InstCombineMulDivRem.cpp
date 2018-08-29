@@ -95,7 +95,7 @@ static Value *simplifyValueKnownNonZero(Value *V, InstCombiner &IC,
   return MadeChange ? V : nullptr;
 }
 
-/// \brief A helper routine of InstCombiner::visitMul().
+/// A helper routine of InstCombiner::visitMul().
 ///
 /// If C is a scalar/vector of known powers of 2, then this function returns
 /// a new scalar/vector obtained from logBase2 of C.
@@ -123,47 +123,6 @@ static Constant *getLogBase2(Type *Ty, Constant *C) {
   }
 
   return ConstantVector::get(Elts);
-}
-
-/// \brief Return true if we can prove that:
-///    (mul LHS, RHS)  === (mul nsw LHS, RHS)
-bool InstCombiner::willNotOverflowSignedMul(const Value *LHS,
-                                            const Value *RHS,
-                                            const Instruction &CxtI) const {
-  // Multiplying n * m significant bits yields a result of n + m significant
-  // bits. If the total number of significant bits does not exceed the
-  // result bit width (minus 1), there is no overflow.
-  // This means if we have enough leading sign bits in the operands
-  // we can guarantee that the result does not overflow.
-  // Ref: "Hacker's Delight" by Henry Warren
-  unsigned BitWidth = LHS->getType()->getScalarSizeInBits();
-
-  // Note that underestimating the number of sign bits gives a more
-  // conservative answer.
-  unsigned SignBits =
-      ComputeNumSignBits(LHS, 0, &CxtI) + ComputeNumSignBits(RHS, 0, &CxtI);
-
-  // First handle the easy case: if we have enough sign bits there's
-  // definitely no overflow.
-  if (SignBits > BitWidth + 1)
-    return true;
-
-  // There are two ambiguous cases where there can be no overflow:
-  //   SignBits == BitWidth + 1    and
-  //   SignBits == BitWidth
-  // The second case is difficult to check, therefore we only handle the
-  // first case.
-  if (SignBits == BitWidth + 1) {
-    // It overflows only when both arguments are negative and the true
-    // product is exactly the minimum negative number.
-    // E.g. mul i16 with 17 sign bits: 0xff00 * 0xff80 = 0x8000
-    // For simplicity we just check if at least one side is not negative.
-    KnownBits LHSKnown = computeKnownBits(LHS, /*Depth=*/0, &CxtI);
-    KnownBits RHSKnown = computeKnownBits(RHS, /*Depth=*/0, &CxtI);
-    if (LHSKnown.isNonNegative() || RHSKnown.isNonNegative())
-      return true;
-  }
-  return false;
 }
 
 Instruction *InstCombiner::visitMul(BinaryOperator &I) {
@@ -491,43 +450,74 @@ Instruction *InstCombiner::visitFMul(BinaryOperator &I) {
   if (Value *V = SimplifySelectsFeedingBinaryOp(I, Op0, Op1))
     return replaceInstUsesWith(I, V);
 
-  // Reassociate constant RHS with another constant to form constant expression.
-  // FIXME: These folds do not require all FMF.
-  if (I.isFast() && match(Op1, m_Constant(C)) && C->isFiniteNonZeroFP()) {
-    Constant *C1;
-    if (match(Op0, m_OneUse(m_FDiv(m_Constant(C1), m_Value(X))))) {
-      // (C1 / X) * C --> (C * C1) / X
-      Constant *CC1 = ConstantExpr::getFMul(C, C1);
-      if (CC1->isNormalFP())
-        return BinaryOperator::CreateFDivFMF(CC1, X, &I);
-    }
-    if (match(Op0, m_FDiv(m_Value(X), m_Constant(C1)))) {
-      // (X / C1) * C --> X * (C / C1)
-      Constant *CDivC1 = ConstantExpr::getFDiv(C, C1);
-      if (CDivC1->isNormalFP())
-        return BinaryOperator::CreateFMulFMF(X, CDivC1, &I);
+  if (I.hasAllowReassoc()) {
+    // Reassociate constant RHS with another constant to form constant
+    // expression.
+    if (match(Op1, m_Constant(C)) && C->isFiniteNonZeroFP()) {
+      Constant *C1;
+      if (match(Op0, m_OneUse(m_FDiv(m_Constant(C1), m_Value(X))))) {
+        // (C1 / X) * C --> (C * C1) / X
+        Constant *CC1 = ConstantExpr::getFMul(C, C1);
+        if (CC1->isNormalFP())
+          return BinaryOperator::CreateFDivFMF(CC1, X, &I);
+      }
+      if (match(Op0, m_FDiv(m_Value(X), m_Constant(C1)))) {
+        // (X / C1) * C --> X * (C / C1)
+        Constant *CDivC1 = ConstantExpr::getFDiv(C, C1);
+        if (CDivC1->isNormalFP())
+          return BinaryOperator::CreateFMulFMF(X, CDivC1, &I);
 
-      // If the constant was a denormal, try reassociating differently.
-      // (X / C1) * C --> X / (C1 / C)
-      Constant *C1DivC = ConstantExpr::getFDiv(C1, C);
-      if (Op0->hasOneUse() && C1DivC->isNormalFP())
-        return BinaryOperator::CreateFDivFMF(X, C1DivC, &I);
+        // If the constant was a denormal, try reassociating differently.
+        // (X / C1) * C --> X / (C1 / C)
+        Constant *C1DivC = ConstantExpr::getFDiv(C1, C);
+        if (Op0->hasOneUse() && C1DivC->isNormalFP())
+          return BinaryOperator::CreateFDivFMF(X, C1DivC, &I);
+      }
+
+      // We do not need to match 'fadd C, X' and 'fsub X, C' because they are
+      // canonicalized to 'fadd X, C'. Distributing the multiply may allow
+      // further folds and (X * C) + C2 is 'fma'.
+      if (match(Op0, m_OneUse(m_FAdd(m_Value(X), m_Constant(C1))))) {
+        // (X + C1) * C --> (X * C) + (C * C1)
+        Constant *CC1 = ConstantExpr::getFMul(C, C1);
+        Value *XC = Builder.CreateFMulFMF(X, C, &I);
+        return BinaryOperator::CreateFAddFMF(XC, CC1, &I);
+      }
+      if (match(Op0, m_OneUse(m_FSub(m_Constant(C1), m_Value(X))))) {
+        // (C1 - X) * C --> (C * C1) - (X * C)
+        Constant *CC1 = ConstantExpr::getFMul(C, C1);
+        Value *XC = Builder.CreateFMulFMF(X, C, &I);
+        return BinaryOperator::CreateFSubFMF(CC1, XC, &I);
+      }
     }
 
-    // We do not need to match 'fadd C, X' and 'fsub X, C' because they are
-    // canonicalized to 'fadd X, C'. Distributing the multiply may allow further
-    // folds and (X * C) + C2 is 'fma'.
-    if (match(Op0, m_OneUse(m_FAdd(m_Value(X), m_Constant(C1))))) {
-      // (X + C1) * C --> (X * C) + (C * C1)
-      Constant *CC1 = ConstantExpr::getFMul(C, C1);
-      Value *XC = Builder.CreateFMulFMF(X, C, &I);
-      return BinaryOperator::CreateFAddFMF(XC, CC1, &I);
+    // sqrt(X) * sqrt(Y) -> sqrt(X * Y)
+    // nnan disallows the possibility of returning a number if both operands are
+    // negative (in that case, we should return NaN).
+    if (I.hasNoNaNs() &&
+        match(Op0, m_OneUse(m_Intrinsic<Intrinsic::sqrt>(m_Value(X)))) &&
+        match(Op1, m_OneUse(m_Intrinsic<Intrinsic::sqrt>(m_Value(Y))))) {
+      Value *XY = Builder.CreateFMulFMF(X, Y, &I);
+      Value *Sqrt = Builder.CreateIntrinsic(Intrinsic::sqrt, { XY }, &I);
+      return replaceInstUsesWith(I, Sqrt);
     }
-    if (match(Op0, m_OneUse(m_FSub(m_Constant(C1), m_Value(X))))) {
-      // (C1 - X) * C --> (C * C1) - (X * C)
-      Constant *CC1 = ConstantExpr::getFMul(C, C1);
-      Value *XC = Builder.CreateFMulFMF(X, C, &I);
-      return BinaryOperator::CreateFSubFMF(CC1, XC, &I);
+
+    // (X*Y) * X => (X*X) * Y where Y != X
+    //  The purpose is two-fold:
+    //   1) to form a power expression (of X).
+    //   2) potentially shorten the critical path: After transformation, the
+    //  latency of the instruction Y is amortized by the expression of X*X,
+    //  and therefore Y is in a "less critical" position compared to what it
+    //  was before the transformation.
+    if (match(Op0, m_OneUse(m_c_FMul(m_Specific(Op1), m_Value(Y)))) &&
+        Op1 != Y) {
+      Value *XX = Builder.CreateFMulFMF(Op1, Op1, &I);
+      return BinaryOperator::CreateFMulFMF(XX, Y, &I);
+    }
+    if (match(Op1, m_OneUse(m_c_FMul(m_Specific(Op0), m_Value(Y)))) &&
+        Op0 != Y) {
+      Value *XX = Builder.CreateFMulFMF(Op0, Op0, &I);
+      return BinaryOperator::CreateFMulFMF(XX, Y, &I);
     }
   }
 
@@ -549,37 +539,6 @@ Instruction *InstCombiner::visitFMul(BinaryOperator &I) {
       Log2->copyFastMathFlags(&I);
       Value *LogXTimesY = Builder.CreateFMulFMF(Log2, Y, &I);
       return BinaryOperator::CreateFSubFMF(LogXTimesY, Y, &I);
-    }
-  }
-
-  // sqrt(X) * sqrt(Y) -> sqrt(X * Y)
-  // nnan disallows the possibility of returning a number if both operands are
-  // negative (in that case, we should return NaN).
-  if (I.hasAllowReassoc() && I.hasNoNaNs() &&
-      match(Op0, m_OneUse(m_Intrinsic<Intrinsic::sqrt>(m_Value(X)))) &&
-      match(Op1, m_OneUse(m_Intrinsic<Intrinsic::sqrt>(m_Value(Y))))) {
-    Value *XY = Builder.CreateFMulFMF(X, Y, &I);
-    Value *Sqrt = Builder.CreateIntrinsic(Intrinsic::sqrt, { XY }, &I);
-    return replaceInstUsesWith(I, Sqrt);
-  }
-
-  // (X*Y) * X => (X*X) * Y where Y != X
-  //  The purpose is two-fold:
-  //   1) to form a power expression (of X).
-  //   2) potentially shorten the critical path: After transformation, the
-  //  latency of the instruction Y is amortized by the expression of X*X,
-  //  and therefore Y is in a "less critical" position compared to what it
-  //  was before the transformation.
-  if (I.hasAllowReassoc()) {
-    if (match(Op0, m_OneUse(m_c_FMul(m_Specific(Op1), m_Value(Y)))) &&
-        Op1 != Y) {
-      Value *XX = Builder.CreateFMulFMF(Op1, Op1, &I);
-      return BinaryOperator::CreateFMulFMF(XX, Y, &I);
-    }
-    if (match(Op1, m_OneUse(m_c_FMul(m_Specific(Op0), m_Value(Y)))) &&
-        Op0 != Y) {
-      Value *XX = Builder.CreateFMulFMF(Op0, Op0, &I);
-      return BinaryOperator::CreateFMulFMF(XX, Y, &I);
     }
   }
 
@@ -689,7 +648,7 @@ static bool isMultiple(const APInt &C1, const APInt &C2, APInt &Quotient,
 /// This function implements the transforms common to both integer division
 /// instructions (udiv and sdiv). It is called by the visitors to those integer
 /// division instructions.
-/// @brief Common integer divide transforms
+/// Common integer divide transforms
 Instruction *InstCombiner::commonIDivTransforms(BinaryOperator &I) {
   Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
   bool IsSigned = I.getOpcode() == Instruction::SDiv;
@@ -830,7 +789,7 @@ using FoldUDivOperandCb = Instruction *(*)(Value *Op0, Value *Op1,
                                            const BinaryOperator &I,
                                            InstCombiner &IC);
 
-/// \brief Used to maintain state for visitUDivOperand().
+/// Used to maintain state for visitUDivOperand().
 struct UDivFoldAction {
   /// Informs visitUDiv() how to fold this operand.  This can be zero if this
   /// action joins two actions together.
@@ -899,7 +858,7 @@ static Instruction *foldUDivShl(Value *Op0, Value *Op1, const BinaryOperator &I,
   return LShr;
 }
 
-// \brief Recursively visits the possible right hand operands of a udiv
+// Recursively visits the possible right hand operands of a udiv
 // instruction, seeing through select instructions, to determine if we can
 // replace the udiv with something simpler.  If we find that an operand is not
 // able to simplify the udiv, we abort the entire transformation.
@@ -1280,7 +1239,7 @@ Instruction *InstCombiner::visitFDiv(BinaryOperator &I) {
 /// This function implements the transforms common to both integer remainder
 /// instructions (urem and srem). It is called by the visitors to those integer
 /// remainder instructions.
-/// @brief Common integer remainder transforms
+/// Common integer remainder transforms
 Instruction *InstCombiner::commonIRemTransforms(BinaryOperator &I) {
   Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
 

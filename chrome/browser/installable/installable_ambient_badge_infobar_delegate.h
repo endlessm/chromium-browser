@@ -26,6 +26,9 @@ class InstallableAmbientBadgeInfoBarDelegate
     // Called to trigger the add to home screen flow.
     virtual void AddToHomescreenFromBadge() = 0;
 
+    // Called to inform the client that the badge was dismissed.
+    virtual void BadgeDismissed() = 0;
+
     virtual ~Client() {}
   };
 
@@ -36,32 +39,27 @@ class InstallableAmbientBadgeInfoBarDelegate
                      base::WeakPtr<Client> weak_client,
                      const base::string16& app_name,
                      const SkBitmap& primary_icon,
-                     const GURL& start_url,
-                     bool is_installed);
+                     const GURL& start_url);
 
   void AddToHomescreen();
   const base::string16 GetMessageText() const;
   const SkBitmap& GetPrimaryIcon() const;
   const GURL& GetUrl() const { return start_url_; }
-  bool is_installed() const { return is_installed_; }
 
  private:
   InstallableAmbientBadgeInfoBarDelegate(base::WeakPtr<Client> weak_client,
                                          const base::string16& app_name,
                                          const SkBitmap& primary_icon,
-                                         const GURL& start_url,
-                                         bool is_installed);
+                                         const GURL& start_url);
 
   // InfoBarDelegate overrides:
   infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
+  void InfoBarDismissed() override;
 
   base::WeakPtr<Client> weak_client_;
   const base::string16 app_name_;
   const SkBitmap primary_icon_;
   const GURL& start_url_;
-
-  // Whether the current site is already installed.
-  bool is_installed_;
 
   DISALLOW_COPY_AND_ASSIGN(InstallableAmbientBadgeInfoBarDelegate);
 };

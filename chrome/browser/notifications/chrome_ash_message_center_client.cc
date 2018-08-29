@@ -7,10 +7,12 @@
 #include "ash/public/interfaces/constants.mojom.h"
 #include "base/i18n/string_compare.h"
 #include "base/stl_util.h"
+#include "chrome/browser/chromeos/arc/arc_session_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/notifications/arc_application_notifier_controller.h"
 #include "chrome/browser/notifications/extension_notifier_controller.h"
 #include "chrome/browser/notifications/web_page_notifier_controller.h"
+#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/common/service_manager_connection.h"
 #include "services/service_manager/public/cpp/connector.h"
@@ -87,13 +89,8 @@ ChromeAshMessageCenterClient::~ChromeAshMessageCenterClient() {
   g_chrome_ash_message_center_client = nullptr;
 }
 
-// The unused variables here will not be a part of the future
-// NotificationPlatformBridge interface.
 void ChromeAshMessageCenterClient::Display(
-    NotificationHandler::Type /*notification_type*/,
-    Profile* /* profile */,
-    const message_center::Notification& notification,
-    std::unique_ptr<NotificationCommon::Metadata> metadata) {
+    const message_center::Notification& notification) {
   // Null in unit tests.
   if (!controller_)
     return;
@@ -112,27 +109,8 @@ void ChromeAshMessageCenterClient::Display(
   controller_->ShowClientNotification(notification, token);
 }
 
-// The unused variable here will not be a part of the future
-// NotificationPlatformBridge interface.
-void ChromeAshMessageCenterClient::Close(Profile* /* profile */,
-                                         const std::string& notification_id) {
+void ChromeAshMessageCenterClient::Close(const std::string& notification_id) {
   controller_->CloseClientNotification(notification_id);
-}
-
-// The unused variables here will not be a part of the future
-// NotificationPlatformBridge interface.
-void ChromeAshMessageCenterClient::GetDisplayed(
-    Profile* /* profile */,
-    GetDisplayedNotificationsCallback callback) const {
-  // Right now, this is only used to get web notifications that were created by
-  // and have outlived a previous browser process. Ash itself doesn't outlive
-  // the browser process, so there's no need to implement.
-  std::move(callback).Run(std::make_unique<std::set<std::string>>(), false);
-}
-
-void ChromeAshMessageCenterClient::SetReadyCallback(
-    NotificationBridgeReadyCallback callback) {
-  std::move(callback).Run(true);
 }
 
 void ChromeAshMessageCenterClient::HandleNotificationClosed(
@@ -190,6 +168,14 @@ void ChromeAshMessageCenterClient::GetNotifierList(
   std::sort(notifiers.begin(), notifiers.end(), comparator);
 
   std::move(callback).Run(std::move(notifiers));
+}
+
+void ChromeAshMessageCenterClient::GetArcAppIdByPackageName(
+    const std::string& package_name,
+    GetArcAppIdByPackageNameCallback callback) {
+  std::move(callback).Run(
+      ArcAppListPrefs::Get(arc::ArcSessionManager::Get()->profile())
+          ->GetAppIdByPackageName(package_name));
 }
 
 void ChromeAshMessageCenterClient::OnIconImageUpdated(

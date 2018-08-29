@@ -25,6 +25,7 @@
 #import "ios/chrome/browser/ui/overscroll_actions/overscroll_actions_controller.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
+#include "ios/web/public/features.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -216,11 +217,12 @@ BOOL ShouldCellsBeFullWidth(UITraitCollection* collection) {
 
   self.collectionView.prefetchingEnabled = NO;
   if (@available(iOS 11, *)) {
-    // Use automatic behavior as each element takes the safe area into account
-    // separately and the overscroll action does not work well with content
-    // offset.
+    // Overscroll action does not work well with content offset, so set this
+    // to never and internally offset the UI to account for safe area insets.
     self.collectionView.contentInsetAdjustmentBehavior =
-        UIScrollViewContentInsetAdjustmentAutomatic;
+        IsUIRefreshPhase1Enabled()
+            ? UIScrollViewContentInsetAdjustmentNever
+            : UIScrollViewContentInsetAdjustmentAutomatic;
   }
   self.collectionView.accessibilityIdentifier =
       [[self class] collectionAccessibilityIdentifier];
@@ -238,8 +240,34 @@ BOOL ShouldCellsBeFullWidth(UITraitCollection* collection) {
   }
   self.automaticallyAdjustsScrollViewInsets = NO;
   self.collectionView.translatesAutoresizingMaskIntoConstraints = NO;
-  ApplyVisualConstraints(@[ @"V:|[collection]|", @"H:|[collection]|" ],
-                         @{@"collection" : self.collectionView});
+
+  if (base::FeatureList::IsEnabled(
+          web::features::kBrowserContainerFullscreen) &&
+      !IsUIRefreshPhase1Enabled()) {
+    // Add a fake status bar at the top.
+    UIView* fakeStatusBar = [[UIView alloc] init];
+    fakeStatusBar.backgroundColor = ntp_home::kNTPBackgroundColor();
+    fakeStatusBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:fakeStatusBar];
+    AddSameConstraintsToSides(
+        self.view, fakeStatusBar,
+        LayoutSides::kTop | LayoutSides::kTrailing | LayoutSides::kLeading);
+    if (@available(iOS 11.0, *)) {
+      [fakeStatusBar.bottomAnchor
+          constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor]
+          .active = YES;
+    } else {
+      [fakeStatusBar.bottomAnchor
+          constraintEqualToAnchor:self.topLayoutGuide.bottomAnchor]
+          .active = YES;
+    }
+    ApplyVisualConstraints(
+        @[ @"V:|[statusBar][collection]|", @"H:|[collection]|" ],
+        @{@"collection" : self.collectionView, @"statusBar" : fakeStatusBar});
+  } else {
+    ApplyVisualConstraints(@[ @"V:|[collection]|", @"H:|[collection]|" ],
+                           @{@"collection" : self.collectionView});
+  }
 
   UILongPressGestureRecognizer* longPressRecognizer =
       [[UILongPressGestureRecognizer alloc]
@@ -317,7 +345,13 @@ BOOL ShouldCellsBeFullWidth(UITraitCollection* collection) {
 
 - (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
   [super traitCollectionDidChange:previousTraitCollection];
+  [self correctMissingSafeArea];
   [self updateOverscrollActionsState];
+}
+
+- (void)viewSafeAreaInsetsDidChange {
+  [super viewSafeAreaInsetsDidChange];
+  [self correctMissingSafeArea];
 }
 
 #pragma mark - UICollectionViewDelegate
@@ -687,6 +721,25 @@ BOOL ShouldCellsBeFullWidth(UITraitCollection* collection) {
 }
 
 #pragma mark - Private
+
+// TODO(crbug.com/826369) Remove this when the NTP is conatined by the BVC
+// and removed from native content.  As a part of native content, the NTP is
+// contained by a view controller that is inset from safeArea.top.  Even
+// though content suggestions appear under the top safe area, they are blocked
+// by the browser container view controller.
+- (void)correctMissingSafeArea {
+  if (IsUIRefreshPhase1Enabled()) {
+    if (@available(iOS 11, *)) {
+      UIEdgeInsets missingTop = UIEdgeInsetsZero;
+      // During the new tab animation the browser container view controller
+      // actually matches the browser view controller frame, so safe area does
+      // work, so be sure to check the parent view controller offset.
+      if (self.parentViewController.view.frame.origin.y == StatusBarHeight())
+        missingTop = UIEdgeInsetsMake(StatusBarHeight(), 0, 0, 0);
+      self.additionalSafeAreaInsets = missingTop;
+    }
+  }
+}
 
 - (void)handleLongPress:(UILongPressGestureRecognizer*)gestureRecognizer {
   if (self.editor.editing ||

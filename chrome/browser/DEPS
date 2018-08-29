@@ -6,6 +6,7 @@ include_rules = [
   "+chrome/grit",
   "+chrome/install_static",
   "+chrome/installer/util",
+  "+chrome/notification_helper/notification_helper_constants.h",
   "+chrome/services/file_util/public",
   "+chrome/services/media_gallery_util/public",
   "+chrome/services/printing/public",
@@ -25,7 +26,6 @@ include_rules = [
   "+device/bluetooth",
   "+device/fido",
   "+device/geolocation",
-  "+device/media_transfer_protocol",
   "+device/usb",
   "+device/vr/buildflags/buildflags.h",
   "+extensions/browser",
@@ -61,8 +61,9 @@ include_rules = [
   "+services/metrics/public",
   "+services/network/ignore_errors_cert_verifier.h",
   "+services/network/network_service.h",
-  "+services/network/url_request_context_owner.h",
   "+services/network/public",
+  "+services/network/test",
+  "+services/network/url_request_context_owner.h",
   "+services/network/url_request_context_builder_mojo.h",
   "+services/preferences/public/cpp",
   "+services/preferences/public/mojom",
@@ -71,7 +72,6 @@ include_rules = [
   "+services/proxy_resolver/public/mojom",
   "+services/resource_coordinator/public/cpp",
   "+services/resource_coordinator/public/mojom",
-  "+services/service_manager",
   "+services/shape_detection/public/mojom",
   "+services/ui/common",
   "+services/ui/public",
@@ -82,7 +82,7 @@ include_rules = [
   "+third_party/boringssl/src/include",
   "+third_party/crashpad",
   "+third_party/cros_system_api",
-  "+third_party/libaom/av1_features.h",
+  "+third_party/libaom/av1_buildflags.h",
   "+third_party/metrics_proto",
 
   # Code under //ash runs out-of-process in mash so it must be accessed via mojo
@@ -90,6 +90,8 @@ include_rules = [
   "-ash",
   "+ash/public",
   "+ash/components/quick_launch/public/mojom",
+  "+ash/components/shortcut_viewer/public/mojom",
+  "+ash/components/tap_visualizer/public/mojom",
 
   # The message center may not exist, or may run out of process (in mash).
   "-ui/message_center",
@@ -143,7 +145,6 @@ include_rules = [
   "+third_party/blink/public/common",
   "+third_party/blink/public/mojom",
   "+third_party/blink/public/platform/web_cache.h",
-  "+third_party/blink/public/platform/web_display_mode.h",
   "+third_party/blink/public/platform/web_loading_behavior_flag.h",
   "+third_party/blink/public/platform/web_gesture_event.h",
   "+third_party/blink/public/platform/web_input_event.h",
@@ -151,6 +152,7 @@ include_rules = [
   "+third_party/blink/public/platform/web_mouse_wheel_event.h",
   "+third_party/blink/public/platform/web_referrer_policy.h",
   "+third_party/blink/public/platform/web_security_style.h",
+  "+third_party/blink/public/platform/web_speech_synthesis_constants.h",
   "+third_party/blink/public/platform/web_sudden_termination_disabler_type.h",
   "+third_party/blink/public/platform/modules/notifications/web_notification_constants.h",
   "+third_party/blink/public/platform/modules/remoteplayback/web_remote_playback_availability.h",
@@ -158,6 +160,7 @@ include_rules = [
   "+third_party/blink/public/public_buildflags.h",
   "+third_party/blink/public/web/web_context_menu_data.h",
   "+third_party/blink/public/web/web_find_options.h",
+  "+third_party/blink/public/web/web_fullscreen_options.h",
   "+third_party/blink/public/web/web_media_player_action.h",
   "+third_party/blink/public/web/web_plugin_action.h",
   "+third_party/blink/public/web/web_presentation_receiver_flags.h",
@@ -206,6 +209,17 @@ include_rules = [
 ]
 
 specific_include_rules = {
+  "ash_service_registry\.cc": [
+    # The following are needed for classic mode to create the WindowService.
+    # Once Ash runs out of process no longer needed.
+    "+ash/shell.h",
+    "+ash/strings/grit/ash_strings.h",
+    "+ash/ws/window_service_owner.h",
+    "+services/ui/ws2/window_service.h",
+
+    # Needed for classic mode.
+    "+ash/ash_service.h",
+  ],
   # TODO(mash): see bugs 768439 and 768395.
   "exo_parts\.cc": [
     "+ash/shell.h",

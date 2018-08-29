@@ -4,9 +4,11 @@
 
 #include "chrome/browser/android/customtabs/detached_resource_request.h"
 
+#include <cstdlib>
 #include <utility>
 
 #include "base/location.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
@@ -104,6 +106,10 @@ void DetachedResourceRequest::Start(
   request->url_loader_->SetOnRedirectCallback(
       base::BindRepeating(&DetachedResourceRequest::OnRedirectCallback,
                           base::Unretained(request.get())));
+  // Only retry on network changes, not HTTP 5xx codes. This is a client-side
+  // failure, and main requests are retried in this case.
+  request->url_loader_->SetRetryOptions(
+      1 /* max_retries */, network::SimpleURLLoader::RETRY_ON_NETWORK_CHANGE);
 
   // |url_loader_| is owned by the request, and must be kept alive to not cancel
   // the request. Pass the ownership of the request to the response callback,
@@ -127,7 +133,8 @@ void DetachedResourceRequest::OnRedirectCallback(
 void DetachedResourceRequest::OnResponseCallback(
     std::unique_ptr<std::string> response_body) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  bool success = url_loader_->NetError() == net::OK;
+  int net_error = url_loader_->NetError();
+  bool success = net_error == net::OK;
   auto duration = base::TimeTicks::Now() - start_time_;
   if (success) {
     // Max 20 redirects, 21 would be a bug.
@@ -144,6 +151,8 @@ void DetachedResourceRequest::OnResponseCallback(
         "CustomTabs.DetachedResourceRequest.Duration.Failure", duration);
   }
 
+  base::UmaHistogramSparse("CustomTabs.DetachedResourceRequest.FinalStatus",
+                           std::abs(net_error));
   std::move(cb_).Run(success);
 }
 

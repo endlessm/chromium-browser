@@ -10,12 +10,12 @@
 #include <string>
 #include <vector>
 
-#include "ash/ash_constants.h"
-#include "ash/ash_layout_constants.h"
 #include "ash/frame/custom_frame_view_ash.h"
 #include "ash/frame/detached_title_area_renderer.h"
+#include "ash/public/cpp/ash_constants.h"
+#include "ash/public/cpp/ash_layout_constants.h"
 #include "ash/public/cpp/immersive/immersive_fullscreen_controller_delegate.h"
-#include "ash/window_manager.h"
+#include "ash/public/cpp/window_properties.h"
 #include "ash/wm/move_event_handler.h"
 #include "ash/wm/panels/panel_frame_view.h"
 #include "ash/wm/property_util.h"
@@ -170,6 +170,8 @@ class WmNativeWidgetAura : public views::NativeWidgetAura {
   WmNativeWidgetAura(views::internal::NativeWidgetDelegate* delegate,
                      aura::WindowManagerClient* window_manager_client,
                      bool remove_standard_frame,
+                     base::Optional<SkColor> active_frame_color,
+                     base::Optional<SkColor> inactive_frame_color,
                      bool enable_immersive,
                      mojom::WindowStyle window_style)
       // The NativeWidget is mirroring the real Widget created in client code.
@@ -178,9 +180,13 @@ class WmNativeWidgetAura : public views::NativeWidgetAura {
             delegate,
             true /* is_parallel_widget_in_window_manager */),
         remove_standard_frame_(remove_standard_frame),
+        active_frame_color_(active_frame_color),
+        inactive_frame_color_(inactive_frame_color),
         enable_immersive_(enable_immersive),
         window_style_(window_style),
-        window_manager_client_(window_manager_client) {}
+        window_manager_client_(window_manager_client) {
+    DCHECK_EQ(!!active_frame_color_, !!inactive_frame_color_);
+  }
   ~WmNativeWidgetAura() override = default;
 
   void SetHeaderHeight(int height) {
@@ -207,6 +213,12 @@ class WmNativeWidgetAura : public views::NativeWidgetAura {
     custom_frame_view_ =
         new CustomFrameViewAsh(GetWidget(), immersive_delegate_.get(),
                                enable_immersive_, window_style_);
+
+    if (active_frame_color_) {
+      custom_frame_view_->SetFrameColors(*active_frame_color_,
+                                         *inactive_frame_color_);
+    }
+
     // Only the header actually paints any content. So the rest of the region is
     // marked as transparent content (see below in NonClientFrameController()
     // ctor). So, it is necessary to provide a texture-layer for the header
@@ -220,6 +232,8 @@ class WmNativeWidgetAura : public views::NativeWidgetAura {
 
  private:
   const bool remove_standard_frame_;
+  const base::Optional<SkColor> active_frame_color_;
+  const base::Optional<SkColor> inactive_frame_color_;
   const bool enable_immersive_;
   const mojom::WindowStyle window_style_;
 
@@ -247,8 +261,11 @@ class ClientViewMus : public views::ClientView {
 
   // views::ClientView:
   bool CanClose() override {
-    if (!frame_controller_->window())
+    // TODO(crbug.com/842298): Add support for window-service as a library.
+    if (!frame_controller_->window() ||
+        !frame_controller_->window_manager_client()) {
       return true;
+    }
 
     frame_controller_->window_manager_client()->RequestClose(
         frame_controller_->window());
@@ -268,9 +285,10 @@ NonClientFrameController::NonClientFrameController(
     aura::Window* context,
     const gfx::Rect& bounds,
     ui::mojom::WindowType window_type,
+    aura::PropertyConverter* property_converter,
     std::map<std::string, std::vector<uint8_t>>* properties,
-    WindowManager* window_manager)
-    : window_manager_client_(window_manager->window_manager_client()),
+    aura::WindowManagerClient* window_manager_client)
+    : window_manager_client_(window_manager_client),
       widget_(new views::Widget),
       window_(nullptr) {
   // To simplify things this code creates a Widget. While a Widget is created
@@ -293,6 +311,7 @@ NonClientFrameController::NonClientFrameController(
   params.layer_type = ui::LAYER_SOLID_COLOR;
   WmNativeWidgetAura* native_widget = new WmNativeWidgetAura(
       widget_, window_manager_client_, ShouldRemoveStandardFrame(*properties),
+      GetFrameColor(*properties, true), GetFrameColor(*properties, false),
       ShouldEnableImmersive(*properties), GetWindowStyle(*properties));
   window_ = native_widget->GetNativeView();
   window_->SetProperty(aura::client::kEmbedType,
@@ -302,8 +321,6 @@ NonClientFrameController::NonClientFrameController(
   window_->AddObserver(this);
   params.native_widget = native_widget;
   aura::SetWindowType(window_, window_type);
-  aura::PropertyConverter* property_converter =
-      window_manager->property_converter();
   for (auto& property_pair : *properties) {
     property_converter->SetPropertyFromTransportValue(
         window_, property_pair.first, &property_pair.second);
@@ -386,9 +403,7 @@ bool NonClientFrameController::CanMinimize() const {
 }
 
 bool NonClientFrameController::ShouldShowWindowTitle() const {
-  // Only draw the title if the client hasn't declared any additional client
-  // areas which might conflict with it.
-  return window_ && additional_client_areas_.empty();
+  return window_ && window_->GetProperty(kWindowTitleShownKey);
 }
 
 views::ClientView* NonClientFrameController::CreateClientView(

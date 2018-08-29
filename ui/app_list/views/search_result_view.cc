@@ -8,9 +8,11 @@
 #include <utility>
 
 #include "ash/app_list/model/search/search_result.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/app_list_switches.h"
+#include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
-#include "ui/app_list/app_list_constants.h"
-#include "ui/app_list/app_list_switches.h"
+#include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/views/search_result_actions_view.h"
 #include "ui/app_list/views/search_result_list_view.h"
 #include "ui/gfx/canvas.h"
@@ -34,16 +36,13 @@ constexpr int kTextTrailPadding = 16;
 constexpr int kActionButtonRightMargin = 8;
 
 // Matched text color, #000 87%.
-constexpr SkColor kMatchedTextColor =
-    SkColorSetARGBMacro(0xDE, 0x00, 0x00, 0x00);
+constexpr SkColor kMatchedTextColor = SkColorSetARGB(0xDE, 0x00, 0x00, 0x00);
 // Default text color, #000 54%.
-constexpr SkColor kDefaultTextColor =
-    SkColorSetARGBMacro(0x8A, 0x00, 0x00, 0x00);
+constexpr SkColor kDefaultTextColor = SkColorSetARGB(0x8A, 0x00, 0x00, 0x00);
 // URL color.
-constexpr SkColor kUrlColor = SkColorSetARGBMacro(0xFF, 0x33, 0x67, 0xD6);
+constexpr SkColor kUrlColor = SkColorSetARGB(0xFF, 0x33, 0x67, 0xD6);
 // Row selected color, #000 8%.
-constexpr SkColor kRowHighlightedColor =
-    SkColorSetARGBMacro(0x14, 0x00, 0x00, 0x00);
+constexpr SkColor kRowHighlightedColor = SkColorSetARGB(0x14, 0x00, 0x00, 0x00);
 
 int GetIconViewWidth() {
   return kListIconSize + 2 * kIconLeftRightPadding;
@@ -54,12 +53,16 @@ int GetIconViewWidth() {
 // static
 const char SearchResultView::kViewClassName[] = "ui/app_list/SearchResultView";
 
-SearchResultView::SearchResultView(SearchResultListView* list_view)
+SearchResultView::SearchResultView(SearchResultListView* list_view,
+                                   AppListViewDelegate* view_delegate)
     : list_view_(list_view),
+      view_delegate_(view_delegate),
       icon_(new views::ImageView),
       badge_icon_(new views::ImageView),
       actions_view_(new SearchResultActionsView(this)),
-      progress_bar_(new views::ProgressBar) {
+      progress_bar_(new views::ProgressBar),
+      context_menu_(this),
+      weak_ptr_factory_(this) {
   SetFocusBehavior(FocusBehavior::ALWAYS);
   icon_->set_can_process_events_within_subtree(false);
   badge_icon_->set_can_process_events_within_subtree(false);
@@ -82,9 +85,7 @@ void SearchResultView::SetResult(SearchResult* result) {
   if (result_)
     result_->AddObserver(this);
 
-  OnIconChanged();
-  OnBadgeIconChanged();
-  OnActionsChanged();
+  OnMetadataChanged();
   UpdateTitleText();
   UpdateDetailsText();
   OnIsInstallingChanged();
@@ -331,29 +332,30 @@ void SearchResultView::ButtonPressed(views::Button* sender,
   list_view_->SearchResultActivated(this, event.flags());
 }
 
-void SearchResultView::OnIconChanged() {
-  const gfx::ImageSkia image(result_ ? result_->icon() : gfx::ImageSkia());
-  // Note this might leave the view with an old icon. But it is needed to avoid
+void SearchResultView::OnMetadataChanged() {
+  // Updates |icon_|.
+  // Note: this might leave the view with an old icon. But it is needed to avoid
   // flash when a SearchResult's icon is loaded asynchronously. In this case, it
   // looks nicer to keep the stale icon for a little while on screen instead of
   // clearing it out. It should work correctly as long as the SearchResult does
   // not forget to SetIcon when it's ready.
-  if (image.isNull())
-    return;
+  const gfx::ImageSkia icon(result_ ? result_->icon() : gfx::ImageSkia());
+  if (!icon.isNull())
+    SetIconImage(icon, icon_, kListIconSize);
 
-  SetIconImage(image, icon_, kListIconSize);
-}
-
-void SearchResultView::OnBadgeIconChanged() {
-  const gfx::ImageSkia image(result_ ? result_->badge_icon()
-                                     : gfx::ImageSkia());
-  if (image.isNull()) {
+  // Updates |badge_icon_|.
+  const gfx::ImageSkia badge_icon(result_ ? result_->badge_icon()
+                                          : gfx::ImageSkia());
+  if (badge_icon.isNull()) {
     badge_icon_->SetVisible(false);
-    return;
+  } else {
+    SetIconImage(badge_icon, badge_icon_, kListBadgeIconSize);
+    badge_icon_->SetVisible(true);
   }
 
-  SetIconImage(image, badge_icon_, kListBadgeIconSize);
-  badge_icon_->SetVisible(true);
+  // Updates |actions_view_|.
+  actions_view_->SetActions(result_ ? result_->actions()
+                                    : SearchResult::Actions());
 }
 
 void SearchResultView::SetIconImage(const gfx::ImageSkia& source,
@@ -377,11 +379,6 @@ void SearchResultView::SetIconImage(const gfx::ImageSkia& source,
   // buffer pointers remaining the same despite the image changing.
   icon->SetImage(gfx::ImageSkia());
   icon->SetImage(image);
-}
-
-void SearchResultView::OnActionsChanged() {
-  actions_view_->SetActions(result_ ? result_->actions()
-                                    : SearchResult::Actions());
 }
 
 void SearchResultView::OnIsInstallingChanged() {
@@ -416,17 +413,32 @@ void SearchResultView::ShowContextMenuForView(views::View* source,
   if (!result_)
     return;
 
-  ui::MenuModel* menu_model = result_->GetContextMenuModel();
-  if (!menu_model)
+  view_delegate_->GetSearchResultContextMenuModel(
+      result_->id(), base::BindOnce(&SearchResultView::OnGetContextMenu,
+                                    weak_ptr_factory_.GetWeakPtr(), source,
+                                    point, source_type));
+}
+
+void SearchResultView::OnGetContextMenu(
+    views::View* source,
+    const gfx::Point& point,
+    ui::MenuSourceType source_type,
+    std::vector<ash::mojom::MenuItemPtr> menu) {
+  if (menu.empty() || context_menu_.IsRunning())
     return;
 
-  context_menu_runner_.reset(
-      new views::MenuRunner(menu_model, views::MenuRunner::HAS_MNEMONICS));
-  context_menu_runner_->RunMenuAt(GetWidget(), NULL,
-                                  gfx::Rect(point, gfx::Size()),
-                                  views::MENU_ANCHOR_TOPLEFT, source_type);
+  context_menu_.Build(std::move(menu), views::MenuRunner::HAS_MNEMONICS);
+  context_menu_.Run(GetWidget(), nullptr, gfx::Rect(point, gfx::Size()),
+                    views::MENU_ANCHOR_TOPLEFT, source_type);
 
   source->RequestFocus();
+}
+
+void SearchResultView::ExecuteCommand(int command_id, int event_flags) {
+  if (result_) {
+    view_delegate_->SearchResultContextMenuItemSelected(
+        result_->id(), command_id, event_flags);
+  }
 }
 
 }  // namespace app_list

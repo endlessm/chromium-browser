@@ -40,6 +40,7 @@
 #include "components/component_updater/component_updater_service.h"
 #include "components/update_client/update_client.h"
 #include "components/update_client/update_client_errors.h"
+#include "components/update_client/utils.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/plugin_service.h"
 #include "content/public/common/content_constants.h"
@@ -202,7 +203,8 @@ void RegisterPepperFlashWithChrome(const base::FilePath& path,
   content::WebPluginInfo web_plugin = plugin_info.ToWebPluginInfo();
 
   base::FilePath system_flash_path;
-  PathService::Get(chrome::FILE_PEPPER_FLASH_SYSTEM_PLUGIN, &system_flash_path);
+  base::PathService::Get(chrome::FILE_PEPPER_FLASH_SYSTEM_PLUGIN,
+                         &system_flash_path);
 
   std::vector<content::WebPluginInfo> plugins;
   PluginService::GetInstance()->GetInternalPlugins(&plugins);
@@ -237,7 +239,7 @@ void RegisterPepperFlashWithChrome(const base::FilePath& path,
 }
 
 void UpdatePathService(const base::FilePath& path) {
-  PathService::Override(chrome::DIR_PEPPER_FLASH_PLUGIN, path);
+  base::PathService::Override(chrome::DIR_PEPPER_FLASH_PLUGIN, path);
 }
 #endif  // !defined(OS_LINUX) && defined(GOOGLE_CHROME_BUILD)
 
@@ -286,7 +288,8 @@ FlashComponentInstallerPolicy::OnCustomInstall(
     const base::FilePath& install_dir) {
   std::string version;
   if (!manifest.GetString("version", &version)) {
-    return ToInstallerResult(FlashError::MISSING_VERSION_IN_MANIFEST);
+    return update_client::ToInstallerResult(
+        FlashError::MISSING_VERSION_IN_MANIFEST);
   }
 
 #if defined(OS_CHROMEOS)
@@ -300,7 +303,7 @@ FlashComponentInstallerPolicy::OnCustomInstall(
   // locate and preload the latest version of flash.
   if (!component_flash_hint_file::RecordFlashUpdate(flash_path, flash_path,
                                                     version)) {
-    return ToInstallerResult(FlashError::HINT_FILE_RECORD_ERROR);
+    return update_client::ToInstallerResult(FlashError::HINT_FILE_RECORD_ERROR);
   }
 #endif  // defined(OS_LINUX)
   return update_client::CrxInstaller::Result(update_client::InstallError::NONE);

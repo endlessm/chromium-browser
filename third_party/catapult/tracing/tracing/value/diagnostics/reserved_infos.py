@@ -37,6 +37,10 @@ CATAPULT_REVISIONS = _Info('catapultRevisions', 'GenericSet', str)
 CHROMIUM_COMMIT_POSITIONS = _Info('chromiumCommitPositions', 'GenericSet', int)
 CHROMIUM_REVISIONS = _Info('chromiumRevisions', 'GenericSet', str)
 DEVICE_IDS = _Info('deviceIds', 'GenericSet', str)
+FUCHSIA_GARNET_REVISIONS = _Info('fuchsiaGarnetRevisions', 'GenericSet', str)
+FUCHSIA_PERIDOT_REVISIONS = _Info('fuchsiaPeridotRevisions', 'GenericSet', str)
+FUCHSIA_TOPAZ_REVISIONS = _Info('fuchsiaTopazRevisions', 'GenericSet', str)
+FUCHSIA_ZIRCON_REVISIONS = _Info('fuchsiaZirconRevisions', 'GenericSet', str)
 GPUS = _Info('gpus', 'GenericSet', str)
 GROUPING_PATH = _Info('groupingPath')
 HAD_FAILURES = _Info('hadFailures', 'GenericSet', bool)
@@ -65,15 +69,24 @@ V8_COMMIT_POSITIONS = _Info('v8CommitPositions', 'DateRange')
 V8_REVISIONS = _Info('v8Revisions', 'GenericSet', str)
 WEBRTC_REVISIONS = _Info('webrtcRevisions', 'GenericSet', str)
 
-def GetTypeForName(name):
-  for info in globals().itervalues():
-    if isinstance(info, _Info) and info.name == name:
-      return info.type
 
-def AllInfos():
+def _CreateCachedInfoTypes():
+  info_types = {}
   for info in globals().itervalues():
     if isinstance(info, _Info):
-      yield info
+      info_types[info.name] = info
+  return info_types
+
+_CACHED_INFO_TYPES = _CreateCachedInfoTypes()
+
+def GetTypeForName(name):
+  info = _CACHED_INFO_TYPES.get(name)
+  if info:
+    return info.type
+
+def AllInfos():
+  for info in _CACHED_INFO_TYPES.itervalues():
+    yield info
 
 def AllNames():
   for info in AllInfos():

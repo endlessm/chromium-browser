@@ -12,7 +12,7 @@ import oauth2client.tools
 import os
 import urllib
 
-from py_utils import retry_util
+from py_utils import retry_util  # pylint: disable=import-error
 
 
 class RequestError(OSError):
@@ -121,7 +121,7 @@ class PerfDashboardCommunicator(object):
       raise BuildRequestError(resp, content)
     return json.loads(content)
 
-  def ListTestPaths(self, benchmark, sheriff=False):
+  def ListTestPaths(self, benchmark, sheriff):
     """Lists test paths for the given benchmark.
 
     args:
@@ -132,10 +132,8 @@ class PerfDashboardCommunicator(object):
     returns:
       A list of test paths. Ex. ['TestPath1', 'TestPath2']
     """
-    r = 'list_timeseries/%s' % benchmark
-    if sheriff:
-      r += '?sheriff=%s' % urllib.quote(sheriff)
-    return self._MakeApiRequest(r)
+    options = urllib.urlencode({'sheriff': sheriff})
+    return self._MakeApiRequest('list_timeseries/%s?%s' % (benchmark, options))
 
   def GetTimeseries(self, test_path, days=30):
     """Get timeseries for the given test path.
@@ -159,43 +157,14 @@ class PerfDashboardCommunicator(object):
     r = 'timeseries/%s?%s' % (urllib.quote(test_path), options)
     return self._MakeApiRequest(r)
 
-  def GetBugData(self, bug_id):
-    """Returns data on the given bug."""
-    return self._MakeApiRequest('bugs/%d' % bug_id)
+  def GetBugData(self, bug_ids):
+    """Yields data for a given bug id or sequence of bug ids."""
+    if not hasattr(bug_ids, '__iter__'):
+      bug_ids = [bug_ids]
+    for bug_id in bug_ids:
+      yield self._MakeApiRequest('bugs/%d' % bug_id)
 
-  def GetAlertData(self, benchmark, days=30):
+  def GetAlertData(self, benchmark, sheriff, days=30):
     """Returns alerts for the given benchmark."""
-    options = urllib.urlencode({'benchmark': benchmark})
+    options = urllib.urlencode({'benchmark': benchmark, 'sheriff': sheriff})
     return self._MakeApiRequest('alerts/history/%d?%s' % (days, options))
-
-  def GetAllTimeseriesForBenchmark(self, benchmark, days=30, filters=None,
-                                   sheriff=None):
-    """ Generator function returning timeseries entries for a benchmark.
-
-    args:
-      benchmark: benchmark you want data for.
-      days: number of days to return data for.
-      filter: A list of strings. The metric must contain all of the strings.
-      sheriff: Search for timeseries for the specific sheriff rotation only. If
-          not specified, 'Chrome Perf Sheriff' is used by default on the server.
-
-    yields:
-      Timeseries data point.
-    """
-    header = ['bot', 'benchmark', 'metric', 'story']
-    test_paths = self.ListTestPaths(benchmark, sheriff=sheriff)
-    for tp in test_paths:
-      if not filters or all(f in tp for f in filters):
-        ts = self.GetTimeseries(tp, days=days)
-        if header:
-          # First entry in the timeseries is a header. We only need this once.
-          full_header = header + ts['timeseries'][0]
-          header = None
-          yield full_header
-        for point in ts['timeseries'][1:]:
-          # Splits the test path into [bot, benchmark, metric, story] and
-          # appends the data from a timeseries entry. Current data returned:
-          # 'revision', 'value', 'timestamp', 'r_commit_pos', 'r_webrtc_rev',
-          # 'r_chromium', 'r_webkit_rev', 'r_v8_rev'
-          test_data = tp.split('/', 4)[1:] + [data for data in point]
-          yield test_data

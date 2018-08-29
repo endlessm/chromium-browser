@@ -8,6 +8,7 @@
 
 #include "base/android/jni_android.h"
 #include "base/callback_helpers.h"
+#include "chrome/browser/android/vr/arcore_device/arcore_device_provider.h"
 #include "chrome/browser/android/vr/metrics_util_android.h"
 #include "chrome/browser/android/vr/vr_shell.h"
 #include "chrome/browser/browser_process.h"
@@ -19,8 +20,13 @@
 #include "content/public/browser/webvr_service_provider.h"
 #include "device/vr/android/gvr/gvr_delegate_provider_factory.h"
 #include "device/vr/android/gvr/gvr_device.h"
+#include "device/vr/buildflags/buildflags.h"
 #include "jni/VrShellDelegate_jni.h"
 #include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr.h"
+
+#if BUILDFLAG(ENABLE_ARCORE)
+#include "device/vr/android/arcore/arcore_device_provider_factory.h"
+#endif
 
 using base::android::JavaParamRef;
 using base::android::JavaRef;
@@ -47,6 +53,24 @@ VrShellDelegateProviderFactory::CreateGvrDelegateProvider() {
   return VrShellDelegate::CreateVrShellDelegate();
 }
 
+#if BUILDFLAG(ENABLE_ARCORE)
+class ARCoreDeviceProviderFactoryImpl
+    : public device::ARCoreDeviceProviderFactory {
+ public:
+  ARCoreDeviceProviderFactoryImpl() = default;
+  ~ARCoreDeviceProviderFactoryImpl() override = default;
+  std::unique_ptr<device::VRDeviceProvider> CreateDeviceProvider() override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(ARCoreDeviceProviderFactoryImpl);
+};
+
+std::unique_ptr<device::VRDeviceProvider>
+ARCoreDeviceProviderFactoryImpl::CreateDeviceProvider() {
+  return std::make_unique<device::ARCoreDeviceProvider>();
+}
+#endif
+
 }  // namespace
 
 VrShellDelegate::VrShellDelegate(JNIEnv* env, jobject obj)
@@ -58,7 +82,7 @@ VrShellDelegate::VrShellDelegate(JNIEnv* env, jobject obj)
 
 VrShellDelegate::~VrShellDelegate() {
   DVLOG(1) << __FUNCTION__ << "=" << this;
-  device::VRDevice* device = GetDevice();
+  device::GvrDevice* device = GetDevice();
   if (device)
     device->OnExitPresent();
   if (!on_present_result_callback_.is_null())
@@ -83,7 +107,7 @@ VrShellDelegate* VrShellDelegate::GetNativeVrShellDelegate(
 void VrShellDelegate::SetDelegate(VrShell* vr_shell,
                                   gvr::ViewerType viewer_type) {
   vr_shell_ = vr_shell;
-  device::VRDevice* device = GetDevice();
+  device::GvrDevice* device = GetDevice();
   // When VrShell is created, we disable magic window mode as the user is inside
   // the headset. As currently implemented, orientation-based magic window
   // doesn't make sense when the window is fixed and the user is moving.
@@ -113,7 +137,7 @@ void VrShellDelegate::RemoveDelegate() {
     pending_successful_present_request_ = false;
     base::ResetAndReturn(&on_present_result_callback_).Run(false);
   }
-  device::VRDevice* device = GetDevice();
+  device::GvrDevice* device = GetDevice();
   if (device) {
     device->SetMagicWindowEnabled(true);
     device->OnExitPresent();
@@ -228,7 +252,7 @@ void VrShellDelegate::DisplayActivate(JNIEnv* env,
 void VrShellDelegate::OnPause(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   if (vr_shell_)
     return;
-  device::VRDevice* device = GetDevice();
+  device::GvrDevice* device = GetDevice();
   if (device)
     device->PauseTracking();
 }
@@ -236,7 +260,7 @@ void VrShellDelegate::OnPause(JNIEnv* env, const JavaParamRef<jobject>& obj) {
 void VrShellDelegate::OnResume(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   if (vr_shell_)
     return;
-  device::VRDevice* device = GetDevice();
+  device::GvrDevice* device = GetDevice();
   if (device)
     device->ResumeTracking();
 }
@@ -256,7 +280,7 @@ bool VrShellDelegate::ShouldDisableGvrDevice() {
 void VrShellDelegate::SetDeviceId(unsigned int device_id) {
   device_id_ = device_id;
   if (vr_shell_) {
-    device::VRDevice* device = GetDevice();
+    device::GvrDevice* device = GetDevice();
     // See comment in VrShellDelegate::SetDelegate. This handles the case where
     // VrShell is created before the device code is initialized (like when
     // entering VR browsing on a non-webVR page).
@@ -291,7 +315,7 @@ void VrShellDelegate::RequestWebVRPresent(
 void VrShellDelegate::ExitWebVRPresent() {
   JNIEnv* env = AttachCurrentThread();
   Java_VrShellDelegate_exitWebVRPresent(env, j_vr_shell_delegate_);
-  device::VRDevice* device = GetDevice();
+  device::GvrDevice* device = GetDevice();
   if (device)
     device->OnExitPresent();
 }
@@ -317,8 +341,8 @@ void VrShellDelegate::OnListeningForActivateChanged(bool listening) {
                                                     listening);
 }
 
-device::VRDevice* VrShellDelegate::GetDevice() {
-  return VRDeviceManager::GetInstance()->GetDevice(device_id_);
+device::GvrDevice* VrShellDelegate::GetDevice() {
+  return device::GvrDelegateProviderFactory::GetDevice();
 }
 
 // ----------------------------------------------------------------------------
@@ -333,7 +357,14 @@ static void JNI_VrShellDelegate_OnLibraryAvailable(
     JNIEnv* env,
     const JavaParamRef<jclass>& clazz) {
   device::GvrDelegateProviderFactory::Install(
-      new VrShellDelegateProviderFactory);
+      std::make_unique<VrShellDelegateProviderFactory>());
+
+#if BUILDFLAG(ENABLE_ARCORE)
+  // TODO(https://crbug.com/837965): Move this to an ARCore-specific location
+  // with similar timing (occurs before VRDeviceManager is initialized).
+  device::ARCoreDeviceProviderFactory::Install(
+      std::make_unique<ARCoreDeviceProviderFactoryImpl>());
+#endif
 }
 
 static void JNI_VrShellDelegate_RegisterVrAssetsComponent(

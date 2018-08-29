@@ -11,6 +11,9 @@
 #include <string>
 #include <vector>
 
+#include "base/optional.h"
+#include "third_party/skia/include/core/SkColor.h"
+
 namespace aura {
 class PropertyConverter;
 class Window;
@@ -28,16 +31,16 @@ enum class WindowType;
 }  // namespace ui
 
 namespace ash {
+
 namespace mojom {
 enum class WindowStyle;
 }
 
 // Functions for extracting properties that are used at a Window creation time.
-// When an aura::Window is created at the request of a client an initial set of
-// properties is supplied to allow the WindowManager (ash) to configure the
-// newly created window. Not all of these properties need be persisted, some are
-// used solely to configure the window. This file contains the functions used
-// to extract these properties.
+// Clients pass an initial set of properties when requesting a new aura::Window.
+// Not all of these properties need be persisted, some are used solely to
+// configure the window. The functions below extract those properties.
+
 // Long lived properties are converted and stored as properties on the
 // associated aura::Window. See aura::PropertyConverter for this set of
 // properties.
@@ -58,6 +61,9 @@ bool GetInitialBounds(const InitProperties& properties, gfx::Rect* bounds);
 bool GetWindowPreferredSize(const InitProperties& properties, gfx::Size* size);
 
 bool ShouldRemoveStandardFrame(const InitProperties& properties);
+
+base::Optional<SkColor> GetFrameColor(const InitProperties& properties,
+                                      bool active);
 
 bool ShouldEnableImmersive(const InitProperties& properties);
 

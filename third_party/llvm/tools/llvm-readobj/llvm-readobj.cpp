@@ -35,11 +35,9 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FormatVariadic.h"
-#include "llvm/Support/ManagedStatic.h"
+#include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/ScopedPrinter.h"
-#include "llvm/Support/Signals.h"
 #include "llvm/Support/TargetRegistry.h"
 
 using namespace llvm;
@@ -361,7 +359,7 @@ struct ReadObjTypeTableBuilder {
 }
 static ReadObjTypeTableBuilder CVTypes;
 
-/// @brief Creates an format-specific object file dumper.
+/// Creates an format-specific object file dumper.
 static std::error_code createDumper(const ObjectFile *Obj,
                                     ScopedPrinter &Writer,
                                     std::unique_ptr<ObjDumper> &Result) {
@@ -380,7 +378,7 @@ static std::error_code createDumper(const ObjectFile *Obj,
   return readobj_error::unsupported_obj_file_format;
 }
 
-/// @brief Dumps the specified object file.
+/// Dumps the specified object file.
 static void dumpObject(const ObjectFile *Obj, ScopedPrinter &Writer) {
   std::unique_ptr<ObjDumper> Dumper;
   if (std::error_code EC = createDumper(Obj, Writer, Dumper))
@@ -484,7 +482,7 @@ static void dumpObject(const ObjectFile *Obj, ScopedPrinter &Writer) {
     Dumper->printStackMap();
 }
 
-/// @brief Dumps each object file in \a Arc;
+/// Dumps each object file in \a Arc;
 static void dumpArchive(const Archive *Arc, ScopedPrinter &Writer) {
   Error Err = Error::success();
   for (auto &Child : Arc->children(Err)) {
@@ -506,7 +504,7 @@ static void dumpArchive(const Archive *Arc, ScopedPrinter &Writer) {
     reportError(Arc->getFileName(), std::move(Err));
 }
 
-/// @brief Dumps each object file in \a MachO Universal Binary;
+/// Dumps each object file in \a MachO Universal Binary;
 static void dumpMachOUniversalBinary(const MachOUniversalBinary *UBinary,
                                      ScopedPrinter &Writer) {
   for (const MachOUniversalBinary::ObjectForArch &Obj : UBinary->objects()) {
@@ -521,7 +519,7 @@ static void dumpMachOUniversalBinary(const MachOUniversalBinary *UBinary,
   }
 }
 
-/// @brief Dumps \a WinRes, Windows Resource (.res) file;
+/// Dumps \a WinRes, Windows Resource (.res) file;
 static void dumpWindowsResourceFile(WindowsResource *WinRes) {
   ScopedPrinter Printer{outs()};
   WindowsRes::Dumper Dumper(WinRes, Printer);
@@ -530,7 +528,7 @@ static void dumpWindowsResourceFile(WindowsResource *WinRes) {
 }
 
 
-/// @brief Opens \a File and dumps it.
+/// Opens \a File and dumps it.
 static void dumpInput(StringRef File) {
   ScopedPrinter Writer(outs());
 
@@ -556,17 +554,14 @@ static void dumpInput(StringRef File) {
 }
 
 int main(int argc, const char *argv[]) {
-  StringRef ToolName = argv[0];
-  sys::PrintStackTraceOnErrorSignal(ToolName);
-  PrettyStackTraceProgram X(argc, argv);
-  llvm_shutdown_obj Y;
+  InitLLVM X(argc, argv);
 
   // Register the target printer for --version.
   cl::AddExtraVersionPrinter(TargetRegistry::printRegisteredTargetsForVersion);
 
   opts::WideOutput.setHiddenFlag(cl::Hidden);
 
-  if (sys::path::stem(ToolName).find("readelf") != StringRef::npos)
+  if (sys::path::stem(argv[0]).find("readelf") != StringRef::npos)
     opts::Output = opts::GNU;
 
   cl::ParseCommandLineOptions(argc, argv, "LLVM Object Reader\n");

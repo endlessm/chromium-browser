@@ -4,14 +4,15 @@
 import os
 
 from gpu_tests.gpu_test_expectations import GpuTestExpectations
+from gpu_tests import webgl_test_util
 
 # See the GpuTestExpectations class for documentation.
 
 class WebGLConformanceExpectations(GpuTestExpectations):
-  def __init__(self, conformance_path, url_prefixes=None, is_asan=False):
-    self.conformance_path = conformance_path
+  def __init__(self, is_asan=False):
+    self.conformance_path = webgl_test_util.conformance_path
     super(WebGLConformanceExpectations, self).__init__(
-      url_prefixes=url_prefixes, is_asan=is_asan)
+      url_prefixes=webgl_test_util.url_prefixes_to_trim, is_asan=is_asan)
 
   def Fail(self, pattern, condition=None, bug=None):
     self.CheckPatternIsValid(pattern)
@@ -47,8 +48,6 @@ class WebGLConformanceExpectations(GpuTestExpectations):
     # execution. The browser is restarted even after expected test
     # failures.
     self.Skip('WebglExtension_WEBGL_compressed_texture_astc',
-        ['win', 'mac', 'linux'])
-    self.Skip('WebglExtension_WEBGL_compressed_texture_atc',
         ['win', 'mac', 'linux'])
     self.Skip('WebglExtension_WEBGL_compressed_texture_etc1',
         ['win', 'mac', 'linux'])
@@ -88,9 +87,6 @@ class WebGLConformanceExpectations(GpuTestExpectations):
     # Conformance expectations
     # ========================
     # Fails on all platforms
-
-    self.Fail('conformance/misc/webgl-specific-stencil-settings.html',
-        bug=806557)
 
     # Need to forbid mipmap generation with this extension.
     # Uncomment suppressions below when re-enabling. (Or remove them?
@@ -147,6 +143,13 @@ class WebGLConformanceExpectations(GpuTestExpectations):
         ['passthrough', 'opengl'], bug=1932) # angle bug ID
     self.Fail('conformance/extensions/oes-texture-float-with-canvas.html',
         ['passthrough', 'opengl'], bug=1932) # angle bug ID
+
+    # OffscreenCanvas.commit
+    # TODO(fserb): disabled due to tests not being up to date with proposed API
+    self.Fail('conformance/offscreencanvas/' +
+      'context-attribute-preserve-drawing-buffer.html', bug=838133)
+    self.Fail('conformance/offscreencanvas/methods.html', bug=838133)
+    self.Fail('conformance/offscreencanvas/methods-worker.html', bug=838133)
 
     # Passthrough command decoder / OpenGL / Intel
     self.Fail('conformance/glsl/constructors/glsl-construct-mat2.html',
@@ -535,6 +538,15 @@ class WebGLConformanceExpectations(GpuTestExpectations):
     self.Fail('conformance/textures/video/' +
         'tex-2d-luminance-luminance-unsigned_byte.html',
         ['android'], bug=733599)
+
+    # These video tests appear to be flaky.
+    self.Flaky('conformance/textures/video/' +
+        'tex-2d-rgb-rgb-unsigned_byte.html',
+        ['android', 'android-chromium'], bug=834933)
+    self.Flaky('conformance/textures/video/' +
+        'tex-2d-rgba-rgba-unsigned_byte.html',
+        ['android', 'android-chromium'], bug=834933)
+
     # This crashes in Android WebView on the Nexus 6, preventing the
     # suite from running further. Rather than add multiple
     # suppressions, skip it until it's passing at least in content
@@ -583,9 +595,6 @@ class WebGLConformanceExpectations(GpuTestExpectations):
     self.Fail('conformance/glsl/bugs/' +
               'varying-arrays-should-not-be-reversed.html',
         ['android', ('qualcomm', 'Adreno (TM) 330')], bug=709704)
-    self.Flaky('conformance/textures/video/tex-2d-rgb-rgb-unsigned_byte.html',
-        ['android', 'android-chromium', ('qualcomm', 'Adreno (TM) 330')],
-        bug=752291)
 
     # Nexus 5X
     # The following two tests just started timing out randomly on the
@@ -687,9 +696,10 @@ class WebGLConformanceExpectations(GpuTestExpectations):
     self.Fail('conformance/uniforms/uniform-samplers-test.html',
         ['android', ('qualcomm', 'Adreno (TM) 430'), 'no_passthrough'],
         bug=663071)
-    self.Fail('conformance/offscreencanvas/' +
-        'context-attribute-preserve-drawing-buffer.html',
-        ['android', ('qualcomm', 'Adreno (TM) 420')], bug=693135)
+    # TODO(fserb): uncomment this once the overall self.Fail is removed above.
+    # self.Fail('conformance/offscreencanvas/' +
+    #     'context-attribute-preserve-drawing-buffer.html',
+    #     ['android', ('qualcomm', 'Adreno (TM) 420')], bug=693135)
     self.Fail('WebglExtension_EXT_sRGB',
         ['android',
          ('qualcomm', 'Adreno (TM) 420'), ('qualcomm', 'Adreno (TM) 430')])
@@ -701,8 +711,9 @@ class WebGLConformanceExpectations(GpuTestExpectations):
         ['android', 'nvidia'], bug=478572)
     self.Fail('conformance/glsl/bugs/multiplication-assignment.html',
         ['android', 'nvidia'], bug=606096)
-    self.Fail('WebglExtension_WEBGL_compressed_texture_atc',
-        ['android', ('nvidia', 'NVIDIA Tegra')])
+    self.Flaky('conformance/textures/misc/' +
+        'tex-video-using-tex-unit-non-zero.html',
+        ['android', 'nvidia'], bug=830901)
 
     # Nexus 9 and Shield TV (NVIDIA GPUs currently on the waterfall)
     self.Fail('conformance/ogles/GL/array/array_001_to_006.html',
@@ -737,6 +748,13 @@ class WebGLConformanceExpectations(GpuTestExpectations):
               ['android', 'nvidia'], bug=740769)
     self.Fail('conformance/ogles/GL/functions/functions_121_to_126.html',
               ['android', 'nvidia'], bug=740769)
+
+    # Flaky timeout on android_n5x_swarming_rel and
+    # android-marshmallow-arm64-rel.
+    self.Flaky('conformance/glsl/constructors/glsl-construct-mat3.html',
+               ['android'], bug=845411)
+    self.Flaky('conformance/glsl/bugs/sketchfab-lighting-shader-crash.html',
+               ['android'], bug=845438)
 
 
     ############

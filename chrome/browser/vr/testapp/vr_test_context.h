@@ -8,6 +8,7 @@
 #include "base/macros.h"
 
 #include <cstdint>
+#include <queue>
 
 #include "base/time/time.h"
 #include "chrome/browser/vr/content_input_delegate.h"
@@ -47,7 +48,17 @@ class VrTestContext : public vr::UiBrowserInterface {
   void NavigateForward() override;
   void ReloadTab() override;
   void OpenNewTab(bool incognito) override;
+  void SelectTab(int id, bool incognito) override;
+  void OpenBookmarks() override;
+  void OpenRecentTabs() override;
+  void OpenHistory() override;
+  void OpenDownloads() override;
+  void OpenShare() override;
+  void OpenSettings() override;
+  void CloseTab(int id, bool incognito) override;
+  void CloseAllTabs() override;
   void CloseAllIncognitoTabs() override;
+  void OpenFeedback() override;
   void ExitCct() override;
   void CloseHostedDialog() override;
   void OnUnsupportedMode(vr::UiUnsupportedMode mode) override;
@@ -101,12 +112,16 @@ class VrTestContext : public vr::UiBrowserInterface {
   bool show_web_vr_splash_screen_ = false;
   bool voice_search_enabled_ = false;
   bool touching_touchpad_ = false;
+  bool recentered_ = false;
   base::TimeTicks page_load_start_;
+  int tab_id_ = 0;
 
   std::unique_ptr<TextInputDelegate> text_input_delegate_;
   std::unique_ptr<TestKeyboardDelegate> keyboard_delegate_;
 
   PlatformController::Handedness handedness_ = PlatformController::kRightHanded;
+
+  std::queue<GestureList> gesture_lists_;
 
   DISALLOW_COPY_AND_ASSIGN(VrTestContext);
 };

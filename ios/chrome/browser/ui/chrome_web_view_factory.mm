@@ -54,15 +54,15 @@ ios::ChromeBrowserState* g_external_browser_state = nullptr;
 scoped_refptr<web::RequestTrackerImpl> g_request_tracker;
 
 // Clears the cookies.
-void ClearCookiesOnIOThread(net::URLRequestContextGetter* context_getter,
-                            base::Time delete_begin,
-                            base::Time delete_end) {
+void ClearCookiesOnIOThread(
+    net::URLRequestContextGetter* context_getter,
+    const net::CookieDeletionInfo::TimeRange& creation_range) {
   DCHECK(context_getter);
   DCHECK_CURRENTLY_ON(web::WebThread::IO);
   net::CookieStore* cookie_store =
       context_getter->GetURLRequestContext()->cookie_store();
-  cookie_store->DeleteAllCreatedBetweenAsync(delete_begin, delete_end,
-                                             base::DoNothing());
+  cookie_store->DeleteAllCreatedInTimeRangeAsync(creation_range,
+                                                 base::DoNothing());
 }
 
 // Registers |user_agent| as the user agent string to be used by the UIWebView
@@ -128,7 +128,7 @@ void RegisterUserAgentForUIWebView(NSString* user_agent) {
   web::WebThread::PostTask(
       web::WebThread::IO, FROM_HERE,
       base::Bind(&ClearCookiesOnIOThread, base::RetainedRef(contextGetter),
-                 deleteBegin, deleteEnd));
+                 net::CookieDeletionInfo::TimeRange(deleteBegin, deleteEnd)));
 }
 
 + (void)clearExternalCookies:(ios::ChromeBrowserState*)browserState

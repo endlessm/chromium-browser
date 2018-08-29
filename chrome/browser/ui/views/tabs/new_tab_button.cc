@@ -10,6 +10,7 @@
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/feature_promos/new_tab_promo_bubble_view.h"
+#include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/tabs/browser_tab_strip_controller.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/grit/theme_resources.h"
@@ -40,9 +41,9 @@
 #include "chrome/browser/ui/views/feature_promos/new_tab_promo_bubble_view.h"
 #endif
 
-namespace {
+using MD = ui::MaterialDesignController;
 
-constexpr int kButtonCornerRadius = 12;
+namespace {
 
 constexpr int kDistanceBetweenIcons = 6;
 
@@ -92,7 +93,7 @@ NewTabButton::NewTabButton(TabStrip* tab_strip, views::ButtonListener* listener)
                               ui::EF_MIDDLE_MOUSE_BUTTON);
 #endif
 
-  if (ui::MaterialDesignController::IsTouchOptimizedUiEnabled()) {
+  if (MD::IsNewerMaterialUi()) {
     // Initialize the ink drop mode for a ripple highlight on button press.
     ink_drop_container_ = new views::InkDropContainerView();
     AddChildView(ink_drop_container_);
@@ -116,9 +117,9 @@ int NewTabButton::GetTopOffset() {
       Tab::GetMinimumInactiveSize().height() -
       GetLayoutSize(NEW_TAB_BUTTON, false /* is_incognito */).height();
 
-  // In touch-optimized UI, the button is placed vertically exactly in the
+  // In newer material UI, the button is placed vertically exactly in the
   // center of the tabstrip.
-  if (ui::MaterialDesignController::IsTouchOptimizedUiEnabled())
+  if (MD::IsNewerMaterialUi())
     return extra_vertical_space / 2;
 
   // In the non-touch-optimized UI, the new tab button is placed at a fixed
@@ -222,7 +223,7 @@ std::unique_ptr<views::InkDrop> NewTabButton::CreateInkDrop() {
 
 std::unique_ptr<views::InkDropMask> NewTabButton::CreateInkDropMask() const {
   return std::make_unique<views::RoundRectInkDropMask>(
-      GetVisibleBounds().size(), gfx::Insets(), kButtonCornerRadius);
+      GetVisibleBounds().size(), gfx::Insets(), GetCornerRadius());
 }
 
 void NewTabButton::PaintButtonContents(gfx::Canvas* canvas) {
@@ -231,40 +232,7 @@ void NewTabButton::PaintButtonContents(gfx::Canvas* canvas) {
       GetLayoutSize(NEW_TAB_BUTTON, is_incognito_).height();
   canvas->Translate(gfx::Vector2d(0, height() - visible_height));
   const float scale = canvas->image_scale();
-
-  // Fill.
-  SkPath fill;
-  const bool is_touch_ui =
-      ui::MaterialDesignController::IsTouchOptimizedUiEnabled();
-  if (is_touch_ui) {
-    fill = GetTouchOptimizedButtonPath(0 /* button_y */, scale,
-                                       false /* extend_to_top */,
-                                       true /* for_fill */);
-  } else {
-    // Non-touch optimized fill.
-    const float fill_bottom = (visible_height - 2) * scale;
-    const float diag_height = fill_bottom - 3.5 * scale;
-    const float diag_width = diag_height * Tab::GetInverseDiagonalSlope();
-    fill.moveTo(diag_width + 4 * scale, fill_bottom);
-    fill.rCubicTo(-0.75 * scale, 0, -1.625 * scale, -0.5 * scale, -2 * scale,
-                  -1.5 * scale);
-    fill.rLineTo(-diag_width, -diag_height);
-    fill.rCubicTo(0, -0.5 * scale, 0.25 * scale, -scale, scale, -scale);
-    fill.lineTo((width() - 4) * scale - diag_width, scale);
-    fill.rCubicTo(0.75 * scale, 0, 1.625 * scale, 0.5 * scale, 2 * scale,
-                  1.5 * scale);
-    fill.rLineTo(diag_width, diag_height);
-    fill.rCubicTo(0, 0.5 * scale, -0.25 * scale, scale, -scale, scale);
-    fill.close();
-  }
-
   const bool pressed = state() == views::Button::STATE_PRESSED;
-  PaintFill(pressed, scale, fill, canvas);
-
-  // Stroke.
-  SkPath stroke;
-  GetBorderPath(0, scale, false, &stroke);
-
   const SkColor stroke_color =
       new_tab_promo_observer_.IsObservingSources()
           ? color_utils::AlphaBlend(
@@ -274,16 +242,27 @@ void NewTabButton::PaintButtonContents(gfx::Canvas* canvas) {
                 0x70)
           : tab_strip_->GetToolbarTopSeparatorColor();
 
-  if (is_touch_ui) {
+  // Fill.
+  SkPath fill, stroke;
+  const bool is_touch_ui = MD::IsTouchOptimizedUiEnabled();
+  if (!MD::IsRefreshUi()) {
+    fill = is_touch_ui ? GetTouchOptimizedButtonPath(0, scale, false, true)
+                       : GetNonTouchOptimizedButtonPath(0, visible_height,
+                                                        scale, false, true);
+    PaintFill(pressed, scale, fill, canvas);
+
+    // Stroke.
+    GetBorderPath(0, scale, false, &stroke);
+  }
+
+  if (MD::IsNewerMaterialUi()) {
     cc::PaintFlags paint_flags;
     paint_flags.setAntiAlias(true);
 
-    // Draw icons without scaling (we don't worry about the stroke width for
-    // icons).
-    const int plus_icon_offset = kButtonCornerRadius - (plus_icon_.width() / 2);
+    const int plus_icon_offset = GetCornerRadius() - (plus_icon_.width() / 2);
     canvas->DrawImageInt(plus_icon_, plus_icon_offset, plus_icon_offset,
                          paint_flags);
-    if (is_incognito_) {
+    if (ShouldDrawIncognitoIcon()) {
       DCHECK(!incognito_icon_.isNull());
       canvas->DrawImageInt(
           incognito_icon_,
@@ -291,48 +270,49 @@ void NewTabButton::PaintButtonContents(gfx::Canvas* canvas) {
           plus_icon_offset, paint_flags);
     }
 
-    // Draw stroke.
-    // In the touch-optimized UI design, the new tab button is rendered flat,
-    // regardless of whether pressed or not (i.e. we don't emulate a pushed
-    // button by drawing a drop shadow). Instead, we're using an ink drop ripple
-    // effect.
-    // Here we want to make sure the stroke width is 1px regardless of the
-    // device scale factor, so undo the scale.
+    if (is_touch_ui) {
+      // Draw stroke.
+      // In the touch-optimized UI design, the new tab button is rendered flat,
+      // regardless of whether pressed or not (i.e. we don't emulate a pushed
+      // button by drawing a drop shadow). Instead, we're using an ink drop
+      // ripple effect.
+      // Here we want to make sure the stroke width is 1px regardless of the
+      // device scale factor, so undo the scale.
+      canvas->UndoDeviceScaleFactor();
+      Op(stroke, fill, kDifference_SkPathOp, &stroke);
+      paint_flags.setColor(stroke_color);
+      canvas->DrawPath(stroke, paint_flags);
+    }
+  } else {
+    // We want to draw a drop shadow either inside or outside the stroke,
+    // depending on whether we're pressed; so, either clip out what's outside
+    // the stroke, or clip out the fill inside it.
     canvas->UndoDeviceScaleFactor();
+    if (pressed)
+      canvas->ClipPath(stroke, true);
     Op(stroke, fill, kDifference_SkPathOp, &stroke);
-    paint_flags.setColor(stroke_color);
-    canvas->DrawPath(stroke, paint_flags);
-    return;
+    if (!pressed)
+      canvas->sk_canvas()->clipPath(fill, SkClipOp::kDifference, true);
+    // Now draw the stroke and shadow; the stroke will always be visible, while
+    // the shadow will be affected by the clip we set above.
+    cc::PaintFlags flags;
+    flags.setAntiAlias(true);
+    const float alpha = SkColorGetA(stroke_color);
+    const SkAlpha shadow_alpha =
+        base::saturated_cast<SkAlpha>(std::round(2.1875f * alpha));
+    flags.setLooper(
+        CreateShadowDrawLooper(SkColorSetA(stroke_color, shadow_alpha)));
+    const SkAlpha path_alpha = static_cast<SkAlpha>(
+        std::round((pressed ? 0.875f : 0.609375f) * alpha));
+    flags.setColor(SkColorSetA(stroke_color, path_alpha));
+    canvas->DrawPath(stroke, flags);
   }
-
-  // We want to draw a drop shadow either inside or outside the stroke,
-  // depending on whether we're pressed; so, either clip out what's outside
-  // the stroke, or clip out the fill inside it.
-  canvas->UndoDeviceScaleFactor();
-  if (pressed)
-    canvas->ClipPath(stroke, true);
-  Op(stroke, fill, kDifference_SkPathOp, &stroke);
-  if (!pressed)
-    canvas->sk_canvas()->clipPath(fill, SkClipOp::kDifference, true);
-  // Now draw the stroke and shadow; the stroke will always be visible, while
-  // the shadow will be affected by the clip we set above.
-  cc::PaintFlags flags;
-  flags.setAntiAlias(true);
-  const float alpha = SkColorGetA(stroke_color);
-  const SkAlpha shadow_alpha =
-      base::saturated_cast<SkAlpha>(std::round(2.1875f * alpha));
-  flags.setLooper(
-      CreateShadowDrawLooper(SkColorSetA(stroke_color, shadow_alpha)));
-  const SkAlpha path_alpha =
-      static_cast<SkAlpha>(std::round((pressed ? 0.875f : 0.609375f) * alpha));
-  flags.setColor(SkColorSetA(stroke_color, path_alpha));
-  canvas->DrawPath(stroke, flags);
 }
 
 void NewTabButton::Layout() {
   ImageButton::Layout();
 
-  if (ui::MaterialDesignController::IsTouchOptimizedUiEnabled()) {
+  if (MD::IsNewerMaterialUi()) {
     // If icons are not initialized, initialize them now. Icons are always
     // initialized together so it's enough to check the |plus_icon_|.
     if (plus_icon_.isNull())
@@ -347,7 +327,7 @@ void NewTabButton::Layout() {
 void NewTabButton::OnThemeChanged() {
   ImageButton::OnThemeChanged();
 
-  if (!ui::MaterialDesignController::IsTouchOptimizedUiEnabled())
+  if (!MD::IsNewerMaterialUi())
     return;
 
   InitButtonIcons();
@@ -384,7 +364,12 @@ void NewTabButton::OnWidgetDestroying(views::Widget* widget) {
   SchedulePaint();
 }
 
+bool NewTabButton::ShouldDrawIncognitoIcon() const {
+  return is_incognito_ && MD::IsTouchOptimizedUiEnabled();
+}
+
 gfx::Rect NewTabButton::GetVisibleBounds() const {
+  // TODO(pkasting): This is correct but inefficient for newer material UI.
   SkPath border;
   GetBorderPath(GetTopOffset(), 1.0f /* scale */, false, &border);
   gfx::Rect rect = gfx::ToEnclosingRect(gfx::SkRectToRectF(border.getBounds()));
@@ -392,50 +377,29 @@ gfx::Rect NewTabButton::GetVisibleBounds() const {
   return rect;
 }
 
+int NewTabButton::GetCornerRadius() const {
+  return ChromeLayoutProvider::Get()->GetCornerRadiusMetric(
+      views::EMPHASIS_HIGH, GetLayoutSize(NEW_TAB_BUTTON, is_incognito_));
+}
+
 void NewTabButton::GetBorderPath(float button_y,
                                  float scale,
                                  bool extend_to_top,
                                  SkPath* path) const {
-  if (ui::MaterialDesignController::IsTouchOptimizedUiEnabled()) {
-    *path = GetTouchOptimizedButtonPath(button_y, scale, extend_to_top,
-                                        false /* for_fill */);
+  const int button_height =
+      GetLayoutSize(NEW_TAB_BUTTON, is_incognito_).height();
+
+  if (MD::IsRefreshUi()) {
+    path->addRect(0, extend_to_top ? 0 : button_y, width() * scale,
+                  button_y + button_height * scale);
     return;
   }
 
-  // Non-touch-optimized UI border path.
-  const float inverse_slope = Tab::GetInverseDiagonalSlope();
-  const float fill_bottom =
-      (GetLayoutSize(NEW_TAB_BUTTON, is_incognito_).height() - 2) * scale;
-  const float stroke_bottom = button_y + fill_bottom + 1;
-  const float diag_height = fill_bottom - 3.5 * scale;
-  const float diag_width = diag_height * inverse_slope;
-  path->moveTo(diag_width + 4 * scale - 1, stroke_bottom);
-  path->rCubicTo(-0.75 * scale, 0, -1.625 * scale, -0.5 * scale, -2 * scale,
-                 -1.5 * scale);
-  path->rLineTo(-diag_width, -diag_height);
-  if (extend_to_top) {
-    // Create the vertical extension by extending the side diagonals at the
-    // upper left and lower right corners until they reach the top and bottom of
-    // the border, respectively (in other words, "un-round-off" those corners
-    // and turn them into sharp points).  Then extend upward from the corner
-    // points to the top of the bounds.
-    const float dy = scale + 2;
-    const float dx = inverse_slope * dy;
-    path->rLineTo(-dx, -dy);
-    path->rLineTo(0, -button_y - scale + 1);
-    path->lineTo((width() - 2) * scale + 1 + dx, 0);
-    path->rLineTo(0, stroke_bottom);
-  } else {
-    path->rCubicTo(-0.5 * scale, -1.125 * scale, 0.5 * scale, -scale - 2, scale,
-                   -scale - 2);
-    path->lineTo((width() - 4) * scale - diag_width + 1, button_y + scale - 1);
-    path->rCubicTo(0.75 * scale, 0, 1.625 * scale, 0.5 * scale, 2 * scale,
-                   1.5 * scale);
-    path->rLineTo(diag_width, diag_height);
-    path->rCubicTo(0.5 * scale, 1.125 * scale, -0.5 * scale, scale + 2, -scale,
-                   scale + 2);
-  }
-  path->close();
+  *path =
+      MD::IsTouchOptimizedUiEnabled()
+          ? GetTouchOptimizedButtonPath(button_y, scale, extend_to_top, false)
+          : GetNonTouchOptimizedButtonPath(button_y, button_height, scale,
+                                           extend_to_top, false);
 }
 
 void NewTabButton::PaintFill(bool pressed,
@@ -450,8 +414,7 @@ void NewTabButton::PaintFill(bool pressed,
   // For unpressed buttons, draw the fill and its shadow.
   // Note that for touch-optimized UI, we always draw the fill since the button
   // has a flat design with no hover highlight.
-  const bool is_touch_ui =
-      ui::MaterialDesignController::IsTouchOptimizedUiEnabled();
+  const bool is_touch_ui = MD::IsTouchOptimizedUiEnabled();
   if (is_touch_ui || !pressed) {
     // First we compute the background image coordinates and scale, in case we
     // need to draw a custom background image.
@@ -496,12 +459,12 @@ void NewTabButton::PaintFill(bool pressed,
     shadow_flags.setLooper(
         CreateShadowDrawLooper(SkColorSetA(stroke_color, alpha)));
     canvas->DrawPath(fill, shadow_flags);
-  }
 
-  if (is_touch_ui) {
-    // We don't have hover/pressed states in the touch-optimized UI design.
-    // Instead we are using an ink drop effect.
-    return;
+    if (is_touch_ui) {
+      // We don't have hover/pressed states in the touch-optimized UI design.
+      // Instead we are using an ink drop effect.
+      return;
+    }
   }
 
   // Draw a white highlight on hover.
@@ -537,14 +500,14 @@ SkColor NewTabButton::GetButtonFillColor() const {
 }
 
 void NewTabButton::InitButtonIcons() {
-  DCHECK(ui::MaterialDesignController::IsTouchOptimizedUiEnabled());
+  DCHECK(MD::IsNewerMaterialUi());
 
   const ui::ThemeProvider* theme_provider = GetThemeProvider();
   DCHECK(theme_provider);
   const SkColor icon_color =
       theme_provider->GetColor(ThemeProperties::COLOR_TAB_TEXT);
   plus_icon_ = gfx::CreateVectorIcon(kNewTabButtonPlusIcon, icon_color);
-  if (is_incognito_) {
+  if (ShouldDrawIncognitoIcon()) {
     incognito_icon_ =
         gfx::CreateVectorIcon(kNewTabButtonIncognitoIcon, icon_color);
   }
@@ -554,9 +517,9 @@ SkPath NewTabButton::GetTouchOptimizedButtonPath(float button_y,
                                                  float scale,
                                                  bool extend_to_top,
                                                  bool for_fill) const {
-  DCHECK(ui::MaterialDesignController::IsTouchOptimizedUiEnabled());
+  DCHECK(MD::IsTouchOptimizedUiEnabled());
 
-  const float radius = kButtonCornerRadius * scale;
+  const float radius = GetCornerRadius() * scale;
   const float rect_width =
       2 * radius +
       (is_incognito_ ? scale * (incognito_icon_.width() + kDistanceBetweenIcons)
@@ -585,8 +548,64 @@ SkPath NewTabButton::GetTouchOptimizedButtonPath(float button_y,
   return path;
 }
 
+SkPath NewTabButton::GetNonTouchOptimizedButtonPath(int button_y,
+                                                    int button_height,
+                                                    float scale,
+                                                    bool extend_to_top,
+                                                    bool for_fill) const {
+  const float inverse_slope = Tab::GetInverseDiagonalSlope();
+  float bottom = (button_height - 2) * scale;
+  const float diag_height = bottom - 3.5 * scale;
+  const float diag_width = diag_height * inverse_slope;
+  const float right = diag_width + 4 * scale;
+  const int stroke_thickness = for_fill ? 0 : kStrokeThickness;
+  bottom += button_y + stroke_thickness;
+
+  SkPath path;
+  path.moveTo(right - stroke_thickness, bottom);
+  path.rCubicTo(-0.75 * scale, 0, -1.625 * scale, -0.5 * scale, -2 * scale,
+                -1.5 * scale);
+  path.rLineTo(-diag_width, -diag_height);
+  if (extend_to_top) {
+    // Create the vertical extension by extending the side diagonals at the
+    // upper left and lower right corners until they reach the top and bottom of
+    // the border, respectively (in other words, "un-round-off" those corners
+    // and turn them into sharp points).  Then extend upward from the corner
+    // points to the top of the bounds.
+    const float dy = scale + stroke_thickness * 2;
+    const float dx = inverse_slope * dy;
+    path.rLineTo(-dx, -dy);
+    path.rLineTo(0, -button_y - scale + stroke_thickness);
+    path.lineTo((width() - 2) * scale + stroke_thickness + dx, 0);
+    path.rLineTo(0, bottom);
+  } else {
+    if (for_fill) {
+      path.rCubicTo(0, -0.5 * scale, 0.25 * scale, -scale, scale, -scale);
+    } else {
+      path.rCubicTo(-0.5 * scale, -1.125 * scale, 0.5 * scale,
+                    -scale - 2 * stroke_thickness, scale,
+                    -scale - 2 * stroke_thickness);
+    }
+    path.lineTo((width() - 4) * scale - diag_width + stroke_thickness,
+                button_y + scale - stroke_thickness);
+    path.rCubicTo(0.75 * scale, 0, 1.625 * scale, 0.5 * scale, 2 * scale,
+                  1.5 * scale);
+    path.rLineTo(diag_width, diag_height);
+    if (for_fill) {
+      path.rCubicTo(0, 0.5 * scale, -0.25 * scale, scale, -scale, scale);
+    } else {
+      path.rCubicTo(0.5 * scale, 1.125 * scale, -0.5 * scale,
+                    scale + 2 * stroke_thickness, -scale,
+                    scale + 2 * stroke_thickness);
+    }
+  }
+  path.close();
+
+  return path;
+}
+
 void NewTabButton::UpdateInkDropBaseColor() {
-  DCHECK(ui::MaterialDesignController::IsTouchOptimizedUiEnabled());
+  DCHECK(MD::IsNewerMaterialUi());
 
   set_ink_drop_base_color(color_utils::BlendTowardOppositeLuma(
       GetButtonFillColor(), SK_AlphaOPAQUE));

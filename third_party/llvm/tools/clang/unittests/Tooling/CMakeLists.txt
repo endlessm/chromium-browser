@@ -18,13 +18,29 @@ add_clang_unittest(ToolingTests
   DiagnosticsYamlTest.cpp
   ExecutionTest.cpp
   FixItTest.cpp
+  HeaderIncludesTest.cpp
   LexicallyOrderedRecursiveASTVisitorTest.cpp
   LookupTest.cpp
   QualTypeNamesTest.cpp
-  RecursiveASTVisitorTest.cpp
-  RecursiveASTVisitorTestCallVisitor.cpp
+  RecursiveASTVisitorTests/Attr.cpp
+  RecursiveASTVisitorTests/Class.cpp
+  RecursiveASTVisitorTests/ConstructExpr.cpp
+  RecursiveASTVisitorTests/CXXBoolLiteralExpr.cpp
+  RecursiveASTVisitorTests/CXXMemberCall.cpp
+  RecursiveASTVisitorTests/CXXOperatorCallExprTraverser.cpp
+  RecursiveASTVisitorTests/DeclRefExpr.cpp
+  RecursiveASTVisitorTests/ImplicitCtor.cpp
+  RecursiveASTVisitorTests/InitListExprPostOrder.cpp
+  RecursiveASTVisitorTests/InitListExprPostOrderNoQueue.cpp
+  RecursiveASTVisitorTests/InitListExprPreOrder.cpp
+  RecursiveASTVisitorTests/InitListExprPreOrderNoQueue.cpp
+  RecursiveASTVisitorTests/IntegerLiteral.cpp
+  RecursiveASTVisitorTests/LambdaDefaultCapture.cpp
+  RecursiveASTVisitorTests/LambdaExpr.cpp
+  RecursiveASTVisitorTests/NestedNameSpecifiers.cpp
+  RecursiveASTVisitorTests/ParenExpr.cpp
+  RecursiveASTVisitorTests/TemplateArgumentLocTraverser.cpp
   RecursiveASTVisitorTestDeclVisitor.cpp
-  RecursiveASTVisitorTestExprVisitor.cpp
   RecursiveASTVisitorTestPostOrderVisitor.cpp
   RecursiveASTVisitorTestTypeLocVisitor.cpp
   RefactoringActionRulesTest.cpp

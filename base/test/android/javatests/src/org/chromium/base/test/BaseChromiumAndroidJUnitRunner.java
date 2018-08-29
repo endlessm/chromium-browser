@@ -24,6 +24,7 @@ import dalvik.system.DexFile;
 
 import org.chromium.base.BuildConfig;
 import org.chromium.base.Log;
+import org.chromium.base.annotations.MainDex;
 import org.chromium.base.multidex.ChromiumMultiDexInstaller;
 
 import java.io.IOException;
@@ -40,6 +41,7 @@ import java.util.Enumeration;
  * TODO(yolandyan): remove this class after all tests are converted to JUnit4. Use class runner
  * for test listing.
  */
+@MainDex
 public class BaseChromiumAndroidJUnitRunner extends AndroidJUnitRunner {
     private static final String LIST_ALL_TESTS_FLAG =
             "org.chromium.base.test.BaseChromiumAndroidJUnitRunner.TestList";
@@ -212,6 +214,9 @@ public class BaseChromiumAndroidJUnitRunner extends AndroidJUnitRunner {
 
         @Override
         public TestRequest build() {
+            // See crbug://841695. TestLoader.isTestClass is incorrectly deciding that
+            // InstrumentationTestSuite is a test class.
+            removeTestClass("android.test.InstrumentationTestSuite");
             // If a test class was requested, then no need to iterate class loader.
             if (mHasClassList) {
                 return super.build();

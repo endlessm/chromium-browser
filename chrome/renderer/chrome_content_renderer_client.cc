@@ -48,6 +48,7 @@
 #include "chrome/renderer/chrome_render_view_observer.h"
 #include "chrome/renderer/content_settings_observer.h"
 #include "chrome/renderer/loadtimes_extension_bindings.h"
+#include "chrome/renderer/media/webrtc_logging_message_filter.h"
 #include "chrome/renderer/net/net_error_helper.h"
 #include "chrome/renderer/net_benchmarking_extension.h"
 #include "chrome/renderer/page_load_metrics/metrics_render_frame_observer.h"
@@ -61,6 +62,7 @@
 #include "chrome/renderer/prerender/prerenderer_client.h"
 #include "chrome/renderer/tts_dispatcher.h"
 #include "chrome/renderer/url_loader_throttle_provider_impl.h"
+#include "chrome/renderer/websocket_handshake_throttle_provider_impl.h"
 #include "chrome/renderer/worker_content_settings_client.h"
 #include "components/autofill/content/renderer/autofill_agent.h"
 #include "components/autofill/content/renderer/password_autofill_agent.h"
@@ -84,7 +86,7 @@
 #include "components/startup_metric_utils/common/startup_metric.mojom.h"
 #include "components/subresource_filter/content/renderer/subresource_filter_agent.h"
 #include "components/subresource_filter/content/renderer/unverified_ruleset_dealer.h"
-#include "components/task_scheduler_util/common/variations_util.h"
+#include "components/task_scheduler_util/variations_util.h"
 #include "components/variations/variations_switches.h"
 #include "components/version_info/version_info.h"
 #include "components/visitedlink/renderer/visitedlink_slave.h"
@@ -189,10 +191,6 @@
 #include "components/spellcheck/renderer/spellcheck_panel.h"
 #endif  // BUILDFLAG(HAS_SPELLCHECK_PANEL)
 #endif  // BUILDFLAG(ENABLE_SPELLCHECK)
-
-#if BUILDFLAG(ENABLE_WEBRTC)
-#include "chrome/renderer/media/webrtc_logging_message_filter.h"
-#endif
 
 using autofill::AutofillAgent;
 using autofill::PasswordAutofillAgent;
@@ -432,10 +430,8 @@ void ChromeContentRendererClient::RenderThreadStarted() {
   prerender_dispatcher_.reset(new prerender::PrerenderDispatcher());
   subresource_filter_ruleset_dealer_.reset(
       new subresource_filter::UnverifiedRulesetDealer());
-#if BUILDFLAG(ENABLE_WEBRTC)
   webrtc_logging_message_filter_ =
       new WebRtcLoggingMessageFilter(thread->GetIOTaskRunner());
-#endif
 
   thread->AddObserver(chrome_observer_.get());
   thread->AddObserver(prerender_dispatcher_.get());
@@ -445,10 +441,7 @@ void ChromeContentRendererClient::RenderThreadStarted() {
   thread->AddObserver(SearchBouncer::GetInstance());
 #endif
 
-#if BUILDFLAG(ENABLE_WEBRTC)
   thread->AddFilter(webrtc_logging_message_filter_.get());
-#endif
-
   thread->RegisterExtension(extensions_v8::LoadTimesExtension::Get());
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
@@ -488,8 +481,10 @@ void ChromeContentRendererClient::RenderThreadStarted() {
   pdf::PepperPDFHost::SetPrintClient(pdf_print_client_.get());
 #endif
 
-  for (auto& origin : secure_origin_whitelist::GetWhitelist()) {
-    WebSecurityPolicy::AddOriginTrustworthyWhiteList(WebSecurityOrigin(origin));
+  for (auto& origin_or_hostname_pattern :
+       secure_origin_whitelist::GetWhitelist()) {
+    WebSecurityPolicy::AddOriginTrustworthyWhiteList(
+        WebString::FromUTF8(origin_or_hostname_pattern));
   }
 
   for (auto& scheme :
@@ -1227,7 +1222,7 @@ bool ChromeContentRendererClient::RunIdleHandlerWhenWidgetsHidden() {
   return !IsStandaloneExtensionProcess();
 }
 
-bool ChromeContentRendererClient::AllowStoppingWhenProcessBackgrounded() {
+bool ChromeContentRendererClient::AllowFreezingWhenProcessBackgrounded() {
   return base::FeatureList::IsEnabled(features::kStopInBackground);
 }
 
@@ -1391,11 +1386,20 @@ void ChromeContentRendererClient::InitSpellCheck() {
 }
 #endif
 
+// TODO(nhiroki): Remove this once the off-main-thread WebSocket is enabled by
+// default (https://crbug.com/825740).
 std::unique_ptr<blink::WebSocketHandshakeThrottle>
 ChromeContentRendererClient::CreateWebSocketHandshakeThrottle() {
   InitSafeBrowsingIfNecessary();
+  // This is called only for Shared Worker and Service Worker that don't have a
+  // real frame, so we specify MSG_ROUTING_NONE here.
   return std::make_unique<safe_browsing::WebSocketSBHandshakeThrottle>(
-      safe_browsing_.get());
+      safe_browsing_.get(), MSG_ROUTING_NONE);
+}
+
+std::unique_ptr<content::WebSocketHandshakeThrottleProvider>
+ChromeContentRendererClient::CreateWebSocketHandshakeThrottleProvider() {
+  return std::make_unique<WebSocketHandshakeThrottleProviderImpl>();
 }
 
 std::unique_ptr<blink::WebSpeechSynthesizer>
@@ -1678,6 +1682,8 @@ ChromeContentRendererClient::GetTaskSchedulerInitParams() {
   return task_scheduler_util::GetTaskSchedulerInitParamsForRenderer();
 }
 
+// TODO(nhiroki): Remove this once the off-main-thread WebSocket is enabled by
+// default (https://crbug.com/825740).
 void ChromeContentRendererClient::InitSafeBrowsingIfNecessary() {
   if (safe_browsing_)
     return;

@@ -40,7 +40,7 @@
 // CHECK-NO-SANITIZE-NOT: -fsanitize-blacklist
 
 // Ignore -fsanitize-blacklist flag if there is no -fsanitize flag.
-// Now, check for the absense of -fdepfile-entry flags.
+// Now, check for the absence of -fdepfile-entry flags.
 // RUN: %clang -target x86_64-linux-gnu -fsanitize-blacklist=%t.good %s -### 2>&1 | FileCheck %s --check-prefix=CHECK-NO-SANITIZE2 --check-prefix=DELIMITERS
 // CHECK-NO-SANITIZE2-NOT: -fdepfile-entry
 
@@ -61,5 +61,9 @@
 // CHECK-ONLY_FIRST-DISABLED-NOT: good
 // CHECK-ONLY-FIRST-DISABLED: -fsanitize-blacklist={{.*}}.second
 // CHECK-ONLY_FIRST-DISABLED-NOT: good
+
+// If cfi_blacklist.txt cannot be found in the resource dir, driver should fail.
+// RUN: %clang -target x86_64-linux-gnu -fsanitize=cfi -resource-dir=/dev/null %s -### 2>&1 | FileCheck %s --check-prefix=CHECK-MISSING-CFI-BLACKLIST
+// CHECK-MISSING-CFI-BLACKLIST: error: no such file or directory: '{{.*}}cfi_blacklist.txt'
 
 // DELIMITERS: {{^ *"}}

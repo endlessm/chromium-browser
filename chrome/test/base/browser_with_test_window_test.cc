@@ -120,7 +120,7 @@ void BrowserWithTestWindowTest::TearDown() {
 
   // A Task is leaked if we don't destroy everything, then run the message loop.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+      FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
   base::RunLoop().Run();
 }
 
@@ -139,7 +139,7 @@ void BrowserWithTestWindowTest::AddTab(Browser* browser, const GURL& url) {
   params.tabstrip_index = 0;
   params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
   Navigate(&params);
-  CommitPendingLoad(&params.target_contents->GetController());
+  CommitPendingLoad(&params.navigated_or_inserted_contents->GetController());
 }
 
 void BrowserWithTestWindowTest::CommitPendingLoad(

@@ -11,8 +11,8 @@ CHECK_FUNCTION_EXISTS(secure_getenv HAVE_SECURE_GETENV)
 CHECK_FUNCTION_EXISTS(__secure_getenv HAVE___SECURE_GETENV)
 CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/loader_cmake_config.h.in ${CMAKE_CURRENT_BINARY_DIR}/loader_cmake_config.h)
 
-# Fetch header version from vulkan.h
-file(STRINGS "../include/vulkan/vulkan.h" lines REGEX "^#define VK_HEADER_VERSION [0-9]+")
+# Fetch header version from vulkan_core.h
+file(STRINGS "../include/vulkan/vulkan_core.h" lines REGEX "^#define VK_HEADER_VERSION [0-9]+")
 list(LENGTH lines len)
 if(${len} EQUAL 1)
     string(REGEX MATCHALL "[0-9]+" vk_header_version ${lines})
@@ -75,8 +75,8 @@ set(NORMAL_LOADER_SRCS
     trampoline.c
     wsi.c
     wsi.h
-    debug_report.c
-    debug_report.h
+    debug_utils.c
+    debug_utils.h
     gpa_helper.h
     cJSON.c
     cJSON.h
@@ -227,10 +227,10 @@ else()
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-typedef-redefinition")
     endif()
 
-    add_library(${API_LOWERCASE} SHARED ${NORMAL_LOADER_SRCS} ${OPT_LOADER_SRCS} ${FRAMEWORK_HEADERS})
+    add_library(${API_LOWERCASE} SHARED ${NORMAL_LOADER_SRCS} ${OPT_LOADER_SRCS})
     add_dependencies(${API_LOWERCASE} generate_helper_files loader_gen_files loader_asm_gen_files)
     target_compile_definitions(${API_LOWERCASE} PUBLIC -DLOADER_DYNAMIC_LIB)
-    set_target_properties(${API_LOWERCASE} PROPERTIES SOVERSION "1" VERSION "1.0.${vk_header_version}")
+    set_target_properties(${API_LOWERCASE} PROPERTIES SOVERSION "1" VERSION "1.1.${vk_header_version}")
     target_link_libraries(${API_LOWERCASE} -ldl -lpthread -lm)
 
     if(APPLE)
@@ -243,6 +243,17 @@ else()
             ${PROJECT_SOURCE_DIR}/include/vulkan/vk_layer.h
             ${PROJECT_SOURCE_DIR}/include/vulkan/vk_platform.h
             ${PROJECT_SOURCE_DIR}/include/vulkan/vk_sdk_platform.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan_android.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan_core.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan_ios.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan_macos.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan_mir.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan_vi.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan_wayland.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan_win32.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan_xcb.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan_xlib.h
+            ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan_xlib_xrandr.h
             ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan.h
             ${PROJECT_SOURCE_DIR}/include/vulkan/vulkan.hpp
         )
@@ -261,7 +272,7 @@ else()
             OUTPUT_NAME vulkan
             FRAMEWORK TRUE
             FRAMEWORK_VERSION A
-            VERSION "1.0.${vk_header_version}"       # "current version"
+            VERSION "1.1.${vk_header_version}"       # "current version"
             SOVERSION "1.0.0"                        # "compatibility version"
             MACOSX_FRAMEWORK_IDENTIFIER com.lunarg.vulkanFramework
             PUBLIC_HEADER "${FRAMEWORK_HEADERS}"
@@ -280,7 +291,7 @@ else()
         # Generate pkg-config file.
         include(FindPkgConfig QUIET)
         if(PKG_CONFIG_FOUND)
-            set(VK_API_VERSION "1.0.${vk_header_version}")
+            set(VK_API_VERSION "1.1.${vk_header_version}")
             foreach(LIB ${CMAKE_CXX_IMPLICIT_LINK_LIBRARIES} ${PLATFORM_LIBS})
                 set(PRIVATE_LIBS "${PRIVATE_LIBS} -l${LIB}")
             endforeach()

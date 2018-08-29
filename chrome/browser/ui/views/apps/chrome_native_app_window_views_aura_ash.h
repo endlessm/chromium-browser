@@ -58,6 +58,7 @@ class ChromeNativeAppWindowViewsAuraAsh
   void OnBeforePanelWidgetInit(views::Widget::InitParams* init_params,
                                views::Widget* widget) override;
   views::NonClientFrameView* CreateNonStandardAppFrame() override;
+  bool ShouldRemoveStandardFrame() override;
 
   // ui::BaseWindow:
   gfx::Rect GetRestoredBounds() const override;
@@ -95,11 +96,14 @@ class ChromeNativeAppWindowViewsAuraAsh
   void UpdateExclusiveAccessExitBubbleContent(
       const GURL& url,
       ExclusiveAccessBubbleType bubble_type,
-      ExclusiveAccessBubbleHideCallback bubble_first_hide_callback) override;
+      ExclusiveAccessBubbleHideCallback bubble_first_hide_callback,
+      bool force_update) override;
   void OnExclusiveAccessUserInput() override;
   content::WebContents* GetActiveWebContents() override;
   void UnhideDownloadShelf() override;
   void HideDownloadShelf() override;
+  bool ShouldHideUIForFullscreen() const override;
+  ExclusiveAccessBubbleViews* GetExclusiveAccessBubble() override;
 
   // ExclusiveAccessBubbleViewsContext:
   ExclusiveAccessManager* GetExclusiveAccessManager() override;
@@ -121,6 +125,10 @@ class ChromeNativeAppWindowViewsAuraAsh
                            ImmersiveWorkFlow);
   FRIEND_TEST_ALL_PREFIXES(ChromeNativeAppWindowViewsAuraAshBrowserTest,
                            ImmersiveModeFullscreenRestoreType);
+  FRIEND_TEST_ALL_PREFIXES(ChromeNativeAppWindowViewsAuraAshBrowserTest,
+                           NoImmersiveModeWhenForcedFullscreen);
+  FRIEND_TEST_ALL_PREFIXES(ChromeNativeAppWindowViewsAuraAshBrowserTest,
+                           PublicSessionImmersiveMode);
   FRIEND_TEST_ALL_PREFIXES(ChromeNativeAppWindowViewsAuraAshInteractiveTest,
                            NoImmersiveOrBubbleOutsidePublicSessionWindow);
   FRIEND_TEST_ALL_PREFIXES(ChromeNativeAppWindowViewsAuraAshInteractiveTest,
@@ -134,6 +142,9 @@ class ChromeNativeAppWindowViewsAuraAsh
 
   // Callback for MenuRunner
   void OnMenuClosed();
+
+  // Whether immersive mode should be enabled.
+  bool ShouldEnableImmersiveMode() const;
 
   // Helper function to update the immersive mode based on the current
   // app's and window manager's state.

@@ -60,7 +60,8 @@ public:
              std::unique_ptr<CompileCallbackMgr> CCMgr,
              IndirectStubsManagerBuilder IndirectStubsMgrBuilder,
              bool InlineStubs)
-      : ES(SSP), TM(std::move(TM)), DL(this->TM->createDataLayout()),
+      : TM(std::move(TM)),
+        DL(this->TM->createDataLayout()),
         CCMgr(std::move(CCMgr)),
         ObjectLayer(ES,
                     [this](orc::VModuleKey K) {
@@ -173,9 +174,10 @@ public:
             }
             return std::move(*NotFoundViaLegacyLookup);
           },
-          [LegacyLookup](std::shared_ptr<orc::AsynchronousSymbolQuery> Query,
+          [this,
+           LegacyLookup](std::shared_ptr<orc::AsynchronousSymbolQuery> Query,
                          orc::SymbolNameSet Symbols) {
-            return lookupWithLegacyFn(*Query, Symbols, LegacyLookup);
+            return lookupWithLegacyFn(ES, *Query, Symbols, LegacyLookup);
           });
 
       // Add the module to the JIT.

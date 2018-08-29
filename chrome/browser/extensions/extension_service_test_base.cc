@@ -89,7 +89,7 @@ ExtensionServiceTestBase::ExtensionServiceTestBase()
       testing_local_state_(TestingBrowserProcess::GetGlobal()),
       registry_(nullptr) {
   base::FilePath test_data_dir;
-  if (!PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir)) {
+  if (!base::PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir)) {
     ADD_FAILURE();
     return;
   }
@@ -280,8 +280,6 @@ void ExtensionServiceTestBase::ValidateStringPref(
 }
 
 void ExtensionServiceTestBase::SetUp() {
-  // TODO(devlin): Remove this. See https://crbug.com/816679.
-  allow_legacy_extensions_ = Extension::allow_legacy_extensions_for_testing();
   LoadErrorReporter::GetInstance()->ClearErrors();
 }
 
@@ -292,7 +290,6 @@ void ExtensionServiceTestBase::TearDown() {
     if (partition)
       partition->WaitForDeletionTasksForTesting();
   }
-  allow_legacy_extensions_.reset();
 }
 
 void ExtensionServiceTestBase::SetUpTestCase() {

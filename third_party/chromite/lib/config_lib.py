@@ -56,7 +56,7 @@ DISPLAY_LABEL_FIRMWARE = 'firmware'
 DISPLAY_LABEL_FACTORY = 'factory'
 DISPLAY_LABEL_TOOLCHAIN = 'toolchain'
 DISPLAY_LABEL_UTILITY = 'utility'
-DISPLAY_LABEL_UNKNOWN_PRODUCTION = 'production_tryjob'
+DISPLAY_LABEL_PRODUCTION_TRYJOB = 'production_tryjob'
 
 # This list of constants should be kept in sync with GoldenEye code.
 ALL_DISPLAY_LABEL = TRYJOB_DISPLAY_LABEL | {
@@ -74,7 +74,21 @@ ALL_DISPLAY_LABEL = TRYJOB_DISPLAY_LABEL | {
     DISPLAY_LABEL_FACTORY,
     DISPLAY_LABEL_TOOLCHAIN,
     DISPLAY_LABEL_UTILITY,
-    DISPLAY_LABEL_UNKNOWN_PRODUCTION,
+    DISPLAY_LABEL_PRODUCTION_TRYJOB,
+}
+
+# These values must be kept in sync with the ChromeOS LUCI builders.
+#
+# https://chrome-internal.git.corp.google.com/chromeos/
+#    manifest-internal/+/infra/config/cr-buildbucket.cfg
+LUCI_BUILDER_TRY = 'Try'
+LUCI_BUILDER_PRECQ = 'PreCQ'
+LUCI_BUILDER_PROD = 'Prod'
+
+ALL_LUCI_BUILDER = {
+    LUCI_BUILDER_TRY,
+    LUCI_BUILDER_PRECQ,
+    LUCI_BUILDER_PROD,
 }
 
 def isTryjobConfig(build_config):
@@ -152,7 +166,7 @@ def UseBuildbucketScheduler(config):
   """Returns True if this build uses Buildbucket to schedule builds."""
   return (config.active_waterfall in (waterfall.WATERFALL_INTERNAL,
                                       waterfall.WATERFALL_EXTERNAL,
-                                      waterfall.WATERFALL_TRYBOT,
+                                      waterfall.WATERFALL_SWARMING,
                                       waterfall.WATERFALL_RELEASE) and
           config.name in (constants.CQ_MASTER,
                           constants.CANARY_MASTER,
@@ -191,50 +205,6 @@ def ScheduledByBuildbucket(config):
   """Returns True if this build is scheduled by Buildbucket."""
   return (config.build_type == constants.PALADIN_TYPE and
           config.name != constants.CQ_MASTER)
-
-def OverrideConfigForTrybot(build_config, options):
-  """Apply trybot-specific configuration settings.
-
-  Args:
-    build_config: The build configuration dictionary to override.
-      The dictionary is not modified.
-    options: The options passed on the commandline.
-
-  Returns:
-    A build configuration dictionary with the overrides applied.
-  """
-  # TODO: crbug.com/504653 is about deleting this method fully.
-
-  copy_config = copy.deepcopy(build_config)
-  for my_config in [copy_config] + copy_config['child_configs']:
-    # Force uprev. This is so patched in changes are always built.
-    my_config['uprev'] = True
-    if my_config['internal']:
-      my_config['overlays'] = constants.BOTH_OVERLAYS
-
-    # Use the local manifest which only requires elevated access if it's really
-    # needed to build.
-    if not options.remote_trybot:
-      my_config['manifest'] = my_config['dev_manifest']
-
-    my_config['push_image'] = False
-
-    if my_config['build_type'] != constants.PAYLOADS_TYPE:
-      my_config['paygen'] = False
-
-    if options.hwtest and my_config['hw_tests_override'] is not None:
-      my_config['hw_tests'] = my_config['hw_tests_override']
-
-    # Default to starting with a fresh chroot on remote trybot runs.
-    if options.remote_trybot:
-      my_config['chroot_replace'] = True
-
-    # In trybots, we want to always run VM tests and all unit tests, so that
-    # developers will get better testing for their changes.
-    if my_config['vm_tests_override'] is not None:
-      my_config['vm_tests'] = my_config['vm_tests_override']
-
-  return copy_config
 
 
 class AttrDict(dict):
@@ -389,18 +359,21 @@ class VMTestConfig(object):
     retry: Whether we should retry tests that fail in a suite run.
     max_retries: Integer, maximum job retries allowed at suite level.
                  None for no max.
+    warn_only: Boolean, failure on VM tests warns only.
   """
   DEFAULT_TEST_TIMEOUT = 90 * 60
 
   def __init__(self, test_type, test_suite=None,
                timeout=DEFAULT_TEST_TIMEOUT, retry=False,
-               max_retries=constants.VM_TEST_MAX_RETRIES):
+               max_retries=constants.VM_TEST_MAX_RETRIES,
+               warn_only=False):
     """Constructor -- see members above."""
     self.test_type = test_type
     self.test_suite = test_suite
     self.timeout = timeout
     self.retry = retry
     self.max_retries = max_retries
+    self.warn_only = warn_only
 
 
   def __eq__(self, other):
@@ -637,6 +610,13 @@ def DefaultSettings():
       # must be in ALL_DISPLAY_LABEL.
       # TODO: Make the value required after crbug.com/776955 is finished.
       display_label=None,
+
+      # This defines which LUCI Builder to use. It must match an entry in:
+      #
+      # https://chrome-internal.git.corp.google.com/chromeos/
+      #    manifest-internal/+/infra/config/cr-buildbucket.cfg
+      #
+      luci_builder=LUCI_BUILDER_PROD,
 
       # The profile of the variant to set up and build.
       profile=None,
@@ -995,10 +975,6 @@ def DefaultSettings():
 
       # Use SDK as opposed to building the chroot from source.
       use_sdk=True,
-
-      # List this config when user runs cbuildbot with --list option without
-      # the --all flag.
-      trybot_list=False,
 
       # The description string to print out for config when user runs --list.
       description=None,

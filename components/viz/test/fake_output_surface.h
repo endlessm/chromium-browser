@@ -70,7 +70,6 @@ class FakeOutputSurface : public OutputSurface {
   uint32_t GetFramebufferCopyTextureFormat() override;
   bool HasExternalStencilTest() const override;
   void ApplyExternalStencil() override {}
-  bool SurfaceIsSuspendForRecycle() const override;
   OverlayCandidateValidator* GetOverlayCandidateValidator() const override;
   bool IsDisplayedAsOverlayPlane() const override;
   unsigned GetOverlayTextureId() const override;
@@ -78,6 +77,7 @@ class FakeOutputSurface : public OutputSurface {
 #if BUILDFLAG(ENABLE_VULKAN)
   gpu::VulkanSurface* GetVulkanSurface() override;
 #endif
+  unsigned UpdateGpuFence() override;
 
   void set_framebuffer(GLint framebuffer, GLenum format) {
     framebuffer_ = framebuffer;
@@ -90,10 +90,6 @@ class FakeOutputSurface : public OutputSurface {
 
   void set_has_external_stencil_test(bool has_test) {
     has_external_stencil_test_ = has_test;
-  }
-
-  void set_suspended_for_recycle(bool suspended) {
-    suspended_for_recycle_ = suspended;
   }
 
   const gfx::ColorSpace& last_reshape_color_space() {
@@ -113,7 +109,6 @@ class FakeOutputSurface : public OutputSurface {
   std::unique_ptr<OutputSurfaceFrame> last_sent_frame_;
   size_t num_sent_frames_ = 0;
   bool has_external_stencil_test_ = false;
-  bool suspended_for_recycle_ = false;
   GLint framebuffer_ = 0;
   GLenum framebuffer_format_ = 0;
   OverlayCandidateValidator* overlay_candidate_validator_ = nullptr;
@@ -121,7 +116,7 @@ class FakeOutputSurface : public OutputSurface {
   gfx::Rect last_set_draw_rectangle_;
 
  private:
-  void SwapBuffersAck(uint64_t swap_id);
+  void SwapBuffersAck(bool need_presentation_feedback);
 
   base::WeakPtrFactory<FakeOutputSurface> weak_ptr_factory_;
 };

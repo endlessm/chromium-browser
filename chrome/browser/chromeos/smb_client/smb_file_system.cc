@@ -9,8 +9,10 @@
 #include <utility>
 
 #include "base/posix/eintr_wrapper.h"
-#include "base/strings/string_number_conversions.h"
+#include "base/task_scheduler/post_task.h"
 #include "chrome/browser/chromeos/file_system_provider/service.h"
+#include "chrome/browser/chromeos/smb_client/smb_errors.h"
+#include "chrome/browser/chromeos/smb_client/smb_file_system_id.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/smb_provider_client.h"
 #include "components/services/filesystem/public/interfaces/types.mojom.h"
@@ -90,63 +92,8 @@ SmbFileSystem::SmbFileSystem(
 
 SmbFileSystem::~SmbFileSystem() {}
 
-// static
-base::File::Error SmbFileSystem::TranslateError(smbprovider::ErrorType error) {
-  DCHECK_NE(smbprovider::ERROR_NONE, error);
-
-  switch (error) {
-    case smbprovider::ERROR_OK:
-      return base::File::FILE_OK;
-    case smbprovider::ERROR_FAILED:
-      return base::File::FILE_ERROR_FAILED;
-    case smbprovider::ERROR_IN_USE:
-      return base::File::FILE_ERROR_IN_USE;
-    case smbprovider::ERROR_EXISTS:
-      return base::File::FILE_ERROR_EXISTS;
-    case smbprovider::ERROR_NOT_FOUND:
-      return base::File::FILE_ERROR_NOT_FOUND;
-    case smbprovider::ERROR_ACCESS_DENIED:
-      return base::File::FILE_ERROR_ACCESS_DENIED;
-    case smbprovider::ERROR_TOO_MANY_OPENED:
-      return base::File::FILE_ERROR_TOO_MANY_OPENED;
-    case smbprovider::ERROR_NO_MEMORY:
-      return base::File::FILE_ERROR_NO_MEMORY;
-    case smbprovider::ERROR_NO_SPACE:
-      return base::File::FILE_ERROR_NO_SPACE;
-    case smbprovider::ERROR_NOT_A_DIRECTORY:
-      return base::File::FILE_ERROR_NOT_A_DIRECTORY;
-    case smbprovider::ERROR_INVALID_OPERATION:
-      return base::File::FILE_ERROR_INVALID_OPERATION;
-    case smbprovider::ERROR_SECURITY:
-      return base::File::FILE_ERROR_SECURITY;
-    case smbprovider::ERROR_ABORT:
-      return base::File::FILE_ERROR_ABORT;
-    case smbprovider::ERROR_NOT_A_FILE:
-      return base::File::FILE_ERROR_NOT_A_FILE;
-    case smbprovider::ERROR_NOT_EMPTY:
-      return base::File::FILE_ERROR_NOT_EMPTY;
-    case smbprovider::ERROR_INVALID_URL:
-      return base::File::FILE_ERROR_INVALID_URL;
-    case smbprovider::ERROR_IO:
-      return base::File::FILE_ERROR_IO;
-    case smbprovider::ERROR_DBUS_PARSE_FAILED:
-      // DBUS_PARSE_FAILED maps to generic ERROR_FAILED
-      LOG(ERROR) << "DBUS PARSE FAILED";
-      return base::File::FILE_ERROR_FAILED;
-    default:
-      break;
-  }
-
-  NOTREACHED();
-  return base::File::FILE_ERROR_FAILED;
-}
-
 int32_t SmbFileSystem::GetMountId() const {
-  int32_t mount_id;
-  bool result =
-      base::StringToInt(file_system_info_.file_system_id(), &mount_id);
-  DCHECK(result);
-  return mount_id;
+  return GetMountIdFromFileSystemId(file_system_info_.file_system_id());
 }
 
 SmbProviderClient* SmbFileSystem::GetSmbProviderClient() const {
@@ -200,7 +147,7 @@ void SmbFileSystem::HandleRequestUnmountCallback(
     storage::AsyncFileUtil::StatusCallback callback,
     smbprovider::ErrorType error) {
   task_queue_.TaskFinished();
-  base::File::Error result = TranslateError(error);
+  base::File::Error result = TranslateToFileError(error);
   if (result == base::File::FILE_OK) {
     result =
         RunUnmountCallback(file_system_info_.file_system_id(),
@@ -273,7 +220,7 @@ void SmbFileSystem::HandleRequestOpenFileCallback(
     smbprovider::ErrorType error,
     int32_t file_id) const {
   task_queue_.TaskFinished();
-  callback.Run(file_id, TranslateError(error));
+  callback.Run(file_id, TranslateToFileError(error));
 }
 
 AbortCallback SmbFileSystem::CloseFile(
@@ -391,15 +338,52 @@ AbortCallback SmbFileSystem::WriteFile(
     int64_t offset,
     int length,
     storage::AsyncFileUtil::StatusCallback callback) {
+  if (length == 0) {
+    std::move(callback).Run(base::File::FILE_OK);
+    return CreateAbortCallback();
+  }
+
   const std::vector<uint8_t> data(buffer->data(), buffer->data() + length);
-  base::ScopedFD temp_fd = temp_file_manager_.CreateTempFile(data);
+  if (!temp_file_manager_) {
+    SmbTask task =
+        base::BindOnce(base::IgnoreResult(&SmbFileSystem::CallWriteFile),
+                       base::Unretained(this), file_handle, std::move(data),
+                       offset, length, std::move(callback));
+    InitTempFileManagerAndExecuteTask(std::move(task));
+    // The call to init temp_file_manager_ will not be abortable since it is
+    // asynchronous.
+    return CreateAbortCallback();
+  }
+
+  return CallWriteFile(file_handle, data, offset, length, std::move(callback));
+}
+
+void SmbFileSystem::InitTempFileManagerAndExecuteTask(SmbTask task) {
+  // InitTempFileManager() has to be called on a separate thread since it
+  // contains a call that requires a blockable thread.
+  base::TaskTraits task_traits = {base::MayBlock(),
+                                  base::TaskPriority::USER_BLOCKING,
+                                  base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN};
+  base::OnceClosure init_task = base::BindOnce(
+      &SmbFileSystem::InitTempFileManager, base::Unretained(this));
+
+  base::PostTaskWithTraitsAndReply(FROM_HERE, task_traits, std::move(init_task),
+                                   std::move(task));
+}
+
+AbortCallback SmbFileSystem::CallWriteFile(
+    int file_handle,
+    const std::vector<uint8_t>& data,
+    int64_t offset,
+    int length,
+    storage::AsyncFileUtil::StatusCallback callback) {
+  base::ScopedFD temp_fd = temp_file_manager_->CreateTempFile(data);
 
   auto reply = base::BindOnce(&SmbFileSystem::HandleStatusCallback, AsWeakPtr(),
                               std::move(callback));
   SmbTask task = base::BindOnce(
       &SmbProviderClient::WriteFile, GetWeakSmbProviderClient(), GetMountId(),
       file_handle, offset, length, std::move(temp_fd), std::move(reply));
-
   return EnqueueTaskAndGetCallback(std::move(task));
 }
 
@@ -495,7 +479,7 @@ void SmbFileSystem::HandleRequestReadDirectoryCallback(
     }
   }
 
-  callback.Run(TranslateError(error), entry_list, false /* has_more */);
+  callback.Run(TranslateToFileError(error), entry_list, false /* has_more */);
 }
 
 void SmbFileSystem::HandleGetDeleteListCallback(
@@ -507,7 +491,7 @@ void SmbFileSystem::HandleGetDeleteListCallback(
   if (delete_list.entries_size() == 0) {
     // There are no entries to delete.
     DCHECK_NE(smbprovider::ERROR_OK, list_error);
-    std::move(callback).Run(TranslateError(list_error));
+    std::move(callback).Run(TranslateToFileError(list_error));
     return;
   }
 
@@ -538,7 +522,7 @@ void SmbFileSystem::HandleDeleteEntryCallback(
     if (list_error != smbprovider::ERROR_OK) {
       delete_error = list_error;
     }
-    std::move(callback).Run(TranslateError(delete_error));
+    std::move(callback).Run(TranslateToFileError(delete_error));
   }
 }
 
@@ -549,7 +533,7 @@ void SmbFileSystem::HandleRequestGetMetadataEntryCallback(
     const smbprovider::DirectoryEntryProto& entry) const {
   task_queue_.TaskFinished();
   if (error != smbprovider::ERROR_OK) {
-    std::move(callback).Run(nullptr, TranslateError(error));
+    std::move(callback).Run(nullptr, TranslateToFileError(error));
     return;
   }
   std::unique_ptr<file_system_provider::EntryMetadata> metadata =
@@ -592,7 +576,7 @@ void SmbFileSystem::HandleRequestReadFileCallback(
 
   if (error != smbprovider::ERROR_OK) {
     callback.Run(0 /* chunk_length */, false /* has_more */,
-                 TranslateError(error));
+                 TranslateToFileError(error));
     return;
   }
 
@@ -621,7 +605,12 @@ void SmbFileSystem::HandleStatusCallback(
     smbprovider::ErrorType error) const {
   task_queue_.TaskFinished();
 
-  std::move(callback).Run(TranslateError(error));
+  std::move(callback).Run(TranslateToFileError(error));
+}
+
+void SmbFileSystem::InitTempFileManager() {
+  DCHECK(!temp_file_manager_);
+  temp_file_manager_ = std::make_unique<TempFileManager>();
 }
 
 base::WeakPtr<file_system_provider::ProvidedFileSystemInterface>

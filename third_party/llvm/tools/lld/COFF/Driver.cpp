@@ -97,7 +97,7 @@ typedef std::pair<std::unique_ptr<MemoryBuffer>, std::error_code> MBErrPair;
 // Create a std::future that opens and maps a file using the best strategy for
 // the host platform.
 static std::future<MBErrPair> createFutureForFile(std::string Path) {
-#if LLVM_ON_WIN32
+#if _WIN32
   // On Windows, file I/O is relatively slow so it is best to do this
   // asynchronously.
   auto Strategy = std::launch::async;
@@ -105,7 +105,9 @@ static std::future<MBErrPair> createFutureForFile(std::string Path) {
   auto Strategy = std::launch::deferred;
 #endif
   return std::async(Strategy, [=]() {
-    auto MBOrErr = MemoryBuffer::getFile(Path);
+    auto MBOrErr = MemoryBuffer::getFile(Path,
+                                         /*FileSize*/ -1,
+                                         /*RequiresNullTerminator*/ false);
     if (!MBOrErr)
       return MBErrPair{nullptr, MBOrErr.getError()};
     return MBErrPair{std::move(*MBOrErr), std::error_code()};
@@ -557,16 +559,17 @@ static void createImportLibrary(bool AsLib) {
 
   if (!Config->Incremental) {
     HandleError(writeImportLibrary(LibName, Path, Exports, Config->Machine,
-                                   false, Config->MinGW));
+                                   Config->MinGW));
     return;
   }
 
   // If the import library already exists, replace it only if the contents
   // have changed.
-  ErrorOr<std::unique_ptr<MemoryBuffer>> OldBuf = MemoryBuffer::getFile(Path);
+  ErrorOr<std::unique_ptr<MemoryBuffer>> OldBuf = MemoryBuffer::getFile(
+      Path, /*FileSize*/ -1, /*RequiresNullTerminator*/ false);
   if (!OldBuf) {
     HandleError(writeImportLibrary(LibName, Path, Exports, Config->Machine,
-                                   false, Config->MinGW));
+                                   Config->MinGW));
     return;
   }
 
@@ -577,12 +580,13 @@ static void createImportLibrary(bool AsLib) {
           EC.message());
 
   if (Error E = writeImportLibrary(LibName, TmpName, Exports, Config->Machine,
-                                   false, Config->MinGW)) {
+                                   Config->MinGW)) {
     HandleError(std::move(E));
     return;
   }
 
-  std::unique_ptr<MemoryBuffer> NewBuf = check(MemoryBuffer::getFile(TmpName));
+  std::unique_ptr<MemoryBuffer> NewBuf = check(MemoryBuffer::getFile(
+      TmpName, /*FileSize*/ -1, /*RequiresNullTerminator*/ false));
   if ((*OldBuf)->getBuffer() != NewBuf->getBuffer()) {
     OldBuf->reset();
     HandleError(errorCodeToError(sys::fs::rename(TmpName, Path)));
@@ -621,9 +625,18 @@ static void parseModuleDefs(StringRef Path) {
 
   for (COFFShortExport E1 : M.Exports) {
     Export E2;
+    // In simple cases, only Name is set. Renamed exports are parsed
+    // and set as "ExtName = Name". If Name has the form "OtherDll.Func",
+    // it shouldn't be a normal exported function but a forward to another
+    // DLL instead. This is supported by both MS and GNU linkers.
+    if (E1.ExtName != E1.Name && StringRef(E1.Name).contains('.')) {
+      E2.Name = Saver.save(E1.ExtName);
+      E2.ForwardTo = Saver.save(E1.Name);
+      Config->Exports.push_back(E2);
+      continue;
+    }
     E2.Name = Saver.save(E1.Name);
-    if (E1.isWeak())
-      E2.ExtName = Saver.save(E1.ExtName);
+    E2.ExtName = Saver.save(E1.ExtName);
     E2.Ordinal = E1.Ordinal;
     E2.Noname = E1.Noname;
     E2.Data = E1.Data;
@@ -936,6 +949,8 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   if (ShouldCreatePDB) {
     if (auto *Arg = Args.getLastArg(OPT_pdb))
       Config->PDBPath = Arg->getValue();
+    if (auto *Arg = Args.getLastArg(OPT_pdbaltpath))
+      Config->PDBAltPath = Arg->getValue();
     if (Args.hasArg(OPT_natvis))
       Config->NatvisFiles = Args.getAllArgValues(OPT_natvis);
   }
@@ -962,6 +977,9 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
       DynamicBaseArg->getOption().getID() == OPT_dynamicbase_no)
     Config->DynamicBase = false;
 
+  // MSDN claims "/FIXED:NO is the default setting for a DLL, and /FIXED is the
+  // default setting for any other project type.", but link.exe defaults to
+  // /FIXED:NO for exe outputs as well. Match behavior, not docs.
   bool Fixed = Args.hasFlag(OPT_fixed, OPT_fixed_no, false);
   if (Fixed) {
     if (DynamicBaseArg &&
@@ -1015,6 +1033,23 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
     parseSubsystem(Arg->getValue(), &Config->Subsystem, &Config->MajorOSVersion,
                    &Config->MinorOSVersion);
 
+  // Handle /timestamp
+  if (llvm::opt::Arg *Arg = Args.getLastArg(OPT_timestamp, OPT_repro)) {
+    if (Arg->getOption().getID() == OPT_repro) {
+      Config->Timestamp = 0;
+      Config->Repro = true;
+    } else {
+      Config->Repro = false;
+      StringRef Value(Arg->getValue());
+      if (Value.getAsInteger(0, Config->Timestamp))
+        fatal(Twine("invalid timestamp: ") + Value +
+              ".  Expected 32-bit integer");
+    }
+  } else {
+    Config->Repro = false;
+    Config->Timestamp = time(nullptr);
+  }
+
   // Handle /alternatename
   for (auto *Arg : Args.filtered(OPT_alternatename))
     parseAlternateName(Arg->getValue());
@@ -1028,8 +1063,10 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
     Config->Implib = Arg->getValue();
 
   // Handle /opt.
-  bool DoGC = !Args.hasArg(OPT_debug);
-  unsigned ICFLevel = 1; // 0: off, 1: limited, 2: on
+  bool DoGC = !Args.hasArg(OPT_debug) || Args.hasArg(OPT_profile);
+  unsigned ICFLevel =
+      Args.hasArg(OPT_profile) ? 0 : 1; // 0: off, 1: limited, 2: on
+  unsigned TailMerge = 1;
   for (auto *Arg : Args.filtered(OPT_opt)) {
     std::string Str = StringRef(Arg->getValue()).lower();
     SmallVector<StringRef, 1> Vec;
@@ -1043,6 +1080,10 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
         ICFLevel = 2;
       } else if (S == "noicf") {
         ICFLevel = 0;
+      } else if (S == "lldtailmerge") {
+        TailMerge = 2;
+      } else if (S == "nolldtailmerge") {
+        TailMerge = 0;
       } else if (S.startswith("lldlto=")) {
         StringRef OptLevel = S.substr(7);
         if (OptLevel.getAsInteger(10, Config->LTOOptLevel) ||
@@ -1071,6 +1112,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
     ICFLevel = 0;
   Config->DoGC = DoGC;
   Config->DoICF = ICFLevel > 0;
+  Config->TailMerge = (TailMerge == 1 && Config->DoICF) || TailMerge == 2;
 
   // Handle /lldsavetemps
   if (Args.hasArg(OPT_lldsavetemps))
@@ -1097,6 +1139,14 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   // Handle /merge
   for (auto *Arg : Args.filtered(OPT_merge))
     parseMerge(Arg->getValue());
+
+  // Add default section merging rules after user rules. User rules take
+  // precedence, but we will emit a warning if there is a conflict.
+  parseMerge(".idata=.rdata");
+  parseMerge(".didat=.rdata");
+  parseMerge(".edata=.rdata");
+  parseMerge(".xdata=.rdata");
+  parseMerge(".bss=.data");
 
   // Handle /section
   for (auto *Arg : Args.filtered(OPT_section))
@@ -1144,13 +1194,25 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
       Args.hasFlag(OPT_allowisolation, OPT_allowisolation_no, true);
   Config->Incremental =
       Args.hasFlag(OPT_incremental, OPT_incremental_no,
-                   !Config->DoGC && !Config->DoICF && !Args.hasArg(OPT_order));
+                   !Config->DoGC && !Config->DoICF && !Args.hasArg(OPT_order) &&
+                       !Args.hasArg(OPT_profile));
   Config->NxCompat = Args.hasFlag(OPT_nxcompat, OPT_nxcompat_no, true);
-  Config->TerminalServerAware = Args.hasFlag(OPT_tsaware, OPT_tsaware_no, true);
+  Config->TerminalServerAware =
+      !Config->DLL && Args.hasFlag(OPT_tsaware, OPT_tsaware_no, true);
   Config->DebugDwarf = Args.hasArg(OPT_debug_dwarf);
   Config->DebugGHashes = Args.hasArg(OPT_debug_ghash);
 
   Config->MapFile = getMapFile(Args);
+
+  if (Config->Incremental && Args.hasArg(OPT_profile)) {
+    warn("ignoring '/incremental' due to '/profile' specification");
+    Config->Incremental = false;
+  }
+
+  if (Config->Incremental && Args.hasArg(OPT_order)) {
+    warn("ignoring '/incremental' due to '/order' specification");
+    Config->Incremental = false;
+  }
 
   if (Config->Incremental && Config->DoGC) {
     warn("ignoring '/incremental' because REF is enabled; use '/opt:noref' to "
@@ -1161,11 +1223,6 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   if (Config->Incremental && Config->DoICF) {
     warn("ignoring '/incremental' because ICF is enabled; use '/opt:noicf' to "
          "disable");
-    Config->Incremental = false;
-  }
-
-  if (Config->Incremental && Args.hasArg(OPT_order)) {
-    warn("ignoring '/INCREMENTAL' due to '/ORDER' specification");
     Config->Incremental = false;
   }
 
@@ -1291,10 +1348,19 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
         getOutputPath((*Args.filtered(OPT_INPUT).begin())->getValue());
   }
 
-  // Put the PDB next to the image if no /pdb flag was passed.
-  if (ShouldCreatePDB && Config->PDBPath.empty()) {
-    Config->PDBPath = Config->OutputFile;
-    sys::path::replace_extension(Config->PDBPath, ".pdb");
+  if (ShouldCreatePDB) {
+    // Put the PDB next to the image if no /pdb flag was passed.
+    if (Config->PDBPath.empty()) {
+      Config->PDBPath = Config->OutputFile;
+      sys::path::replace_extension(Config->PDBPath, ".pdb");
+    }
+
+    // The embedded PDB path should be the absolute path to the PDB if no
+    // /pdbaltpath flag was passed.
+    if (Config->PDBAltPath.empty()) {
+      Config->PDBAltPath = Config->PDBPath;
+      sys::fs::make_absolute(Config->PDBAltPath);
+    }
   }
 
   // Set default image base if /base is not given.
@@ -1404,7 +1470,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
       E.Name = Def->getName();
       E.Sym = Def;
       if (Def->getChunk() &&
-          !(Def->getChunk()->getPermissions() & IMAGE_SCN_MEM_EXECUTE))
+          !(Def->getChunk()->getOutputCharacteristics() & IMAGE_SCN_MEM_EXECUTE))
         E.Data = true;
       Config->Exports.push_back(E);
     });

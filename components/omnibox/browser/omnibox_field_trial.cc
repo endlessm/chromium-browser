@@ -27,30 +27,30 @@
 #include "components/variations/variations_associated_data.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "ui/base/material_design/material_design_controller.h"
+#include "ui/base/ui_base_features.h"
 
 using metrics::OmniboxEventProto;
 
 namespace omnibox {
-
-// Feature used to enable the transmission of entity suggestions from GWS
-// to this client.
-const base::Feature kOmniboxEntitySuggestions{
-    "OmniboxEntitySuggestions", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Feature used to enable entity suggestion images and enhanced presentation
 // showing more context and descriptive text about the entity.
 const base::Feature kOmniboxRichEntitySuggestions{
     "OmniboxRichEntitySuggestions", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Feature used to enable enhanced presentation showing larger images.
+const base::Feature kOmniboxNewAnswerLayout{"OmniboxNewAnswerLayout",
+                                            base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Feature used to force on the experiment of transmission of tail suggestions
 // from GWS to this client, currently testing for desktop.
 const base::Feature kOmniboxTailSuggestions{
     "OmniboxTailSuggestions", base::FEATURE_DISABLED_BY_DEFAULT};
 
-const char kOmniboxTabSwitchSuggestionsFlag[] =
-    "omnibox-tab-switch-suggestions";
-
-const char kOmniboxTabSwitchWithButton[] = "with-button";
+// Feature used to force on the experiment of showing a button for suggestions
+// whose URL is open in another tab, with the ability to switch to that tab.
+const base::Feature kOmniboxTabSwitchSuggestions{
+    "OmniboxTabSwitchSuggestions", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Feature used to enable clipboard provider, which provides the user with
 // suggestions of the URL in the user's clipboard (if any) upon omnibox focus.
@@ -88,7 +88,13 @@ const base::Feature kZeroSuggestSwapTitleAndUrl{
 
 // Feature used to display the title of the current URL match.
 const base::Feature kDisplayTitleForCurrentUrl{
-    "OmniboxDisplayTitleForCurrentUrl", base::FEATURE_DISABLED_BY_DEFAULT};
+  "OmniboxDisplayTitleForCurrentUrl",
+#if defined(OS_ANDROID)
+      base::FEATURE_ENABLED_BY_DEFAULT
+#else
+      base::FEATURE_DISABLED_BY_DEFAULT
+#endif
+};
 
 // Feature used for the max autocomplete matches UI experiment.
 const base::Feature kUIExperimentMaxAutocompleteMatches{
@@ -107,10 +113,6 @@ const base::Feature kUIExperimentHideSteadyStateUrlSchemeAndSubdomains{
     "OmniboxUIExperimentHideSteadyStateUrlSchemeAndSubdomains",
     base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Feature used for the omnibox narrow suggestions dropdown UI experiment.
-const base::Feature kUIExperimentNarrowDropdown{
-    "OmniboxUIExperimentNarrowDropdown", base::FEATURE_DISABLED_BY_DEFAULT};
-
 // Feature used for showing the URL suggestion favicons as a UI experiment.
 const base::Feature kUIExperimentShowSuggestionFavicons{
     "OmniboxUIExperimentShowSuggestionFavicons",
@@ -119,10 +121,6 @@ const base::Feature kUIExperimentShowSuggestionFavicons{
 // Feature used to always swap the title and URL.
 const base::Feature kUIExperimentSwapTitleAndUrl{
     "OmniboxUIExperimentSwapTitleAndUrl", base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Feature used for the vertical margin UI experiment.
-const base::Feature kUIExperimentVerticalLayout{
-    "OmniboxUIExperimentVerticalLayout", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Feature used for the vertical margin UI experiment.
 const base::Feature kUIExperimentVerticalMargin{
@@ -140,12 +138,6 @@ const base::Feature kSpeculativeServiceWorkerStartOnQueryInput{
 // URLIndexPrivateData.
 const base::Feature kBreakWordsAtUnderscores{"OmniboxBreakWordsAtUnderscores",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
-
-#if defined(OS_IOS)
-// Feature used to enable ZeroSuggestProvider on iOS.
-const base::Feature kZeroSuggestProviderIOS{"ZeroSuggestProviderIOS",
-                                            base::FEATURE_DISABLED_BY_DEFAULT};
-#endif
 
 }  // namespace omnibox
 
@@ -648,12 +640,8 @@ int OmniboxFieldTrial::KeywordScoreForSufficientlyCompleteMatch() {
 OmniboxFieldTrial::EmphasizeTitlesCondition
 OmniboxFieldTrial::GetEmphasizeTitlesConditionForInput(
     const AutocompleteInput& input) {
-  // Check the features that always swaps title and URL (assuming the title is
-  // non-empty).
-  if (base::FeatureList::IsEnabled(omnibox::kUIExperimentSwapTitleAndUrl) ||
-      base::FeatureList::IsEnabled(omnibox::kUIExperimentVerticalLayout)) {
+  if (base::FeatureList::IsEnabled(omnibox::kUIExperimentSwapTitleAndUrl))
     return EMPHASIZE_WHEN_NONEMPTY;
-  }
 
   // Touch-optimized UI and MD Refresh also always swap title and URL.
   if (ui::MaterialDesignController::is_mode_initialized() &&
@@ -689,64 +677,41 @@ OmniboxFieldTrial::GetEmphasizeTitlesConditionForInput(
   return static_cast<EmphasizeTitlesCondition>(value);
 }
 
-// static
-bool OmniboxFieldTrial::InPhysicalWebZeroSuggestFieldTrial() {
-  return variations::GetVariationParamValue(kBundledExperimentFieldTrialName,
-                                            kPhysicalWebZeroSuggestRule) ==
-         "true";
+bool OmniboxFieldTrial::IsNewAnswerLayoutEnabled() {
+  return base::FeatureList::IsEnabled(omnibox::kOmniboxNewAnswerLayout);
 }
 
-// static
-bool OmniboxFieldTrial::InPhysicalWebAfterTypingFieldTrial() {
-  return variations::GetVariationParamValue(kBundledExperimentFieldTrialName,
-                                            kPhysicalWebAfterTypingRule) ==
-         "true";
+bool OmniboxFieldTrial::IsTabSwitchSuggestionsEnabled() {
+  return base::FeatureList::IsEnabled(omnibox::kOmniboxTabSwitchSuggestions);
 }
 
-// static
-int OmniboxFieldTrial::GetPhysicalWebZeroSuggestBaseRelevance() {
-  std::string param_value(variations::GetVariationParamValue(
-      kBundledExperimentFieldTrialName,
-      kPhysicalWebZeroSuggestBaseRelevanceParam));
-  int base_relevance;
-  if (!param_value.empty() && base::StringToInt(param_value, &base_relevance))
-    return base_relevance;
-  // Default relevance score of the first Physical Web URL autocomplete match
-  // when the user has not typed in the omnibox. This score is intended to be
-  // between ClipboardURLProvider and ZeroSuggestProvider.
-  return 700;
+bool OmniboxFieldTrial::IsHideSteadyStateUrlSchemeAndSubdomainsEnabled() {
+#if defined(OS_MACOSX)
+#if BUILDFLAG(MAC_VIEWS_BROWSER)
+  // Disable Steady State Elisions on Mac if browser is in Cocoa mode.
+  if (features::IsViewsBrowserCocoa())
+    return false;
+#else   // !BUILDFLAG(MAC_VIEWS_BROWSER)
+  // If MacViews is not even built on Mac, we must be on Cocoa, so disable
+  // State State Elisions.
+  return false;
+#endif  // BUILDFLAG(MAC_VIEWS_BROWSER)
+#endif  // defined(OS_MACOSX)
+
+  return base::FeatureList::IsEnabled(
+      omnibox::kUIExperimentHideSteadyStateUrlSchemeAndSubdomains);
 }
 
-// static
-int OmniboxFieldTrial::GetPhysicalWebAfterTypingBaseRelevance() {
-  std::string param_value(variations::GetVariationParamValue(
-      kBundledExperimentFieldTrialName,
-      kPhysicalWebAfterTypingBaseRelevanceParam));
-  int base_relevance;
-  if (!param_value.empty() && base::StringToInt(param_value, &base_relevance))
-    return base_relevance;
-  // Default relevance score of the first Physical Web URL autocomplete match
-  // when the user is typing in the omnibox.
-  return 700;
+bool OmniboxFieldTrial::IsShowSuggestionFaviconsEnabled() {
+  return base::FeatureList::IsEnabled(
+      omnibox::kUIExperimentShowSuggestionFavicons);
 }
 
-// static
-bool OmniboxFieldTrial::InTabSwitchSuggestionTrial() {
-  const base::CommandLine& command_line =
-      *base::CommandLine::ForCurrentProcess();
-  return command_line.HasSwitch(omnibox::kOmniboxTabSwitchSuggestionsFlag) &&
-         command_line.GetSwitchValueASCII(
-             omnibox::kOmniboxTabSwitchSuggestionsFlag) != "disabled";
-}
-
-// static
-bool OmniboxFieldTrial::InTabSwitchSuggestionWithButtonTrial() {
-  const base::CommandLine& command_line =
-      *base::CommandLine::ForCurrentProcess();
-  return command_line.HasSwitch(omnibox::kOmniboxTabSwitchSuggestionsFlag) &&
-         command_line.GetSwitchValueASCII(
-             omnibox::kOmniboxTabSwitchSuggestionsFlag) ==
-             omnibox::kOmniboxTabSwitchWithButton;
+int OmniboxFieldTrial::GetSuggestionVerticalMargin() {
+  using Md = ui::MaterialDesignController;
+  return base::GetFieldTrialParamByFeatureAsInt(
+      omnibox::kUIExperimentVerticalMargin, kUIVerticalMarginParam,
+      Md::GetMode() == Md::MATERIAL_HYBRID ? 8 : 4);
 }
 
 const char OmniboxFieldTrial::kBundledExperimentFieldTrialName[] =
@@ -786,10 +751,6 @@ const char OmniboxFieldTrial::kKeywordRequiresPrefixMatchRule[] =
 const char OmniboxFieldTrial::kKeywordScoreForSufficientlyCompleteMatchRule[] =
     "KeywordScoreForSufficientlyCompleteMatch";
 const char OmniboxFieldTrial::kEmphasizeTitlesRule[] = "EmphasizeTitles";
-const char OmniboxFieldTrial::kPhysicalWebZeroSuggestRule[] =
-    "PhysicalWebZeroSuggest";
-const char OmniboxFieldTrial::kPhysicalWebAfterTypingRule[] =
-    "PhysicalWebAfterTyping";
 
 const char OmniboxFieldTrial::kHUPNewScoringTypedCountRelevanceCapParam[] =
     "TypedCountRelevanceCap";
@@ -820,11 +781,6 @@ const char
 const char
     OmniboxFieldTrial::kMaxNumHQPUrlsIndexedAtStartupOnNonLowEndDevicesParam[] =
         "MaxNumHQPUrlsIndexedAtStartupOnNonLowEndDevices";
-
-const char OmniboxFieldTrial::kPhysicalWebZeroSuggestBaseRelevanceParam[] =
-    "PhysicalWebZeroSuggestBaseRelevance";
-const char OmniboxFieldTrial::kPhysicalWebAfterTypingBaseRelevanceParam[] =
-    "PhysicalWebAfterTypingBaseRelevanceParam";
 
 const char OmniboxFieldTrial::kUIMaxAutocompleteMatchesParam[] =
     "UIMaxAutocompleteMatches";

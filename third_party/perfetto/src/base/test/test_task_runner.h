@@ -28,14 +28,16 @@
 #include "perfetto/base/thread_checker.h"
 #include "perfetto/base/unix_task_runner.h"
 
-#if BUILDFLAG(OS_ANDROID) && !BUILDFLAG(PERFETTO_CHROMIUM_BUILD)
+#if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) && \
+    !PERFETTO_BUILDFLAG(PERFETTO_CHROMIUM_BUILD)
 #include "perfetto/base/android_task_runner.h"
 #endif
 
 namespace perfetto {
 namespace base {
 
-#if BUILDFLAG(OS_ANDROID) && !BUILDFLAG(PERFETTO_CHROMIUM_BUILD)
+#if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) && \
+    !PERFETTO_BUILDFLAG(PERFETTO_CHROMIUM_BUILD)
 using PlatformTaskRunner = AndroidTaskRunner;
 #else
 using PlatformTaskRunner = UnixTaskRunner;
@@ -50,11 +52,12 @@ class TestTaskRunner : public TaskRunner {
   void __attribute__((__noreturn__)) Run();
 
   std::function<void()> CreateCheckpoint(const std::string& checkpoint);
-  void RunUntilCheckpoint(const std::string& checkpoint, int timeout_ms = 5000);
+  void RunUntilCheckpoint(const std::string& checkpoint,
+                          uint32_t timeout_ms = 5000);
 
   // TaskRunner implementation.
   void PostTask(std::function<void()> closure) override;
-  void PostDelayedTask(std::function<void()>, int delay_ms) override;
+  void PostDelayedTask(std::function<void()>, uint32_t delay_ms) override;
   void AddFileDescriptorWatch(int fd, std::function<void()> callback) override;
   void RemoveFileDescriptorWatch(int fd) override;
 

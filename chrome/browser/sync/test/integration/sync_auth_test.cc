@@ -14,6 +14,7 @@
 #include "chrome/browser/sync/test/integration/updated_progress_marker_checker.h"
 #include "components/browser_sync/profile_sync_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
+#include "components/sync/driver/sync_token_status.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "net/http/http_status_code.h"
 #include "net/url_request/url_request_status.h"
@@ -47,7 +48,8 @@ const char kEmptyOAuth2Token[] = "";
 
 const char kMalformedOAuth2Token[] = "{ \"foo\": ";
 
-class TestForAuthError : public SingleClientStatusChangeChecker {
+// Waits until local changes are committed or an auth error is encountered.
+class TestForAuthError : public UpdatedProgressMarkerChecker {
  public:
   explicit TestForAuthError(browser_sync::ProfileSyncService* service);
 
@@ -57,12 +59,12 @@ class TestForAuthError : public SingleClientStatusChangeChecker {
 };
 
 TestForAuthError::TestForAuthError(browser_sync::ProfileSyncService* service)
-    : SingleClientStatusChangeChecker(service) {}
+    : UpdatedProgressMarkerChecker(service) {}
 
 bool TestForAuthError::IsExitConditionSatisfied() {
-  return !service()->HasUnsyncedItems() ||
-      (service()->GetSyncTokenStatus().last_get_token_error.state() !=
-       GoogleServiceAuthError::NONE);
+  return (service()->GetSyncTokenStatus().last_get_token_error.state() !=
+          GoogleServiceAuthError::NONE) ||
+         UpdatedProgressMarkerChecker::IsExitConditionSatisfied();
 }
 
 std::string TestForAuthError::GetDebugMessage() const {

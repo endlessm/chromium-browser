@@ -183,10 +183,8 @@ public:
   }
 
   template <typename T> void write(T Val) {
-    if (IsLittleEndian)
-      support::endian::Writer<support::little>(getStream()).write(Val);
-    else
-      support::endian::Writer<support::big>(getStream()).write(Val);
+    support::endian::write(getStream(), Val,
+                           IsLittleEndian ? support::little : support::big);
   }
 
   void writeHeader(const MCAssembler &Asm);
@@ -200,7 +198,7 @@ public:
 
   bool shouldRelocateWithSymbol(const MCAssembler &Asm,
                                 const MCSymbolRefExpr *RefA,
-                                const MCSymbol *Sym, uint64_t C,
+                                const MCSymbolELF *Sym, uint64_t C,
                                 unsigned Type) const;
 
   void recordRelocation(MCAssembler &Asm, const MCAsmLayout &Layout,
@@ -420,6 +418,10 @@ void ELFObjectWriter::executePostLayoutBinding(MCAssembler &Asm,
         !Rest.startswith("@@@"))
       report_fatal_error("A @@ version cannot be undefined");
 
+    if (Renames.count(&Symbol) && Renames[&Symbol] != Alias)
+      report_fatal_error(llvm::Twine("Multiple symbol versions defined for ") +
+                         Symbol.getName());
+
     Renames.insert(std::make_pair(&Symbol, Alias));
   }
 }
@@ -507,9 +509,9 @@ void ELFObjectWriter::writeSymbol(SymbolTableWriter &Writer,
 // allows us to omit some local symbols from the symbol table.
 bool ELFObjectWriter::shouldRelocateWithSymbol(const MCAssembler &Asm,
                                                const MCSymbolRefExpr *RefA,
-                                               const MCSymbol *S, uint64_t C,
+                                               const MCSymbolELF *Sym,
+                                               uint64_t C,
                                                unsigned Type) const {
-  const auto *Sym = cast_or_null<MCSymbolELF>(S);
   // A PCRel relocation to an absolute value has no symbol (or section). We
   // represent that with a relocation to a null section.
   if (!RefA)
@@ -707,9 +709,8 @@ void ELFObjectWriter::recordRelocation(MCAssembler &Asm,
   if (!RelocateWithSymbol) {
     const MCSection *SecA =
         (SymA && !SymA->isUndefined()) ? &SymA->getSection() : nullptr;
-    auto *ELFSec = cast_or_null<MCSectionELF>(SecA);
     const auto *SectionSymbol =
-        ELFSec ? cast<MCSymbolELF>(ELFSec->getBeginSymbol()) : nullptr;
+        SecA ? cast<MCSymbolELF>(SecA->getBeginSymbol()) : nullptr;
     if (SectionSymbol)
       SectionSymbol->setUsedInReloc();
     ELFRelocationEntry Rec(FixupOffset, SectionSymbol, Type, Addend, SymA,
@@ -1146,7 +1147,6 @@ void ELFObjectWriter::writeSection(const SectionIndexMapTy &SectionIndexMap,
   }
 
   case ELF::SHT_SYMTAB:
-  case ELF::SHT_DYNSYM:
     sh_link = StringTableIndex;
     sh_info = LastLocalSymbolIndex;
     break;

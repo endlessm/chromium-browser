@@ -39,7 +39,9 @@ class ModuleEventSinkImplTest : public testing::Test {
     if (!::DuplicateHandle(::GetCurrentProcess(), ::GetCurrentProcess(),
                            ::GetCurrentProcess(), &process_handle,
 
-                           0, FALSE, DUPLICATE_SAME_ACCESS)) {
+                                       0,
+                                       FALSE,
+                                       DUPLICATE_SAME_ACCESS)) {
       return false;
     }
 

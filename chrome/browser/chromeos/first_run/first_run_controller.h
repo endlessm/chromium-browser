@@ -11,18 +11,22 @@
 #include <string>
 #include <vector>
 
-#include "ash/first_run/first_run_helper.h"
 #include "ash/public/cpp/shelf_types.h"
+#include "ash/public/interfaces/first_run_helper.mojom.h"
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/memory/linked_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/ui/webui/chromeos/first_run/first_run_actor.h"
+#include "mojo/public/cpp/bindings/binding.h"
 
 class Profile;
 
 namespace content {
 class WebContents;
+}
+
+namespace views {
+class Widget;
 }
 
 namespace chromeos {
@@ -37,9 +41,7 @@ class Step;
 // Object manages its lifetime and deletes itself after completion of the
 // tutorial.
 class FirstRunController : public FirstRunActor::Delegate,
-                           public ash::FirstRunHelper::Observer {
-  typedef std::vector<linked_ptr<first_run::Step> > Steps;
-
+                           public ash::mojom::FirstRunHelperClient {
  public:
   ~FirstRunController() override;
 
@@ -49,29 +51,18 @@ class FirstRunController : public FirstRunActor::Delegate,
   // Finalizes first-run tutorial and destroys UI.
   static void Stop();
 
-  // Returns bounds of application list button in screen coordinates.
-  gfx::Rect GetAppListButtonBounds() const;
-
-  // Opens and closes system tray bubble.
-  void OpenTrayBubble();
-  void CloseTrayBubble();
-
-  // Returns |true| iff system tray bubble is opened now.
-  bool IsTrayBubbleOpened() const;
-
-  // Returns bounds of system tray bubble in screen coordinates. The bubble
-  // must be open.
-  gfx::Rect GetTrayBubbleBounds() const;
-
-  // Returns bounds of help app button from system tray bubble in screen
-  // coordinates. The bubble must be open.
-  gfx::Rect GetHelpButtonBounds() const;
-
   // Returns the size of the semi-transparent overlay window in DIPs.
   gfx::Size GetOverlaySize() const;
 
   // Returns the shelf alignment on the primary display.
   ash::ShelfAlignment GetShelfAlignment() const;
+
+  // Stops the tutorial and records early cancellation metrics.
+  void Cancel();
+
+  const ash::mojom::FirstRunHelperPtr& first_run_helper_ptr() {
+    return first_run_helper_ptr_;
+  }
 
  private:
   friend class FirstRunUIBrowserTest;
@@ -91,7 +82,7 @@ class FirstRunController : public FirstRunActor::Delegate,
   void OnActorFinalized() override;
   void OnActorDestroyed() override;
 
-  // Overriden from ash::FirstRunHelper::Observer.
+  // ash::mojom::FirstRunHelperClient:
   void OnCancelled() override;
 
   void RegisterSteps();
@@ -103,11 +94,14 @@ class FirstRunController : public FirstRunActor::Delegate,
   // FirstRunController.
   FirstRunActor* actor_;
 
-  // Helper for manipulating and retreiving information from Shell.
-  std::unique_ptr<ash::FirstRunHelper> shell_helper_;
+  // Mojo interface for manipulating and retrieving information from ash.
+  ash::mojom::FirstRunHelperPtr first_run_helper_ptr_;
+
+  // Binding for callbacks from ash.
+  mojo::Binding<ash::mojom::FirstRunHelperClient> binding_{this};
 
   // List of all tutorial steps.
-  Steps steps_;
+  std::vector<std::unique_ptr<first_run::Step>> steps_;
 
   // Index of step that is currently shown.
   size_t current_step_index_;
@@ -117,6 +111,9 @@ class FirstRunController : public FirstRunActor::Delegate,
 
   // The work that should be made after actor has been finalized.
   base::Closure on_actor_finalized_;
+
+  // Widget containing the first-run webui.
+  std::unique_ptr<views::Widget> widget_;
 
   // Web contents of WebUI.
   content::WebContents* web_contents_for_tests_;
@@ -130,4 +127,3 @@ class FirstRunController : public FirstRunActor::Delegate,
 }  // namespace chromeos
 
 #endif  // CHROME_BROWSER_CHROMEOS_FIRST_RUN_FIRST_RUN_CONTROLLER_H_
-

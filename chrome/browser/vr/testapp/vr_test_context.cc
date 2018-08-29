@@ -27,6 +27,7 @@
 #include "chrome/browser/vr/ui_input_manager.h"
 #include "chrome/browser/vr/ui_renderer.h"
 #include "chrome/browser/vr/ui_scene.h"
+#include "chrome/browser/vr/ui_unsupported_mode.h"
 #include "chrome/grit/vr_testapp_resources.h"
 #include "components/omnibox/browser/vector_icons.h"
 #include "components/security_state/core/security_state.h"
@@ -58,6 +59,10 @@ constexpr gfx::Point3F kDefaultLaserOrigin = {0.5f, -0.5f, 0.f};
 constexpr gfx::Vector3dF kLaserLocalOffset = {0.f, -0.0075f, -0.05f};
 constexpr float kControllerScaleFactor = 1.5f;
 constexpr float kTouchpadPositionDelta = 0.05f;
+const float kVerticalScrollScaleFactor =
+    8.0f / ui::MouseWheelEvent::kWheelDelta;
+const float kHorizontalScrollScaleFactor =
+    100.0f / ui::MouseWheelEvent::kWheelDelta;
 constexpr gfx::PointF kInitialTouchPosition = {0.5f, 0.5f};
 
 void RotateToward(const gfx::Vector3dF& fwd, gfx::Transform* transform) {
@@ -74,11 +79,27 @@ bool LoadPng(int resource_id, std::unique_ptr<SkBitmap>* out_image) {
       out_image->get());
 }
 
+GestureList CreateScrollGestureEventList(blink::WebGestureEvent::Type type) {
+  auto gesture = std::make_unique<blink::WebGestureEvent>();
+  gesture->SetType(type);
+  GestureList list;
+  list.push_back(std::move(gesture));
+  return list;
+}
+
+GestureList CreateScrollGestureEventList(blink::WebGestureEvent::Type type,
+                                         const gfx::Vector2dF& delta) {
+  auto list = CreateScrollGestureEventList(type);
+  list.front()->data.scroll_update.delta_x = delta.x();
+  list.front()->data.scroll_update.delta_y = delta.y();
+  return list;
+}
+
 }  // namespace
 
 VrTestContext::VrTestContext() : view_scale_factor_(kDefaultViewScaleFactor) {
   base::FilePath pak_path;
-  PathService::Get(base::DIR_MODULE, &pak_path);
+  base::PathService::Get(base::DIR_MODULE, &pak_path);
   ui::ResourceBundle::InitSharedInstanceWithPakPath(
       pak_path.AppendASCII("vr_testapp.pak"));
 
@@ -88,6 +109,7 @@ VrTestContext::VrTestContext() : view_scale_factor_(kDefaultViewScaleFactor) {
   keyboard_delegate_ = std::make_unique<TestKeyboardDelegate>();
 
   UiInitialState ui_initial_state;
+  ui_initial_state.create_tabs_view = true;
   ui_ = std::make_unique<Ui>(this, nullptr, keyboard_delegate_.get(),
                              text_input_delegate_.get(), nullptr,
                              ui_initial_state);
@@ -118,6 +140,15 @@ VrTestContext::VrTestContext() : view_scale_factor_(kDefaultViewScaleFactor) {
   ui_->SetCapturingState(capturing_state);
   ui_->input_manager()->set_hit_test_strategy(
       UiInputManager::PROJECT_TO_LASER_ORIGIN_FOR_TEST);
+  for (size_t i = 0; i < 5; i++) {
+    ui_->AddOrUpdateTab(tab_id_++, false,
+                        base::UTF8ToUTF16("Wikipedia, the free encyclopedia"));
+    ui_->AddOrUpdateTab(tab_id_++, false, base::UTF8ToUTF16("New tab"));
+    ui_->AddOrUpdateTab(tab_id_++, false, base::UTF8ToUTF16(""));
+    ui_->AddOrUpdateTab(tab_id_++, true, base::UTF8ToUTF16("Home - YouTube"));
+    ui_->AddOrUpdateTab(tab_id_++, true,
+                        base::UTF8ToUTF16("VR - Google Search"));
+  }
 }
 
 VrTestContext::~VrTestContext() = default;
@@ -152,7 +183,10 @@ void VrTestContext::HandleInput(ui::Event* event) {
     if (event->type() != ui::ET_KEY_PRESSED) {
       return;
     }
-    if (keyboard_delegate_->HandleInput(event)) {
+    if (event->AsKeyEvent()->key_code() == ui::VKEY_CONTROL) {
+      return;
+    }
+    if (!event->IsControlDown() && keyboard_delegate_->HandleInput(event)) {
       return;
     }
     switch (event->AsKeyEvent()->code()) {
@@ -220,15 +254,24 @@ void VrTestContext::HandleInput(ui::Event* event) {
       case ui::DomCode::US_P:
         model_->toggle_mode(kModeRepositionWindow);
         break;
+      case ui::DomCode::US_G:
+        recentered_ = true;
+        break;
       case ui::DomCode::US_X:
         ui_->OnAppButtonClicked();
         break;
       case ui::DomCode::US_T:
         touching_touchpad_ = !touching_touchpad_;
         break;
-      case ui::DomCode::US_Q:
+      case ui::DomCode::US_Q: {
+        auto mode = model_->active_modal_prompt_type;
         model_->active_modal_prompt_type =
-            kModalPromptTypeGenericUnsupportedFeature;
+            static_cast<ModalPromptType>((mode + 1) % kNumModalPromptTypes);
+        model_->push_mode(kModeModalPrompt);
+        break;
+      }
+      case ui::DomCode::US_L:
+        model_->standalone_vr_device = !model_->standalone_vr_device;
         break;
       default:
         break;
@@ -240,13 +283,29 @@ void VrTestContext::HandleInput(ui::Event* event) {
     int direction =
         base::ClampToRange(event->AsMouseWheelEvent()->y_offset(), -1, 1);
     if (event->IsControlDown()) {
+      view_scale_factor_ *= (1 + direction * kViewScaleAdjustmentFactor);
+      view_scale_factor_ = base::ClampToRange(
+          view_scale_factor_, kMinViewScaleFactor, kMaxViewScaleFactor);
+    } else if (model_->reposition_window_enabled()) {
       touchpad_touch_position_.set_y(base::ClampToRange(
           touchpad_touch_position_.y() + kTouchpadPositionDelta * direction,
           0.0f, 1.0f));
     } else {
-      view_scale_factor_ *= (1 + direction * kViewScaleAdjustmentFactor);
-      view_scale_factor_ = base::ClampToRange(
-          view_scale_factor_, kMinViewScaleFactor, kMaxViewScaleFactor);
+      gesture_lists_.push(CreateScrollGestureEventList(
+          blink::WebGestureEvent::kGestureScrollBegin));
+
+      auto offset = gfx::Vector2dF(event->AsMouseWheelEvent()->offset());
+      if (event->IsShiftDown()) {
+        offset.Scale(kHorizontalScrollScaleFactor);
+        offset = gfx::Vector2dF(offset.y(), offset.x());
+      } else {
+        offset.Scale(kVerticalScrollScaleFactor);
+      }
+      gesture_lists_.push(CreateScrollGestureEventList(
+          blink::WebGestureEvent::kGestureScrollUpdate, offset));
+
+      gesture_lists_.push(CreateScrollGestureEventList(
+          blink::WebGestureEvent::kGestureScrollEnd));
     }
     return;
   }
@@ -333,6 +392,8 @@ ControllerModel VrTestContext::UpdateController(const RenderInfo& render_info,
       touchpad_pressed_ ? UiInputManager::DOWN : UiInputManager::UP;
   controller_model.touchpad_touch_position = touchpad_touch_position_;
   controller_model.touching_touchpad = touching_touchpad_;
+  controller_model.recentered = recentered_;
+  recentered_ = false;
 
   controller_model.laser_origin = mouse_point_near;
   controller_model.laser_direction = mouse_point_far - mouse_point_near;
@@ -348,10 +409,13 @@ ControllerModel VrTestContext::UpdateController(const RenderInfo& render_info,
   RotateToward(controller_model.laser_direction, &controller_model.transform);
 
   // Hit testing is done in terms of this synthesized controller model.
-  GestureList gesture_list;
+  if (gesture_lists_.empty()) {
+    gesture_lists_.push(GestureList());
+  }
   ReticleModel reticle_model;
   ui_->input_manager()->HandleInput(current_time, render_info, controller_model,
-                                    &reticle_model, &gesture_list);
+                                    &reticle_model, &gesture_lists_.front());
+  gesture_lists_.pop();
 
   // Now that we have accurate hit information, we use this to construct a
   // controller model for display.
@@ -516,17 +580,38 @@ void VrTestContext::ReloadTab() {
 }
 
 void VrTestContext::OpenNewTab(bool incognito) {
-  DCHECK(incognito);
-  incognito_ = true;
-  ui_->SetIncognito(true);
-  model_->incognito_tabs_open = true;
+  incognito_ = incognito;
+  ui_->SetIncognito(incognito);
+  ui_->AddOrUpdateTab(tab_id_++, incognito, base::UTF8ToUTF16("test"));
+}
+
+void VrTestContext::SelectTab(int id, bool incognito) {}
+
+void VrTestContext::OpenBookmarks() {}
+void VrTestContext::OpenRecentTabs() {}
+void VrTestContext::OpenHistory() {}
+void VrTestContext::OpenDownloads() {}
+void VrTestContext::OpenShare() {}
+void VrTestContext::OpenSettings() {}
+
+void VrTestContext::CloseTab(int id, bool incognito) {
+  ui_->RemoveTab(id, incognito);
+}
+
+void VrTestContext::CloseAllTabs() {
+  incognito_ = false;
+  ui_->SetIncognito(false);
+  model_->incognito_tabs.clear();
+  model_->regular_tabs.clear();
 }
 
 void VrTestContext::CloseAllIncognitoTabs() {
-  incognito_ = true;
+  incognito_ = false;
   ui_->SetIncognito(false);
-  model_->incognito_tabs_open = false;
+  model_->incognito_tabs.clear();
 }
+
+void VrTestContext::OpenFeedback() {}
 
 void VrTestContext::ExitCct() {}
 
@@ -540,6 +625,7 @@ void VrTestContext::CloseHostedDialog() {}
 
 void VrTestContext::OnExitVrPromptResult(vr::ExitVrPromptChoice choice,
                                          vr::UiUnsupportedMode reason) {
+  DCHECK_NE(reason, UiUnsupportedMode::kCount);
   if (reason == UiUnsupportedMode::kVoiceSearchNeedsRecordAudioOsPermission &&
       choice == CHOICE_EXIT) {
     voice_search_enabled_ = true;
@@ -605,7 +691,9 @@ void VrTestContext::StopAutocomplete() {
   ui_->SetOmniboxSuggestions(std::make_unique<OmniboxSuggestions>());
 }
 
-void VrTestContext::ShowPageInfo() {}
+void VrTestContext::ShowPageInfo() {
+  ui_->ShowExitVrPrompt(UiUnsupportedMode::kUnhandledPageInfo);
+}
 
 void VrTestContext::CycleIndicators() {
   static size_t state = 0;
@@ -683,7 +771,6 @@ void VrTestContext::CycleOrigin() {
 RenderInfo VrTestContext::GetRenderInfo() const {
   RenderInfo render_info;
   render_info.head_pose = head_pose_;
-  render_info.surface_texture_size = window_size_;
   render_info.left_eye_model.viewport = gfx::Rect(window_size_);
   render_info.left_eye_model.view_matrix = head_pose_;
   render_info.left_eye_model.proj_matrix = ProjectionMatrix();

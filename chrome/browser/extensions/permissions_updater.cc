@@ -197,17 +197,25 @@ void PermissionsUpdater::RemovePermissionsUnsafe(
 
 std::unique_ptr<const PermissionSet>
 PermissionsUpdater::GetRevokablePermissions(const Extension* extension) const {
-  // The user can revoke any permissions they granted. In other words, any
-  // permissions the extension didn't start with can be revoked.
+  // Any permissions not required by the extension are revokable.
   const PermissionSet& required =
       PermissionsParser::GetRequiredPermissions(extension);
-  std::unique_ptr<const PermissionSet> granted;
-  std::unique_ptr<const PermissionSet> withheld;
-  ScriptingPermissionsModifier(browser_context_,
-                               base::WrapRefCounted(extension))
-      .WithholdPermissions(required, &granted, &withheld, true);
-  return PermissionSet::CreateDifference(
-      extension->permissions_data()->active_permissions(), *granted);
+  std::unique_ptr<const PermissionSet> revokable_permissions =
+      PermissionSet::CreateDifference(
+          extension->permissions_data()->active_permissions(), required);
+
+  // Additionally, some required permissions may be revokable if they can be
+  // withheld by the ScriptingPermissionsModifier.
+  std::unique_ptr<const PermissionSet> revokable_scripting_permissions =
+      ScriptingPermissionsModifier(browser_context_,
+                                   base::WrapRefCounted(extension))
+          .GetRevokablePermissions();
+
+  if (revokable_scripting_permissions) {
+    revokable_permissions = PermissionSet::CreateUnion(
+        *revokable_permissions, *revokable_scripting_permissions);
+  }
+  return revokable_permissions;
 }
 
 void PermissionsUpdater::GrantActivePermissions(const Extension* extension) {
@@ -221,14 +229,14 @@ void PermissionsUpdater::GrantActivePermissions(const Extension* extension) {
 void PermissionsUpdater::InitializePermissions(const Extension* extension) {
   std::unique_ptr<const PermissionSet> bounded_wrapper;
   const PermissionSet* bounded_active = nullptr;
+  ExtensionPrefs* prefs = ExtensionPrefs::Get(browser_context_);
   // If |extension| is a transient dummy extension, we do not want to look for
   // it in preferences.
   if (init_flag_ & INIT_FLAG_TRANSIENT) {
     bounded_active = &extension->permissions_data()->active_permissions();
   } else {
     std::unique_ptr<const PermissionSet> active_permissions =
-        ExtensionPrefs::Get(browser_context_)
-            ->GetActivePermissions(extension->id());
+        prefs->GetActivePermissions(extension->id());
     bounded_wrapper =
         GetBoundedActivePermissions(extension, active_permissions.get());
     bounded_active = bounded_wrapper.get();
@@ -236,11 +244,9 @@ void PermissionsUpdater::InitializePermissions(const Extension* extension) {
 
   std::unique_ptr<const PermissionSet> granted_permissions;
   std::unique_ptr<const PermissionSet> withheld_permissions;
-  ScriptingPermissionsModifier(browser_context_,
-                               base::WrapRefCounted(extension))
-      .WithholdPermissions(*bounded_active, &granted_permissions,
-                           &withheld_permissions,
-                           (init_flag_ & INIT_FLAG_TRANSIENT) != 0);
+  ScriptingPermissionsModifier::WithholdPermissionsIfNecessary(
+      *extension, *prefs, *bounded_active, &granted_permissions,
+      &withheld_permissions);
 
   if (g_delegate)
     g_delegate->InitializePermissions(extension, &granted_permissions);
@@ -249,10 +255,10 @@ void PermissionsUpdater::InitializePermissions(const Extension* extension) {
     // Apply per-extension policy if set.
     ExtensionManagement* management =
         ExtensionManagementFactory::GetForBrowserContext(browser_context_);
-    if (!management->UsesDefaultRuntimeHostRestrictions(extension)) {
+    if (!management->UsesDefaultPolicyHostRestrictions(extension)) {
       SetPolicyHostRestrictions(extension,
-                                management->GetRuntimeBlockedHosts(extension),
-                                management->GetRuntimeAllowedHosts(extension));
+                                management->GetPolicyBlockedHosts(extension),
+                                management->GetPolicyAllowedHosts(extension));
     }
   }
 

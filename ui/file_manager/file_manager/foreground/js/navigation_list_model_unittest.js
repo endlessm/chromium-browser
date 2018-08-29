@@ -11,7 +11,8 @@ var hoge;
 // Set up string assets.
 loadTimeData.data = {
   DRIVE_DIRECTORY_LABEL: 'My Drive',
-  DOWNLOADS_DIRECTORY_LABEL: 'Downloads'
+  DOWNLOADS_DIRECTORY_LABEL: 'Downloads',
+  LINUX_FILES_ROOT_LABEL: 'Linux Files',
 };
 
 function setUp() {
@@ -19,6 +20,7 @@ function setUp() {
   // Override VolumeInfo.prototype.resolveDisplayRoot.
   VolumeInfoImpl.prototype.resolveDisplayRoot = function() {};
 
+  // TODO(crbug.com/834103): Add integration test for Crostini.
   drive = new MockFileSystem('drive');
   hoge = new MockFileSystem('removable:hoge');
 }
@@ -27,10 +29,37 @@ function testModel() {
   var volumeManager = new MockVolumeManagerWrapper();
   var shortcutListModel = new MockFolderShortcutDataModel(
       [new MockFileEntry(drive, '/root/shortcut')]);
-  var menuModel = new NavigationModelMenuItem(
+  var recentItem = new NavigationModelFakeItem(
+      'recent-label', NavigationModelItemType.RECENT,
+      {toURL: () => 'fake-entry://recent'});
+  var addNewServicesItem = new NavigationModelMenuItem(
       'menu-button-label', '#add-new-services', 'menu-button-icon');
   var model = new NavigationListModel(
-      volumeManager, shortcutListModel, menuModel);
+      volumeManager, shortcutListModel, recentItem, addNewServicesItem);
+  model.linuxFilesItem = new NavigationModelFakeItem(
+      'linux-files-label', NavigationModelItemType.CROSTINI,
+      {toURL: () => 'fake-entry://linux-files'});
+
+  assertEquals(6, model.length);
+  assertEquals('drive', model.item(0).volumeInfo.volumeId);
+  assertEquals('downloads', model.item(1).volumeInfo.volumeId);
+  assertEquals('fake-entry://recent', model.item(2).entry.toURL());
+  assertEquals('fake-entry://linux-files', model.item(3).entry.toURL());
+  assertEquals('/root/shortcut', model.item(4).entry.fullPath);
+  assertEquals('menu-button-label', model.item(5).label);
+  assertEquals('#add-new-services', model.item(5).menu);
+  assertEquals('menu-button-icon', model.item(5).icon);
+}
+
+function testNoRecentOrLinuxFiles() {
+  var volumeManager = new MockVolumeManagerWrapper();
+  var shortcutListModel = new MockFolderShortcutDataModel(
+      [new MockFileEntry(drive, '/root/shortcut')]);
+  var recentItem = null;
+  var addNewServicesItem = new NavigationModelMenuItem(
+      'menu-button-label', '#add-new-services', 'menu-button-icon');
+  var model = new NavigationListModel(
+      volumeManager, shortcutListModel, recentItem, addNewServicesItem);
 
   assertEquals(4, model.length);
   assertEquals('drive', model.item(0).volumeInfo.volumeId);
@@ -45,7 +74,10 @@ function testAddAndRemoveShortcuts() {
   var volumeManager = new MockVolumeManagerWrapper();
   var shortcutListModel = new MockFolderShortcutDataModel(
       [new MockFileEntry(drive, '/root/shortcut')]);
-  var model = new NavigationListModel(volumeManager, shortcutListModel, null);
+  var recentItem = null;
+  var addNewServicesItem = null;
+  var model = new NavigationListModel(
+      volumeManager, shortcutListModel, recentItem, addNewServicesItem);
 
   assertEquals(3, model.length);
 
@@ -77,7 +109,10 @@ function testAddAndRemoveVolumes() {
   var volumeManager = new MockVolumeManagerWrapper();
   var shortcutListModel = new MockFolderShortcutDataModel(
       [new MockFileEntry(drive, '/root/shortcut')]);
-  var model = new NavigationListModel(volumeManager, shortcutListModel, null);
+  var recentItem = null;
+  var addNewServicesItem = null;
+  var model = new NavigationListModel(
+      volumeManager, shortcutListModel, recentItem, addNewServicesItem);
 
   assertEquals(3, model.length);
 

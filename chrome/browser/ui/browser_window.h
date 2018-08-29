@@ -36,6 +36,7 @@ class ExclusiveAccessContext;
 class FindBar;
 class GURL;
 class LocationBar;
+class PageActionIconContainer;
 class StatusBubble;
 class ToolbarActionsBar;
 
@@ -164,6 +165,9 @@ class BrowserWindow : public ui::BaseWindow {
   // the TabStripModel has an active tab.
   virtual gfx::Size GetContentsSize() const = 0;
 
+  // Returns the container of page action icons.
+  virtual PageActionIconContainer* GetPageActionIconContainer() = 0;
+
   // Returns the location bar.
   virtual LocationBar* GetLocationBar() const = 0;
 
@@ -231,10 +235,13 @@ class BrowserWindow : public ui::BaseWindow {
 
 #if defined(OS_CHROMEOS)
   // Shows the intent picker bubble. |app_info| contains the app candidates to
-  // display and |callback| gives access so we can redirect the user (if needed)
-  // and store UMA metrics.
+  // display, |disable_stay_in_chrome| allows to disable 'Stay in Chrome' (used
+  // for non-http(s) queries), and |callback| helps to continue the flow back to
+  // either AppsNavigationThrottle or ArcExternalProtocolDialog capturing the
+  // user's decision and storing UMA metrics.
   virtual void ShowIntentPickerBubble(
       std::vector<chromeos::IntentPickerAppInfo> app_info,
+      bool disable_stay_in_chrome,
       IntentPickerResponse callback) = 0;
   virtual void SetIntentPickerViewVisibility(bool visible) = 0;
 #endif  // defined(OS_CHROMEOS)

@@ -35,6 +35,12 @@ DirectoryItemTreeBaseMethods.getItemByEntry = function(entry) {
 
       return item;
     }
+    // Team drives are descendants of the Drive root volume item "Google Drive".
+    // When we looking for an item in team drives, recursively search inside the
+    // "Google Drive" root item.
+    if (util.isTeamDriveEntry(entry) && item instanceof DriveVolumeItem)
+      return item.getItemByEntry(entry);
+
     if (util.isDescendantEntry(item.entry, entry))
       return item.getItemByEntry(entry);
   }
@@ -55,6 +61,15 @@ DirectoryItemTreeBaseMethods.searchAndSelectByEntry = function(entry) {
     var item = this.items[i];
     if (!item.entry)
       continue;
+
+    // Team drives are descendants of the Drive root volume item "Google Drive".
+    // When we looking for an item in team drives, recursively search inside the
+    // "Google Drive" root item.
+    if (util.isTeamDriveEntry(entry) && item instanceof DriveVolumeItem) {
+      item.selectByEntry(entry);
+      return true;
+    }
+
     if (util.isDescendantEntry(item.entry, entry) ||
         util.isSameEntry(item.entry, entry)) {
       item.selectByEntry(entry);
@@ -62,6 +77,32 @@ DirectoryItemTreeBaseMethods.searchAndSelectByEntry = function(entry) {
     }
   }
   return false;
+};
+/**
+ * Records UMA for the selected entry at {@code location}. Records slightly
+ * differently if the expand icon is selected and {@code expandIconSelected} is
+ * true.
+ *
+ * @param {Event} e The click event.
+ * @param {VolumeManagerCommon.RootType} rootType The root type to record.
+ * @param {boolean} isRootEntry Whether the entry selected was a root entry.
+ * @return
+ */
+DirectoryItemTreeBaseMethods.recordUMASelectedEntry = function(
+    e, rootType, isRootEntry) {
+  var expandIconSelected = e.target.classList.contains('expand-icon');
+  var metricName = 'Location.OnEntrySelected.TopLevel';
+  if (!expandIconSelected && isRootEntry) {
+    metricName = 'Location.OnEntrySelected.TopLevel';
+  } else if (!expandIconSelected && !isRootEntry) {
+    metricName = 'Location.OnEntrySelected.NonTopLevel';
+  } else if (expandIconSelected && isRootEntry) {
+    metricName = 'Location.OnEntryExpandedOrCollapsed.TopLevel';
+  } else if (expandIconSelected && !isRootEntry) {
+    metricName = 'Location.OnEntryExpandedOrCollapsed.NonTopLevel';
+  }
+
+  metrics.recordEnum(metricName, rootType, VolumeManagerCommon.RootTypesForUMA);
 };
 
 Object.freeze(DirectoryItemTreeBaseMethods);
@@ -100,12 +141,16 @@ var MENU_TREE_ITEM_INNER_HTML =
  */
 function DirectoryItem(label, tree) {
   var item = /** @type {DirectoryItem} */ (new cr.ui.TreeItem());
+  // Get the original label id defined by TreeItem, before overwriting
+  // prototype.
+  var labelId = item.labelElement.id;
   item.__proto__ = DirectoryItem.prototype;
   item.parentTree_ = tree;
   item.directoryModel_ = tree.directoryModel;
   item.fileFilter_ = tree.directoryModel.getFileFilter();
 
   item.innerHTML = TREE_ITEM_INNER_HTML;
+  item.labelElement.id = labelId;
   item.addEventListener('expand', item.onExpand_.bind(item), false);
 
   // Listen for collapse because for the delayed expansion case all
@@ -314,12 +359,20 @@ DirectoryItem.prototype.onCollapse_ = function(e) {
 DirectoryItem.prototype.handleClick = function(e) {
   cr.ui.TreeItem.prototype.handleClick.call(this, e);
 
-  if (!this.entry || e.button === 2 ||
-      e.target.classList.contains('expand-icon')) {
+  if (!this.entry || e.button === 2) {
     return;
   }
 
-  this.directoryModel_.activateDirectoryEntry(this.entry);
+  if (!e.target.classList.contains('expand-icon')) {
+    this.directoryModel_.activateDirectoryEntry(this.entry);
+  }
+
+  // If this is DriveVolumeItem, the UMA has already been recorded.
+  if (!(this instanceof DriveVolumeItem)) {
+    var location = this.tree.volumeManager.getLocationInfo(this.entry);
+    DirectoryItemTreeBaseMethods.recordUMASelectedEntry.call(
+        this, e, location.rootType, location.isRootEntry);
+  }
 };
 
 /**
@@ -473,7 +526,7 @@ function SubDirectoryItem(label, dirEntry, parentDirItem, tree) {
   }
 
   // Sets up context menu of the item.
-  if (tree.contextMenuForSubitems)
+  if (tree.contextMenuForSubitems && !util.isTeamDriveRoot(dirEntry))
     cr.ui.contextMenuHandler.setContextMenu(item, tree.contextMenuForSubitems);
 
   // Populates children now if needed.
@@ -702,7 +755,7 @@ VolumeItem.prototype.setupRenamePlaceholder_ = function(rowElement) {
 
 /**
  * A TreeItem which represents a Drive volume. Drive volume has fake entries
- * such as Recent, Shared with me, and Offline in it.
+ * such as Team Drives, Shared with me, and Offline in it.
  *
  * @param {!NavigationModelVolumeItem} modelItem NavigationModelItem of this
  *     volume.
@@ -751,6 +804,9 @@ DriveVolumeItem.prototype.handleClick = function(e) {
       this.searchAndSelectByEntry(displayRoot);
     }.bind(this));
   }
+
+  DirectoryItemTreeBaseMethods.recordUMASelectedEntry.call(
+      this, e, VolumeManagerCommon.RootType.DRIVE_FAKE_ROOT, true);
 };
 
 /**
@@ -833,7 +889,7 @@ DriveVolumeItem.prototype.updateItemByEntry = function(changedDirectoryEntry) {
  * @override
  */
 DriveVolumeItem.prototype.selectByEntry = function(entry) {
-  // Find the item to be selected amang children.
+  // Find the item to be selected among children.
   this.searchAndSelectByEntry(entry);
 };
 
@@ -852,6 +908,9 @@ DriveVolumeItem.prototype.selectByEntry = function(entry) {
  */
 function ShortcutItem(modelItem, tree) {
   var item = /** @type {ShortcutItem} */ (new cr.ui.TreeItem());
+  // Get the original label id defined by TreeItem, before overwriting
+  // prototype.
+  var labelId = item.labelElement.id;
   item.__proto__ = ShortcutItem.prototype;
 
   item.parentTree_ = tree;
@@ -859,6 +918,7 @@ function ShortcutItem(modelItem, tree) {
   item.modelItem_ = modelItem;
 
   item.innerHTML = TREE_ITEM_INNER_HTML;
+  item.labelElement.id = labelId;
 
   var icon = item.querySelector('.icon');
   icon.classList.add('item-icon');
@@ -909,10 +969,14 @@ ShortcutItem.prototype.handleClick = function(e) {
   // Do not activate with right click.
   if (e.button === 2)
     return;
-
   this.activate();
+
   // Resets file selection when a volume is clicked.
   this.parentTree_.directoryModel.clearSelection();
+
+  var location = this.tree.volumeManager.getLocationInfo(this.entry);
+  DirectoryItemTreeBaseMethods.recordUMASelectedEntry.call(
+      this, e, location.rootType, location.isRootEntry);
 };
 
 /**
@@ -973,11 +1037,15 @@ ShortcutItem.prototype.activate = function() {
  */
 function MenuItem(modelItem, tree) {
   var item = new cr.ui.TreeItem();
+  // Get the original label id defined by TreeItem, before overwriting
+  // prototype.
+  var labelId = item.labelElement.id;
   item.__proto__ = MenuItem.prototype;
 
   item.parentTree_ = tree;
   item.modelItem_ = modelItem;
   item.innerHTML = MENU_TREE_ITEM_INNER_HTML;
+  item.labelElement.id = labelId;
   item.label = modelItem.label;
 
   item.menuButton_ = /** @type {!cr.ui.MenuButton} */(queryRequiredElement(
@@ -1017,6 +1085,9 @@ MenuItem.prototype.searchAndSelectByEntry = function(entry) {
  */
 MenuItem.prototype.handleClick = function(e) {
   this.activate();
+
+  DirectoryItemTreeBaseMethods.recordUMASelectedEntry.call(
+      this, e, VolumeManagerCommon.RootType.ADD_NEW_SERVICES_MENU, true);
 };
 
 /**
@@ -1038,32 +1109,39 @@ MenuItem.prototype.activate = function() {
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-// RecentItem
+// FakeItem
 
 /**
- * @param {!NavigationModelRecentItem} modelItem
+ * FakeItem is used by Recent and Linux Files.
+ * @param {!VolumeManagerCommon.RootType} rootType root type.
+ * @param {!NavigationModelFakeItem} modelItem
  * @param {!DirectoryTree} tree Current tree, which contains this item.
  * @extends {cr.ui.TreeItem}
  * @constructor
  */
-function RecentItem(modelItem, tree) {
+function FakeItem(rootType, modelItem, tree) {
   var item = new cr.ui.TreeItem();
-  item.__proto__ = RecentItem.prototype;
+  // Get the original label id defined by TreeItem, before overwriting
+  // prototype.
+  var labelId = item.labelElement.id;
+  item.__proto__ = FakeItem.prototype;
 
+  item.rootType_ = rootType;
   item.parentTree_ = tree;
   item.modelItem_ = modelItem;
   item.dirEntry_ = modelItem.entry;
   item.innerHTML = TREE_ITEM_INNER_HTML;
+  item.labelElement.id = labelId;
   item.label = modelItem.label;
 
   var icon = queryRequiredElement('.icon', item);
   icon.classList.add('item-icon');
-  icon.setAttribute('root-type-icon', 'recent');
+  icon.setAttribute('root-type-icon', rootType);
 
   return item;
 }
 
-RecentItem.prototype = {
+FakeItem.prototype = {
   __proto__: cr.ui.TreeItem.prototype,
   get entry() {
     return this.dirEntry_;
@@ -1080,21 +1158,24 @@ RecentItem.prototype = {
  * @param {!DirectoryEntry|!FakeEntry} entry
  * @return {boolean} True if the parent item is found.
  */
-RecentItem.prototype.searchAndSelectByEntry = function(entry) {
+FakeItem.prototype.searchAndSelectByEntry = function(entry) {
   return false;
 };
 
 /**
  * @override
  */
-RecentItem.prototype.handleClick = function(e) {
+FakeItem.prototype.handleClick = function(e) {
   this.activate();
+
+  DirectoryItemTreeBaseMethods.recordUMASelectedEntry.call(
+      this, e, this.rootType_, true);
 };
 
 /**
  * @param {!DirectoryEntry} entry
  */
-RecentItem.prototype.selectByEntry = function(entry) {
+FakeItem.prototype.selectByEntry = function(entry) {
   if (util.isSameEntry(entry, this.entry))
     this.selected = true;
 };
@@ -1102,10 +1183,9 @@ RecentItem.prototype.selectByEntry = function(entry) {
 /**
  * Executes the command.
  */
-RecentItem.prototype.activate = function() {
+FakeItem.prototype.activate = function() {
   this.parentTree_.directoryModel.activateDirectoryEntry(this.entry);
 };
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // DirectoryTree
@@ -1293,7 +1373,16 @@ DirectoryTree.prototype.updateSubElementsFromList = function(recursive) {
           this.addAt(new MenuItem(modelItem, this), itemIndex);
           break;
         case NavigationModelItemType.RECENT:
-          this.addAt(new RecentItem(modelItem, this), itemIndex);
+          this.addAt(
+              new FakeItem(
+                  VolumeManagerCommon.RootType.RECENT, modelItem, this),
+              itemIndex);
+          break;
+        case NavigationModelItemType.CROSTINI:
+          this.addAt(
+              new FakeItem(
+                  VolumeManagerCommon.RootType.CROSTINI, modelItem, this),
+              itemIndex);
           break;
       }
     }
@@ -1363,6 +1452,15 @@ DirectoryTree.prototype.decorateDirectoryTree = function(
       fileOperationManager,
       'entries-changed',
       this.onEntriesChanged_.bind(this));
+
+  this.addEventListener('click', (event) => {
+    // Chromevox triggers |click| without switching focus, we force the focus
+    // here so we can handle further keyboard/mouse events to expand/collapse
+    // directories.
+    if (document.activeElement === document.body) {
+      this.focus();
+    }
+  });
 
   this.privateOnDirectoryChangedBound_ =
       this.onDirectoryContentChanged_.bind(this);

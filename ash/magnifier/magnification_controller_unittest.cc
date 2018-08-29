@@ -20,6 +20,7 @@
 #include "ui/events/event_handler.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/geometry/rect_conversions.h"
+#include "ui/keyboard/keyboard_controller.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/widget/widget.h"
@@ -245,6 +246,7 @@ TEST_F(MagnificationControllerTest, PointOfInterest) {
   EXPECT_EQ("450,350", CurrentPointOfInterest());
 }
 
+// TODO(warx): move this test to unit_tests.
 TEST_F(MagnificationControllerTest, FollowFocusChanged) {
   // Enables magnifier and confirm the viewport is at center.
   GetMagnificationController()->SetEnabled(true);
@@ -515,6 +517,30 @@ TEST_F(MagnificationControllerTest, PanWindowToLeft) {
   GetEventGenerator().MoveMouseToInHost(gfx::Point(0, 300));
   EXPECT_EQ("139,298", env->last_mouse_location().ToString());
   EXPECT_EQ("100,300", GetHostMouseLocation());
+}
+
+TEST_F(MagnificationControllerTest, FocusChangeEvents) {
+  MagnifierFocusTestHelper focus_test_helper;
+  focus_test_helper.CreateAndShowFocusTestView(gfx::Point(100, 200));
+
+  // Enables magnifier and confirm the viewport is at center.
+  GetMagnificationController()->SetEnabled(true);
+  EXPECT_EQ(2.0f, GetMagnificationController()->GetScale());
+  EXPECT_EQ("200,150 400x300", GetViewport().ToString());
+  EXPECT_FALSE(GetMagnificationController()->KeepFocusCentered());
+
+  // Focus on the first button and expect the magnifier to be centered around
+  // its center.
+  focus_test_helper.FocusFirstButton();
+  gfx::Point button_1_center(
+      focus_test_helper.GetFirstButtonBoundsInRoot().CenterPoint());
+  EXPECT_EQ(button_1_center, GetViewport().CenterPoint());
+
+  // Similarly if we focus on the second button.
+  focus_test_helper.FocusSecondButton();
+  gfx::Point button_2_center(
+      focus_test_helper.GetSecondButtonBoundsInRoot().CenterPoint());
+  EXPECT_EQ(button_2_center, GetViewport().CenterPoint());
 }
 
 TEST_F(MagnificationControllerTest, FollowTextInputFieldFocus) {
@@ -901,10 +927,125 @@ TEST_F(MagnificationControllerTest, GestureLock) {
   DispatchTouchEvent(ui::ET_TOUCH_RELEASED, gfx::Point(1200, 100), time,
                      pointer_details2);
 
-  // Confirm that nothing happens.
-  EXPECT_EQ(initial_position,
-            GetMagnificationController()->GetWindowPosition());
+  // Confirm that scale is the same.
   EXPECT_EQ(zoomed_scale, GetMagnificationController()->GetScale());
+
+  // The above touch events for simulating scroll gesture cause two pinch
+  // gesture events. Those events cancel each other and set scale back to the
+  // original value. Viewport origin moves with them as well and it can move a
+  // little after those calculation. Accept 1 pixel difference for those
+  // calculation.
+  gfx::Rect accept_position =
+      gfx::Rect(initial_position.x() - 1, initial_position.y() - 1, 2, 2);
+  EXPECT_TRUE(accept_position.Contains(
+      GetMagnificationController()->GetWindowPosition()));
+}
+
+TEST_F(MagnificationControllerTest, ZoomsIntoCenter) {
+  UpdateDisplay("0+0-500x500");
+
+  GetMagnificationController()->SetEnabled(true);
+  ASSERT_EQ(2.0f, GetMagnificationController()->GetScale());
+
+  GetMagnificationController()->CenterOnPoint(gfx::Point(250, 250));
+  ASSERT_EQ(gfx::Point(250, 250),
+            GetMagnificationController()->GetViewportRect().CenterPoint());
+
+  base::TimeTicks time = base::TimeTicks::Now();
+  ui::PointerDetails pointer_details1(ui::EventPointerType::POINTER_TYPE_TOUCH,
+                                      0);
+  ui::PointerDetails pointer_details2(ui::EventPointerType::POINTER_TYPE_TOUCH,
+                                      1);
+
+  // Simulate pinch gesture with keeping center of bounding box of touches at
+  // (250, 250). Note that GestureProvider dispatches scroll gesture from this
+  // touch sequence as well.
+  DispatchTouchEvent(ui::ET_TOUCH_PRESSED, gfx::Point(245, 250), time,
+                     pointer_details1);
+  DispatchTouchEvent(ui::ET_TOUCH_PRESSED, gfx::Point(255, 250), time,
+                     pointer_details2);
+
+  DispatchTouchEvent(ui::ET_TOUCH_MOVED, gfx::Point(145, 250), time,
+                     pointer_details1);
+  DispatchTouchEvent(ui::ET_TOUCH_MOVED, gfx::Point(355, 250), time,
+                     pointer_details2);
+
+  DispatchTouchEvent(ui::ET_TOUCH_RELEASED, gfx::Point(145, 250), time,
+                     pointer_details1);
+  DispatchTouchEvent(ui::ET_TOUCH_RELEASED, gfx::Point(355, 250), time,
+                     pointer_details2);
+
+  // Confirms that scale has increased with the gesture.
+  ASSERT_LT(2.0f, GetMagnificationController()->GetScale());
+
+  // Confirms that center is kept at center of pinch gesture. In ideal
+  // situation, center of viewport should be kept at (250, 250). But as noted
+  // above, scroll gesture caused by touch events for simulating pinch gesture
+  // moves the viewport a little. We accept 5 pixels viewport move for the
+  // scroll gesture.
+  EXPECT_TRUE(
+      gfx::Rect(245, 245, 10, 10)
+          .Contains(
+              GetMagnificationController()->GetViewportRect().CenterPoint()));
+}
+
+// Tests to see if keyboard overscroll is disabled when fullscreen magnification
+// is enabled.
+TEST_F(MagnificationControllerTest, KeyboardOverscrollDisabled) {
+  GetMagnificationController()->SetEnabled(false);
+  bool old_keyboard_overscroll_value = keyboard::IsKeyboardOverscrollEnabled();
+
+  // Enable magnification. Keyboard overscroll should be disabled.
+  GetMagnificationController()->SetEnabled(true);
+  EXPECT_FALSE(keyboard::IsKeyboardOverscrollEnabled());
+
+  // Disable magnification. Keyboard overscroll should be back to the way it was
+  // before magnification was enabled.
+  GetMagnificationController()->SetEnabled(false);
+  EXPECT_EQ(keyboard::IsKeyboardOverscrollEnabled(),
+            old_keyboard_overscroll_value);
+}
+
+TEST_F(MagnificationControllerTest, TextfieldFocusedWithKeyboard) {
+  // Set up text input view.
+  text_input_helper_.CreateAndShowTextInputView(gfx::Rect(500, 200, 80, 80));
+  gfx::Rect text_input_bounds = text_input_helper_.GetTextInputViewBounds();
+
+  // Enables magnifier and confirm the viewport is at center.
+  GetMagnificationController()->SetEnabled(true);
+  EXPECT_EQ(2.0f, GetMagnificationController()->GetScale());
+  EXPECT_EQ("200,150 400x300", GetViewport().ToString());
+  EXPECT_FALSE(GetMagnificationController()->KeepFocusCentered());
+
+  GetMagnificationController()->SetKeepFocusCentered(true);
+
+  // Set up and show the keyboard.
+  keyboard::SetAccessibilityKeyboardEnabled(true);
+  ash::Shell::Get()->CreateKeyboard();
+  keyboard::KeyboardController* keyboard_controller =
+      keyboard::KeyboardController::GetInstance();
+  keyboard_controller->ShowKeyboard(true);
+
+  gfx::Rect keyboard_bounds = gfx::Rect(0, 300, 800, 300);
+  keyboard_controller->GetContainerWindow()->SetBounds(keyboard_bounds);
+
+  // Focus on the text input field.
+  text_input_helper_.FocusOnTextInputView();
+  base::RunLoop().RunUntilIdle();
+
+  // Verify that the caret bounds is centered in the area above the keyboard.
+  gfx::Rect viewport_outside_keyboard_bounds = GetViewport();
+  viewport_outside_keyboard_bounds.set_height(
+      viewport_outside_keyboard_bounds.height() -
+      keyboard_bounds.height() / GetMagnificationController()->GetScale());
+
+  gfx::Rect caret_bounds = text_input_helper_.GetCaretBounds();
+
+  EXPECT_TRUE(GetMagnificationController()->KeepFocusCentered());
+  EXPECT_TRUE(viewport_outside_keyboard_bounds.Contains(text_input_bounds));
+  EXPECT_TRUE(text_input_bounds.Contains(caret_bounds.CenterPoint()));
+  EXPECT_EQ(caret_bounds.CenterPoint(),
+            viewport_outside_keyboard_bounds.CenterPoint());
 }
 
 }  // namespace ash

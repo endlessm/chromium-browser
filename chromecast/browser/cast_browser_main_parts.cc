@@ -15,7 +15,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -54,6 +54,7 @@
 #include "chromecast/service/cast_service.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/proxy_config/pref_proxy_config_tracker_impl.h"
+#include "components/viz/common/switches.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/storage_partition.h"
@@ -95,6 +96,7 @@
 #endif
 
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
+#include "chromecast/browser/extensions/api/tts/tts_extension_api.h"
 #include "chromecast/browser/extensions/cast_extension_system.h"
 #include "chromecast/browser/extensions/cast_extensions_browser_client.h"
 #include "chromecast/browser/extensions/cast_prefs.h"
@@ -227,8 +229,8 @@ const DefaultCommandLineSwitch kDefaultSwitches[] = {
 #if BUILDFLAG(IS_CAST_AUDIO_ONLY)
     {switches::kDisableGpu, ""},
 #if defined(OS_ANDROID)
+    {switches::kDisableFrameRateLimit, ""},
     {switches::kDisableGLDrawingForTests, ""},
-    {switches::kDisableGpuVsync, ""},
     {switches::kDisableGpuCompositing, ""},
     {cc::switches::kDisableThreadedAnimation, ""},
 #endif  // defined(OS_ANDROID)
@@ -386,12 +388,11 @@ void CastBrowserMainParts::PreMainMessageLoopStart() {
 }
 
 void CastBrowserMainParts::PostMainMessageLoopStart() {
-  cast_browser_process_->SetMetricsHelper(
-      std::make_unique<metrics::CastMetricsHelper>(
-          base::ThreadTaskRunnerHandle::Get()));
+  // Ensure CastMetricsHelper initialized on UI thread.
+  metrics::CastMetricsHelper::GetInstance();
 
 #if defined(OS_ANDROID)
-  base::MessageLoopForUI::current()->Start();
+  base::MessageLoopCurrentForUI::Get()->Start();
 #endif  // defined(OS_ANDROID)
 }
 
@@ -432,7 +433,7 @@ int CastBrowserMainParts::PreCreateThreads() {
           crash_dumps_dir, kAndroidMinidumpDescriptor));
 #else
   base::FilePath home_dir;
-  CHECK(PathService::Get(DIR_CAST_HOME, &home_dir));
+  CHECK(base::PathService::Get(DIR_CAST_HOME, &home_dir));
   if (!base::CreateDirectory(home_dir))
     return 1;
 #endif
@@ -519,7 +520,7 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
   video_plane_controller_.reset(new media::VideoPlaneController(
       Size(display_size.width(), display_size.height()), GetMediaTaskRunner()));
   viz::OverlayStrategyUnderlayCast::SetOverlayCompositedCallback(
-      base::BindRepeating(&media::VideoPlaneController::SetGeometryGfx,
+      base::BindRepeating(&media::VideoPlaneController::SetGeometry,
                           base::Unretained(video_plane_controller_.get())));
 #endif
 
@@ -564,6 +565,11 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
   extension_system->Init();
 
   extensions::ExtensionPrefs::Get(cast_browser_process_->browser_context());
+
+  // Force TTS to be available. It's lazy and this makes it eager.
+  // TODO(rdaum): There has to be a better way.
+  extensions::TtsAPI::GetFactoryInstance()->Get(
+      cast_browser_process_->browser_context());
 #endif
 
   // Initializing metrics service and network delegates must happen after cast
@@ -591,7 +597,8 @@ bool CastBrowserMainParts::MainMessageLoopRun(int* result_code) {
 
   // If parameters_.ui_task is not NULL, we are running browser tests.
   if (parameters_.ui_task) {
-    base::MessageLoop* message_loop = base::MessageLoopForUI::current();
+    base::MessageLoopCurrent message_loop =
+        base::MessageLoopCurrentForUI::Get();
     message_loop->task_runner()->PostTask(FROM_HERE, *parameters_.ui_task);
     message_loop->task_runner()->PostTask(FROM_HERE, quit_closure);
   }

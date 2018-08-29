@@ -99,4 +99,12 @@ bool WebClient::IsSlimNavigationManagerEnabled() const {
   return base::FeatureList::IsEnabled(web::features::kSlimNavigationManager);
 }
 
+void WebClient::PrepareErrorPage(NSError* error,
+                                 bool is_post,
+                                 bool is_off_the_record,
+                                 NSString** error_html) {
+  DCHECK(error);
+  *error_html = error.localizedDescription;
+}
+
 }  // namespace web

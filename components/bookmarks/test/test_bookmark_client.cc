@@ -30,11 +30,13 @@ std::unique_ptr<BookmarkModel> TestBookmarkClient::CreateModel() {
 // static
 std::unique_ptr<BookmarkModel> TestBookmarkClient::CreateModelWithClient(
     std::unique_ptr<BookmarkClient> client) {
+  BookmarkClient* client_ptr = client.get();
   std::unique_ptr<BookmarkModel> bookmark_model(
       new BookmarkModel(std::move(client)));
   std::unique_ptr<BookmarkLoadDetails> details =
-      bookmark_model->CreateLoadDetails();
+      std::make_unique<BookmarkLoadDetails>(client_ptr);
   details->LoadExtraNodes();
+  details->CreateUrlIndex();
   bookmark_model->DoneLoading(std::move(details));
   return bookmark_model;
 }

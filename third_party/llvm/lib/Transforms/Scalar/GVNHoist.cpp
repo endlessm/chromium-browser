@@ -578,7 +578,7 @@ private:
 
   // Returns true when the values are flowing out to each edge.
   bool valueAnticipable(CHIArgs C, TerminatorInst *TI) const {
-    if (TI->getNumSuccessors() > (unsigned)std::distance(C.begin(), C.end()))
+    if (TI->getNumSuccessors() > (unsigned)size(C))
       return false; // Not enough args in this CHI.
 
     for (auto CHI : C) {
@@ -622,7 +622,7 @@ private:
       // Iterate in reverse order to keep lower ranked values on the top.
       for (std::pair<VNType, Instruction *> &VI : reverse(it1->second)) {
         // Get the value of instruction I
-        DEBUG(dbgs() << "\nPushing on stack: " << *VI.second);
+        LLVM_DEBUG(dbgs() << "\nPushing on stack: " << *VI.second);
         RenameStack[VI.first].push_back(VI.second);
       }
     }
@@ -636,7 +636,7 @@ private:
       if (P == CHIBBs.end()) {
         continue;
       }
-      DEBUG(dbgs() << "\nLooking at CHIs in: " << Pred->getName(););
+      LLVM_DEBUG(dbgs() << "\nLooking at CHIs in: " << Pred->getName(););
       // A CHI is found (BB -> Pred is an edge in the CFG)
       // Pop the stack until Top(V) = Ve.
       auto &VCHI = P->second;
@@ -651,9 +651,9 @@ private:
               DT->properlyDominates(Pred, si->second.back()->getParent())) {
             C.Dest = BB;                     // Assign the edge
             C.I = si->second.pop_back_val(); // Assign the argument
-            DEBUG(dbgs() << "\nCHI Inserted in BB: " << C.Dest->getName()
-                         << *C.I << ", VN: " << C.VN.first << ", "
-                         << C.VN.second);
+            LLVM_DEBUG(dbgs()
+                       << "\nCHI Inserted in BB: " << C.Dest->getName() << *C.I
+                       << ", VN: " << C.VN.first << ", " << C.VN.second);
           }
           // Move to next CHI of a different value
           It = std::find_if(It, VCHI.end(),
@@ -748,11 +748,11 @@ private:
     // TODO: Remove fully-redundant expressions.
     // Get instruction from the Map, assume that all the Instructions
     // with same VNs have same rank (this is an approximation).
-    std::sort(Ranks.begin(), Ranks.end(),
-              [this, &Map](const VNType &r1, const VNType &r2) {
-                return (rank(*Map.lookup(r1).begin()) <
-                        rank(*Map.lookup(r2).begin()));
-              });
+    llvm::sort(Ranks.begin(), Ranks.end(),
+               [this, &Map](const VNType &r1, const VNType &r2) {
+                 return (rank(*Map.lookup(r1).begin()) <
+                         rank(*Map.lookup(r2).begin()));
+               });
 
     // - Sort VNs according to their rank, and start with lowest ranked VN
     // - Take a VN and for each instruction with same VN
@@ -798,8 +798,8 @@ private:
            // Ignore spurious PDFs.
           if (DT->properlyDominates(IDFB, V[i]->getParent())) {
             OutValue[IDFB].push_back(C);
-            DEBUG(dbgs() << "\nInsertion a CHI for BB: " << IDFB->getName()
-                         << ", for Insn: " << *V[i]);
+            LLVM_DEBUG(dbgs() << "\nInsertion a CHI for BB: " << IDFB->getName()
+                              << ", for Insn: " << *V[i]);
           }
         }
       }

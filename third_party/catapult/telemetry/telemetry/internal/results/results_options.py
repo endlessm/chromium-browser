@@ -159,6 +159,8 @@ def CreateResults(benchmark_metadata, options,
     if output_format == 'none' or output_format == "gtest":
       continue
 
+    if isinstance(artifacts, artifact_results.NoopArtifactResults):
+      artifacts = artifact_results.ArtifactResults(options.output_dir)
     output_stream = _GetOutputStream(output_format, options.output_dir)
     if output_format == 'html':
       output_formatters.append(html_output_formatter.HtmlOutputFormatter(
@@ -201,7 +203,8 @@ def CreateResults(benchmark_metadata, options,
       should_add_value=should_add_value,
       benchmark_enabled=benchmark_enabled,
       upload_bucket=upload_bucket,
-      artifact_results=artifacts)
+      artifact_results=artifacts,
+      benchmark_metadata=benchmark_metadata)
 
   results.telemetry_info.benchmark_name = benchmark_metadata.name
   results.telemetry_info.benchmark_descriptions = benchmark_metadata.description

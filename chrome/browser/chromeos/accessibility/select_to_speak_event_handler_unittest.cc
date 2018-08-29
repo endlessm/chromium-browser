@@ -12,7 +12,6 @@
 #include "ash/test/ash_test_views_delegate.h"
 #include "base/macros.h"
 #include "chrome/browser/chromeos/ash_config.h"
-#include "chrome/browser/chromeos/events/event_rewriter_controller.h"
 #include "chrome/browser/ui/aura/accessibility/automation_manager_aura.h"
 #include "chrome/test/base/testing_profile.h"
 #include "ui/aura/test/aura_test_base.h"
@@ -35,10 +34,12 @@ class EventCapturer : public ui::EventHandler {
   void Reset() {
     last_key_event_.reset(nullptr);
     last_mouse_event_.reset(nullptr);
+    last_touch_event_.reset(nullptr);
   }
 
   ui::KeyEvent* last_key_event() { return last_key_event_.get(); }
   ui::MouseEvent* last_mouse_event() { return last_mouse_event_.get(); }
+  ui::TouchEvent* last_touch_event() { return last_touch_event_.get(); }
 
  private:
   void OnMouseEvent(ui::MouseEvent* event) override {
@@ -47,9 +48,13 @@ class EventCapturer : public ui::EventHandler {
   void OnKeyEvent(ui::KeyEvent* event) override {
     last_key_event_.reset(new ui::KeyEvent(*event));
   }
+  void OnTouchEvent(ui::TouchEvent* event) override {
+    last_touch_event_.reset(new ui::TouchEvent(*event));
+  }
 
   std::unique_ptr<ui::KeyEvent> last_key_event_;
   std::unique_ptr<ui::MouseEvent> last_mouse_event_;
+  std::unique_ptr<ui::TouchEvent> last_touch_event_;
 
   DISALLOW_COPY_AND_ASSIGN(EventCapturer);
 };
@@ -114,8 +119,6 @@ class SelectToSpeakEventHandlerTest : public ash::AshTestBase {
   EventCapturer event_capturer_;
   TestingProfile profile_;
   std::unique_ptr<SelectToSpeakMouseEventDelegate> mouse_event_delegate_;
-
- private:
   std::unique_ptr<SelectToSpeakEventHandler> select_to_speak_event_handler_;
 
   DISALLOW_COPY_AND_ASSIGN(SelectToSpeakEventHandlerTest);
@@ -407,6 +410,220 @@ TEST_F(SelectToSpeakEventHandlerTest, SearchPlusMouseIgnoresS) {
   event_capturer_.Reset();
   generator_->ReleaseKey(ui::VKEY_LWIN, ui::EF_COMMAND_DOWN);
   EXPECT_FALSE(event_capturer_.last_key_event());
+}
+
+TEST_F(SelectToSpeakEventHandlerTest, DoesntStartSelectionModeIfNotInactive) {
+  generator_->PressKey(ui::VKEY_LWIN, ui::EF_COMMAND_DOWN);
+
+  // This shouldn't cause any changes since the state is not inactive.
+  select_to_speak_event_handler_->SetSelectToSpeakStateSelecting(true);
+
+  // Mouse event still captured.
+  gfx::Point click_location = gfx::Point(100, 12);
+  generator_->set_current_location(click_location);
+  generator_->PressLeftButton();
+  EXPECT_FALSE(event_capturer_.last_mouse_event());
+
+  // This shouldn't cause any changes since the state is not inactive.
+  select_to_speak_event_handler_->SetSelectToSpeakStateSelecting(true);
+
+  generator_->ReleaseLeftButton();
+
+  // Releasing the search key is still captured per the end of the search+click
+  // mode.
+  event_capturer_.Reset();
+  generator_->ReleaseKey(ui::VKEY_LWIN, ui::EF_COMMAND_DOWN);
+  EXPECT_FALSE(event_capturer_.last_key_event());
+}
+
+TEST_F(SelectToSpeakEventHandlerTest,
+       CancelSearchKeyUpAfterEarlyInactiveStateChange) {
+  generator_->PressKey(ui::VKEY_LWIN, ui::EF_COMMAND_DOWN);
+  gfx::Point click_location = gfx::Point(100, 12);
+  generator_->set_current_location(click_location);
+  generator_->PressLeftButton();
+  EXPECT_FALSE(event_capturer_.last_mouse_event());
+  EXPECT_TRUE(mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_PRESSED));
+  generator_->ReleaseLeftButton();
+  EXPECT_FALSE(event_capturer_.last_mouse_event());
+  EXPECT_TRUE(mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_RELEASED));
+
+  // Set the state to inactive.
+  // This is realistic because Select-to-Speak will set the state to inactive
+  // after the hittest / search for the focused node callbacks, which may occur
+  // before the user actually releases the search key.
+  select_to_speak_event_handler_->SetSelectToSpeakStateSelecting(false);
+
+  // The search key release should still be captured.
+  event_capturer_.Reset();
+  generator_->ReleaseKey(ui::VKEY_LWIN, ui::EF_COMMAND_DOWN);
+  EXPECT_FALSE(event_capturer_.last_key_event());
+}
+
+TEST_F(SelectToSpeakEventHandlerTest, SelectionRequestedWorksWithMouse) {
+  gfx::Point click_location = gfx::Point(100, 12);
+  generator_->set_current_location(click_location);
+
+  // Mouse events are let through normally before entering selecting state.
+  // Another mouse event is let through normally.
+  select_to_speak_event_handler_->SetSelectToSpeakStateSelecting(false);
+  generator_->PressLeftButton();
+  EXPECT_TRUE(event_capturer_.last_mouse_event());
+  event_capturer_.Reset();
+  generator_->ReleaseLeftButton();
+  EXPECT_TRUE(event_capturer_.last_mouse_event());
+  event_capturer_.Reset();
+
+  // Start selection mode.
+  select_to_speak_event_handler_->SetSelectToSpeakStateSelecting(true);
+
+  generator_->PressLeftButton();
+  EXPECT_FALSE(event_capturer_.last_mouse_event());
+  EXPECT_TRUE(mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_PRESSED));
+  event_capturer_.Reset();
+
+  gfx::Point drag_location = gfx::Point(120, 32);
+  generator_->DragMouseTo(drag_location);
+  EXPECT_EQ(drag_location, mouse_event_delegate_->last_mouse_event_location());
+  EXPECT_TRUE(mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_DRAGGED));
+  EXPECT_TRUE(event_capturer_.last_mouse_event());
+  event_capturer_.Reset();
+
+  // Mouse up is the last event captured in the sequence
+  generator_->ReleaseLeftButton();
+  EXPECT_FALSE(event_capturer_.last_mouse_event());
+  event_capturer_.Reset();
+
+  // Another mouse event is let through normally.
+  generator_->PressLeftButton();
+  EXPECT_TRUE(event_capturer_.last_mouse_event());
+  event_capturer_.Reset();
+}
+
+TEST_F(SelectToSpeakEventHandlerTest, SelectionRequestedWorksWithTouch) {
+  gfx::Point touch_location = gfx::Point(100, 12);
+  generator_->set_current_location(touch_location);
+
+  // Mouse events are let through normally before entering selecting state.
+  // Another mouse event is let through normally.
+  select_to_speak_event_handler_->SetSelectToSpeakStateSelecting(false);
+  generator_->PressTouch();
+  EXPECT_TRUE(event_capturer_.last_touch_event());
+  event_capturer_.Reset();
+  generator_->ReleaseTouch();
+  EXPECT_TRUE(event_capturer_.last_touch_event());
+  event_capturer_.Reset();
+
+  // Start selection mode.
+  select_to_speak_event_handler_->SetSelectToSpeakStateSelecting(true);
+
+  generator_->PressTouch();
+  EXPECT_FALSE(event_capturer_.last_touch_event());
+  // Touch events are converted to mouse events for the extension.
+  EXPECT_TRUE(mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_PRESSED));
+  event_capturer_.Reset();
+
+  gfx::Point drag_location = gfx::Point(120, 32);
+  generator_->MoveTouch(drag_location);
+  EXPECT_EQ(drag_location, mouse_event_delegate_->last_mouse_event_location());
+  EXPECT_TRUE(mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_DRAGGED));
+  EXPECT_TRUE(event_capturer_.last_touch_event());
+  event_capturer_.Reset();
+
+  // Touch up is the last event captured in the sequence
+  generator_->ReleaseTouch();
+  EXPECT_FALSE(event_capturer_.last_touch_event());
+  EXPECT_TRUE(mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_RELEASED));
+  event_capturer_.Reset();
+
+  // Another touch event is let through normally.
+  generator_->PressTouch();
+  EXPECT_TRUE(event_capturer_.last_touch_event());
+  event_capturer_.Reset();
+}
+
+TEST_F(SelectToSpeakEventHandlerTest, SelectionRequestedIgnoresOtherInput) {
+  // Start selection mode.
+  select_to_speak_event_handler_->SetSelectToSpeakStateSelecting(true);
+
+  // Search key events are not impacted.
+  generator_->PressKey(ui::VKEY_LWIN, ui::EF_COMMAND_DOWN);
+  EXPECT_TRUE(event_capturer_.last_key_event());
+  event_capturer_.Reset();
+  generator_->ReleaseKey(ui::VKEY_LWIN, ui::EF_COMMAND_DOWN);
+  EXPECT_TRUE(event_capturer_.last_key_event());
+  event_capturer_.Reset();
+
+  // Start a touch selection, it should get captured and forwarded.
+  generator_->PressTouch();
+  EXPECT_FALSE(event_capturer_.last_touch_event());
+  EXPECT_TRUE(mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_PRESSED));
+  event_capturer_.Reset();
+
+  // Mouse event happening during the touch selection are not impacted;
+  // we are locked into a touch selection mode.
+  generator_->PressLeftButton();
+  EXPECT_TRUE(event_capturer_.last_mouse_event());
+  event_capturer_.Reset();
+  generator_->ReleaseLeftButton();
+  EXPECT_TRUE(event_capturer_.last_mouse_event());
+  event_capturer_.Reset();
+
+  // Complete the touch selection.
+  generator_->ReleaseTouch();
+  EXPECT_FALSE(event_capturer_.last_touch_event());
+  event_capturer_.Reset();
+}
+
+TEST_F(SelectToSpeakEventHandlerTest, TrackingTouchIgnoresOtherTouchPointers) {
+  gfx::Point touch_location = gfx::Point(100, 12);
+  gfx::Point drag_location = gfx::Point(120, 32);
+  generator_->set_current_location(touch_location);
+  select_to_speak_event_handler_->SetSelectToSpeakStateSelecting(true);
+
+  // The first touch event is captured and sent to the extension.
+  generator_->PressTouchId(1);
+  EXPECT_FALSE(event_capturer_.last_touch_event());
+  EXPECT_TRUE(mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_PRESSED));
+  event_capturer_.Reset();
+  mouse_event_delegate_->Reset();
+
+  // A second touch event up and down is canceled but not sent to the extension.
+  generator_->PressTouchId(2);
+  EXPECT_FALSE(event_capturer_.last_touch_event());
+  EXPECT_FALSE(mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_PRESSED));
+  generator_->MoveTouchId(drag_location, 2);
+  EXPECT_FALSE(event_capturer_.last_touch_event());
+  EXPECT_FALSE(mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_DRAGGED));
+  generator_->ReleaseTouchId(2);
+  EXPECT_FALSE(event_capturer_.last_touch_event());
+  EXPECT_FALSE(
+      mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_RELEASED));
+
+  // A pointer type event will not be sent either, as we are tracking touch,
+  // even if the ID is the same.
+  generator_->EnterPenPointerMode();
+  generator_->PressTouchId(1);
+  EXPECT_FALSE(event_capturer_.last_touch_event());
+  EXPECT_FALSE(mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_PRESSED));
+  generator_->ExitPenPointerMode();
+
+  // The first pointer is still tracked.
+  generator_->MoveTouchId(drag_location, 1);
+  EXPECT_EQ(drag_location, mouse_event_delegate_->last_mouse_event_location());
+  EXPECT_TRUE(mouse_event_delegate_->CapturedMouseEvent(ui::ET_MOUSE_DRAGGED));
+  EXPECT_TRUE(event_capturer_.last_touch_event());
+  event_capturer_.Reset();
+
+  // Touch up is the last event captured in the sequence
+  generator_->ReleaseTouchId(1);
+  EXPECT_FALSE(event_capturer_.last_touch_event());
+  event_capturer_.Reset();
+
+  // Another touch event is let through normally.
+  generator_->PressTouchId(3);
+  EXPECT_TRUE(event_capturer_.last_touch_event());
+  event_capturer_.Reset();
 }
 
 }  // namespace chromeos

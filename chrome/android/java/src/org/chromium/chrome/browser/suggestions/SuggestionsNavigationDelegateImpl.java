@@ -16,7 +16,6 @@ import org.chromium.chrome.browser.bookmarks.BookmarkUtils;
 import org.chromium.chrome.browser.device.DeviceClassManager;
 import org.chromium.chrome.browser.download.DownloadMetrics;
 import org.chromium.chrome.browser.download.DownloadUtils;
-import org.chromium.chrome.browser.help.HelpAndFeedback;
 import org.chromium.chrome.browser.multiwindow.MultiWindowUtils;
 import org.chromium.chrome.browser.net.spdyproxy.DataReductionProxySettings;
 import org.chromium.chrome.browser.ntp.NewTabPageUma;
@@ -28,10 +27,8 @@ import org.chromium.chrome.browser.offlinepages.OfflinePageUtils;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
-import org.chromium.chrome.browser.tabmodel.TabModelUtils;
 import org.chromium.chrome.browser.tabmodel.document.TabDelegate;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.common.Referrer;
@@ -120,13 +117,6 @@ public class SuggestionsNavigationDelegateImpl implements SuggestionsNavigationD
             return;
         }
 
-        if (article.isRecentTab()) {
-            assert windowOpenDisposition == WindowOpenDisposition.CURRENT_TAB;
-            boolean success = openRecentTabSnippet(article);
-            assert success;
-            return;
-        }
-
         // We explicitly open an offline page only for offline page downloads or for prefetched
         // offline pages when Data Reduction Proxy is enabled. For all other
         // sections the URL is opened and it is up to Offline Pages whether to open its offline
@@ -203,23 +193,6 @@ public class SuggestionsNavigationDelegateImpl implements SuggestionsNavigationD
         }
 
         return loadingTab;
-    }
-
-    @Override
-    public void showFeedback() {
-        Tab currentTab = mTabModelSelector.getCurrentTab();
-        HelpAndFeedback.getInstance(mActivity).showFeedback(mActivity, Profile.getLastUsedProfile(),
-                currentTab != null ? currentTab.getUrl() : null,
-                /* categoryTag = */ null);
-    }
-
-    private boolean openRecentTabSnippet(SnippetArticle article) {
-        TabModel tabModel = mTabModelSelector.getModel(false);
-        int tabId = article.getRecentTabId();
-        int tabIndex = TabModelUtils.getTabIndexById(tabModel, tabId);
-        if (tabIndex == TabModel.INVALID_TAB_INDEX) return false;
-        TabModelUtils.setIndex(tabModel, tabIndex);
-        return true;
     }
 
     private void openUrlInNewWindow(LoadUrlParams loadUrlParams) {

@@ -18,6 +18,7 @@
 #include "components/sync/engine/cycle/status_counters.h"
 #include "components/sync/engine/model_type_processor.h"
 #include "components/sync/engine/non_blocking_sync_common.h"
+#include "components/sync/model/conflict_resolution.h"
 #include "components/sync/model/data_batch.h"
 #include "components/sync/model/metadata_batch.h"
 #include "components/sync/model/metadata_change_list.h"
@@ -38,7 +39,8 @@ class ProcessorEntityTracker;
 // //docs/sync/uss/client_tag_based_model_type_processor.md for a more thorough
 // description.
 class ClientTagBasedModelTypeProcessor : public ModelTypeProcessor,
-                                         public ModelTypeChangeProcessor {
+                                         public ModelTypeChangeProcessor,
+                                         public ModelTypeControllerDelegate {
  public:
   ClientTagBasedModelTypeProcessor(ModelType type,
                                    const base::RepeatingClosure& dump_stack);
@@ -47,10 +49,6 @@ class ClientTagBasedModelTypeProcessor : public ModelTypeProcessor,
                                    const base::RepeatingClosure& dump_stack,
                                    bool commit_only);
   ~ClientTagBasedModelTypeProcessor() override;
-
-  // Whether the processor is allowing changes to its model type. If this is
-  // false, the bridge should not allow any changes to its data.
-  bool IsAllowingChanges() const;
 
   // Returns true if the handshake with sync thread is complete.
   bool IsConnected() const;
@@ -65,13 +63,12 @@ class ClientTagBasedModelTypeProcessor : public ModelTypeProcessor,
                         const std::string& storage_key,
                         MetadataChangeList* metadata_change_list) override;
   void UntrackEntity(const EntityData& entity_data) override;
-  void ModelReadyToSync(ModelTypeSyncBridge* bridge,
-                        std::unique_ptr<MetadataBatch> batch) override;
-  void OnSyncStarting(const ModelErrorHandler& error_handler,
-                      const StartCallback& callback) override;
-  void DisableSync() override;
+  void OnModelStarting(ModelTypeSyncBridge* bridge) override;
+  void ModelReadyToSync(std::unique_ptr<MetadataBatch> batch) override;
   bool IsTrackingMetadata() override;
   void ReportError(const ModelError& error) override;
+  base::WeakPtr<ModelTypeControllerDelegate> GetControllerDelegateOnUIThread()
+      override;
 
   // ModelTypeProcessor implementation.
   void ConnectSync(std::unique_ptr<CommitQueue> worker) override;
@@ -83,8 +80,18 @@ class ClientTagBasedModelTypeProcessor : public ModelTypeProcessor,
   void OnUpdateReceived(const sync_pb::ModelTypeState& type_state,
                         const UpdateResponseDataList& updates) override;
 
+  // ModelTypeControllerDelegate implementation.
+  void OnSyncStarting(const ModelErrorHandler& error_handler,
+                      StartCallback callback) override;
+  void DisableSync() override;
+  void GetAllNodesForDebugging(AllNodesCallback callback) override;
+  void GetStatusCountersForDebugging(StatusCountersCallback callback) override;
+  void RecordMemoryUsageHistogram() override;
+
   // Returns the estimate of dynamically allocated memory in bytes.
   size_t EstimateMemoryUsage() const;
+
+  bool HasLocalChangesForTest() const;
 
  private:
   friend class ModelTypeDebugInfo;
@@ -92,6 +99,10 @@ class ClientTagBasedModelTypeProcessor : public ModelTypeProcessor,
 
   // Returns true if the model is ready or encountered an error.
   bool IsModelReadyOrError() const;
+
+  // Whether the processor is allowing changes to its model type. If this is
+  // false, the bridge should not allow any changes to its data.
+  bool IsAllowingChanges() const;
 
   // If preconditions are met, inform sync that we are ready to connect.
   void ConnectIfReady();
@@ -130,6 +141,9 @@ class ClientTagBasedModelTypeProcessor : public ModelTypeProcessor,
 
   // Nudges worker if there are any local entities to be committed.
   void NudgeForCommitIfNeeded();
+
+  // Returns true if there are any local entities to be committed.
+  bool HasLocalChanges() const;
 
   // Computes the client tag hash for the given client |tag|.
   std::string GetHashForTag(const std::string& tag);
@@ -195,6 +209,12 @@ class ClientTagBasedModelTypeProcessor : public ModelTypeProcessor,
   // resetting these structs.
   void ResetState();
 
+  // Adds metadata to all data returned by the bridge.
+  // TODO(jkrcal): Mark as const (together with functions it depends on such as
+  // GetEntityForStorageKey, GetEntityForTagHash and maybe more).
+  void MergeDataWithMetadataForDebugging(AllNodesCallback callback,
+                                         std::unique_ptr<DataBatch> batch);
+
   /////////////////////
   // Processor state //
   /////////////////////
@@ -219,6 +239,10 @@ class ClientTagBasedModelTypeProcessor : public ModelTypeProcessor,
   // The first model error that occurred, if any. Stored to track model state
   // and so it can be passed to sync if it happened prior to sync being ready.
   base::Optional<ModelError> model_error_;
+
+  // Whether the model has initialized its internal state for sync (and provided
+  // metadata).
+  bool model_ready_to_sync_ = false;
 
   ////////////////
   // Sync state //

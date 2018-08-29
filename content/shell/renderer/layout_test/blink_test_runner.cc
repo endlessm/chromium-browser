@@ -47,7 +47,6 @@
 #include "content/shell/common/shell_switches.h"
 #include "content/shell/renderer/layout_test/blink_test_helpers.h"
 #include "content/shell/renderer/layout_test/layout_test_render_thread_observer.h"
-#include "content/shell/renderer/layout_test/leak_detector.h"
 #include "content/shell/test_runner/app_banner_service.h"
 #include "content/shell/test_runner/gamepad_controller.h"
 #include "content/shell/test_runner/layout_and_paint_async_then.h"
@@ -84,7 +83,6 @@
 #include "third_party/blink/public/web/web_frame.h"
 #include "third_party/blink/public/web/web_frame_widget.h"
 #include "third_party/blink/public/web/web_history_item.h"
-#include "third_party/blink/public/web/web_leak_detector.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_script_source.h"
 #include "third_party/blink/public/web/web_testing_support.h"
@@ -184,48 +182,16 @@ class MockAudioCapturerSource : public media::AudioCapturerSource {
   MockAudioCapturerSource() = default;
 
   void Initialize(const media::AudioParameters& params,
-                  CaptureCallback* callback,
-                  int session_id) override {}
+                  CaptureCallback* callback) override {}
   void Start() override {}
   void Stop() override {}
   void SetVolume(double volume) override {}
   void SetAutomaticGainControl(bool enable) override {}
+  void SetOutputDeviceForAec(const std::string& output_device_id) override{};
 
  protected:
   ~MockAudioCapturerSource() override {}
 };
-
-// Tests in csswg-test use absolute path links such as
-//   <script src="/resources/testharness.js">.
-// Because we load the tests as local files, such links don't work.
-// This function fixes this issue by rewriting file: URLs which were produced
-// from such links so that they point actual files in LayoutTests/resources/.
-//
-// Note that this isn't applied to external/wpt because tests in external/wpt
-// are accessed via http.
-WebURL RewriteAbsolutePathInCsswgTest(const std::string& utf8_url) {
-  const char kFileScheme[] = "file:///";
-  const int kFileSchemeLen = arraysize(kFileScheme) - 1;
-  if (utf8_url.compare(0, kFileSchemeLen, kFileScheme, kFileSchemeLen) != 0)
-    return WebURL();
-  if (utf8_url.find("/LayoutTests/") != std::string::npos)
-    return WebURL();
-#if defined(OS_WIN)
-  // +3 for a drive letter, :, and /.
-  const int kFileSchemeAndDriveLen = kFileSchemeLen + 3;
-  if (utf8_url.size() <= kFileSchemeAndDriveLen)
-    return WebURL();
-  std::string path = utf8_url.substr(kFileSchemeAndDriveLen);
-#else
-  std::string path = utf8_url.substr(kFileSchemeLen);
-#endif
-  base::FilePath new_path =
-      LayoutTestRenderThreadObserver::GetInstance()
-          ->webkit_source_dir()
-          .Append(FILE_PATH_LITERAL("LayoutTests/"))
-          .AppendASCII(path);
-  return WebURL(net::FilePathToFileURL(new_path));
-}
 
 }  // namespace
 
@@ -234,8 +200,7 @@ BlinkTestRunner::BlinkTestRunner(RenderView* render_view)
       RenderViewObserverTracker<BlinkTestRunner>(render_view),
       test_config_(mojom::ShellTestConfiguration::New()),
       is_main_window_(false),
-      focus_on_next_commit_(false),
-      leak_detector_(new LeakDetector(this)) {}
+      focus_on_next_commit_(false) {}
 
 BlinkTestRunner::~BlinkTestRunner() {
 }
@@ -274,14 +239,15 @@ void BlinkTestRunner::PrintMessage(const std::string& message) {
   Send(new ShellViewHostMsg_PrintMessage(routing_id(), message));
 }
 
-void BlinkTestRunner::PostTask(const base::Closure& task) {
-  Platform::Current()->CurrentThread()->GetTaskRunner()->PostTask(FROM_HERE,
-                                                                  task);
+void BlinkTestRunner::PostTask(base::OnceClosure task) {
+  Platform::Current()->CurrentThread()->GetTaskRunner()->PostTask(
+      FROM_HERE, std::move(task));
 }
 
-void BlinkTestRunner::PostDelayedTask(const base::Closure& task, long long ms) {
+void BlinkTestRunner::PostDelayedTask(base::OnceClosure task,
+                                      base::TimeDelta delay) {
   Platform::Current()->CurrentThread()->GetTaskRunner()->PostDelayedTask(
-      FROM_HERE, task, base::TimeDelta::FromMilliseconds(ms));
+      FROM_HERE, std::move(task), delay);
 }
 
 WebString BlinkTestRunner::RegisterIsolatedFileSystem(
@@ -331,39 +297,7 @@ WebURL BlinkTestRunner::LocalFileToDataURL(const WebURL& file_url) {
 
 WebURL BlinkTestRunner::RewriteLayoutTestsURL(const std::string& utf8_url,
                                               bool is_wpt_mode) {
-  if (is_wpt_mode) {
-    WebURL rewritten_url = RewriteAbsolutePathInCsswgTest(utf8_url);
-    if (!rewritten_url.IsEmpty())
-      return rewritten_url;
-    return WebURL(GURL(utf8_url));
-  }
-
-  const char kGenPrefix[] = "file:///gen/";
-  const int kGenPrefixLen = arraysize(kGenPrefix) - 1;
-
-  // Map "file:///gen/" to "file://<build directory>/gen/".
-  if (!utf8_url.compare(0, kGenPrefixLen, kGenPrefix, kGenPrefixLen)) {
-    base::FilePath gen_directory_path =
-        test_config_->build_directory.Append(FILE_PATH_LITERAL("gen/"));
-    std::string new_url = std::string("file://") +
-                          gen_directory_path.AsUTF8Unsafe() +
-                          utf8_url.substr(kGenPrefixLen);
-    return WebURL(GURL(new_url));
-  }
-
-  const char kPrefix[] = "file:///tmp/LayoutTests/";
-  const int kPrefixLen = arraysize(kPrefix) - 1;
-
-  if (utf8_url.compare(0, kPrefixLen, kPrefix, kPrefixLen))
-    return WebURL(GURL(utf8_url));
-
-  base::FilePath replace_path =
-      LayoutTestRenderThreadObserver::GetInstance()->webkit_source_dir()
-          .Append(FILE_PATH_LITERAL("LayoutTests/"));
-  std::string utf8_path = replace_path.AsUTF8Unsafe();
-  std::string new_url =
-      std::string("file://") + utf8_path + utf8_url.substr(kPrefixLen);
-  return WebURL(GURL(new_url));
+  return content::RewriteLayoutTestsURL(utf8_url, is_wpt_mode);
 }
 
 test_runner::TestPreferences* BlinkTestRunner::Preferences() {
@@ -463,8 +397,8 @@ void BlinkTestRunner::SetDeviceColorSpace(const std::string& name) {
 }
 
 void BlinkTestRunner::SetBluetoothFakeAdapter(const std::string& adapter_name,
-                                              const base::Closure& callback) {
-  GetBluetoothFakeAdapterSetter().Set(adapter_name, callback);
+                                              base::OnceClosure callback) {
+  GetBluetoothFakeAdapterSetter().Set(adapter_name, std::move(callback));
 }
 
 void BlinkTestRunner::SetBluetoothManualChooser(bool enable) {
@@ -472,8 +406,8 @@ void BlinkTestRunner::SetBluetoothManualChooser(bool enable) {
 }
 
 void BlinkTestRunner::GetBluetoothManualChooserEvents(
-    const base::Callback<void(const std::vector<std::string>&)>& callback) {
-  get_bluetooth_events_callbacks_.push_back(callback);
+    base::OnceCallback<void(const std::vector<std::string>&)> callback) {
+  get_bluetooth_events_callbacks_.push_back(std::move(callback));
   Send(new ShellViewHostMsg_GetBluetoothManualChooserEvents(routing_id()));
 }
 
@@ -572,14 +506,17 @@ void BlinkTestRunner::TestFinished() {
   // now, just capture a local layout first.
   CaptureLocalLayoutDump();
   // TODO(vmpstr): This code should move to the browser, but since again some
-  // tests seem to be timing dependent, capture a local pixels dump first. Ask
-  // the browser to initiate a dump.
-  CaptureLocalPixelsDump();
+  // tests seem to be timing dependent, capture a local pixels dump first. Note
+  // that this returns a value indicating if we should defer the pixel dump to
+  // the browser instead. We want to switch all tests to use this for pixel
+  // dumps.
+  bool browser_should_capture_pixels = CaptureLocalPixelsDump();
 
   // Request the browser to send us a callback through which we will return the
   // results.
   Send(new LayoutTestHostMsg_InitiateCaptureDump(
-      routing_id(), interfaces->TestRunner()->ShouldDumpBackForwardList()));
+      routing_id(), interfaces->TestRunner()->ShouldDumpBackForwardList(),
+      browser_should_capture_pixels));
 }
 
 void BlinkTestRunner::CaptureLocalAudioDump() {
@@ -615,14 +552,14 @@ void BlinkTestRunner::CaptureLocalLayoutDump() {
   }
 }
 
-void BlinkTestRunner::CaptureLocalPixelsDump() {
+bool BlinkTestRunner::CaptureLocalPixelsDump() {
   TRACE_EVENT0("shell", "BlinkTestRunner::CaptureLocalPixelsDump");
   test_runner::WebTestInterfaces* interfaces =
       LayoutTestRenderThreadObserver::GetInstance()->test_interfaces();
   if (!test_config_->enable_pixel_dumping ||
       !interfaces->TestRunner()->ShouldGeneratePixelResults() ||
       interfaces->TestRunner()->ShouldDumpAsAudio()) {
-    return;
+    return false;
   }
 
   CHECK(render_view()->GetWebView()->IsAcceleratedCompositingActive());
@@ -631,13 +568,16 @@ void BlinkTestRunner::CaptureLocalPixelsDump() {
   // with the current, non-swapped-out RenderView.
   DCHECK(render_view()->GetWebView()->MainFrame()->IsWebLocalFrame());
 
-  // TODO(vmpstr): We should move pixel capturing to the browser in order to
-  // start implementing OOPIF pixel dump support.
   waiting_for_pixels_dump_result_ = true;
-  interfaces->TestRunner()->DumpPixelsAsync(
-      render_view()->GetWebView()->MainFrame()->ToWebLocalFrame(),
-      base::BindOnce(&BlinkTestRunner::OnPixelsDumpCompleted,
-                     base::Unretained(this)));
+  bool browser_should_capture_pixels =
+      interfaces->TestRunner()->DumpPixelsAsync(
+          render_view()->GetWebView()->MainFrame()->ToWebLocalFrame(),
+          base::BindOnce(&BlinkTestRunner::OnPixelsDumpCompleted,
+                         base::Unretained(this)));
+  // If the browser should capture pixels, then we shouldn't be waiting for dump
+  // results.
+  DCHECK(!browser_should_capture_pixels || !waiting_for_layout_dump_results_);
+  return browser_should_capture_pixels;
 }
 
 void BlinkTestRunner::OnLayoutDumpCompleted(std::string completed_layout_dump) {
@@ -670,11 +610,6 @@ void BlinkTestRunner::CaptureDumpComplete() {
   // Abort if we're still waiting for some results.
   if (waiting_for_layout_dump_results_ || waiting_for_pixels_dump_result_)
     return;
-
-  // Once we captured everything, we can stop loading. Note that we can't stop
-  // earlier, since partial load tests will have a different pixel output than
-  // expected.
-  render_view()->GetWebView()->MainFrame()->StopLoading();
 
   // Abort if the browser didn't ask us for the dump yet.
   if (!dump_callback_)
@@ -718,7 +653,7 @@ bool BlinkTestRunner::AllowExternalPages() {
 
 void BlinkTestRunner::FetchManifest(
     blink::WebView* view,
-    base::OnceCallback<void(const GURL&, const Manifest&)> callback) {
+    base::OnceCallback<void(const GURL&, const blink::Manifest&)> callback) {
   ::content::FetchManifest(view, std::move(callback));
 }
 
@@ -746,19 +681,16 @@ void BlinkTestRunner::ResetPermissions() {
   Send(new LayoutTestHostMsg_ResetPermissions(routing_id()));
 }
 
-viz::SharedBitmapManager* BlinkTestRunner::GetSharedBitmapManager() {
-  return RenderThread::Get()->GetSharedBitmapManager();
-}
-
 void BlinkTestRunner::DispatchBeforeInstallPromptEvent(
     const std::vector<std::string>& event_platforms,
-    const base::Callback<void(bool)>& callback) {
+    base::OnceCallback<void(bool)> callback) {
   app_banner_service_.reset(new test_runner::AppBannerService());
   blink::mojom::AppBannerControllerRequest request =
       mojo::MakeRequest(&app_banner_service_->controller());
   render_view()->GetMainRenderFrame()->BindLocalInterface(
       blink::mojom::AppBannerController::Name_, request.PassMessagePipe());
-  app_banner_service_->SendBannerPromptRequest(event_platforms, callback);
+  app_banner_service_->SendBannerPromptRequest(event_platforms,
+                                               std::move(callback));
 }
 
 void BlinkTestRunner::ResolveBeforeInstallPromptPromise(
@@ -783,8 +715,8 @@ float BlinkTestRunner::GetDeviceScaleFactor() const {
   return render_view()->GetDeviceScaleFactor();
 }
 
-void BlinkTestRunner::RunIdleTasks(const base::Closure& callback) {
-    SchedulerRunIdleTasks(callback);
+void BlinkTestRunner::RunIdleTasks(base::OnceClosure callback) {
+  SchedulerRunIdleTasks(std::move(callback));
 }
 
 void BlinkTestRunner::ForceTextInputStateUpdate(WebLocalFrame* frame) {
@@ -799,19 +731,14 @@ bool BlinkTestRunner::IsNavigationInitiatedByRenderer(
 bool BlinkTestRunner::AddMediaStreamVideoSourceAndTrack(
     blink::WebMediaStream* stream) {
   DCHECK(stream);
-#if BUILDFLAG(ENABLE_WEBRTC)
   return AddVideoTrackToMediaStream(std::make_unique<MockVideoCapturerSource>(),
                                     false,  // is_remote
                                     stream);
-#else
-  return false;
-#endif
 }
 
 bool BlinkTestRunner::AddMediaStreamAudioSourceAndTrack(
     blink::WebMediaStream* stream) {
   DCHECK(stream);
-#if BUILDFLAG(ENABLE_WEBRTC)
   return AddAudioTrackToMediaStream(
       base::MakeRefCounted<MockAudioCapturerSource>(),
       48000,  // sample rate
@@ -819,9 +746,6 @@ bool BlinkTestRunner::AddMediaStreamAudioSourceAndTrack(
       480,    // sample frames per buffer
       false,  // is_remote
       stream);
-#else
-  return false;
-#endif
 }
 
 // RenderViewObserver  --------------------------------------------------------
@@ -836,7 +760,6 @@ bool BlinkTestRunner::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(ShellViewMsg_Reset, OnReset)
     IPC_MESSAGE_HANDLER(ShellViewMsg_TestFinishedInSecondaryRenderer,
                         OnTestFinishedInSecondaryRenderer)
-    IPC_MESSAGE_HANDLER(ShellViewMsg_TryLeakDetection, OnTryLeakDetection)
     IPC_MESSAGE_HANDLER(ShellViewMsg_ReplyBluetoothManualChooserEvents,
                         OnReplyBluetoothManualChooserEvents)
     IPC_MESSAGE_HANDLER(ShellViewMsg_LayoutDumpCompleted, OnLayoutDumpCompleted)
@@ -985,29 +908,13 @@ void BlinkTestRunner::OnTestFinishedInSecondaryRenderer() {
   TestFinished();
 }
 
-void BlinkTestRunner::OnTryLeakDetection() {
-  blink::WebFrame* main_frame = render_view()->GetWebView()->MainFrame();
-
-  DCHECK(!main_frame->IsLoading());
-  DCHECK(main_frame->IsWebLocalFrame());
-  DCHECK_EQ(GURL(url::kAboutBlankURL),
-            GURL(main_frame->ToWebLocalFrame()->GetDocument().Url()));
-
-  leak_detector_->TryLeakDetection();
-}
-
 void BlinkTestRunner::OnReplyBluetoothManualChooserEvents(
     const std::vector<std::string>& events) {
   DCHECK(!get_bluetooth_events_callbacks_.empty());
-  base::Callback<void(const std::vector<std::string>&)> callback =
-      get_bluetooth_events_callbacks_.front();
+  base::OnceCallback<void(const std::vector<std::string>&)> callback =
+      std::move(get_bluetooth_events_callbacks_.front());
   get_bluetooth_events_callbacks_.pop_front();
   std::move(callback).Run(events);
-}
-
-void BlinkTestRunner::ReportLeakDetectionResult(
-    const LeakDetectionResult& report) {
-  Send(new ShellViewHostMsg_LeakDetectionDone(routing_id(), report));
 }
 
 void BlinkTestRunner::OnDestruct() {

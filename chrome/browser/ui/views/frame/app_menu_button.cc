@@ -8,12 +8,20 @@
 
 #include "chrome/browser/ui/toolbar/app_menu_model.h"
 #include "chrome/browser/ui/views/toolbar/app_menu.h"
+#include "chrome/browser/ui/views/toolbar/toolbar_ink_drop_util.h"
 #include "ui/views/controls/menu/menu_listener.h"
+#include "ui/views/style/platform_style.h"
 
 AppMenuButton::AppMenuButton(views::MenuButtonListener* menu_button_listener)
-    : views::MenuButton(base::string16(), menu_button_listener, false) {}
+    : views::MenuButton(base::string16(), menu_button_listener, false) {
+  SetInstallFocusRingOnFocus(views::PlatformStyle::kPreferFocusRings);
+}
 
 AppMenuButton::~AppMenuButton() {}
+
+SkColor AppMenuButton::GetInkDropBaseColor() const {
+  return GetToolbarInkDropBaseColor(this);
+}
 
 void AppMenuButton::CloseMenu() {
   if (menu_)

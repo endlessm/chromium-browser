@@ -482,7 +482,7 @@ FileTable.decorate = function(
     var currentSelection = [];
     var bottom = y + (opt_height || 0);
     for (var i = 0; i < this.selectionModel_.length; i++) {
-      var itemMetrics = this.getHeightsForIndex_(i);
+      var itemMetrics = this.getHeightsForIndex(i);
       if (itemMetrics.top < bottom && itemMetrics.top + itemMetrics.height >= y)
         currentSelection.push(i);
     }
@@ -953,7 +953,8 @@ FileTable.prototype.updateListItemsMetadata = function(type, entries) {
       filelist.updateListItemExternalProps(
           listItem,
           this.metadataModel_.getCache(
-              [entry], ['availableOffline', 'customIconUrl', 'shared'])[0]);
+              [entry], ['availableOffline', 'customIconUrl', 'shared'])[0],
+          util.isTeamDriveRoot(entry));
     });
   } else if (type === 'import-history') {
     forEachCell('.table-row-cell > .status', function(item, entry, unused) {
@@ -971,7 +972,14 @@ FileTable.prototype.updateListItemsMetadata = function(type, entries) {
  */
 FileTable.prototype.renderTableRow_ = function(baseRenderFunction, entry) {
   var item = baseRenderFunction(entry, this);
+  var nameId = item.id + '-entry-name';
+  var sizeId = item.id + '-size';
+  var dateId = item.id + '-date';
   filelist.decorateListItem(item, entry, this.metadataModel_);
+  item.querySelector('.entry-name').setAttribute('id', nameId);
+  item.querySelector('.size').setAttribute('id', sizeId);
+  item.querySelector('.date').setAttribute('id', dateId);
+  item.setAttribute('aria-labelledby', nameId + ' ' + sizeId + ' ' + dateId);
   return item;
 };
 

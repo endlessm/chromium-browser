@@ -6,7 +6,6 @@
 #include <set>
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_restrictions.h"
@@ -111,7 +110,7 @@ class DelayingDnsProbeService : public DnsProbeService {
 
 FilePath GetMockLinkDoctorFilePath() {
   FilePath root_http;
-  PathService::Get(chrome::DIR_TEST_DATA, &root_http);
+  base::PathService::Get(chrome::DIR_TEST_DATA, &root_http);
   return root_http.AppendASCII("mock-link-doctor.json");
 }
 

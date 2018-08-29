@@ -13,6 +13,7 @@
 #include "chrome/browser/vr/elements/ui_element.h"
 #include "chrome/browser/vr/elements/ui_element_name.h"
 #include "chrome/browser/vr/keyboard_delegate.h"
+#include "chrome/browser/vr/sequence.h"
 #include "third_party/skia/include/core/SkColor.h"
 
 namespace base {
@@ -35,6 +36,7 @@ class UiScene {
   ~UiScene();
 
   void AddUiElement(UiElementName parent, std::unique_ptr<UiElement> element);
+  void AddUiElement(UiElement* parent, std::unique_ptr<UiElement> element);
   void AddParentUiElement(UiElementName child,
                           std::unique_ptr<UiElement> element);
 
@@ -46,8 +48,6 @@ class UiScene {
   // Returns true if *anything* was updated.
   bool OnBeginFrame(const base::TimeTicks& current_time,
                     const gfx::Transform& head_pose);
-
-  void CallPerFrameCallbacks();
 
   // Returns true if any textures were redrawn.
   bool UpdateTextures();
@@ -61,10 +61,9 @@ class UiScene {
   typedef std::vector<UiElement*> MutableElements;
 
   std::vector<UiElement*>& GetAllElements();
-  Elements GetVisibleElements();
-  MutableElements GetVisibleElementsMutable();
-  Elements GetVisibleElementsToDraw();
-  Elements GetVisibleWebVrOverlayElementsToDraw();
+  Elements GetElementsToHitTest();
+  Elements GetElementsToDraw();
+  Elements GetWebVrOverlayElementsToDraw();
 
   float background_distance() const { return background_distance_; }
   void set_background_distance(float d) { background_distance_ = d; }
@@ -72,14 +71,21 @@ class UiScene {
   void set_dirty() { is_dirty_ = true; }
 
   void OnGlInitialized(SkiaSurfaceProvider* provider);
+
   // The callback to call on every new frame. This is used for things we want to
   // do every frame regardless of element or subtree visibility.
   void AddPerFrameCallback(PerFrameCallback callback);
 
+  void AddSequence(std::unique_ptr<Sequence> sequence);
+
   SkiaSurfaceProvider* SurfaceProviderForTesting() { return provider_; }
+
+  void RunFirstFrameForTest();
 
  private:
   void InitializeElement(UiElement* element);
+
+  MutableElements GetVisibleElementsMutable();
 
   std::unique_ptr<UiElement> root_element_;
 
@@ -87,16 +93,19 @@ class UiScene {
   bool gl_initialized_ = false;
   bool initialized_scene_ = false;
 
-  // TODO(mthiesse): Convert everything that manipulates UI elements to
-  // bindings. Don't allow any code to go in and manipulate UI elements outside
-  // of bindings so that we can do a single pass and update everything and
-  // easily compute dirtiness.
+  // TODO(mthiesse): Convert everything that manipulates UI elements to bindings
+  // or layout updates. Don't allow any code to go in and manipulate UI elements
+  // outside of these phases so that we can more easily compute dirtiness.
   bool is_dirty_ = false;
+
+  // This is used to advance animations to completion on the first frame.
+  bool first_frame_ = true;
 
   std::vector<UiElement*> all_elements_;
 
   std::vector<PerFrameCallback> per_frame_callback_;
 
+  std::vector<std::unique_ptr<Sequence>> scheduled_tasks_;
   SkiaSurfaceProvider* provider_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(UiScene);

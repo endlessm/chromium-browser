@@ -16,6 +16,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/time/time.h"
+#include "components/account_id/account_id.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/policy_builder.h"
 #include "components/policy/core/common/cloud/resource_cache.h"
@@ -24,7 +25,6 @@
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/proto/chrome_extension_policy.pb.h"
 #include "components/policy/proto/device_management_backend.pb.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "crypto/rsa_private_key.h"
 #include "crypto/sha2.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -66,7 +66,7 @@ bool True(const std::string& ignored) {
 class MockComponentCloudPolicyStoreDelegate
     : public ComponentCloudPolicyStore::Delegate {
  public:
-  virtual ~MockComponentCloudPolicyStoreDelegate() {}
+  ~MockComponentCloudPolicyStoreDelegate() override {}
 
   MOCK_METHOD0(OnComponentCloudPolicyStoreUpdated, void());
 };
@@ -101,10 +101,10 @@ class ComponentCloudPolicyStoreTest : public testing::Test {
         new ResourceCache(temp_dir_.GetPath(),
                           base::MakeRefCounted<base::TestSimpleTaskRunner>()));
     store_.reset(new ComponentCloudPolicyStore(&store_delegate_, cache_.get()));
-    store_->SetCredentials(ComponentPolicyBuilder::GetFakeAccountId(),
-                           ComponentPolicyBuilder::kFakeToken,
-                           ComponentPolicyBuilder::kFakeDeviceId, public_key_,
-                           ComponentPolicyBuilder::kFakePublicKeyVersion);
+    store_->SetCredentials(PolicyBuilder::GetFakeAccountIdForTesting(),
+                           PolicyBuilder::kFakeToken,
+                           PolicyBuilder::kFakeDeviceId, public_key_,
+                           PolicyBuilder::kFakePublicKeyVersion);
   }
 
   std::unique_ptr<em::PolicyFetchResponse> CreateResponse() {
@@ -150,7 +150,7 @@ class ComponentCloudPolicyStoreTest : public testing::Test {
   std::unique_ptr<ResourceCache> cache_;
   std::unique_ptr<ComponentCloudPolicyStore> store_;
   MockComponentCloudPolicyStoreDelegate store_delegate_;
-  ComponentPolicyBuilder builder_;
+  ComponentCloudPolicyBuilder builder_;
   PolicyBundle expected_bundle_;
   std::string public_key_;
 
@@ -177,7 +177,7 @@ TEST_F(ComponentCloudPolicyStoreTest, ValidatePolicyWrongTimestamp) {
 
   const int64_t kPastTimestamp =
       (base::Time() + base::TimeDelta::FromDays(1)).ToJavaTime();
-  CHECK_GT(ComponentPolicyBuilder::kFakeTimestamp, kPastTimestamp);
+  CHECK_GT(PolicyBuilder::kFakeTimestamp, kPastTimestamp);
   builder_.policy_data().set_timestamp(kPastTimestamp);
   EXPECT_FALSE(store_->ValidatePolicy(kTestPolicyNS, CreateResponse(),
                                       nullptr /* policy_data */,
@@ -243,7 +243,7 @@ TEST_F(ComponentCloudPolicyStoreTest, ValidatePolicyEmptyComponentId) {
 
 TEST_F(ComponentCloudPolicyStoreTest, ValidatePolicyWrongPublicKey) {
   // Test against a policy signed with a wrong key.
-  builder_.SetSigningKey(*ComponentPolicyBuilder::CreateTestOtherSigningKey());
+  builder_.SetSigningKey(*PolicyBuilder::CreateTestOtherSigningKey());
   EXPECT_FALSE(store_->ValidatePolicy(kTestPolicyNS, CreateResponse(),
                                       nullptr /* policy_data */,
                                       nullptr /* payload */));
@@ -252,7 +252,7 @@ TEST_F(ComponentCloudPolicyStoreTest, ValidatePolicyWrongPublicKey) {
 TEST_F(ComponentCloudPolicyStoreTest, ValidatePolicyWrongPublicKeyVersion) {
   // Test against a policy containing wrong public key version.
   builder_.policy_data().set_public_key_version(
-      ComponentPolicyBuilder::kFakePublicKeyVersion + 1);
+      PolicyBuilder::kFakePublicKeyVersion + 1);
   EXPECT_FALSE(store_->ValidatePolicy(kTestPolicyNS, CreateResponse(),
                                       nullptr /* policy_data */,
                                       nullptr /* payload */));
@@ -261,9 +261,9 @@ TEST_F(ComponentCloudPolicyStoreTest, ValidatePolicyWrongPublicKeyVersion) {
 TEST_F(ComponentCloudPolicyStoreTest, ValidatePolicyDifferentPublicKey) {
   // Test against a policy signed with a different key and containing a new
   // public key version.
-  builder_.SetSigningKey(*ComponentPolicyBuilder::CreateTestOtherSigningKey());
+  builder_.SetSigningKey(*PolicyBuilder::CreateTestOtherSigningKey());
   builder_.policy_data().set_public_key_version(
-      ComponentPolicyBuilder::kFakePublicKeyVersion + 1);
+      PolicyBuilder::kFakePublicKeyVersion + 1);
   EXPECT_FALSE(store_->ValidatePolicy(kTestPolicyNS, CreateResponse(),
                                       nullptr /* policy_data */,
                                       nullptr /* payload */));
@@ -302,9 +302,9 @@ TEST_F(ComponentCloudPolicyStoreTest, ValidateNoCredentials) {
 
 TEST_F(ComponentCloudPolicyStoreTest, ValidateNoCredentialsUser) {
   store_.reset(new ComponentCloudPolicyStore(&store_delegate_, cache_.get()));
-  store_->SetCredentials(AccountId(), ComponentPolicyBuilder::kFakeToken,
-                         ComponentPolicyBuilder::kFakeDeviceId, public_key_,
-                         ComponentPolicyBuilder::kFakePublicKeyVersion);
+  store_->SetCredentials(AccountId(), PolicyBuilder::kFakeToken,
+                         PolicyBuilder::kFakeDeviceId, public_key_,
+                         PolicyBuilder::kFakePublicKeyVersion);
   EXPECT_FALSE(store_->ValidatePolicy(kTestPolicyNS, CreateResponse(),
                                       nullptr /* policy_data */,
                                       nullptr /* payload */));
@@ -312,10 +312,10 @@ TEST_F(ComponentCloudPolicyStoreTest, ValidateNoCredentialsUser) {
 
 TEST_F(ComponentCloudPolicyStoreTest, ValidateNoCredentialsDMToken) {
   store_.reset(new ComponentCloudPolicyStore(&store_delegate_, cache_.get()));
-  store_->SetCredentials(ComponentPolicyBuilder::GetFakeAccountId(),
+  store_->SetCredentials(PolicyBuilder::GetFakeAccountIdForTesting(),
                          std::string() /* dm_token */,
-                         ComponentPolicyBuilder::kFakeDeviceId, public_key_,
-                         ComponentPolicyBuilder::kFakePublicKeyVersion);
+                         PolicyBuilder::kFakeDeviceId, public_key_,
+                         PolicyBuilder::kFakePublicKeyVersion);
   EXPECT_FALSE(store_->ValidatePolicy(kTestPolicyNS, CreateResponse(),
                                       nullptr /* policy_data */,
                                       nullptr /* payload */));
@@ -323,10 +323,10 @@ TEST_F(ComponentCloudPolicyStoreTest, ValidateNoCredentialsDMToken) {
 
 TEST_F(ComponentCloudPolicyStoreTest, ValidateNoCredentialsDeviceId) {
   store_.reset(new ComponentCloudPolicyStore(&store_delegate_, cache_.get()));
-  store_->SetCredentials(ComponentPolicyBuilder::GetFakeAccountId(),
-                         ComponentPolicyBuilder::kFakeToken,
+  store_->SetCredentials(PolicyBuilder::GetFakeAccountIdForTesting(),
+                         PolicyBuilder::kFakeToken,
                          std::string() /* device_id */, public_key_,
-                         ComponentPolicyBuilder::kFakePublicKeyVersion);
+                         PolicyBuilder::kFakePublicKeyVersion);
   EXPECT_FALSE(store_->ValidatePolicy(kTestPolicyNS, CreateResponse(),
                                       nullptr /* policy_data */,
                                       nullptr /* payload */));
@@ -334,11 +334,10 @@ TEST_F(ComponentCloudPolicyStoreTest, ValidateNoCredentialsDeviceId) {
 
 TEST_F(ComponentCloudPolicyStoreTest, ValidateNoCredentialsPublicKey) {
   store_.reset(new ComponentCloudPolicyStore(&store_delegate_, cache_.get()));
-  store_->SetCredentials(ComponentPolicyBuilder::GetFakeAccountId(),
-                         ComponentPolicyBuilder::kFakeToken,
-                         ComponentPolicyBuilder::kFakeDeviceId,
-                         std::string() /* public_key */,
-                         ComponentPolicyBuilder::kFakePublicKeyVersion);
+  store_->SetCredentials(
+      PolicyBuilder::GetFakeAccountIdForTesting(), PolicyBuilder::kFakeToken,
+      PolicyBuilder::kFakeDeviceId, std::string() /* public_key */,
+      PolicyBuilder::kFakePublicKeyVersion);
   EXPECT_FALSE(store_->ValidatePolicy(kTestPolicyNS, CreateResponse(),
                                       nullptr /* policy_data */,
                                       nullptr /* payload */));
@@ -347,10 +346,9 @@ TEST_F(ComponentCloudPolicyStoreTest, ValidateNoCredentialsPublicKey) {
 TEST_F(ComponentCloudPolicyStoreTest, ValidateNoCredentialsPublicKeyVersion) {
   StoreTestPolicy(store_.get());
   ComponentCloudPolicyStore another_store(&store_delegate_, cache_.get());
-  another_store.SetCredentials(ComponentPolicyBuilder::GetFakeAccountId(),
-                               ComponentPolicyBuilder::kFakeToken,
-                               ComponentPolicyBuilder::kFakeDeviceId,
-                               public_key_, -1 /* public_key_version */);
+  another_store.SetCredentials(
+      PolicyBuilder::GetFakeAccountIdForTesting(), PolicyBuilder::kFakeToken,
+      PolicyBuilder::kFakeDeviceId, public_key_, -1 /* public_key_version */);
   another_store.Load();
   EXPECT_TRUE(IsStoreEmpty(another_store));
   EXPECT_TRUE(LoadCacheExtensionsSubkeys().empty());
@@ -359,10 +357,10 @@ TEST_F(ComponentCloudPolicyStoreTest, ValidateNoCredentialsPublicKeyVersion) {
 TEST_F(ComponentCloudPolicyStoreTest, ValidateWrongCredentialsDMToken) {
   StoreTestPolicy(store_.get());
   ComponentCloudPolicyStore another_store(&store_delegate_, cache_.get());
-  another_store.SetCredentials(
-      ComponentPolicyBuilder::GetFakeAccountId(), "wrongtoken",
-      ComponentPolicyBuilder::kFakeDeviceId, public_key_,
-      ComponentPolicyBuilder::kFakePublicKeyVersion);
+  another_store.SetCredentials(PolicyBuilder::GetFakeAccountIdForTesting(),
+                               "wrongtoken", PolicyBuilder::kFakeDeviceId,
+                               public_key_,
+                               PolicyBuilder::kFakePublicKeyVersion);
   another_store.Load();
   EXPECT_TRUE(IsStoreEmpty(another_store));
   EXPECT_TRUE(LoadCacheExtensionsSubkeys().empty());
@@ -371,10 +369,9 @@ TEST_F(ComponentCloudPolicyStoreTest, ValidateWrongCredentialsDMToken) {
 TEST_F(ComponentCloudPolicyStoreTest, ValidateWrongCredentialsDeviceId) {
   StoreTestPolicy(store_.get());
   ComponentCloudPolicyStore another_store(&store_delegate_, cache_.get());
-  another_store.SetCredentials(ComponentPolicyBuilder::GetFakeAccountId(),
-                               ComponentPolicyBuilder::kFakeToken,
-                               "wrongdeviceid", public_key_,
-                               ComponentPolicyBuilder::kFakePublicKeyVersion);
+  another_store.SetCredentials(
+      PolicyBuilder::GetFakeAccountIdForTesting(), PolicyBuilder::kFakeToken,
+      "wrongdeviceid", public_key_, PolicyBuilder::kFakePublicKeyVersion);
   another_store.Load();
   EXPECT_TRUE(IsStoreEmpty(another_store));
   EXPECT_TRUE(LoadCacheExtensionsSubkeys().empty());
@@ -383,10 +380,10 @@ TEST_F(ComponentCloudPolicyStoreTest, ValidateWrongCredentialsDeviceId) {
 TEST_F(ComponentCloudPolicyStoreTest, ValidateWrongCredentialsPublicKey) {
   StoreTestPolicy(store_.get());
   ComponentCloudPolicyStore another_store(&store_delegate_, cache_.get());
-  another_store.SetCredentials(
-      ComponentPolicyBuilder::GetFakeAccountId(),
-      ComponentPolicyBuilder::kFakeToken, ComponentPolicyBuilder::kFakeDeviceId,
-      "wrongkey", ComponentPolicyBuilder::kFakePublicKeyVersion);
+  another_store.SetCredentials(PolicyBuilder::GetFakeAccountIdForTesting(),
+                               PolicyBuilder::kFakeToken,
+                               PolicyBuilder::kFakeDeviceId, "wrongkey",
+                               PolicyBuilder::kFakePublicKeyVersion);
   another_store.Load();
   EXPECT_TRUE(IsStoreEmpty(another_store));
   EXPECT_TRUE(LoadCacheExtensionsSubkeys().empty());
@@ -396,10 +393,10 @@ TEST_F(ComponentCloudPolicyStoreTest,
        ValidateWrongCredentialsPublicKeyVersion) {
   StoreTestPolicy(store_.get());
   ComponentCloudPolicyStore another_store(&store_delegate_, cache_.get());
-  another_store.SetCredentials(
-      ComponentPolicyBuilder::GetFakeAccountId(),
-      ComponentPolicyBuilder::kFakeToken, ComponentPolicyBuilder::kFakeDeviceId,
-      public_key_, ComponentPolicyBuilder::kFakePublicKeyVersion + 1);
+  another_store.SetCredentials(PolicyBuilder::GetFakeAccountIdForTesting(),
+                               PolicyBuilder::kFakeToken,
+                               PolicyBuilder::kFakeDeviceId, public_key_,
+                               PolicyBuilder::kFakePublicKeyVersion + 1);
   another_store.Load();
   EXPECT_TRUE(IsStoreEmpty(another_store));
   EXPECT_TRUE(LoadCacheExtensionsSubkeys().empty());
@@ -456,10 +453,10 @@ TEST_F(ComponentCloudPolicyStoreTest, StoreAndLoad) {
 
   // Loading from the cache validates the policy data again.
   ComponentCloudPolicyStore another_store(&store_delegate_, cache_.get());
-  another_store.SetCredentials(
-      ComponentPolicyBuilder::GetFakeAccountId(),
-      ComponentPolicyBuilder::kFakeToken, ComponentPolicyBuilder::kFakeDeviceId,
-      public_key_, ComponentPolicyBuilder::kFakePublicKeyVersion);
+  another_store.SetCredentials(PolicyBuilder::GetFakeAccountIdForTesting(),
+                               PolicyBuilder::kFakeToken,
+                               PolicyBuilder::kFakeDeviceId, public_key_,
+                               PolicyBuilder::kFakePublicKeyVersion);
   another_store.Load();
   EXPECT_TRUE(another_store.policy().Equals(expected_bundle_));
   EXPECT_EQ(TestPolicyHash(), another_store.GetCachedHash(kTestPolicyNS));
@@ -507,10 +504,10 @@ TEST_F(ComponentCloudPolicyStoreTest, Purge) {
   ComponentCloudPolicyStore another_store(&store_delegate_, cache_.get());
   const PolicyBundle empty_bundle;
   EXPECT_TRUE(another_store.policy().Equals(empty_bundle));
-  another_store.SetCredentials(
-      ComponentPolicyBuilder::GetFakeAccountId(),
-      ComponentPolicyBuilder::kFakeToken, ComponentPolicyBuilder::kFakeDeviceId,
-      public_key_, ComponentPolicyBuilder::kFakePublicKeyVersion);
+  another_store.SetCredentials(PolicyBuilder::GetFakeAccountIdForTesting(),
+                               PolicyBuilder::kFakeToken,
+                               PolicyBuilder::kFakeDeviceId, public_key_,
+                               PolicyBuilder::kFakePublicKeyVersion);
   another_store.Load();
   EXPECT_TRUE(another_store.policy().Equals(expected_bundle_));
 
@@ -524,10 +521,10 @@ TEST_F(ComponentCloudPolicyStoreTest, Purge) {
 
   // And they aren't loaded anymore either.
   ComponentCloudPolicyStore yet_another_store(&store_delegate_, cache_.get());
-  yet_another_store.SetCredentials(
-      ComponentPolicyBuilder::GetFakeAccountId(),
-      ComponentPolicyBuilder::kFakeToken, ComponentPolicyBuilder::kFakeDeviceId,
-      public_key_, ComponentPolicyBuilder::kFakePublicKeyVersion);
+  yet_another_store.SetCredentials(PolicyBuilder::GetFakeAccountIdForTesting(),
+                                   PolicyBuilder::kFakeToken,
+                                   PolicyBuilder::kFakeDeviceId, public_key_,
+                                   PolicyBuilder::kFakePublicKeyVersion);
   yet_another_store.Load();
   EXPECT_TRUE(yet_another_store.policy().Equals(empty_bundle));
 }

@@ -11,6 +11,7 @@
 #include "ash/wm/overview/scoped_transform_overview_window.h"
 #include "base/macros.h"
 #include "ui/aura/window_observer.h"
+#include "ui/compositor/layer_animation_observer.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/controls/button/button.h"
@@ -37,7 +38,8 @@ class WindowGrid;
 
 // This class represents an item in overview mode.
 class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
-                                      public aura::WindowObserver {
+                                      public aura::WindowObserver,
+                                      public ui::ImplicitAnimationObserver {
  public:
   // An image button with a close window icon.
   class OverviewCloseButton : public views::ImageButton {
@@ -49,7 +51,8 @@ class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
     void ResetListener() { listener_ = nullptr; }
 
    protected:
-    // views::ImageButton:
+    // views::Button:
+    std::unique_ptr<views::InkDrop> CreateInkDrop() override;
     std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override;
     std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
         const override;
@@ -119,12 +122,16 @@ class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
   // Activates or deactivates selection depending on |selected|.
   // In selected state the item's caption is shown transparent and blends with
   // the selection widget.
-  void SetSelected(bool selected);
+  void set_selected(bool selected) { selected_ = selected; }
 
   // Sends an accessibility event indicating that this window became selected
   // so that it's highlighted and announced if accessibility features are
   // enabled.
   void SendAccessibleSelectionEvent();
+
+  // Slides the item up or down and then closes the associated window. Used by
+  // overview swipe to close.
+  void AnimateAndCloseWindow(bool up);
 
   // Closes |transform_window_|.
   void CloseWindow();
@@ -178,10 +185,17 @@ class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
   void OnWindowDestroying(aura::Window* window) override;
   void OnWindowTitleChanged(aura::Window* window) override;
 
+  // ui::ImplicitAnimationObserver:
+  void OnImplicitAnimationsCompleted() override;
+
   // Handle the mouse/gesture event and facilitate dragging the item.
   void HandlePressEvent(const gfx::Point& location_in_screen);
   void HandleReleaseEvent(const gfx::Point& location_in_screen);
   void HandleDragEvent(const gfx::Point& location_in_screen);
+  void HandleLongPressEvent(const gfx::Point& location_in_screen);
+  void HandleFlingStartEvent(const gfx::Point& location_in_screen,
+                             float velocity_x,
+                             float velocity_y);
   void ActivateDraggedWindow();
   void ResetDraggedWindowGesture();
 
@@ -197,6 +211,10 @@ class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
   // Sets the bounds of the window shadow. If |bounds_in_screen| is nullopt,
   // the shadow is hidden.
   void SetShadowBounds(base::Optional<gfx::Rect> bounds_in_screen);
+
+  // Changes the opacity of all the windows the item owns.
+  void SetOpacity(float opacity);
+  float GetOpacity();
 
   void set_should_animate_when_entering(bool should_animate) {
     should_animate_when_entering_ = should_animate;
@@ -256,9 +274,6 @@ class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
   void SetItemBounds(const gfx::Rect& target_bounds,
                      OverviewAnimationType animation_type);
 
-  // Changes the opacity of all the windows the item owns.
-  void SetOpacity(float opacity);
-
   // Creates the window label.
   void CreateWindowLabel(const base::string16& title);
 
@@ -276,9 +291,6 @@ class ASH_EXPORT WindowSelectorItem : public views::ButtonListener,
 
   // Updates the accessibility name to match the window title.
   void UpdateAccessibilityName();
-
-  // Fades out a window caption when exiting overview mode.
-  void FadeOut(std::unique_ptr<views::Widget> widget);
 
   // Select this window if |event_location| is less than the drag threshold for
   // clicks. This should only be called if the original event was on the title

@@ -18,6 +18,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/None.h"
+#include "llvm/CodeGen/LiveRegUnits.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineCombinerPattern.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -225,6 +226,17 @@ public:
     return 0;
   }
 
+  /// Optional extension of isLoadFromStackSlot that returns the number of
+  /// bytes loaded from the stack. This must be implemented if a backend
+  /// supports partial stack slot spills/loads to further disambiguate
+  /// what the load does.
+  virtual unsigned isLoadFromStackSlot(const MachineInstr &MI,
+                                       int &FrameIndex,
+                                       unsigned &MemBytes) const {
+    MemBytes = 0;
+    return isLoadFromStackSlot(MI, FrameIndex);
+  }
+
   /// Check for post-frame ptr elimination stack locations as well.
   /// This uses a heuristic so it isn't reliable for correctness.
   virtual unsigned isLoadFromStackSlotPostFE(const MachineInstr &MI,
@@ -250,6 +262,17 @@ public:
   virtual unsigned isStoreToStackSlot(const MachineInstr &MI,
                                       int &FrameIndex) const {
     return 0;
+  }
+
+  /// Optional extension of isStoreToStackSlot that returns the number of
+  /// bytes stored to the stack. This must be implemented if a backend
+  /// supports partial stack slot spills/loads to further disambiguate
+  /// what the store does.
+  virtual unsigned isStoreToStackSlot(const MachineInstr &MI,
+                                      int &FrameIndex,
+                                      unsigned &MemBytes) const {
+    MemBytes = 0;
+    return isStoreToStackSlot(MI, FrameIndex);
   }
 
   /// Check for post-frame ptr elimination stack locations as well.
@@ -325,7 +348,7 @@ public:
                              unsigned SubIdx, const MachineInstr &Orig,
                              const TargetRegisterInfo &TRI) const;
 
-  /// \brief Clones instruction or the whole instruction bundle \p Orig and
+  /// Clones instruction or the whole instruction bundle \p Orig and
   /// insert into \p MBB before \p InsertBefore. The target may update operands
   /// that are required to be unique.
   ///
@@ -957,11 +980,6 @@ public:
   /// even if it has glue.
   virtual bool canCopyGluedNodeDuringSchedule(SDNode *N) const { return false; }
 
-  /// Remember what registers the specified instruction uses and modifies.
-  virtual void trackRegDefsUses(const MachineInstr &MI, BitVector &ModifiedRegs,
-                                BitVector &UsedRegs,
-                                const TargetRegisterInfo *TRI) const;
-
 protected:
   /// Target-dependent implementation for foldMemoryOperand.
   /// Target-independent code in foldMemoryOperand will
@@ -988,7 +1006,7 @@ protected:
     return nullptr;
   }
 
-  /// \brief Target-dependent implementation of getRegSequenceInputs.
+  /// Target-dependent implementation of getRegSequenceInputs.
   ///
   /// \returns true if it is possible to build the equivalent
   /// REG_SEQUENCE inputs with the pair \p MI, \p DefIdx. False otherwise.
@@ -1002,7 +1020,7 @@ protected:
     return false;
   }
 
-  /// \brief Target-dependent implementation of getExtractSubregInputs.
+  /// Target-dependent implementation of getExtractSubregInputs.
   ///
   /// \returns true if it is possible to build the equivalent
   /// EXTRACT_SUBREG inputs with the pair \p MI, \p DefIdx. False otherwise.
@@ -1016,7 +1034,7 @@ protected:
     return false;
   }
 
-  /// \brief Target-dependent implementation of getInsertSubregInputs.
+  /// Target-dependent implementation of getInsertSubregInputs.
   ///
   /// \returns true if it is possible to build the equivalent
   /// INSERT_SUBREG inputs with the pair \p MI, \p DefIdx. False otherwise.
@@ -1438,7 +1456,7 @@ public:
     return 0;
   }
 
-  /// \brief Return the minimum clearance before an instruction that reads an
+  /// Return the minimum clearance before an instruction that reads an
   /// unused register.
   ///
   /// For example, AVX instructions may copy part of a register operand into
@@ -1505,7 +1523,7 @@ public:
     return false;
   }
 
-  /// \brief Return the value to use for the MachineCSE's LookAheadLimit,
+  /// Return the value to use for the MachineCSE's LookAheadLimit,
   /// which is a heuristic used for CSE'ing phys reg defs.
   virtual unsigned getMachineCSELookAheadLimit() const {
     // The default lookahead is small to prevent unprofitable quadratic
@@ -1574,41 +1592,49 @@ public:
     return false;
   }
 
-  /// \brief Describes the number of instructions that it will take to call and
+  /// Returns true if the target implements the MachineOutliner.
+  virtual bool useMachineOutliner() const { return false; }
+
+  /// Describes the number of instructions that it will take to call and
   /// construct a frame for a given outlining candidate.
   struct MachineOutlinerInfo {
+    /// Represents the size of a sequence in bytes. (Some instructions vary
+    /// widely in size, so just counting the instructions isn't very useful.)
+    unsigned SequenceSize;
+
     /// Number of instructions to call an outlined function for this candidate.
     unsigned CallOverhead;
 
-    /// \brief Number of instructions to construct an outlined function frame
+    /// Number of instructions to construct an outlined function frame
     /// for this candidate.
     unsigned FrameOverhead;
 
-    /// \brief Represents the specific instructions that must be emitted to
+    /// Represents the specific instructions that must be emitted to
     /// construct a call to this candidate.
     unsigned CallConstructionID;
 
-    /// \brief Represents the specific instructions that must be emitted to
+    /// Represents the specific instructions that must be emitted to
     /// construct a frame for this candidate's outlined function.
     unsigned FrameConstructionID;
 
     MachineOutlinerInfo() {}
-    MachineOutlinerInfo(unsigned CallOverhead, unsigned FrameOverhead,
-                        unsigned CallConstructionID,
+    MachineOutlinerInfo(unsigned SequenceSize, unsigned CallOverhead,
+                        unsigned FrameOverhead, unsigned CallConstructionID,
                         unsigned FrameConstructionID)
-        : CallOverhead(CallOverhead), FrameOverhead(FrameOverhead),
+        : SequenceSize(SequenceSize), CallOverhead(CallOverhead),
+          FrameOverhead(FrameOverhead),
           CallConstructionID(CallConstructionID),
           FrameConstructionID(FrameConstructionID) {}
   };
 
-  /// \brief Returns a \p MachineOutlinerInfo struct containing target-specific
+  /// Returns a \p MachineOutlinerInfo struct containing target-specific
   /// information for a set of outlining candidates.
   virtual MachineOutlinerInfo getOutlininingCandidateInfo(
       std::vector<
           std::pair<MachineBasicBlock::iterator, MachineBasicBlock::iterator>>
           &RepeatedSequenceLocs) const {
     llvm_unreachable(
-        "Target didn't implement TargetInstrInfo::getOutliningOverhead!");
+        "Target didn't implement TargetInstrInfo::getOutliningCandidateInfo!");
   }
 
   /// Represents how an instruction should be mapped by the outliner.
@@ -1625,7 +1651,7 @@ public:
         "Target didn't implement TargetInstrInfo::getOutliningType!");
   }
 
-  /// \brief Returns target-defined flags defining properties of the MBB for
+  /// Returns target-defined flags defining properties of the MBB for
   /// the outliner.
   virtual unsigned getMachineOutlinerMBBFlags(MachineBasicBlock &MBB) const {
     return 0x0;
@@ -1677,7 +1703,7 @@ private:
   unsigned ReturnOpcode;
 };
 
-/// \brief Provide DenseMapInfo for TargetInstrInfo::RegSubRegPair.
+/// Provide DenseMapInfo for TargetInstrInfo::RegSubRegPair.
 template <> struct DenseMapInfo<TargetInstrInfo::RegSubRegPair> {
   using RegInfo = DenseMapInfo<unsigned>;
 
@@ -1691,7 +1717,7 @@ template <> struct DenseMapInfo<TargetInstrInfo::RegSubRegPair> {
                                           RegInfo::getTombstoneKey());
   }
 
-  /// \brief Reuse getHashValue implementation from
+  /// Reuse getHashValue implementation from
   /// std::pair<unsigned, unsigned>.
   static unsigned getHashValue(const TargetInstrInfo::RegSubRegPair &Val) {
     std::pair<unsigned, unsigned> PairVal = std::make_pair(Val.Reg, Val.SubReg);

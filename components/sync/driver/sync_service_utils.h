@@ -12,7 +12,8 @@ namespace syncer {
 class SyncService;
 
 // Indicates whether uploading of data to Google is enabled, i.e. the user has
-// given consent to upload this data.
+// given consent to upload this data. Since this enum is used for logging
+// histograms, entries must not be removed or reordered.
 // A Java counterpart will be generated for this enum.
 // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.components.sync
 enum class UploadState {
@@ -20,16 +21,19 @@ enum class UploadState {
   // initializing, so e.g. we don't know about any auth errors yet.
   INITIALIZING,
   // We are not syncing to Google, and the caller should assume that we do not
-  // have consent to do so. This can have a number of reasons: e.g. sync as a
+  // have consent to do so. This can have a number of reasons, e.g.: sync as a
   // whole is disabled, or the given model type is disabled, or we're in
-  // "local sync" mode, or encryption with a custom passphrase is enabled (in
-  // which case we're technically still uploading, but Google can't inspect the
-  // data), or we're in a persistent auth error state. As one special case of an
-  // auth error, sync may be "paused" because the user signed out of the content
-  // area.
+  // "local sync" mode, or this data type is encrypted with a custom passphrase
+  // (in which case we're technically still uploading, but Google can't inspect
+  // the data), or we're in a persistent auth error state. As one special case
+  // of an auth error, sync may be "paused" because the user signed out of the
+  // content area.
   NOT_ACTIVE,
-  // We're actively syncing data to Google servers.
-  ACTIVE
+  // We're actively syncing data to Google servers, in a form that is readable
+  // by Google.
+  ACTIVE,
+  // Used when logging histograms. Must have this exact name.
+  kMaxValue = ACTIVE
 };
 
 // Returns whether |type| is being uploaded to Google. This is useful for

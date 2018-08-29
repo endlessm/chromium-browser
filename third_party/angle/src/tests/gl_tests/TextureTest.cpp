@@ -755,13 +755,7 @@ class TextureSizeTextureArrayTest : public TexCoordDrawTest
 
     std::string getVertexShaderSource() override
     {
-        return std::string(
-            "#version 300 es\n"
-            "in vec4 position;\n"
-            "void main()\n"
-            "{\n"
-            "    gl_Position = vec4(position.xy, 0.0, 1.0);\n"
-            "}\n");
+        return std::string(essl3_shaders::vs::Simple());
     }
 
     std::string getFragmentShaderSource() override
@@ -1564,6 +1558,10 @@ TEST_P(Texture2DTest, CopySubImageFloat_RGBA_RGB)
 
 TEST_P(Texture2DTest, CopySubImageFloat_RGBA_RGBA)
 {
+    // TODO(lucferron): copySubImage isn't implemented yet.
+    // http://anglebug.com/2501
+    ANGLE_SKIP_TEST_IF(IsVulkan());
+
     // Ignore SDK layers messages on D3D11 FL 9.3 (http://anglebug.com/1284)
     ANGLE_SKIP_TEST_IF(IsD3D11_FL93());
 
@@ -2367,7 +2365,7 @@ TEST_P(TextureSizeTextureArrayTest, BaseLevelVariesInTextureArray)
     glUniform1i(mTexture0Location, 0);
     glUniform1i(mTexture1Location, 1);
 
-    drawQuad(mProgram, "position", 0.5f);
+    drawQuad(mProgram, essl3_shaders::PositionAttrib(), 0.5f);
     EXPECT_GL_NO_ERROR();
     // Red channel: width of level 1 of texture A: 32.
     // Green channel: width of level 3 of texture B: 16.
@@ -3721,8 +3719,31 @@ TEST_P(Texture2DTestES3, NegativeTextureBaseLevelAndMaxLevel)
     EXPECT_GL_NO_ERROR();
 }
 
+// Test setting base level after calling generateMipmap on a LUMA texture.
+// Covers http://anglebug.com/2498
+TEST_P(Texture2DTestES3, GenerateMipmapAndBaseLevelLUMA)
+{
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, mTexture2D);
+
+    constexpr const GLsizei kWidth  = 8;
+    constexpr const GLsizei kHeight = 8;
+    std::array<GLubyte, kWidth * kHeight * 2> whiteData;
+    whiteData.fill(255u);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, kWidth, kHeight, 0, GL_LUMINANCE_ALPHA,
+                 GL_UNSIGNED_BYTE, whiteData.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 1);
+    EXPECT_GL_NO_ERROR();
+
+    drawQuad(mProgram, "position", 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, angle::GLColor::white);
+}
+
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these tests should be run against.
-// TODO(oetuaho): Enable all below tests on OpenGL. Requires a fix for ANGLE bug 1278.
 ANGLE_INSTANTIATE_TEST(Texture2DTest,
                        ES2_D3D9(),
                        ES2_D3D11(),

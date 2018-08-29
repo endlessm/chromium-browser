@@ -4,8 +4,10 @@
 
 #include "ash/system/network/network_feature_pod_button.h"
 
+#include "ash/shell.h"
 #include "ash/system/network/network_icon.h"
 #include "ash/system/network/network_icon_animation.h"
+#include "ash/system/tray/system_tray_notifier.h"
 #include "chromeos/network/network_state_handler.h"
 
 namespace ash {
@@ -24,6 +26,7 @@ bool IsActive() {
 NetworkFeaturePodButton::NetworkFeaturePodButton(
     FeaturePodControllerBase* controller)
     : FeaturePodButton(controller) {
+  network_state_observer_ = std::make_unique<TrayNetworkStateObserver>(this);
   Update();
 }
 
@@ -32,6 +35,10 @@ NetworkFeaturePodButton::~NetworkFeaturePodButton() {
 }
 
 void NetworkFeaturePodButton::NetworkIconChanged() {
+  Update();
+}
+
+void NetworkFeaturePodButton::NetworkStateChanged(bool notify_a11y) {
   Update();
 }
 

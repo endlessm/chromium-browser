@@ -8,7 +8,6 @@
 #include "base/compiler_specific.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
@@ -273,10 +272,6 @@ class BookmarkBarViewEventTestBase : public ViewEventTestBase {
         model_(NULL) {}
 
   void SetUp() override {
-    // Make sure the correct layout provider is created and used. This must be
-    // done prior to any view being created which uses the layout provider.
-    layout_provider_ = ChromeLayoutProvider::CreateLayoutProvider();
-
     content_client_.reset(new ChromeContentClient);
     content::SetContentClient(content_client_.get());
     browser_content_client_.reset(new ChromeContentBrowserClient());
@@ -413,7 +408,6 @@ class BookmarkBarViewEventTestBase : public ViewEventTestBase {
   std::unique_ptr<TestingProfile> profile_;
   std::unique_ptr<Browser> browser_;
   std::unique_ptr<ScopedTestingLocalState> local_state_;
-  std::unique_ptr<views::LayoutProvider> layout_provider_;
 };
 
 // Clicks on first menu, makes sure button is depressed. Moves mouse to first
@@ -873,6 +867,9 @@ class BookmarkBarViewTest7 : public BookmarkBarViewEventTestBase {
     views::MenuItemView* drop_menu = bb_view_->GetDropMenu();
     ASSERT_TRUE(drop_menu != NULL);
     ASSERT_TRUE(drop_menu->GetSubmenu()->IsShowing());
+    // The button should be highlighted now.
+    views::LabelButton* other_button = bb_view_->other_bookmarks_button();
+    ASSERT_EQ(views::Button::STATE_PRESSED, other_button->state());
 
     views::MenuItemView* target_menu =
         drop_menu->GetSubmenu()->GetMenuItemAt(0);
@@ -890,6 +887,9 @@ class BookmarkBarViewTest7 : public BookmarkBarViewEventTestBase {
 
   void Step6() {
     ASSERT_TRUE(model_->other_node()->GetChild(0)->url() == url_dragging_);
+    // The button should be in normal state now.
+    views::LabelButton* other_button = bb_view_->other_bookmarks_button();
+    ASSERT_EQ(views::Button::STATE_NORMAL, other_button->state());
     Done();
   }
 
@@ -1875,7 +1875,11 @@ class BookmarkBarViewTest20 : public BookmarkBarViewEventTestBase {
   }
 
   void Step3() {
+#if defined(OS_CHROMEOS)
+    ASSERT_EQ(test_view_->press_count(), 1);
+#else
     ASSERT_EQ(test_view_->press_count(), 2);
+#endif
     ASSERT_TRUE(bb_view_->GetMenu() == NULL);
     Done();
   }

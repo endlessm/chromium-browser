@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 //
 /// \file
-/// \brief This is the parent TargetLowering class for hardware code gen
+/// This is the parent TargetLowering class for hardware code gen
 /// targets.
 //
 //===----------------------------------------------------------------------===//
@@ -574,6 +574,7 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
   setTargetDAGCombine(ISD::SHL);
   setTargetDAGCombine(ISD::SRA);
   setTargetDAGCombine(ISD::SRL);
+  setTargetDAGCombine(ISD::TRUNCATE);
   setTargetDAGCombine(ISD::MUL);
   setTargetDAGCombine(ISD::MULHU);
   setTargetDAGCombine(ISD::MULHS);
@@ -806,12 +807,11 @@ bool AMDGPUTargetLowering::isSDNodeSourceOfDivergence(const SDNode * N,
 
         if (MRI.isLiveIn(Reg)) {
           // workitem.id.x workitem.id.y workitem.id.z
+          // Any VGPR formal argument is also considered divergent
           if ((MRI.getLiveInPhysReg(Reg) == AMDGPU::T0_X) ||
               (MRI.getLiveInPhysReg(Reg) == AMDGPU::T0_Y) ||
-              (MRI.getLiveInPhysReg(Reg) == AMDGPU::T0_Z)||
-              (MRI.getLiveInPhysReg(Reg) == AMDGPU::VGPR0) ||
-            (MRI.getLiveInPhysReg(Reg) == AMDGPU::VGPR1) ||
-            (MRI.getLiveInPhysReg(Reg) == AMDGPU::VGPR2))
+              (MRI.getLiveInPhysReg(Reg) == AMDGPU::T0_Z) ||
+              (TRI.isVGPR(MRI, Reg)))
               return true;
           // Formal arguments of non-entry functions
           // are conservatively considered divergent
@@ -840,6 +840,12 @@ bool AMDGPUTargetLowering::isSDNodeSourceOfDivergence(const SDNode * N,
     case ISD::INTRINSIC_W_CHAIN:
       return AMDGPU::isIntrinsicSourceOfDivergence(
       cast<ConstantSDNode>(N->getOperand(1))->getZExtValue());
+    // In some cases intrinsics that are a source of divergence have been
+    // lowered to AMDGPUISD so we also need to check those too.
+    case AMDGPUISD::INTERP_MOV:
+    case AMDGPUISD::INTERP_P1:
+    case AMDGPUISD::INTERP_P2:
+      return true;
   }
   return false;
 }
@@ -934,7 +940,8 @@ bool AMDGPUTargetLowering::isZExtFree(SDValue Val, EVT VT2) const {
 // where this is OK to use.
 bool AMDGPUTargetLowering::isFPExtFoldable(unsigned Opcode,
                                            EVT DestVT, EVT SrcVT) const {
-  return Opcode == ISD::FMAD && Subtarget->hasMadMixInsts() &&
+  return ((Opcode == ISD::FMAD && Subtarget->hasMadMixInsts()) ||
+          (Opcode == ISD::FMA && Subtarget->hasFmaMixInsts())) &&
          DestVT.getScalarType() == MVT::f32 && !Subtarget->hasFP32Denormals() &&
          SrcVT.getScalarType() == MVT::f16;
 }
@@ -1315,7 +1322,7 @@ SDValue AMDGPUTargetLowering::LowerEXTRACT_SUBVECTOR(SDValue Op,
   return DAG.getBuildVector(Op.getValueType(), SDLoc(Op), Args);
 }
 
-/// \brief Generate Min/Max node
+/// Generate Min/Max node
 SDValue AMDGPUTargetLowering::combineFMinMaxLegacy(const SDLoc &DL, EVT VT,
                                                    SDValue LHS, SDValue RHS,
                                                    SDValue True, SDValue False,
@@ -3113,6 +3120,92 @@ SDValue AMDGPUTargetLowering::performSrlCombine(SDNode *N,
   return DAG.getNode(ISD::BITCAST, SL, MVT::i64, BuildPair);
 }
 
+SDValue AMDGPUTargetLowering::performTruncateCombine(
+  SDNode *N, DAGCombinerInfo &DCI) const {
+  SDLoc SL(N);
+  SelectionDAG &DAG = DCI.DAG;
+  EVT VT = N->getValueType(0);
+  SDValue Src = N->getOperand(0);
+
+  // vt1 (truncate (bitcast (build_vector vt0:x, ...))) -> vt1 (bitcast vt0:x)
+  if (Src.getOpcode() == ISD::BITCAST) {
+    SDValue Vec = Src.getOperand(0);
+    if (Vec.getOpcode() == ISD::BUILD_VECTOR) {
+      SDValue Elt0 = Vec.getOperand(0);
+      EVT EltVT = Elt0.getValueType();
+      if (VT.getSizeInBits() <= EltVT.getSizeInBits()) {
+        if (EltVT.isFloatingPoint()) {
+          Elt0 = DAG.getNode(ISD::BITCAST, SL,
+                             EltVT.changeTypeToInteger(), Elt0);
+        }
+
+        return DAG.getNode(ISD::TRUNCATE, SL, VT, Elt0);
+      }
+    }
+  }
+
+  // Equivalent of above for accessing the high element of a vector as an
+  // integer operation.
+  // trunc (srl (bitcast (build_vector x, y))), 16 -> trunc (bitcast y)
+  if (Src.getOpcode() == ISD::SRL) {
+    if (auto K = isConstOrConstSplat(Src.getOperand(1))) {
+      if (2 * K->getZExtValue() == Src.getValueType().getScalarSizeInBits()) {
+        SDValue BV = stripBitcast(Src.getOperand(0));
+        if (BV.getOpcode() == ISD::BUILD_VECTOR &&
+            BV.getValueType().getVectorNumElements() == 2) {
+          SDValue SrcElt = BV.getOperand(1);
+          EVT SrcEltVT = SrcElt.getValueType();
+          if (SrcEltVT.isFloatingPoint()) {
+            SrcElt = DAG.getNode(ISD::BITCAST, SL,
+                                 SrcEltVT.changeTypeToInteger(), SrcElt);
+          }
+
+          return DAG.getNode(ISD::TRUNCATE, SL, VT, SrcElt);
+        }
+      }
+    }
+  }
+
+  // Partially shrink 64-bit shifts to 32-bit if reduced to 16-bit.
+  //
+  // i16 (trunc (srl i64:x, K)), K <= 16 ->
+  //     i16 (trunc (srl (i32 (trunc x), K)))
+  if (VT.getScalarSizeInBits() < 32) {
+    EVT SrcVT = Src.getValueType();
+    if (SrcVT.getScalarSizeInBits() > 32 &&
+        (Src.getOpcode() == ISD::SRL ||
+         Src.getOpcode() == ISD::SRA ||
+         Src.getOpcode() == ISD::SHL)) {
+      SDValue Amt = Src.getOperand(1);
+      KnownBits Known;
+      DAG.computeKnownBits(Amt, Known);
+      unsigned Size = VT.getScalarSizeInBits();
+      if ((Known.isConstant() && Known.getConstant().ule(Size)) ||
+          (Known.getBitWidth() - Known.countMinLeadingZeros() <= Log2_32(Size))) {
+        EVT MidVT = VT.isVector() ?
+          EVT::getVectorVT(*DAG.getContext(), MVT::i32,
+                           VT.getVectorNumElements()) : MVT::i32;
+
+        EVT NewShiftVT = getShiftAmountTy(MidVT, DAG.getDataLayout());
+        SDValue Trunc = DAG.getNode(ISD::TRUNCATE, SL, MidVT,
+                                    Src.getOperand(0));
+        DCI.AddToWorklist(Trunc.getNode());
+
+        if (Amt.getValueType() != NewShiftVT) {
+          Amt = DAG.getZExtOrTrunc(Amt, SL, NewShiftVT);
+          DCI.AddToWorklist(Amt.getNode());
+        }
+
+        SDValue ShrunkShift = DAG.getNode(Src.getOpcode(), SL, MidVT,
+                                          Trunc, Amt);
+        return DAG.getNode(ISD::TRUNCATE, SL, VT, ShrunkShift);
+      }
+    }
+  }
+
+  return SDValue();
+}
+
 // We need to specifically handle i64 mul here to avoid unnecessary conversion
 // instructions. If we only match on the legalized i64 mul expansion,
 // SimplifyDemandedBits will be unable to remove them because there will be
@@ -3154,6 +3247,17 @@ SDValue AMDGPUTargetLowering::performMulCombine(SDNode *N,
 
   SDValue N0 = N->getOperand(0);
   SDValue N1 = N->getOperand(1);
+
+  // SimplifyDemandedBits has the annoying habit of turning useful zero_extends
+  // in the source into any_extends if the result of the mul is truncated. Since
+  // we can assume the high bits are whatever we want, use the underlying value
+  // to avoid the unknown high bits from interfering.
+  if (N0.getOpcode() == ISD::ANY_EXTEND)
+    N0 = N0.getOperand(0);
+
+  if (N1.getOpcode() == ISD::ANY_EXTEND)
+    N1 = N1.getOperand(0);
+
   SDValue Mul;
 
   if (Subtarget->hasMulU24() && isU24(N0, DAG) && isU24(N1, DAG)) {
@@ -3752,6 +3856,8 @@ SDValue AMDGPUTargetLowering::PerformDAGCombine(SDNode *N,
 
     return performSraCombine(N, DCI);
   }
+  case ISD::TRUNCATE:
+    return performTruncateCombine(N, DCI);
   case ISD::MUL:
     return performMulCombine(N, DCI);
   case ISD::MULHS:

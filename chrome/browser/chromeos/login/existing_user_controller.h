@@ -30,7 +30,7 @@
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "chromeos/login/auth/login_performer.h"
 #include "chromeos/login/auth/user_context.h"
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 #include "components/user_manager/user.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -99,7 +99,6 @@ class ExistingUserController
   void OnSigninScreenReady() override;
   void OnStartEnterpriseEnrollment() override;
   void OnStartEnableDebuggingScreen() override;
-  void OnStartDemoModeSetupScreen() override;
   void OnStartKioskEnableScreen() override;
   void OnStartKioskAutolaunchScreen() override;
   void ResetAutoLoginTimer() override;
@@ -307,6 +306,9 @@ class ExistingUserController
   void WipePerformed(const UserContext& user_context,
                      bool success,
                      cryptohome::MountError return_code);
+
+  // Triggers online login for the given |account_id|.
+  void ForceOnlineLoginForAccountId(const AccountId& account_id);
 
   // Clear the recorded displayed email, displayed name, given name so it won't
   // affect any future attempts.

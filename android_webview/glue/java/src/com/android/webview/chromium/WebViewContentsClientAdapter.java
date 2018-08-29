@@ -52,6 +52,7 @@ import org.chromium.android_webview.AwWebResourceResponse;
 import org.chromium.android_webview.JsPromptResultReceiver;
 import org.chromium.android_webview.JsResultReceiver;
 import org.chromium.android_webview.SafeBrowsingAction;
+import org.chromium.android_webview.ScopedSysTraceEvent;
 import org.chromium.android_webview.permission.AwPermissionRequest;
 import org.chromium.android_webview.permission.Resource;
 import org.chromium.base.Callback;
@@ -102,7 +103,7 @@ class WebViewContentsClientAdapter extends AwContentsClient {
     // The WebViewClient instance that was passed to WebView.setWebViewClient().
     protected WebViewClient mWebViewClient = sNullWebViewClient;
     // Some callbacks will be forwarded to this client for apps using the support library.
-    private SupportLibWebViewContentsClientAdapter mSupportLibClient;
+    private final SupportLibWebViewContentsClientAdapter mSupportLibClient;
     // The WebChromeClient instance that was passed to WebView.setContentViewClient().
     private WebChromeClient mWebChromeClient;
     // The listener receiving find-in-page API results.
@@ -131,46 +132,53 @@ class WebViewContentsClientAdapter extends AwContentsClient {
     @SuppressLint("HandlerLeak")
     WebViewContentsClientAdapter(WebView webView, Context context,
             WebViewDelegate webViewDelegate) {
-        if (webView == null || webViewDelegate == null) {
-            throw new IllegalArgumentException("webView or delegate can't be null.");
-        }
-
-        if (context == null) {
-            throw new IllegalArgumentException("context can't be null.");
-        }
-
-        mContext = context;
-        mWebView = webView;
-        mWebViewDelegate = webViewDelegate;
-        mSupportLibClient = new SupportLibWebViewContentsClientAdapter();
-        setWebViewClient(null);
-
-        mUiThreadHandler = new Handler() {
-            @Override
-            public void handleMessage(Message msg) {
-                switch (msg.what) {
-                    case NEW_WEBVIEW_CREATED:
-                        WebView.WebViewTransport t = (WebView.WebViewTransport) msg.obj;
-                        WebView newWebView = t.getWebView();
-                        if (newWebView == mWebView) {
-                            throw new IllegalArgumentException(
-                                    "Parent WebView cannot host it's own popup window. Please "
-                                    + "use WebSettings.setSupportMultipleWindows(false)");
-                        }
-
-                        if (newWebView != null && newWebView.copyBackForwardList().getSize() != 0) {
-                            throw new IllegalArgumentException(
-                                    "New WebView for popup window must not have been previously "
-                                    + "navigated.");
-                        }
-
-                        WebViewChromium.completeWindowCreation(mWebView, newWebView);
-                        break;
-                    default:
-                        throw new IllegalStateException();
-                }
+        try (ScopedSysTraceEvent e = ScopedSysTraceEvent.scoped(
+                     "WebViewContentsClientAdapter.beginningOfConstructor")) {
+            if (webView == null || webViewDelegate == null) {
+                throw new IllegalArgumentException("webView or delegate can't be null.");
             }
-        };
+
+            if (context == null) {
+                throw new IllegalArgumentException("context can't be null.");
+            }
+
+            mContext = context;
+            mWebView = webView;
+            mWebViewDelegate = webViewDelegate;
+        }
+        try (ScopedSysTraceEvent event =
+                        ScopedSysTraceEvent.scoped("WebViewContentsClientAdapter.constructor")) {
+            mSupportLibClient = new SupportLibWebViewContentsClientAdapter();
+            setWebViewClient(null);
+
+            mUiThreadHandler = new Handler() {
+                @Override
+                public void handleMessage(Message msg) {
+                    switch (msg.what) {
+                        case NEW_WEBVIEW_CREATED:
+                            WebView.WebViewTransport t = (WebView.WebViewTransport) msg.obj;
+                            WebView newWebView = t.getWebView();
+                            if (newWebView == mWebView) {
+                                throw new IllegalArgumentException(
+                                        "Parent WebView cannot host it's own popup window. Please "
+                                        + "use WebSettings.setSupportMultipleWindows(false)");
+                            }
+
+                            if (newWebView != null
+                                    && newWebView.copyBackForwardList().getSize() != 0) {
+                                throw new IllegalArgumentException(
+                                        "New WebView for popup window must not have been "
+                                        + " previously navigated.");
+                            }
+
+                            WebViewChromium.completeWindowCreation(mWebView, newWebView);
+                            break;
+                        default:
+                            throw new IllegalStateException();
+                    }
+                }
+            };
+        }
     }
 
     void setWebViewClient(WebViewClient client) {

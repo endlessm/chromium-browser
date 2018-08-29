@@ -105,7 +105,9 @@ class ImeMenuTrayTest : public AshTestBase {
   // Focuses in the given type of input context.
   void FocusInInputContext(ui::TextInputType input_type) {
     ui::IMEEngineHandlerInterface::InputContext input_context(
-        input_type, ui::TEXT_INPUT_MODE_DEFAULT, ui::TEXT_INPUT_FLAG_NONE);
+        input_type, ui::TEXT_INPUT_MODE_DEFAULT, ui::TEXT_INPUT_FLAG_NONE,
+        ui::TextInputClient::FOCUS_REASON_OTHER,
+        false /* should_do_learning */);
     ui::IMEBridge::Get()->SetCurrentInputContext(input_context);
   }
 
@@ -268,7 +270,7 @@ TEST_F(ImeMenuTrayTest, TestAccelerator) {
   EXPECT_FALSE(IsBubbleShown());
 }
 
-TEST_F(ImeMenuTrayTest, ShowEmojiKeyset) {
+TEST_F(ImeMenuTrayTest, ShowingEmojiKeysetHidesBubble) {
   Shell::Get()->ime_controller()->ShowImeMenuOnShelf(true);
   ASSERT_TRUE(IsVisible());
   ASSERT_FALSE(IsTrayBackgroundActive());
@@ -279,46 +281,13 @@ TEST_F(ImeMenuTrayTest, ShowEmojiKeyset) {
   EXPECT_TRUE(IsTrayBackgroundActive());
   EXPECT_TRUE(IsBubbleShown());
 
-  AccessibilityController* accessibility_controller =
-      Shell::Get()->accessibility_controller();
-
-  accessibility_controller->SetVirtualKeyboardEnabled(true);
-  EXPECT_TRUE(accessibility_controller->IsVirtualKeyboardEnabled());
-
+  TestImeControllerClient client;
+  Shell::Get()->ime_controller()->SetClient(client.CreateInterfacePtr());
   GetTray()->ShowKeyboardWithKeyset(
       chromeos::input_method::mojom::ImeKeyset::kEmoji);
+
   // The menu should be hidden.
   EXPECT_FALSE(IsBubbleShown());
-  // The virtual keyboard should be enabled.
-  EXPECT_TRUE(accessibility_controller->IsVirtualKeyboardEnabled());
-
-  // Hides the keyboard.
-  GetTray()->OnKeyboardHidden();
-  // The keyboard should still be enabled.
-  EXPECT_TRUE(accessibility_controller->IsVirtualKeyboardEnabled());
-}
-
-TEST_F(ImeMenuTrayTest, ForceToShowEmojiKeyset) {
-  ImeController* ime_controller = Shell::Get()->ime_controller();
-  AccessibilityController* accessibility_controller =
-      Shell::Get()->accessibility_controller();
-  accessibility_controller->SetVirtualKeyboardEnabled(false);
-  ASSERT_FALSE(accessibility_controller->IsVirtualKeyboardEnabled());
-
-  TestImeControllerClient client;
-  ime_controller->SetClient(client.CreateInterfacePtr());
-  GetTray()->ShowKeyboardWithKeyset(
-      chromeos::input_method::mojom::ImeKeyset::kEmoji);
-  // Keyboard is shown asynchronously through Mojo
-  ime_controller->FlushMojoForTesting();
-  // The virtual keyboard should be enabled.
-  EXPECT_TRUE(accessibility_controller->IsVirtualKeyboardEnabled());
-
-  // Hides the keyboard.
-  GetTray()->OnKeyboardHidden();
-  // The keyboard should still be disabled, which is a posted task.
-  base::RunLoop().RunUntilIdle();
-  EXPECT_FALSE(accessibility_controller->IsVirtualKeyboardEnabled());
 }
 
 // Tests that tapping the emoji button does not crash. http://crbug.com/739630

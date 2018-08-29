@@ -7,6 +7,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/histogram_tester.h"
 #include "chrome/browser/ui/autofill/save_card_bubble_controller_impl.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/autofill/save_card_bubble_views.h"
 #include "chrome/browser/ui/views/autofill/save_card_bubble_views_browsertest_base.h"
 #include "components/autofill/core/browser/autofill_experiments.h"
@@ -199,6 +201,45 @@ IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTest,
                   "https://support.google.com/chromebook/?p=settings_autofill");
 }
 
+// Tests the local save bubble. Ensures that the bubble behaves correctly if
+// dismissed and then immediately torn down (e.g. by closing browser window)
+// before the asynchronous close completes. Regression test for
+// https://crbug.com/842577 .
+IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTest,
+                       Local_SynchronousCloseAfterAsynchronousClose) {
+  // Set up the Payments RPC.
+  SetUploadDetailsRpcPaymentsDeclines();
+
+  // Submitting the form and having Payments decline offering to save should
+  // show the local save bubble.
+  // (Must wait for response from Payments before accessing the controller.)
+  ResetEventWaiterForSequence(
+      {DialogEvent::REQUESTED_UPLOAD_SAVE,
+       DialogEvent::RECEIVED_GET_UPLOAD_DETAILS_RESPONSE,
+       DialogEvent::OFFERED_LOCAL_SAVE});
+  FillAndSubmitForm();
+  WaitForObservedEvent();
+
+  SaveCardBubbleViews* bubble = GetSaveCardBubbleViews();
+  EXPECT_TRUE(bubble);
+  views::Widget* bubble_widget = bubble->GetWidget();
+  EXPECT_TRUE(bubble_widget);
+  EXPECT_TRUE(bubble_widget->IsVisible());
+  bubble->Hide();
+  EXPECT_FALSE(bubble_widget->IsVisible());
+
+  // The bubble is immediately hidden, but it can still receive events here.
+  // Simulate an OS event arriving to destroy the Widget.
+  bubble_widget->CloseNow();
+  // |bubble| and |bubble_widget| now point to deleted objects.
+
+  // Simulate closing the browser window.
+  browser()->tab_strip_model()->CloseAllTabs();
+
+  // Process the asynchronous close (which should do nothing).
+  base::RunLoop().RunUntilIdle();
+}
+
 // Tests the upload save bubble. Ensures that clicking the [Save] button
 // successfully causes the bubble to go away and sends an UploadCardRequest RPC
 // to Google Payments.
@@ -327,10 +368,10 @@ IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTest,
   EXPECT_FALSE(GetSaveCardBubbleViews());
 }
 
-// Tests the upload save bubble. Ensures that the updated UI version of the
-// bubble (as of M62) does not have a [Learn more] link.
+// Tests the upload save bubble. Ensures that the upload save version of the
+// bubble does not have a [Learn more] link.
 IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTest,
-                       Upload_ShouldNotHaveLearnMoreLinkIfNewUiExperimentOn) {
+                       Upload_ShouldNotHaveLearnMoreLink) {
   // Set up the Payments RPC.
   SetUploadDetailsRpcPaymentsAccepts();
 
@@ -354,228 +395,6 @@ IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTest,
 //              prevents us from being able to click it unless we know the exact
 //              gfx::Range of the link. When/if that can be worked around,
 //              create an Upload_ClickingTosLinkClosesBubble test.
-
-// Tests the upload save bubble. Ensures that if CVC is invalid when the credit
-// card is submitted, the bubble is still shown with the CVC fix flow (starts
-// with the footer hidden due to showing it on the second step).
-IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTest,
-    Upload_SubmittingFormWithInvalidCvcShowsBubbleIfCvcExpOn) {
-  // Enable the RequestCvcIfMissing experiment.
-  scoped_feature_list_.InitAndEnableFeature(
-      kAutofillUpstreamRequestCvcIfMissing);
-
-  // Set up the Payments RPC.
-  SetUploadDetailsRpcPaymentsAccepts();
-
-  // Submitting the form should show the upload save bubble, but should NOT show
-  // the legal footer on the initial step, and the CVC request view should not
-  // yet exist.
-  // (Must wait for response from Payments before accessing the controller.)
-  ResetEventWaiterForSequence(
-      {DialogEvent::REQUESTED_UPLOAD_SAVE,
-       DialogEvent::RECEIVED_GET_UPLOAD_DETAILS_RESPONSE});
-  FillAndSubmitFormWithInvalidCvc();
-  WaitForObservedEvent();
-  EXPECT_TRUE(
-      FindViewInBubbleById(DialogViewId::MAIN_CONTENT_VIEW_UPLOAD)->visible());
-  EXPECT_FALSE(FindViewInBubbleById(DialogViewId::FOOTNOTE_VIEW)->visible());
-  EXPECT_FALSE(FindViewInBubbleById(DialogViewId::REQUEST_CVC_VIEW));
-}
-
-// Tests the upload save bubble. Ensures that during the CVC fix flow, the final
-// [Confirm] button is disabled if CVC has not yet been entered.
-IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTest,
-                       Upload_ConfirmButtonIsDisabledIfNoCvcAndCvcExpOn) {
-  // Enable the RequestCvcIfMissing experiment.
-  scoped_feature_list_.InitAndEnableFeature(
-      kAutofillUpstreamRequestCvcIfMissing);
-
-  // Set up the Payments RPC.
-  SetUploadDetailsRpcPaymentsAccepts();
-
-  // Submitting the form should show the upload save bubble, but should NOT show
-  // the legal footer on the initial step, and the CVC request view should not
-  // yet exist.
-  // (Must wait for response from Payments before accessing the controller.)
-  ResetEventWaiterForSequence(
-      {DialogEvent::REQUESTED_UPLOAD_SAVE,
-       DialogEvent::RECEIVED_GET_UPLOAD_DETAILS_RESPONSE});
-  FillAndSubmitFormWithoutCvc();
-  WaitForObservedEvent();
-  EXPECT_TRUE(
-      FindViewInBubbleById(DialogViewId::MAIN_CONTENT_VIEW_UPLOAD)->visible());
-  EXPECT_FALSE(FindViewInBubbleById(DialogViewId::FOOTNOTE_VIEW)->visible());
-  EXPECT_FALSE(FindViewInBubbleById(DialogViewId::REQUEST_CVC_VIEW));
-
-  // Clicking [Next] should not close the bubble, but rather advance to the
-  // request CVC step and show the legal message footer.
-  ClickOnDialogViewWithIdAndWait(DialogViewId::OK_BUTTON);
-  EXPECT_TRUE(FindViewInBubbleById(DialogViewId::REQUEST_CVC_VIEW)->visible());
-  EXPECT_TRUE(FindViewInBubbleById(DialogViewId::FOOTNOTE_VIEW)->visible());
-
-  // The [Confirm] button should be disabled due to no CVC yet entered.
-  views::LabelButton* confirm_button = static_cast<views::LabelButton*>(
-      FindViewInBubbleById(DialogViewId::OK_BUTTON));
-  EXPECT_EQ(confirm_button->state(),
-            views::LabelButton::ButtonState::STATE_DISABLED);
-}
-
-// Tests the upload save bubble. Ensures that during the CVC fix flow, the final
-// [Confirm] button is disabled if the entered CVC is invalid.
-IN_PROC_BROWSER_TEST_F(SaveCardBubbleViewsFullFormBrowserTest,
-                       Upload_ConfirmButtonIsDisabledIfInvalidCvcAndCvcExpOn) {
-  // Enable the RequestCvcIfMissing experiment.
-  scoped_feature_list_.InitAndEnableFeature(
-      kAutofillUpstreamRequestCvcIfMissing);
-
-  // Set up the Payments RPC.
-  SetUploadDetailsRpcPaymentsAccepts();
-
-  // Submitting the form should show the upload save bubble, but should NOT show
-  // the legal footer on the initial step, and the CVC request view should not
-  // yet exist.
-  // (Must wait for response from Payments before accessing the controller.)
-  ResetEventWaiterForSequence(
-      {DialogEvent::REQUESTED_UPLOAD_SAVE,
-       DialogEvent::RECEIVED_GET_UPLOAD_DETAILS_RESPONSE});
-  FillAndSubmitFormWithoutCvc();
-  WaitForObservedEvent();
-  EXPECT_TRUE(
-      FindViewInBubbleById(DialogViewId::MAIN_CONTENT_VIEW_UPLOAD)->visible());
-  EXPECT_FALSE(FindViewInBubbleById(DialogViewId::FOOTNOTE_VIEW)->visible());
-  EXPECT_FALSE(FindViewInBubbleById(DialogViewId::REQUEST_CVC_VIEW));
-
-  // Clicking [Next] should not close the bubble, but rather advance to the
-  // request CVC step and show the legal message footer.
-  ClickOnDialogViewWithIdAndWait(DialogViewId::OK_BUTTON);
-  EXPECT_TRUE(FindViewInBubbleById(DialogViewId::REQUEST_CVC_VIEW)->visible());
-  EXPECT_TRUE(FindViewInBubbleById(DialogViewId::FOOTNOTE_VIEW)->visible());
-
-  // Enter an invalid length CVC (4-digit CVC for non-AmEx card, for instance).
-  views::Textfield* cvc_field = static_cast<views::Textfield*>(
-      FindViewInBubbleById(DialogViewId::CVC_TEXTFIELD));
-  cvc_field->InsertOrReplaceText(base::ASCIIToUTF16("1234"));
-
-  // The [Confirm] button should be disabled due to the invalid CVC.
-  views::LabelButton* confirm_button = static_cast<views::LabelButton*>(
-      FindViewInBubbleById(DialogViewId::OK_BUTTON));
-  EXPECT_EQ(confirm_button->state(),
-            views::LabelButton::ButtonState::STATE_DISABLED);
-}
-
-// Tests the upload save bubble. Ensures that during the CVC fix flow, if a
-// valid 3-digit CVC is entered, the [Confirm] button successfully causes the
-// bubble to go away and sends an UploadCardRequest RPC to Google Payments.
-IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTest,
-    Upload_Entering3DigitCvcAndClickingConfirmClosesBubbleIfNoCvcAndCvcExpOn) {
-  // Enable the RequestCvcIfMissing experiment.
-  scoped_feature_list_.InitAndEnableFeature(
-      kAutofillUpstreamRequestCvcIfMissing);
-
-  // Set up the Payments RPC.
-  SetUploadDetailsRpcPaymentsAccepts();
-
-  // Submitting the form should show the upload save bubble, but should NOT show
-  // the legal footer on the initial step, and the CVC request view should not
-  // yet exist.
-  // (Must wait for response from Payments before accessing the controller.)
-  ResetEventWaiterForSequence(
-      {DialogEvent::REQUESTED_UPLOAD_SAVE,
-       DialogEvent::RECEIVED_GET_UPLOAD_DETAILS_RESPONSE});
-  FillAndSubmitFormWithoutCvc();
-  WaitForObservedEvent();
-  EXPECT_TRUE(
-      FindViewInBubbleById(DialogViewId::MAIN_CONTENT_VIEW_UPLOAD)->visible());
-  EXPECT_FALSE(FindViewInBubbleById(DialogViewId::FOOTNOTE_VIEW)->visible());
-  EXPECT_FALSE(FindViewInBubbleById(DialogViewId::REQUEST_CVC_VIEW));
-
-  // Clicking [Next] should not close the bubble, but rather advance to the
-  // request CVC step and show the legal message footer.
-  ClickOnDialogViewWithIdAndWait(DialogViewId::OK_BUTTON);
-  EXPECT_TRUE(FindViewInBubbleById(DialogViewId::REQUEST_CVC_VIEW)->visible());
-  EXPECT_TRUE(FindViewInBubbleById(DialogViewId::FOOTNOTE_VIEW)->visible());
-
-  // Clicking [Confirm] after entering CVC should accept and close the bubble,
-  // then send an UploadCardRequest to Google Payments.
-  ResetEventWaiterForSequence({DialogEvent::SENT_UPLOAD_CARD_REQUEST});
-  views::Textfield* cvc_field = static_cast<views::Textfield*>(
-      FindViewInBubbleById(DialogViewId::CVC_TEXTFIELD));
-  cvc_field->InsertOrReplaceText(base::ASCIIToUTF16("123"));
-  base::HistogramTester histogram_tester;
-  content::TestNavigationObserver nav_observer(GetActiveWebContents(), 1);
-  ClickOnDialogViewWithIdAndWait(DialogViewId::OK_BUTTON);
-  // The bubble should be closed.
-  // (Must wait for page navigation to complete before checking.)
-  nav_observer.Wait();
-  EXPECT_FALSE(GetSaveCardBubbleViews());
-  // UMA should have recorded bubble and CVC fix flow acceptance.
-  EXPECT_THAT(
-      histogram_tester.GetAllSamples(
-          "Autofill.SaveCreditCardPrompt.Upload.FirstShow"),
-      ElementsAre(
-          Bucket(AutofillMetrics::SAVE_CARD_PROMPT_END_ACCEPTED, 1),
-          Bucket(AutofillMetrics::SAVE_CARD_PROMPT_CVC_FIX_FLOW_END_ACCEPTED,
-                 1)));
-}
-
-// Tests the upload save bubble. Ensures that during the CVC fix flow, if a
-// valid 4-digit CVC (for an AmEx card) is entered, the [Confirm] button
-// successfully causes the bubble to go away and sends an UploadCardRequest RPC
-// to Google Payments.
-IN_PROC_BROWSER_TEST_F(
-    SaveCardBubbleViewsFullFormBrowserTest,
-    Upload_Entering4DigitCvcAndClickingConfirmClosesBubbleIfNoCvcAndCvcExpOn) {
-  // Enable the RequestCvcIfMissing experiment.
-  scoped_feature_list_.InitAndEnableFeature(
-      kAutofillUpstreamRequestCvcIfMissing);
-
-  // Set up the Payments RPC.
-  SetUploadDetailsRpcPaymentsAccepts();
-
-  // Submitting the form should show the upload save bubble, but should NOT show
-  // the legal footer on the initial step, and the CVC request view should not
-  // yet exist.
-  // (Must wait for response from Payments before accessing the controller.)
-  ResetEventWaiterForSequence(
-      {DialogEvent::REQUESTED_UPLOAD_SAVE,
-       DialogEvent::RECEIVED_GET_UPLOAD_DETAILS_RESPONSE});
-  FillAndSubmitFormWithAmexWithoutCvc();
-  WaitForObservedEvent();
-  EXPECT_TRUE(
-      FindViewInBubbleById(DialogViewId::MAIN_CONTENT_VIEW_UPLOAD)->visible());
-  EXPECT_FALSE(FindViewInBubbleById(DialogViewId::FOOTNOTE_VIEW)->visible());
-  EXPECT_FALSE(FindViewInBubbleById(DialogViewId::REQUEST_CVC_VIEW));
-
-  // Clicking [Next] should not close the bubble, but rather advance to the
-  // request CVC step and show the legal message footer.
-  ClickOnDialogViewWithIdAndWait(DialogViewId::OK_BUTTON);
-  EXPECT_TRUE(FindViewInBubbleById(DialogViewId::REQUEST_CVC_VIEW)->visible());
-  EXPECT_TRUE(FindViewInBubbleById(DialogViewId::FOOTNOTE_VIEW)->visible());
-
-  // Clicking [Confirm] after entering CVC should accept and close the bubble,
-  // then send an UploadCardRequest to Google Payments.
-  ResetEventWaiterForSequence({DialogEvent::SENT_UPLOAD_CARD_REQUEST});
-  views::Textfield* cvc_field = static_cast<views::Textfield*>(
-      FindViewInBubbleById(DialogViewId::CVC_TEXTFIELD));
-  cvc_field->InsertOrReplaceText(base::ASCIIToUTF16("1234"));
-  base::HistogramTester histogram_tester;
-  content::TestNavigationObserver nav_observer(GetActiveWebContents(), 1);
-  ClickOnDialogViewWithIdAndWait(DialogViewId::OK_BUTTON);
-  // The bubble should be closed.
-  // (Must wait for page navigation to complete before checking.)
-  nav_observer.Wait();
-  EXPECT_FALSE(GetSaveCardBubbleViews());
-  // UMA should have recorded bubble and CVC fix flow acceptance.
-  EXPECT_THAT(
-      histogram_tester.GetAllSamples(
-          "Autofill.SaveCreditCardPrompt.Upload.FirstShow"),
-      ElementsAre(
-          Bucket(AutofillMetrics::SAVE_CARD_PROMPT_END_ACCEPTED, 1),
-          Bucket(AutofillMetrics::SAVE_CARD_PROMPT_CVC_FIX_FLOW_END_ACCEPTED,
-                 1)));
-}
 
 // Tests the upload save logic. Ensures that Chrome delegates the offer-to-save
 // call to Payments when the detected values experiment is on, and offers to
@@ -669,16 +488,13 @@ IN_PROC_BROWSER_TEST_F(
 }
 
 // Tests the upload save logic. Ensures that credit card upload is not offered
-// if CVC is not detected and the CVC fix flow is not enabled.
+// if CVC is not detected.
 IN_PROC_BROWSER_TEST_F(
     SaveCardBubbleViewsFullFormBrowserTest,
-    Logic_DetectedValuesOff_ShouldNotOfferToSaveIfCvcNotFoundAndCvcExpOff) {
-  // Disable both the RequestCvcIfMissing and SendDetectedValues experiments.
-  scoped_feature_list_.InitWithFeatures(
-      {},  // Enabled
-      {kAutofillUpstreamRequestCvcIfMissing,
-       kAutofillUpstreamSendDetectedValues}  // Disabled
-      );
+    Logic_DetectedValuesOff_ShouldNotOfferToSaveIfCvcNotFound) {
+  // Disable the SendDetectedValues experiment.
+  scoped_feature_list_.InitAndDisableFeature(
+      kAutofillUpstreamSendDetectedValues);
 
   // Submitting the form should not show the upload save bubble because CVC is
   // missing.
@@ -689,16 +505,13 @@ IN_PROC_BROWSER_TEST_F(
 
 // Tests the upload save logic. Ensures that Chrome lets Payments decide whether
 // upload save should be offered if the detected values experiment is on, even
-// if CVC is not detected and the CVC fix flow experiment is disabled.
+// if CVC is not detected.
 IN_PROC_BROWSER_TEST_F(
     SaveCardBubbleViewsFullFormBrowserTest,
-    Logic_DetectedValuesOn_ShouldAttemptToOfferToSaveIfCvcNotFoundAndCvcExpOff) {
-  // Enable the SendDetectedValues experiment, but disable the
-  // RequestCvcIfMissing experiment.
-  scoped_feature_list_.InitWithFeatures(
-      {kAutofillUpstreamSendDetectedValues},  // Enabled
-      {kAutofillUpstreamRequestCvcIfMissing}  // Disabled
-      );
+    Logic_DetectedValuesOn_ShouldAttemptToOfferToSaveIfCvcNotFound) {
+  // Enable the SendDetectedValues experiment.
+  scoped_feature_list_.InitAndEnableFeature(
+      kAutofillUpstreamSendDetectedValues);
 
   // Submitting the form should still start the flow of asking Payments if
   // Chrome should offer to save the card to Google, even though CVC is missing.
@@ -708,16 +521,13 @@ IN_PROC_BROWSER_TEST_F(
 }
 
 // Tests the upload save logic. Ensures that credit card upload is not offered
-// if an invalid CVC is detected and the CVC fix flow is not enabled.
+// if an invalid CVC is detected.
 IN_PROC_BROWSER_TEST_F(
     SaveCardBubbleViewsFullFormBrowserTest,
-    Logic_DetectedValuesOff_ShouldNotOfferToSaveIfInvalidCvcFoundAndCvcExpOff) {
-  // Disable both the RequestCvcIfMissing and SendDetectedValues experiments.
-  scoped_feature_list_.InitWithFeatures(
-      {},  // Enabled
-      {kAutofillUpstreamRequestCvcIfMissing,
-       kAutofillUpstreamSendDetectedValues}  // Disabled
-      );
+    Logic_DetectedValuesOff_ShouldNotOfferToSaveIfInvalidCvcFound) {
+  // Disable the SendDetectedValues experiment.
+  scoped_feature_list_.InitAndDisableFeature(
+      kAutofillUpstreamSendDetectedValues);
 
   // Submitting the form should not show the upload save bubble because CVC is
   // invalid.
@@ -728,16 +538,13 @@ IN_PROC_BROWSER_TEST_F(
 
 // Tests the upload save logic. Ensures that Chrome lets Payments decide whether
 // upload save should be offered if the detected values experiment is on, even
-// if the detected CVC is invalid and the CVC fix flow experiment is disabled.
+// if the detected CVC is invalid.
 IN_PROC_BROWSER_TEST_F(
     SaveCardBubbleViewsFullFormBrowserTest,
-    Logic_DetectedValuesOn_ShouldAttemptToOfferToSaveIfInvalidCvcFoundAndCvcExpOff) {
-  // Enable the SendDetectedValues experiment, but disable the
-  // RequestCvcIfMissing experiment.
-  scoped_feature_list_.InitWithFeatures(
-      {kAutofillUpstreamSendDetectedValues},  // Enabled
-      {kAutofillUpstreamRequestCvcIfMissing}  // Disabled
-      );
+    Logic_DetectedValuesOn_ShouldAttemptToOfferToSaveIfInvalidCvcFound) {
+  // Enable the SendDetectedValues experiment.
+  scoped_feature_list_.InitAndEnableFeature(
+      kAutofillUpstreamSendDetectedValues);
 
   // Submitting the form should still start the flow of asking Payments if
   // Chrome should offer to save the card to Google, even though the provided

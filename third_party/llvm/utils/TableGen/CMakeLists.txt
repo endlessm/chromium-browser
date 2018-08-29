@@ -30,6 +30,7 @@ add_tablegen(llvm-tblgen LLVM
   IntrinsicEmitter.cpp
   OptParserEmitter.cpp
   PseudoLoweringEmitter.cpp
+  RISCVCompressInstEmitter.cpp
   RegisterBankEmitter.cpp
   RegisterInfoEmitter.cpp
   SDNodeProperties.cpp
@@ -43,6 +44,7 @@ add_tablegen(llvm-tblgen LLVM
   X86FoldTablesEmitter.cpp
   X86ModRMFilters.cpp
   X86RecognizableInstr.cpp
+  WebAssemblyDisassemblerEmitter.cpp
   CTagsEmitter.cpp
   )
 set_target_properties(llvm-tblgen PROPERTIES FOLDER "Tablegenning")

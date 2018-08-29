@@ -11,19 +11,66 @@
 
 namespace flag_descriptions {
 
-const char kAutofillIOSDelayBetweenFieldsName[] = "Autofill delay";
-const char kAutofillIOSDelayBetweenFieldsDescription[] =
-    "Delay between the different fields of a form being autofilled. In "
-    "milliseconds.";
+const char kAutofillCacheQueryResponsesName[] =
+    "Cache Autofill Query Responses";
+const char kAutofillCacheQueryResponsesDescription[] =
+    "When enabled, autofill will cache the responses it receives from the "
+    "crowd-sourced field type prediction server.";
+
+const char kAutofillCreditCardUploadName[] =
+    "Offers uploading Autofilled credit cards";
+const char kAutofillCreditCardUploadDescription[] =
+    "Offers uploading Autofilled credit cards to Google Payments after form "
+    "submission.";
+
+const char kEnableAutofillCreditCardUploadUpdatePromptExplanationName[] =
+    "Enable updated prompt explanation when offering credit card upload";
+const char kEnableAutofillCreditCardUploadUpdatePromptExplanationDescription[] =
+    "If enabled, changes the server save card prompt's explanation to mention "
+    "the saving of the billing address.";
 
 const char kAutofillDynamicFormsName[] = "Autofill dynamic forms";
 const char kAutofillDynamicFormsDescription[] =
     "Refills forms that dynamically change after an initial fill";
 
+const char kAutofillEnforceMinRequiredFieldsForHeuristicsName[] =
+    "Autofill Enforce Min Required Fields For Heuristics";
+const char kAutofillEnforceMinRequiredFieldsForHeuristicsDescription[] =
+    "When enabled, autofill will generally require a form to have at least 3 "
+    "fields before allowing heuristic field-type prediction to occur.";
+
+const char kAutofillEnforceMinRequiredFieldsForQueryName[] =
+    "Autofill Enforce Min Required Fields For Query";
+const char kAutofillEnforceMinRequiredFieldsForQueryDescription[] =
+    "When enabled, autofill will generally require a form to have at least 3 "
+    "fields before querying the autofill server for field-type predictions.";
+
+const char kAutofillEnforceMinRequiredFieldsForUploadName[] =
+    "Autofill Enforce Min Required Fields For Upload";
+const char kAutofillEnforceMinRequiredFieldsForUploadDescription[] =
+    "When enabled, autofill will generally require a form to have at least 3 "
+    "fillable fields before uploading field-type votes for that form.";
+
+const char kAutofillIOSDelayBetweenFieldsName[] = "Autofill delay";
+const char kAutofillIOSDelayBetweenFieldsDescription[] =
+    "Delay between the different fields of a form being autofilled. In "
+    "milliseconds.";
+
 const char kAutofillRestrictUnownedFieldsToFormlessCheckoutName[] =
     "Restrict formless form extraction";
 const char kAutofillRestrictUnownedFieldsToFormlessCheckoutDescription[] =
     "Restrict extraction of formless forms to checkout flows";
+
+const char kAutofillUpstreamUseGooglePayBrandingOnMobileName[] =
+    "Enable Google Pay branding when offering credit card upload";
+const char kAutofillUpstreamUseGooglePayBrandingOnMobileDescription[] =
+    "If enabled, shows the Google Pay logo and a shorter header message when "
+    "credit card upload to Google Payments is offered.";
+
+const char kBrowserContainerFullscreenName[] = "Browser Container Fullscreen";
+const char kBrowserContainerFullscreenDescription[] =
+    "When enabled, the BrowserContainer is fullscreen. No UI change should be "
+    "visible.";
 
 const char kBrowserTaskScheduler[] = "Task Scheduler";
 const char kBrowserTaskSchedulerDescription[] =
@@ -67,11 +114,11 @@ const char kFeedbackKitV2WithSSOServiceName[] =
 const char kFeedbackKitV2WithSSOServiceDescription[] =
     "Send SSOService with configuration for FeedbackKit V2.";
 
-const char kFullscreenContentInsetName[] = "Fullscreen ContentInset";
-const char kFullscreenContentInsetDescription[] =
-    "When enabled, fullscreen will be implemented by adjusting the "
-    "contentInset of the WKWebView's scroll view rather than adjusting its "
-    "frame.";
+const char kFullscreenViewportAdjustmentExperimentName[] =
+    "Fullscreen Viewport Adjustment Mode";
+const char kFullscreenViewportAdjustmentExperimentDescription[] =
+    "The different ways in which the web view's viewport is updated for scroll "
+    "events.  The default option updates the web view's frame.";
 
 const char kHistoryBatchUpdatesFilterName[] = "History Single Batch Filtering";
 const char kHistoryBatchUpdatesFilterDescription[] =
@@ -85,10 +132,11 @@ const char kInProductHelpDemoModeDescription[] =
     "an individual promotion causes that promotion but no other promotions to "
     "occur.";
 
-const char kITunesLinksStoreKitHandlingName[] = "Store kit for ITunes links";
-const char kITunesLinksStoreKitHandlingDescription[] =
-    "When enabled, opening itunes product links will be handled using the "
-    "store kit.";
+const char kITunesUrlsStoreKitHandlingName[] =
+    "Store kit handling for ITunes links";
+const char kITunesUrlsStoreKitHandlingDescription[] =
+    "When enabled, opening itunes product URLs will be handled using the store "
+    "kit.";
 
 const char kMailtoHandlingWithGoogleUIName[] = "Mailto Handling with Google UI";
 const char kMailtoHandlingWithGoogleUIDescription[] =
@@ -125,6 +173,10 @@ const char kPhysicalWebDescription[] =
     "When enabled, the omnibox will include suggestions for web pages "
     "broadcast by devices near you.";
 
+const char kInfobarsUIRebootName[] = "Infobars UI Reboot";
+const char kInfobarsUIRebootDescription[] =
+    "When enabled, Infobars will use the new UI Reboot layout.";
+
 const char kCollectionsUIRebootName[] = "Collections UI Reboot";
 const char kCollectionsUIRebootDescription[] =
     "When enabled, Collections will use the new UI Reboot stack.";
@@ -138,6 +190,13 @@ const char kNewFileDownloadName[] = "Use new Download Manager UI and backend";
 const char kNewFileDownloadDescription[] =
     "When enabled, uses new Download Manager UI and ios/web Download API as "
     "backend.";
+
+const char kWebErrorPagesName[] =
+    "Present load errors in web contents area, instead of using "
+    "CRWNativeContent";
+const char kWebErrorPagesDescription[] =
+    "When enabled the error pages will load in web contents area, instead of "
+    "presenting CRWNativeContent. Does not have sensible UI changes.";
 
 const char kShowAutofillTypePredictionsName[] = "Show Autofill predictions";
 const char kShowAutofillTypePredictionsDescription[] =

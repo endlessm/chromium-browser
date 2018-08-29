@@ -39,10 +39,6 @@ namespace content {
 class WebUI;
 }
 
-namespace net {
-class SSLConfigService;
-}
-
 namespace user_prefs {
 class PrefRegistrySyncable;
 }
@@ -102,8 +98,6 @@ class Profile : public content::BrowserContext {
 
   // Key used to bind profile to the widget with which it is associated.
   static const char kProfileKey[];
-  // Value representing no hosted domain in the kProfileHostedDomain preference.
-  static const char kNoHostedDomainFound[];
 
   Profile();
   ~Profile() override;
@@ -206,9 +200,6 @@ class Profile : public content::BrowserContext {
   // is only used for a separate cookie store currently.
   virtual net::URLRequestContextGetter* GetRequestContextForExtensions() = 0;
 
-  // Returns the SSLConfigService for this profile.
-  virtual net::SSLConfigService* GetSSLConfigService() = 0;
-
   // Return whether 2 profiles are the same. 2 profiles are the same if they
   // represent the same profile. This can happen if there is pointer equality
   // or if one profile is the incognito version of another profile (or vice
@@ -235,6 +226,8 @@ class Profile : public content::BrowserContext {
     APP_LOCALE_CHANGED_VIA_LOGIN,
     // From login to a public session.
     APP_LOCALE_CHANGED_VIA_PUBLIC_SESSION_LOGIN,
+    // From AllowedLocales policy
+    APP_LOCALE_CHANGED_VIA_POLICY,
     // Source unknown.
     APP_LOCALE_CHANGED_VIA_UNKNOWN
   };

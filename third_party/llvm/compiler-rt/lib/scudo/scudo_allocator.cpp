@@ -197,16 +197,17 @@ struct QuarantineCallback {
   // that the batches are indeed serviced by the Primary.
   // TODO(kostyak): figure out the best way to protect the batches.
   void *Allocate(uptr Size) {
+    const uptr BatchClassId = SizeClassMap::ClassID(sizeof(QuarantineBatch));
     return getBackendAllocator().allocatePrimary(Cache_, BatchClassId);
   }
 
   void Deallocate(void *Ptr) {
+    const uptr BatchClassId = SizeClassMap::ClassID(sizeof(QuarantineBatch));
     getBackendAllocator().deallocatePrimary(Cache_, Ptr, BatchClassId);
   }
 
   AllocatorCache *Cache_;
   COMPILER_CHECK(sizeof(QuarantineBatch) < SizeClassMap::kMaxSize);
-  const uptr BatchClassId = SizeClassMap::ClassID(sizeof(QuarantineBatch));
 };
 
 typedef Quarantine<QuarantineCallback, void> ScudoQuarantine;
@@ -278,6 +279,9 @@ struct ScudoAllocator {
 
   void init() {
     SanitizerToolName = "Scudo";
+    PrimaryAllocatorName = "ScudoPrimary";
+    SecondaryAllocatorName = "ScudoSecondary";
+
     initFlags();
 
     performSanityChecks();
@@ -591,6 +595,11 @@ struct ScudoAllocator {
       SoftRssLimitMb = LimitMb;
     CheckRssLimit = HardRssLimitMb || SoftRssLimitMb;
   }
+
+  void printStats() {
+    initThreadMaybe();
+    BackendAllocator.printStats();
+  }
 };
 
 static ScudoAllocator Instance(LINKER_INITIALIZED);
@@ -739,4 +748,8 @@ void __scudo_set_rss_limit(uptr LimitMb, s32 HardLimit) {
   if (!SCUDO_CAN_USE_PUBLIC_INTERFACE)
     return;
   Instance.setRssLimit(LimitMb, !!HardLimit);
+}
+
+void __scudo_print_stats() {
+  Instance.printStats();
 }

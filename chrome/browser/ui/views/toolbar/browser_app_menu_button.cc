@@ -21,6 +21,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/toolbar/app_menu_model.h"
 #include "chrome/browser/ui/views/extensions/browser_action_drag_data.h"
+#include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/toolbar/app_menu.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_ink_drop_util.h"
@@ -71,6 +72,11 @@ BrowserAppMenuButton::BrowserAppMenuButton(ToolbarView* toolbar_view)
 
   if (ui::MaterialDesignController::IsTouchOptimizedUiEnabled())
     set_ink_drop_visible_opacity(kTouchToolbarInkDropVisibleOpacity);
+
+  const int size = GetLayoutConstant(LOCATION_BAR_HEIGHT);
+  const int radii = ChromeLayoutProvider::Get()->GetCornerRadiusMetric(
+      views::EMPHASIS_HIGH, gfx::Size(size, size));
+  set_ink_drop_corner_radii(radii, radii);
 }
 
 BrowserAppMenuButton::~BrowserAppMenuButton() {}

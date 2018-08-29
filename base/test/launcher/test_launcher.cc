@@ -520,7 +520,8 @@ void DoLaunchChildTestProcess(
   if (redirect_stdio) {
     fflush(output_file.get());
     output_file.reset();
-    CHECK(ReadFileToString(output_filename, &output_file_contents));
+    CHECK(ReadFileToString(output_filename, &output_file_contents))
+        << output_filename;
 
     if (!DeleteFile(output_filename, false)) {
       // This needs to be non-fatal at least for Windows.
@@ -1275,7 +1276,7 @@ void TestLauncher::OnOutputTimeout() {
       fprintf(stdout, "zx_object_get_info failed for '%s', status=%d\n",
               pair.second.GetCommandLineString().c_str(), status);
     } else {
-      fprintf(stdout, "  return_code=%d\n", proc_info.return_code);
+      fprintf(stdout, "  return_code=%ld\n", proc_info.return_code);
       fprintf(stdout, "  started=%d\n", proc_info.started);
       fprintf(stdout, "  exited=%d\n", proc_info.exited);
       fprintf(stdout, "  debugger_attached=%d\n", proc_info.debugger_attached);

@@ -4,9 +4,11 @@
 
 #include "ash/app_list/app_list_presenter_delegate.h"
 
+#include "ash/app_list/app_list_controller_impl.h"
 #include "ash/app_list/app_list_presenter_impl.h"
 #include "ash/app_list/presenter/app_list_view_delegate_factory.h"
-#include "ash/assistant/ash_assistant_controller.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/app_list_switches.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/shell_window_ids.h"
@@ -22,8 +24,6 @@
 #include "ash/wm/window_state.h"
 #include "base/command_line.h"
 #include "chromeos/chromeos_switches.h"
-#include "ui/app_list/app_list_constants.h"
-#include "ui/app_list/app_list_switches.h"
 #include "ui/app_list/views/app_list_view.h"
 #include "ui/aura/window.h"
 #include "ui/events/event.h"
@@ -57,16 +57,11 @@ AppListPresenterDelegate::AppListPresenterDelegate(
     app_list::AppListPresenterImpl* presenter,
     app_list::AppListViewDelegateFactory* view_delegate_factory)
     : presenter_(presenter), view_delegate_factory_(view_delegate_factory) {
-  Shell::Get()->AddShellObserver(this);
-  Shell::Get()->tablet_mode_controller()->AddObserver(this);
 }
 
 AppListPresenterDelegate::~AppListPresenterDelegate() {
   DCHECK(view_);
-  if (Shell::Get()->tablet_mode_controller())
-    Shell::Get()->tablet_mode_controller()->RemoveObserver(this);
   Shell::Get()->RemovePreTargetHandler(this);
-  Shell::Get()->RemoveShellObserver(this);
 }
 
 app_list::AppListViewDelegate* AppListPresenterDelegate::GetViewDelegate() {
@@ -85,18 +80,18 @@ void AppListPresenterDelegate::Init(app_list::AppListView* view,
   aura::Window* root_window = Shell::GetRootWindowForDisplayId(display_id);
 
   app_list::AppListView::InitParams params;
-  params.parent = RootWindowController::ForWindow(root_window)
-                      ->GetContainer(kShellWindowId_AppListContainer);
+  params.parent =
+      RootWindowController::ForWindow(root_window)
+          ->GetContainer(Shell::Get()
+                                 ->app_list_controller()
+                                 ->IsHomeLauncherEnabledInTabletMode()
+                             ? kShellWindowId_AppListTabletModeContainer
+                             : kShellWindowId_AppListContainer);
   params.initial_apps_page = current_apps_page;
   params.is_tablet_mode = Shell::Get()
                               ->tablet_mode_controller()
                               ->IsTabletModeWindowManagerEnabled();
   params.is_side_shelf = IsSideShelf(root_window);
-
-  if (chromeos::switches::IsAssistantEnabled()) {
-    params.assistant_interaction_model =
-        Shell::Get()->ash_assistant_controller()->assistant_interaction_model();
-  }
 
   view->Initialize(params);
 
@@ -194,7 +189,10 @@ void AppListPresenterDelegate::ProcessLocatedEvent(ui::LocatedEvent* event) {
 
   aura::Window* window = view_->GetWidget()->GetNativeView()->parent();
   if (!window->Contains(target) && !presenter_->Back() &&
-      !app_list::switches::ShouldNotDismissOnBlur()) {
+      !app_list::switches::ShouldNotDismissOnBlur() &&
+      !Shell::Get()
+           ->app_list_controller()
+           ->IsHomeLauncherEnabledInTabletMode()) {
     presenter_->Dismiss(event->time_stamp());
   }
 }
@@ -213,21 +211,6 @@ void AppListPresenterDelegate::OnGestureEvent(ui::GestureEvent* event) {
       event->type() == ui::ET_GESTURE_LONG_PRESS) {
     ProcessLocatedEvent(event);
   }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// AppListPresenterDelegate, ShellObserver implementation:
-void AppListPresenterDelegate::OnOverviewModeStarting() {
-  if (is_visible_)
-    presenter_->Dismiss(base::TimeTicks());
-}
-
-void AppListPresenterDelegate::OnTabletModeStarted() {
-  view_->OnTabletModeChanged(true);
-}
-
-void AppListPresenterDelegate::OnTabletModeEnded() {
-  view_->OnTabletModeChanged(false);
 }
 
 }  // namespace ash

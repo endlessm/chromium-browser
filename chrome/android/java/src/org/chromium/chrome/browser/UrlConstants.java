@@ -61,8 +61,6 @@ public class UrlConstants {
     public static final String INTERESTS_HOST = "interests";
     public static final String INTERESTS_URL = "chrome-native://interests/";
 
-    public static final String PHYSICAL_WEB_URL = "chrome://physical-web/";
-
     public static final String GOOGLE_ACCOUNT_ACTIVITY_CONTROLS_URL =
             "https://myaccount.google.com/activitycontrols/search";
 
@@ -77,4 +75,6 @@ public class UrlConstants {
 
     public static final String CHROME_MEMEX_URL = "https://chrome-memex.appspot.com/";
     public static final String CHROME_MEMEX_DEV_URL = "https://chrome-memex-dev.appspot.com/";
+
+    public static final String CONTENT_SUGGESTIONS_SUFFIX = "#suggestions";
 }

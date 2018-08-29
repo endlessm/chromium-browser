@@ -12,9 +12,6 @@ from dashboard import add_point
 from dashboard import add_point_queue
 from dashboard import alerts
 from dashboard import associate_alerts
-from dashboard import auto_triage
-from dashboard import bad_bisect
-from dashboard import bisect_stats
 from dashboard import bug_details
 from dashboard import buildbucket_job_status
 from dashboard import change_internal_only
@@ -30,7 +27,6 @@ from dashboard import edit_sheriffs
 from dashboard import edit_site_config
 from dashboard import email_summary
 from dashboard import file_bug
-from dashboard import get_logs
 from dashboard import get_diagnostics
 from dashboard import get_histogram
 from dashboard import graph_csv
@@ -42,20 +38,18 @@ from dashboard import list_monitored_tests
 from dashboard import list_tests
 from dashboard import load_from_prod
 from dashboard import main
+from dashboard import mark_recovered_alerts
 from dashboard import memory_report
 from dashboard import migrate_test_names
 from dashboard import navbar
-from dashboard import new_points
 from dashboard import oauth2_decorator
 from dashboard import pinpoint_request
 from dashboard import post_bisect_results
 from dashboard import put_entities_task
 from dashboard import report
-from dashboard import set_warning_message
 from dashboard import short_uri
 from dashboard import speed_releasing
 from dashboard import start_try_job
-from dashboard import test_buildbucket
 from dashboard import update_bug_with_results
 from dashboard import update_test_suites
 from dashboard.api import alerts as api_alerts
@@ -75,9 +69,6 @@ _URL_MAPPING = [
     (r'/api/list_timeseries/(.*)', list_timeseries.ListTimeseriesHandler),
     (r'/api/timeseries/(.*)', timeseries.TimeseriesHandler),
     ('/associate_alerts', associate_alerts.AssociateAlertsHandler),
-    ('/auto_triage', auto_triage.AutoTriageHandler),
-    ('/bad_bisect', bad_bisect.BadBisectHandler),
-    ('/bisect_stats', bisect_stats.BisectStatsHandler),
     ('/bug_details', bug_details.BugDetailsHandler),
     (r'/buildbucket_job_status/(\d+)',
      buildbucket_job_status.BuildbucketJobStatusHandler),
@@ -96,7 +87,6 @@ _URL_MAPPING = [
     ('/file_bug', file_bug.FileBugHandler),
     ('/get_diagnostics', get_diagnostics.GetDiagnosticsHandler),
     ('/get_histogram', get_histogram.GetHistogramHandler),
-    ('/get_logs', get_logs.GetLogsHandler),
     ('/graph_csv', graph_csv.GraphCsvHandler),
     ('/graph_json', graph_json.GraphJsonHandler),
     ('/graph_revisions', graph_revisions.GraphRevisionsHandler),
@@ -105,11 +95,12 @@ _URL_MAPPING = [
     ('/list_tests', list_tests.ListTestsHandler),
     ('/load_from_prod', load_from_prod.LoadFromProdHandler),
     ('/', main.MainHandler),
+    ('/mark_recovered_alerts',
+     mark_recovered_alerts.MarkRecoveredAlertsHandler),
     ('/memory_report', memory_report.MemoryReportHandler),
     ('/migrate_test_names', migrate_test_names.MigrateTestNamesHandler),
     ('/deprecate_tests', deprecate_tests.DeprecateTestsHandler),
     ('/navbar', navbar.NavbarHandler),
-    ('/new_points', new_points.NewPointsHandler),
     ('/pinpoint/new/bisect',
      pinpoint_request.PinpointNewBisectRequestHandler),
     ('/pinpoint/new/perf_try',
@@ -119,13 +110,11 @@ _URL_MAPPING = [
     ('/post_bisect_results', post_bisect_results.PostBisectResultsHandler),
     ('/put_entities_task', put_entities_task.PutEntitiesTaskHandler),
     ('/report', report.ReportHandler),
-    ('/set_warning_message', set_warning_message.SetWarningMessageHandler),
     ('/short_uri', short_uri.ShortUriHandler),
     (r'/speed_releasing/(.*)',
      speed_releasing.SpeedReleasingHandler),
     ('/speed_releasing', speed_releasing.SpeedReleasingHandler),
     ('/start_try_job', start_try_job.StartBisectHandler),
-    ('/test_buildbucket', test_buildbucket.TestBuildbucketHandler),
     ('/update_bug_with_results',
      update_bug_with_results.UpdateBugWithResultsHandler),
     ('/update_test_suites', update_test_suites.UpdateTestSuitesHandler),

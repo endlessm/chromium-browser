@@ -62,12 +62,16 @@ bool ShouldExcludeWindowFromOverview(const aura::Window* window) {
     return true;
   }
 
+  // The window that is currently in tab-dragging process should be ignored in
+  // overview grid.
+  if (ash::wm::IsDraggingTabs(window))
+    return true;
+
   return false;
 }
 
 bool IsBlurEnabled() {
-  return IsNewOverviewUi() &&
-         Shell::Get()->wallpaper_controller()->IsBlurEnabled();
+  return Shell::Get()->wallpaper_controller()->IsBlurEnabled();
 }
 
 }  // namespace
@@ -246,10 +250,6 @@ bool WindowSelectorController::ToggleOverview() {
     if (!CanSelect())
       return false;
 
-    // Don't enter overview with no windows to select from.
-    if (!IsNewOverviewUi() && windows.empty())
-      return false;
-
     window_selector_.reset(new WindowSelector(this));
     Shell::Get()->NotifyOverviewModeStarting();
     window_selector_->Init(windows, hide_windows);
@@ -376,17 +376,8 @@ void WindowSelectorController::OnOverviewButtonTrayLongPressed(
     return;
   }
 
-  // Snap the window selector item and remove it from the grid.
-  // The transform will be reset later after the window is snapped.
-  item_to_snap->RestoreWindow(/*reset_transform=*/false);
-  aura::Window* window = item_to_snap->GetWindow();
-  const gfx::Rect item_bounds = item_to_snap->target_bounds();
-  window_selector_->RemoveWindowSelectorItem(item_to_snap);
-  split_view_controller->SnapWindow(window, SplitViewController::LEFT,
-                                    item_bounds);
-  window_selector_->SetBoundsForWindowGridsInScreen(
-      split_view_controller->GetSnappedWindowBoundsInScreen(
-          window, SplitViewController::RIGHT));
+  split_view_controller->SnapWindow(item_to_snap->GetWindow(),
+                                    SplitViewController::LEFT);
   base::RecordAction(
       base::UserMetricsAction("Tablet_LongPressOverviewButtonEnterSplitView"));
 }

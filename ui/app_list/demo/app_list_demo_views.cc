@@ -8,7 +8,7 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "build/build_config.h"
@@ -34,7 +34,7 @@ class DemoAppListViewDelegate : public app_list::test::AppListTestViewDelegate {
   app_list::AppListView* InitView(gfx::NativeWindow window_context);
 
   // Overridden from AppListViewDelegate:
-  void Dismiss() override;
+  void DismissAppList() override;
   void ViewClosing() override;
 
  private:
@@ -68,12 +68,12 @@ app_list::AppListView* DemoAppListViewDelegate::InitView(
   return view_;
 }
 
-void DemoAppListViewDelegate::Dismiss() {
+void DemoAppListViewDelegate::DismissAppList() {
   view_->GetWidget()->Close();
 }
 
 void DemoAppListViewDelegate::ViewClosing() {
-  base::MessageLoop* message_loop = base::MessageLoopForUI::current();
+  base::MessageLoopCurrent message_loop = base::MessageLoopCurrentForUI::Get();
   message_loop->task_runner()->DeleteSoon(FROM_HERE, this);
   base::RunLoop::QuitCurrentWhenIdleDeprecated();
 }

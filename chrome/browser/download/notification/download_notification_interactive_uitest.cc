@@ -7,7 +7,6 @@
 
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
@@ -18,7 +17,7 @@
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/common/chrome_paths.h"
@@ -31,7 +30,6 @@
 #include "components/download/public/common/download_item.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
-#include "components/signin/core/browser/signin_manager_base.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_item_utils.h"
@@ -39,6 +37,7 @@
 #include "content/public/test/download_test_observer.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/url_request/url_request_slow_download_job.h"
+#include "services/identity/public/cpp/identity_manager.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
 
@@ -572,12 +571,10 @@ IN_PROC_BROWSER_TEST_F(DownloadNotificationTest, DownloadMultipleFiles) {
   EXPECT_FALSE(notification_id2.empty());
 
   // Confirms that the old one is low priority, and the new one is default.
-  const int in_progress_priority1 =
-      GetNotification(notification_id1)->priority();
-  const int in_progress_priority2 =
-      GetNotification(notification_id2)->priority();
-  EXPECT_EQ(message_center::LOW_PRIORITY, in_progress_priority1);
-  EXPECT_EQ(message_center::DEFAULT_PRIORITY, in_progress_priority2);
+  EXPECT_EQ(message_center::LOW_PRIORITY,
+            GetNotification(notification_id1)->priority());
+  EXPECT_EQ(message_center::DEFAULT_PRIORITY,
+            GetNotification(notification_id2)->priority());
 
   // Confirms that the updates of both download are delivered to the
   // notifications.
@@ -599,11 +596,15 @@ IN_PROC_BROWSER_TEST_F(DownloadNotificationTest, DownloadMultipleFiles) {
   ASSERT_TRUE(GetNotification(notification_id1));
   ASSERT_TRUE(GetNotification(notification_id2));
 
-  // Confirms that both increase in priority when finished.
-  EXPECT_GT(GetNotification(notification_id1)->priority(),
-            in_progress_priority1);
-  EXPECT_GT(GetNotification(notification_id2)->priority(),
-            in_progress_priority2);
+  // Confirms that both ask to be re-shown when finished.
+  EXPECT_TRUE(GetNotification(notification_id1)->renotify());
+  EXPECT_TRUE(GetNotification(notification_id2)->renotify());
+
+  // Confirms that both are default priority after finishing.
+  EXPECT_EQ(message_center::DEFAULT_PRIORITY,
+            GetNotification(notification_id1)->priority());
+  EXPECT_EQ(message_center::DEFAULT_PRIORITY,
+            GetNotification(notification_id2)->priority());
 
   // Confirms the types of download notifications are correct.
   EXPECT_EQ(message_center::NOTIFICATION_TYPE_BASE_FORMAT,
@@ -848,8 +849,13 @@ class MultiProfileDownloadNotificationTest
   // This is used for preparing all accounts in PRE_ test setup, and for testing
   // actual login behavior.
   void AddAllUsers() {
-    for (size_t i = 0; i < arraysize(kTestAccounts); ++i)
+    for (size_t i = 0; i < arraysize(kTestAccounts); ++i) {
+      // The primary account was already set up in SetUpOnMainThread, so skip it
+      // here.
+      if (i == PRIMARY_ACCOUNT_INDEX)
+        continue;
       AddUser(kTestAccounts[i], i >= SECONDARY_ACCOUNT_INDEX_START);
+    }
   }
 
   Profile* GetProfileByIndex(int index) {
@@ -867,9 +873,16 @@ class MultiProfileDownloadNotificationTest
     user_manager::UserManager::Get()->SaveUserDisplayName(
         AccountId::FromUserEmailGaiaId(info.email, info.gaia_id),
         base::UTF8ToUTF16(info.display_name));
-    SigninManagerFactory::GetForProfile(
-        chromeos::ProfileHelper::GetProfileByUserIdHashForTest(info.hash))
-        ->SetAuthenticatedAccountInfo(info.gaia_id, info.email);
+    Profile* profile =
+        chromeos::ProfileHelper::GetProfileByUserIdHashForTest(info.hash);
+    // TODO(https://crbug.com/814307): We can't use
+    // identity::MakePrimaryAccountAvailable from identity_test_utils.h here
+    // because that DCHECKs that the SigninManager isn't authenticated yet.
+    // Here, it *can* be already authenticated if a PRE_ test previously set up
+    // the user.
+    IdentityManagerFactory::GetForProfile(profile)
+        ->SetPrimaryAccountSynchronouslyForTests(info.gaia_id, info.email,
+                                                 "refresh_token");
   }
 
   std::unique_ptr<NotificationDisplayServiceTester> display_service1_;

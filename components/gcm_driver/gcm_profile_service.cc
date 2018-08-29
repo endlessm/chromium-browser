@@ -22,14 +22,12 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/memory/weak_ptr.h"
+#include "components/gcm_driver/account_tracker.h"
 #include "components/gcm_driver/gcm_account_tracker.h"
 #include "components/gcm_driver/gcm_channel_status_syncer.h"
 #include "components/gcm_driver/gcm_client_factory.h"
 #include "components/gcm_driver/gcm_desktop_utils.h"
 #include "components/gcm_driver/gcm_driver_desktop.h"
-#include "components/signin/core/browser/signin_manager.h"
-#include "google_apis/gaia/account_tracker.h"
-#include "google_apis/gaia/identity_provider.h"
 #include "net/url_request/url_request_context_getter.h"
 #endif
 
@@ -38,22 +36,26 @@ namespace gcm {
 #if !BUILDFLAG(USE_GCM_FROM_PLATFORM)
 // Identity observer only has actual work to do when the user is actually signed
 // in. It ensures that account tracker is taking
-class GCMProfileService::IdentityObserver : public IdentityProvider::Observer {
+class GCMProfileService::IdentityObserver : public SigninManagerBase::Observer {
  public:
-  IdentityObserver(ProfileIdentityProvider* identity_provider,
+  IdentityObserver(SigninManagerBase* signin_manager,
+                   ProfileOAuth2TokenService* token_service,
                    net::URLRequestContextGetter* request_context,
                    GCMDriver* driver);
   ~IdentityObserver() override;
 
-  // IdentityProvider::Observer:
-  void OnActiveAccountLogin() override;
-  void OnActiveAccountLogout() override;
+  // SigninManagerBase::Observer:
+  void GoogleSigninSucceeded(const std::string& account_id,
+                             const std::string& username) override;
+  void GoogleSignedOut(const std::string& account_id,
+                       const std::string& username) override;
 
  private:
   void StartAccountTracker(net::URLRequestContextGetter* request_context);
 
   GCMDriver* driver_;
-  IdentityProvider* identity_provider_;
+  SigninManagerBase* signin_manager_;
+  ProfileOAuth2TokenService* token_service_;
   std::unique_ptr<GCMAccountTracker> gcm_account_tracker_;
 
   // The account ID that this service is responsible for. Empty when the service
@@ -66,27 +68,31 @@ class GCMProfileService::IdentityObserver : public IdentityProvider::Observer {
 };
 
 GCMProfileService::IdentityObserver::IdentityObserver(
-    ProfileIdentityProvider* identity_provider,
+    SigninManagerBase* signin_manager,
+    ProfileOAuth2TokenService* token_service,
     net::URLRequestContextGetter* request_context,
     GCMDriver* driver)
     : driver_(driver),
-      identity_provider_(identity_provider),
+      signin_manager_(signin_manager),
+      token_service_(token_service),
       weak_ptr_factory_(this) {
-  identity_provider_->AddObserver(this);
+  signin_manager_->AddObserver(this);
 
-  OnActiveAccountLogin();
+  GoogleSigninSucceeded(signin_manager_->GetAuthenticatedAccountId(),
+                        signin_manager_->GetAuthenticatedAccountInfo().email);
   StartAccountTracker(request_context);
 }
 
 GCMProfileService::IdentityObserver::~IdentityObserver() {
   if (gcm_account_tracker_)
     gcm_account_tracker_->Shutdown();
-  identity_provider_->RemoveObserver(this);
+  signin_manager_->RemoveObserver(this);
 }
 
-void GCMProfileService::IdentityObserver::OnActiveAccountLogin() {
+void GCMProfileService::IdentityObserver::GoogleSigninSucceeded(
+    const std::string& account_id,
+    const std::string& username) {
   // This might be called multiple times when the password changes.
-  const std::string account_id = identity_provider_->GetActiveAccountId();
   if (account_id == account_id_)
     return;
   account_id_ = account_id;
@@ -95,7 +101,9 @@ void GCMProfileService::IdentityObserver::OnActiveAccountLogin() {
   driver_->OnSignedIn();
 }
 
-void GCMProfileService::IdentityObserver::OnActiveAccountLogout() {
+void GCMProfileService::IdentityObserver::GoogleSignedOut(
+    const std::string& account_id,
+    const std::string& username) {
   account_id_.clear();
 
   // Still need to notify GCMDriver for UMA purpose.
@@ -107,11 +115,11 @@ void GCMProfileService::IdentityObserver::StartAccountTracker(
   if (gcm_account_tracker_)
     return;
 
-  std::unique_ptr<gaia::AccountTracker> gaia_account_tracker(
-      new gaia::AccountTracker(identity_provider_, request_context));
+  std::unique_ptr<AccountTracker> gaia_account_tracker(
+      new AccountTracker(signin_manager_, token_service_, request_context));
 
-  gcm_account_tracker_.reset(
-      new GCMAccountTracker(std::move(gaia_account_tracker), driver_));
+  gcm_account_tracker_.reset(new GCMAccountTracker(
+      std::move(gaia_account_tracker), token_service_, driver_));
 
   gcm_account_tracker_->Start();
 }
@@ -141,12 +149,14 @@ GCMProfileService::GCMProfileService(
     net::URLRequestContextGetter* request_context,
     version_info::Channel channel,
     const std::string& product_category_for_subtypes,
-    std::unique_ptr<ProfileIdentityProvider> identity_provider,
+    SigninManagerBase* signin_manager,
+    ProfileOAuth2TokenService* token_service,
     std::unique_ptr<GCMClientFactory> gcm_client_factory,
     const scoped_refptr<base::SequencedTaskRunner>& ui_task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& io_task_runner,
     scoped_refptr<base::SequencedTaskRunner>& blocking_task_runner)
-    : profile_identity_provider_(std::move(identity_provider)),
+    : signin_manager_(signin_manager),
+      token_service_(token_service),
       request_context_(request_context) {
   driver_ = CreateGCMDriverDesktop(
       std::move(gcm_client_factory), prefs,
@@ -155,7 +165,7 @@ GCMProfileService::GCMProfileService(
       blocking_task_runner);
 
   identity_observer_.reset(new IdentityObserver(
-      profile_identity_provider_.get(), request_context_, driver_.get()));
+      signin_manager_, token_service_, request_context_, driver_.get()));
 }
 #endif  // BUILDFLAG(USE_GCM_FROM_PLATFORM)
 
@@ -179,7 +189,7 @@ void GCMProfileService::SetDriverForTesting(std::unique_ptr<GCMDriver> driver) {
 #if !BUILDFLAG(USE_GCM_FROM_PLATFORM)
   if (identity_observer_) {
     identity_observer_ = std::make_unique<IdentityObserver>(
-        profile_identity_provider_.get(), request_context_, driver_.get());
+        signin_manager_, token_service_, request_context_, driver.get());
   }
 #endif  // !BUILDFLAG(USE_GCM_FROM_PLATFORM)
 }

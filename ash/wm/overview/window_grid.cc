@@ -13,6 +13,7 @@
 
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/public/cpp/wallpaper_types.h"
 #include "ash/public/cpp/window_state_type.h"
 #include "ash/root_window_controller.h"
 #include "ash/screen_util.h"
@@ -63,21 +64,10 @@ constexpr float kShieldOpacity = 0.6f;
 
 // The color and opacity of the overview selector.
 constexpr SkColor kWindowSelectionColor = SkColorSetARGB(36, 255, 255, 255);
-constexpr SkColor kWindowSelectionBorderColor =
-    SkColorSetARGB(76, 255, 255, 255);
-
-// Border thickness of overview selector.
-constexpr int kWindowSelectionBorderThickness = 1;
 
 // Corner radius and shadow applied to the overview selector border.
 constexpr int kWindowSelectionRadius = 9;
 constexpr int kWindowSelectionShadowElevation = 24;
-
-// Values for the old overview ui.
-// TODO(crbug.com/782320): Delete these values when the old ui becomes obsolete.
-constexpr SkColor kOldWindowSelectionColor = SkColorSetARGB(51, 255, 255, 255);
-constexpr int kOldWindowSelectionRadius = 4;
-constexpr float kOldShieldOpacity = 0.7f;
 
 // The base color which is mixed with the dark muted color from wallpaper to
 // form the shield widgets color.
@@ -248,26 +238,8 @@ void WindowGrid::Shutdown() {
   if (shield_widget_) {
     // Fade out the shield widget. This animation continues past the lifetime
     // of |this|.
-    aura::Window* widget_window = shield_widget_->GetNativeWindow();
-    ui::ScopedLayerAnimationSettings animation_settings(
-        widget_window->layer()->GetAnimator());
-    animation_settings.SetTransitionDuration(base::TimeDelta::FromMilliseconds(
-        kOverviewSelectorTransitionMilliseconds));
-    animation_settings.SetTweenType(gfx::Tween::EASE_OUT);
-    animation_settings.SetPreemptionStrategy(
-        ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET);
-    // CleanupAnimationObserver will delete itself (and the shield widget) when
-    // the opacity animation is complete.
-    // Ownership over the observer is passed to the window_selector_->delegate()
-    // which has longer lifetime so that animations can continue even after the
-    // overview mode is shut down.
-    views::Widget* shield_widget = shield_widget_.get();
-    std::unique_ptr<CleanupAnimationObserver> observer(
-        new CleanupAnimationObserver(std::move(shield_widget_)));
-    animation_settings.AddObserver(observer.get());
-    window_selector_->delegate()->AddDelayedAnimationObserver(
-        std::move(observer));
-    shield_widget->SetOpacity(0.f);
+    FadeOutWidgetOnExit(std::move(shield_widget_),
+                        OVERVIEW_ANIMATION_RESTORE_WINDOW);
   }
 }
 
@@ -282,17 +254,18 @@ void WindowGrid::PositionWindows(bool animate,
                                  WindowSelectorItem* ignored_item) {
   if (window_selector_->IsShuttingDown())
     return;
-  if (window_list_.empty()) {
-    if (IsNewOverviewUi())
-      ShowNoRecentsWindowMessage(/*visible=*/true);
-    return;
-  }
 
   DCHECK(shield_widget_.get());
-  // Keep the background shield widget covering the whole screen.
+  // Keep the background shield widget covering the whole screen. A grid without
+  // any windows still needs the shield widget bounds updated.
   aura::Window* widget_window = shield_widget_->GetNativeWindow();
   const gfx::Rect bounds = widget_window->parent()->bounds();
   widget_window->SetBounds(bounds);
+
+  ShowNoRecentsWindowMessage(window_list_.empty());
+
+  if (window_list_.empty())
+    return;
 
   gfx::Rect total_bounds = bounds_;
   // Windows occupy vertically centered area with additional vertical insets.
@@ -348,7 +321,7 @@ void WindowGrid::PositionWindows(bool animate,
     overview_bounds.set_width(right_bound - total_bounds.x());
     bool windows_fit = FitWindowRectsInBounds(
         overview_bounds, std::min(kMaxHeight + 2 * kWindowMargin, height),
-        &rects, &max_bottom, &min_right, &max_right);
+        ignored_item, &rects, &max_bottom, &min_right, &max_right);
 
     if (height_fixed) {
       if (!windows_fit) {
@@ -393,25 +366,21 @@ void WindowGrid::PositionWindows(bool animate,
   if (make_last_adjustment) {
     gfx::Rect overview_bounds(total_bounds);
     overview_bounds.set_width(right_bound - total_bounds.x());
-    FitWindowRectsInBounds(overview_bounds,
-                           std::min(kMaxHeight + 2 * kWindowMargin, height),
-                           &rects, &max_bottom, &min_right, &max_right);
+    FitWindowRectsInBounds(
+        overview_bounds, std::min(kMaxHeight + 2 * kWindowMargin, height),
+        ignored_item, &rects, &max_bottom, &min_right, &max_right);
   }
   // Position the windows centering the left-aligned rows vertically. Do not
   // position |ignored_item| if it is not nullptr and matches a item in
   // |window_list_|.
   gfx::Vector2d offset(0, (total_bounds.bottom() - max_bottom) / 2);
-  for (size_t i = 0, j = 0; i < window_list_.size(); ++i, ++j) {
-    if (ignored_item != nullptr && window_list_[i].get() == ignored_item) {
-      // Decrement the |rects| index so that after repositioning there will not
-      // be a gap where the ignored item was supposed to be.
-      --j;
+  for (size_t i = 0; i < window_list_.size(); ++i) {
+    if (ignored_item != nullptr && window_list_[i].get() == ignored_item)
       continue;
-    }
 
     const bool should_animate = window_list_[i]->ShouldAnimateWhenEntering();
     window_list_[i]->SetBounds(
-        rects[j] + offset,
+        rects[i] + offset,
         animate && should_animate
             ? OverviewAnimationType::OVERVIEW_ANIMATION_LAY_OUT_SELECTOR_ITEMS
             : OverviewAnimationType::OVERVIEW_ANIMATION_NONE);
@@ -433,7 +402,7 @@ bool WindowGrid::Move(WindowSelector::Direction direction, bool animate) {
   if (SelectedWindow()) {
     old_bounds = SelectedWindow()->target_bounds();
     // Make the old selected window header non-transparent first.
-    SelectedWindow()->SetSelected(false);
+    SelectedWindow()->set_selected(false);
   }
 
   // [up] key is equivalent to [left] key and [down] key is equivalent to
@@ -478,7 +447,7 @@ bool WindowGrid::Move(WindowSelector::Direction direction, bool animate) {
 
   // Make the new selected window header fully transparent.
   if (SelectedWindow())
-    SelectedWindow()->SetSelected(true);
+    SelectedWindow()->set_selected(true);
   return out_of_bounds;
 }
 
@@ -492,7 +461,7 @@ WindowSelectorItem* WindowGrid::SelectedWindow() const {
 WindowSelectorItem* WindowGrid::GetWindowSelectorItemContaining(
     const aura::Window* window) const {
   for (const auto& window_item : window_list_) {
-    if (window_item->Contains(window))
+    if (window_item && window_item->Contains(window))
       return window_item.get();
   }
   return nullptr;
@@ -532,7 +501,7 @@ void WindowGrid::FilterItems(const base::string16& pattern) {
     } else {
       window->SetDimmed(true);
       if (selection_widget_ && SelectedWindow() == window.get()) {
-        SelectedWindow()->SetSelected(false);
+        SelectedWindow()->set_selected(false);
         selection_widget_.reset();
         selector_shadow_.reset();
       }
@@ -551,10 +520,7 @@ void WindowGrid::WindowClosing(WindowSelectorItem* window) {
 }
 
 void WindowGrid::SetBoundsAndUpdatePositions(const gfx::Rect& bounds) {
-  bounds_ = bounds;
-  if (shield_view_)
-    shield_view_->SetGridBounds(bounds_);
-  PositionWindows(/*animate=*/true);
+  SetBoundsAndUpdatePositionsIgnoringWindow(bounds, nullptr);
 }
 
 void WindowGrid::SetBoundsAndUpdatePositionsIgnoringWindow(
@@ -625,7 +591,7 @@ void WindowGrid::OnWindowDestroying(aura::Window* window) {
     bool send_focus_alert = selected_index_ == removed_index;
     if (selected_index_ >= removed_index && selected_index_ != 0)
       selected_index_--;
-    SelectedWindow()->SetSelected(true);
+    SelectedWindow()->set_selected(true);
     if (send_focus_alert)
       SelectedWindow()->SendAccessibleSelectionEvent();
   }
@@ -769,21 +735,18 @@ void WindowGrid::InitShieldWidget() {
           ? 1.f
           : 0.f;
   SkColor shield_color = kShieldColor;
-  if (IsNewOverviewUi()) {
-    // Extract the dark muted color from the wallpaper and mix it with
-    // |kShieldBaseColor|. Just use |kShieldBaseColor| if the dark muted color
-    // could not be extracted.
-    SkColor dark_muted_color =
-        Shell::Get()->wallpaper_controller()->GetProminentColor(
-            color_utils::ColorProfile());
-    if (dark_muted_color != ash::WallpaperController::kInvalidColor) {
-      shield_color = color_utils::GetResultingPaintColor(kShieldBaseColor,
-                                                         dark_muted_color);
-    }
+  // Extract the dark muted color from the wallpaper and mix it with
+  // |kShieldBaseColor|. Just use |kShieldBaseColor| if the dark muted color
+  // could not be extracted.
+  SkColor dark_muted_color =
+      Shell::Get()->wallpaper_controller()->GetProminentColor(
+          color_utils::ColorProfile());
+  if (dark_muted_color != ash::kInvalidWallpaperColor) {
+    shield_color =
+        color_utils::GetResultingPaintColor(kShieldBaseColor, dark_muted_color);
   }
   shield_widget_ = CreateBackgroundWidget(
-      root_window_, ui::LAYER_SOLID_COLOR,
-      IsNewOverviewUi() ? SK_ColorTRANSPARENT : shield_color, 0, 0,
+      root_window_, ui::LAYER_SOLID_COLOR, SK_ColorTRANSPARENT, 0, 0,
       SK_ColorTRANSPARENT, initial_opacity, /*parent=*/nullptr,
       /*stack_on_top=*/true);
   aura::Window* widget_window = shield_widget_->GetNativeWindow();
@@ -791,14 +754,12 @@ void WindowGrid::InitShieldWidget() {
   widget_window->SetBounds(bounds);
   widget_window->SetName("OverviewModeShield");
 
-  if (IsNewOverviewUi()) {
-    // Create |shield_view_| and animate its background and label if needed.
-    shield_view_ = new ShieldView();
-    shield_view_->SetBackgroundColor(shield_color);
-    shield_view_->SetGridBounds(bounds_);
-    shield_widget_->SetContentsView(shield_view_);
-    shield_widget_->SetOpacity(initial_opacity);
-  }
+  // Create |shield_view_| and animate its background and label if needed.
+  shield_view_ = new ShieldView();
+  shield_view_->SetBackgroundColor(shield_color);
+  shield_view_->SetGridBounds(bounds_);
+  shield_widget_->SetContentsView(shield_view_);
+  shield_widget_->SetOpacity(initial_opacity);
   ui::ScopedLayerAnimationSettings animation_settings(
       widget_window->layer()->GetAnimator());
   animation_settings.SetTransitionDuration(base::TimeDelta::FromMilliseconds(
@@ -806,22 +767,14 @@ void WindowGrid::InitShieldWidget() {
   animation_settings.SetTweenType(gfx::Tween::EASE_OUT);
   animation_settings.SetPreemptionStrategy(
       ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET);
-  shield_widget_->SetOpacity(IsNewOverviewUi() ? 1.f : kOldShieldOpacity);
+  shield_widget_->SetOpacity(1.f);
 }
 
 void WindowGrid::InitSelectionWidget(WindowSelector::Direction direction) {
-  if (IsNewOverviewUi()) {
-    selection_widget_ = CreateBackgroundWidget(
-        root_window_, ui::LAYER_TEXTURED, kWindowSelectionColor, 0,
-        kWindowSelectionRadius, SK_ColorTRANSPARENT, 0.f, /*parent=*/nullptr,
-        /*stack_on_top=*/true);
-  } else {
-    selection_widget_ = CreateBackgroundWidget(
-        root_window_, ui::LAYER_TEXTURED, kOldWindowSelectionColor,
-        kWindowSelectionBorderThickness, kOldWindowSelectionRadius,
-        kWindowSelectionBorderColor, 0.f, /*parent=*/nullptr,
-        /*stack_on_top=*/true);
-  }
+  selection_widget_ = CreateBackgroundWidget(
+      root_window_, ui::LAYER_TEXTURED, kWindowSelectionColor, 0,
+      kWindowSelectionRadius, SK_ColorTRANSPARENT, 0.f, /*parent=*/nullptr,
+      /*stack_on_top=*/true);
   aura::Window* widget_window = selection_widget_->GetNativeWindow();
   gfx::Rect target_bounds = SelectedWindow()->target_bounds();
   ::wm::ConvertRectFromScreen(root_window_, &target_bounds);
@@ -928,11 +881,12 @@ void WindowGrid::MoveSelectionWidgetToTarget(bool animate) {
 
 bool WindowGrid::FitWindowRectsInBounds(const gfx::Rect& bounds,
                                         int height,
-                                        std::vector<gfx::Rect>* rects,
-                                        int* max_bottom,
-                                        int* min_right,
-                                        int* max_right) {
-  rects->resize(window_list_.size());
+                                        WindowSelectorItem* ignored_item,
+                                        std::vector<gfx::Rect>* out_rects,
+                                        int* out_max_bottom,
+                                        int* out_min_right,
+                                        int* out_max_right) {
+  out_rects->resize(window_list_.size());
   bool windows_fit = true;
 
   // Start in the top-left corner of |bounds|.
@@ -940,18 +894,25 @@ bool WindowGrid::FitWindowRectsInBounds(const gfx::Rect& bounds,
   int top = bounds.y();
 
   // Keep track of the lowest coordinate.
-  *max_bottom = bounds.y();
+  *out_max_bottom = bounds.y();
 
   // Right bound of the narrowest row.
-  *min_right = bounds.right();
+  *out_min_right = bounds.right();
   // Right bound of the widest row.
-  *max_right = bounds.x();
+  *out_max_right = bounds.x();
 
   // All elements are of same height and only the height is necessary to
   // determine each item's scale.
   const gfx::Size item_size(0, height);
   size_t i = 0;
   for (const auto& window : window_list_) {
+    if (ignored_item && ignored_item == window.get()) {
+      // Increment the index anyways. PositionWindows will handle skipping this
+      // entry.
+      ++i;
+      continue;
+    }
+
     const gfx::Rect target_bounds = window->GetTargetBoundsInScreen();
     int width = std::max(1, gfx::ToFlooredInt(target_bounds.width() *
                                               window->GetItemScale(item_size)) +
@@ -971,10 +932,10 @@ bool WindowGrid::FitWindowRectsInBounds(const gfx::Rect& bounds,
 
     if (left + width > bounds.right()) {
       // Move to the next row if possible.
-      if (*min_right > left)
-        *min_right = left;
-      if (*max_right < left)
-        *max_right = left;
+      if (*out_min_right > left)
+        *out_min_right = left;
+      if (*out_max_right < left)
+        *out_max_right = left;
       top += height;
 
       // Check if the new row reaches the bottom or if the first item in the new
@@ -982,25 +943,30 @@ bool WindowGrid::FitWindowRectsInBounds(const gfx::Rect& bounds,
       if (top + height > bounds.bottom() ||
           bounds.x() + width > bounds.right()) {
         windows_fit = false;
+        // If the |ignored_item| is the last item, update |out_max_bottom|
+        // before breaking the loop, but no need to add the height, as the last
+        // item does not contribute to the grid bounds.
+        if (ignored_item && ignored_item == window_list_.back().get())
+          *out_max_bottom = top;
         break;
       }
       left = bounds.x();
     }
 
     // Position the current rect.
-    (*rects)[i].SetRect(left, top, width, height);
+    (*out_rects)[i].SetRect(left, top, width, height);
 
     // Increment horizontal position using sanitized positive |width()|.
-    left += (*rects)[i].width();
+    left += (*out_rects)[i].width();
 
-    if (++i == window_list_.size()) {
+    if (++i == out_rects->size()) {
       // Update the narrowest and widest row width for the last row.
-      if (*min_right > left)
-        *min_right = left;
-      if (*max_right < left)
-        *max_right = left;
+      if (*out_min_right > left)
+        *out_min_right = left;
+      if (*out_max_right < left)
+        *out_max_right = left;
     }
-    *max_bottom = top + height;
+    *out_max_bottom = top + height;
   }
   return windows_fit;
 }

@@ -333,10 +333,15 @@ const base::string16& WebStateImpl::GetTitle() const {
   // match the WebContents implementation of this method.
   DCHECK(Configured());
   web::NavigationItem* item = navigation_manager_->GetLastCommittedItem();
-  if (web::GetWebClient()->IsSlimNavigationManagerEnabled() &&
-      !restored_title_.empty()) {
-    DCHECK(!item);
-    return restored_title_;
+  if (web::GetWebClient()->IsSlimNavigationManagerEnabled()) {
+    if (!restored_title_.empty()) {
+      DCHECK(!item);
+      return restored_title_;
+    }
+
+    // Display title for the visible item makes more sense. Only do this in
+    // WKBasedNavigationManager for now to limit impact.
+    item = navigation_manager_->GetVisibleItem();
   }
   return item ? item->GetTitleForDisplay() : empty_string16_;
 }
@@ -494,9 +499,11 @@ void WebStateImpl::SetContentsMimeType(const std::string& mime_type) {
 }
 
 bool WebStateImpl::ShouldAllowRequest(NSURLRequest* request,
-                                      ui::PageTransition transition) {
+                                      ui::PageTransition transition,
+                                      bool from_main_frame) {
   for (auto& policy_decider : policy_deciders_) {
-    if (!policy_decider.ShouldAllowRequest(request, transition))
+    if (!policy_decider.ShouldAllowRequest(request, transition,
+                                           from_main_frame))
       return false;
   }
   return true;
@@ -661,8 +668,8 @@ void WebStateImpl::ExecuteJavaScript(const base::string16& javascript) {
 }
 
 void WebStateImpl::ExecuteJavaScript(const base::string16& javascript,
-                                     const JavaScriptResultCallback& callback) {
-  JavaScriptResultCallback stackCallback = callback;
+                                     JavaScriptResultCallback callback) {
+  __block JavaScriptResultCallback stack_callback = std::move(callback);
   [web_controller_ executeJavaScript:base::SysUTF16ToNSString(javascript)
                    completionHandler:^(id value, NSError* error) {
                      if (error) {
@@ -671,7 +678,8 @@ void WebStateImpl::ExecuteJavaScript(const base::string16& javascript,
                            << base::SysNSStringToUTF16(
                                   error.userInfo[NSLocalizedDescriptionKey]);
                      }
-                     stackCallback.Run(ValueResultFromWKResult(value).get());
+                     std::move(stack_callback)
+                         .Run(ValueResultFromWKResult(value).get());
                    }];
 }
 
@@ -809,8 +817,11 @@ void WebStateImpl::RecordPageStateInNavigationItem() {
 }
 
 void WebStateImpl::OnGoToIndexSameDocumentNavigation(
-    NavigationInitiationType type) {
-  [web_controller_ didFinishGoToIndexSameDocumentNavigationWithType:type];
+    NavigationInitiationType type,
+    bool has_user_gesture) {
+  [web_controller_
+      didFinishGoToIndexSameDocumentNavigationWithType:type
+                                        hasUserGesture:has_user_gesture];
 }
 
 void WebStateImpl::WillChangeUserAgentType() {

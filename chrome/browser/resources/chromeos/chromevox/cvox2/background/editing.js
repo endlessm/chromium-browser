@@ -303,7 +303,11 @@ AutomationRichEditableText.prototype = {
     }
 
     // Selection stayed within the same line(s) and didn't cross into new lines.
-    if (anchorLine.isSameLine(prevAnchorLine) &&
+
+    // We must validate the previous lines as state changes in the accessibility
+    // tree may have invalidated the lines.
+    if (prevAnchorLine.isValidLine() && prevFocusLine.isValidLine() &&
+        anchorLine.isSameLine(prevAnchorLine) &&
         focusLine.isSameLine(prevFocusLine)) {
       // Intra-line changes.
       this.changed(new cvox.TextChangeEvent(
@@ -506,6 +510,10 @@ AutomationRichEditableText.prototype = {
     var msgs = [];
     if (style.state.linked)
       msgs.push(opt_end ? 'link_end' : 'link_start');
+    if (style.subscript)
+      msgs.push(opt_end ? 'subscript_end' : 'subscript_start');
+    if (style.superscript)
+      msgs.push(opt_end ? 'superscript_end' : 'superscript_start');
     if (style.bold)
       msgs.push(opt_end ? 'bold_end' : 'bold_start');
     if (style.italic)
@@ -538,12 +546,17 @@ AutomationRichEditableText.prototype = {
     for (var i = 0, cur; cur = lineNodes[i]; i++) {
       if (cur.children.length)
         continue;
-      new Output()
-          .withRichSpeech(
-              Range.fromNode(cur), prev ? Range.fromNode(prev) : null,
-              Output.EventType.NAVIGATE)
-          .withQueueMode(queueMode)
-          .go();
+
+      var o = new Output()
+                  .withRichSpeech(
+                      Range.fromNode(cur), prev ? Range.fromNode(prev) : null,
+                      Output.EventType.NAVIGATE)
+                  .withQueueMode(queueMode);
+
+      // Ignore whitespace only output except if it is leading content on the
+      // line.
+      if (!o.isOnlyWhitespace || i == 0)
+        o.go();
       prev = cur;
       queueMode = cvox.QueueMode.QUEUE;
     }
@@ -564,6 +577,7 @@ AutomationRichEditableText.prototype = {
       if (!style)
         return;
       var formType = FormType.PLAIN_TEXT;
+      // Currently no support for sub/superscript in 3rd party liblouis library.
       if (style.bold)
         formType |= FormType.BOLD;
       if (style.italic)
@@ -1023,6 +1037,60 @@ editing.EditableLine.prototype = {
     return AutomationUtil.getDirection(
                this.lineStartContainer_, otherLine.lineStartContainer_) ==
         Dir.FORWARD;
+  },
+
+  /**
+   * Performs a validation that this line still refers to a line given its
+   * internally tracked state.
+   */
+  isValidLine: function() {
+    if (!this.lineStartContainer_ || !this.lineEndContainer_)
+      return false;
+
+    var start = new cursors.Cursor(
+        this.lineStartContainer_, this.localLineStartContainerOffset_);
+    var end = new cursors.Cursor(
+        this.lineEndContainer_, this.localLineEndContainerOffset_ - 1);
+    var localStart = start.deepEquivalent || start;
+    var localEnd = end.deepEquivalent || end;
+    var localStartNode = localStart.node;
+    var localEndNode = localEnd.node;
+
+    // Unfortunately, there are asymmetric errors in lines, so we need to check
+    // in both directions.
+    var testStartNode = localStartNode;
+    do {
+      if (testStartNode == localEndNode)
+        return true;
+
+      // Hack/workaround for broken *OnLine links.
+      if (testStartNode.nextOnLine && testStartNode.nextOnLine.role)
+        testStartNode = testStartNode.nextOnLine;
+      else if (
+          testStartNode.nextSibling &&
+          testStartNode.nextSibling.previousOnLine == testStartNode)
+        testStartNode = testStartNode.nextSibling;
+      else
+        break;
+    } while (testStartNode);
+
+    var testEndNode = localEndNode;
+    do {
+      if (testEndNode == localStartNode)
+        return true;
+
+      // Hack/workaround for broken *OnLine links.
+      if (testEndNode.previousOnLine && testEndNode.previousOnLine.role)
+        testEndNode = testEndNode.previousOnLine;
+      else if (
+          testEndNode.previousSibling &&
+          testEndNode.previousSibling.nextOnLine == testEndNode)
+        testEndNode = testEndNode.previousSibling;
+      else
+        break;
+    } while (testEndNode);
+
+    return false;
   }
 };
 

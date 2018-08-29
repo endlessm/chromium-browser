@@ -9,12 +9,9 @@
 #include <limits>
 #include <vector>
 
-#include "ash/accelerators/magnifier_key_scroller.h"
-#include "ash/accelerators/spoken_feedback_toggler.h"
 #include "ash/accessibility/accessibility_delegate.h"
 #include "ash/public/cpp/accessibility_types.h"
 #include "ash/shell.h"
-#include "ash/system/tray/system_tray_controller.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "base/command_line.h"
 #include "base/macros.h"
@@ -25,11 +22,9 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
+#include "chrome/browser/chromeos/arc/arc_web_contents_data.h"
 #include "chrome/browser/chromeos/arc/fileapi/arc_content_file_system_url_util.h"
-#include "chrome/browser/chromeos/arc/intent_helper/arc_external_protocol_dialog.h"
 #include "chrome/browser/chromeos/ash_config.h"
-#include "chrome/browser/chromeos/display/display_configuration_observer.h"
-#include "chrome/browser/chromeos/display/display_prefs.h"
 #include "chrome/browser/chromeos/policy/display_rotation_default_handler.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
@@ -82,13 +77,6 @@ void InitAfterFirstSessionStart() {
       ash::Shell::Get()->mru_window_tracker()->BuildMruWindowList();
   if (!mru_list.empty())
     mru_list.front()->Focus();
-
-  // Enable magnifier scroll keys as there may be no mouse cursor in kiosk mode.
-  ash::MagnifierKeyScroller::SetEnabled(chrome::IsRunningInForcedAppMode());
-
-  // Enable long press action to toggle spoken feedback with hotrod
-  // remote which can't handle shortcut.
-  ash::SpokenFeedbackToggler::SetEnabled(chrome::IsRunningInForcedAppMode());
 }
 
 class AccessibilityDelegateImpl : public ash::AccessibilityDelegate {
@@ -142,10 +130,6 @@ service_manager::Connector* ChromeShellDelegate::GetShellConnector() const {
   return content::ServiceManagerConnection::GetForProcess()->GetConnector();
 }
 
-bool ChromeShellDelegate::IsRunningInForcedAppMode() const {
-  return chrome::IsRunningInForcedAppMode();
-}
-
 bool ChromeShellDelegate::CanShowWindowForUser(aura::Window* window) const {
   return ::CanShowWindowForUser(window, base::Bind(&GetActiveBrowserContext));
 }
@@ -155,23 +139,11 @@ void ChromeShellDelegate::PreInit() {
   if (chromeos::GetAshConfig() == ash::Config::MASH)
     return;
 
-  bool first_run_after_boot = base::CommandLine::ForCurrentProcess()->HasSwitch(
-      chromeos::switches::kFirstExecAfterBoot);
-  display_prefs_ = std::make_unique<chromeos::DisplayPrefs>(
-      g_browser_process->local_state());
-  // TODO(stevenjb): Move this to ash::Shell which will call
-  // LoadDisplayPreferences asynchronously when it receives local state.
-  display_prefs_->LoadDisplayPreferences(first_run_after_boot);
-  // Object owns itself, and deletes itself when Observer::OnShutdown is called:
+  // Object owns itself and deletes itself in OnWindowTreeHostManagerShutdown().
+  // Setup is done in OnShellInitialized() so this needs to be constructed after
+  // Shell is constructed but before OnShellInitialized() is called. Depends on
+  // CroSettings. TODO(stevenjb): Move to src/ash.
   new policy::DisplayRotationDefaultHandler();
-  // Set the observer now so that we can save the initial state
-  // in Shell::Init.
-  display_configuration_observer_.reset(
-      new chromeos::DisplayConfigurationObserver());
-}
-
-void ChromeShellDelegate::PreShutdown() {
-  display_configuration_observer_.reset();
 }
 
 void ChromeShellDelegate::OpenUrlFromArc(const GURL& url) {
@@ -190,7 +162,8 @@ void ChromeShellDelegate::OpenUrlFromArc(const GURL& url) {
   if (url_to_open.GetContent() == "settings" &&
       (url_to_open.SchemeIs(url::kAboutScheme) ||
        url_to_open.SchemeIs(content::kChromeUIScheme))) {
-    ash::Shell::Get()->system_tray_controller()->ShowSettings();
+    chrome::ShowSettingsSubPageForProfile(
+        ProfileManager::GetActiveUserProfile(), "");
     return;
   }
 

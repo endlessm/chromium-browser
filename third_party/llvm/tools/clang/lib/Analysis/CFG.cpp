@@ -736,12 +736,12 @@ private:
     if (BuildOpts.AddRichCXXConstructors) {
       if (const ConstructionContextLayer *Layer =
               ConstructionContextMap.lookup(CE)) {
-        const ConstructionContext *CC =
-            ConstructionContext::createFromLayers(cfg->getBumpVectorContext(),
-                                                  Layer);
-        B->appendConstructor(CE, CC, cfg->getBumpVectorContext());
         cleanupConstructionContext(CE);
-        return;
+        if (const auto *CC = ConstructionContext::createFromLayers(
+                cfg->getBumpVectorContext(), Layer)) {
+          B->appendConstructor(CE, CC, cfg->getBumpVectorContext());
+          return;
+        }
       }
     }
 
@@ -757,12 +757,12 @@ private:
       if (CFGCXXRecordTypedCall::isCXXRecordTypedCall(CE, *Context)) {
         if (const ConstructionContextLayer *Layer =
                 ConstructionContextMap.lookup(CE)) {
-          const ConstructionContext *CC =
-              ConstructionContext::createFromLayers(cfg->getBumpVectorContext(),
-                                                    Layer);
-          B->appendCXXRecordTypedCall(CE, CC, cfg->getBumpVectorContext());
           cleanupConstructionContext(CE);
-          return;
+          if (const auto *CC = ConstructionContext::createFromLayers(
+                  cfg->getBumpVectorContext(), Layer)) {
+            B->appendCXXRecordTypedCall(CE, CC, cfg->getBumpVectorContext());
+            return;
+          }
         }
       }
     }
@@ -851,7 +851,7 @@ private:
       B->prependScopeEnd(VD, S, cfg->getBumpVectorContext());
   }
 
-  /// \brief Find a relational comparison with an expression evaluating to a
+  /// Find a relational comparison with an expression evaluating to a
   /// boolean and a constant other than 0 and 1.
   /// e.g. if ((x < y) == 10)
   TryResult checkIncorrectRelationalOperator(const BinaryOperator *B) {
@@ -964,7 +964,7 @@ private:
     }
   }
 
-  /// \brief Find a pair of comparison expressions with or without parentheses
+  /// Find a pair of comparison expressions with or without parentheses
   /// with a shared variable and constants and a logical operator between them
   /// that always evaluates to either true or false.
   /// e.g. if (x != 3 || x != 4)
@@ -1120,7 +1120,7 @@ private:
     return evaluateAsBooleanConditionNoCache(S);
   }
 
-  /// \brief Evaluate as boolean \param E without using the cache.
+  /// Evaluate as boolean \param E without using the cache.
   TryResult evaluateAsBooleanConditionNoCache(Expr *E) {
     if (BinaryOperator *Bop = dyn_cast<BinaryOperator>(E)) {
       if (Bop->isLogicalOp()) {
@@ -1302,6 +1302,15 @@ void CFGBuilder::findConstructionContexts(
   }
   case Stmt::ConditionalOperatorClass: {
     auto *CO = cast<ConditionalOperator>(Child);
+    if (!dyn_cast_or_null<MaterializeTemporaryExpr>(Layer->getTriggerStmt())) {
+      // If the object returned by the conditional operator is not going to be a
+      // temporary object that needs to be immediately materialized, then
+      // it must be C++17 with its mandatory copy elision. Do not yet promise
+      // to support this case.
+      assert(!CO->getType()->getAsCXXRecordDecl() || CO->isGLValue() ||
+             Context->getLangOpts().CPlusPlus17);
+      break;
+    }
     findConstructionContexts(Layer, CO->getLHS());
     findConstructionContexts(Layer, CO->getRHS());
     break;
@@ -1482,7 +1491,7 @@ CFGBlock *CFGBuilder::addInitializer(CXXCtorInitializer *I) {
   return Block;
 }
 
-/// \brief Retrieve the type of the temporary object whose lifetime was 
+/// Retrieve the type of the temporary object whose lifetime was 
 /// extended by a local reference with the given initializer.
 static QualType getReferenceInitTemporaryType(ASTContext &Context,
                                               const Expr *Init,
@@ -2341,7 +2350,7 @@ static bool CanThrow(Expr *E, ASTContext &Ctx) {
   if (FT) {
     if (const FunctionProtoType *Proto = dyn_cast<FunctionProtoType>(FT))
       if (!isUnresolvedExceptionSpec(Proto->getExceptionSpecType()) &&
-          Proto->isNothrow(Ctx))
+          Proto->isNothrow())
         return false;
   }
   return true;
@@ -2356,6 +2365,13 @@ CFGBlock *CFGBuilder::VisitCallExpr(CallExpr *C, AddStmtChoice asc) {
     // We should only get a null bound type if processing a dependent
     // CFG.  Recover by assuming nothing.
     if (!boundType.isNull()) calleeType = boundType;
+  }
+
+  // FIXME: Once actually implemented, this construction context layer should
+  // include the number of the argument as well.
+  for (auto Arg: C->arguments()) {
+    findConstructionContexts(
+        ConstructionContextLayer::create(cfg->getBumpVectorContext(), C), Arg);
   }
 
   // If this is a call to a no-return function, this stops the block here.
@@ -3153,7 +3169,13 @@ CFGBlock *CFGBuilder::VisitForStmt(ForStmt *F) {
       if (VarDecl *VD = F->getConditionVariable()) {
         if (Expr *Init = VD->getInit()) {
           autoCreateBlock();
-          appendStmt(Block, F->getConditionVariableDeclStmt());
+          const DeclStmt *DS = F->getConditionVariableDeclStmt();
+          assert(DS->isSingleDecl());
+          findConstructionContexts(
+              ConstructionContextLayer::create(cfg->getBumpVectorContext(),
+                                               const_cast<DeclStmt *>(DS)),
+              Init);
+          appendStmt(Block, DS);
           EntryConditionBlock = addStmt(Init);
           assert(Block == EntryConditionBlock);
           maybeAddScopeBeginForVarDecl(EntryConditionBlock, VD, C);
@@ -3478,7 +3500,13 @@ CFGBlock *CFGBuilder::VisitWhileStmt(WhileStmt *W) {
     if (VarDecl *VD = W->getConditionVariable()) {
       if (Expr *Init = VD->getInit()) {
         autoCreateBlock();
-        appendStmt(Block, W->getConditionVariableDeclStmt());
+        const DeclStmt *DS = W->getConditionVariableDeclStmt();
+        assert(DS->isSingleDecl());
+        findConstructionContexts(
+            ConstructionContextLayer::create(cfg->getBumpVectorContext(),
+                                             const_cast<DeclStmt *>(DS)),
+            Init);
+        appendStmt(Block, DS);
         EntryConditionBlock = addStmt(Init);
         assert(Block == EntryConditionBlock);
         maybeAddScopeBeginForVarDecl(EntryConditionBlock, VD, C);

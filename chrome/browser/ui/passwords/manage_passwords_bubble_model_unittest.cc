@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/passwords/manage_passwords_bubble_model.h"
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -32,7 +33,6 @@
 #include "components/ukm/test_ukm_recorder.h"
 #include "components/ukm/ukm_source.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/web_contents_tester.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
@@ -127,8 +127,8 @@ class ManagePasswordsBubbleModelTest : public ::testing::Test {
   ~ManagePasswordsBubbleModelTest() override = default;
 
   void SetUp() override {
-    test_web_contents_.reset(
-        content::WebContentsTester::CreateTestWebContents(&profile_, nullptr));
+    test_web_contents_ =
+        content::WebContentsTester::CreateTestWebContents(&profile_, nullptr);
     mock_delegate_.reset(new testing::NiceMock<PasswordsModelDelegateMock>);
     ON_CALL(*mock_delegate_, GetPasswordFormMetricsRecorder())
         .WillByDefault(Return(nullptr));
@@ -187,10 +187,6 @@ class ManagePasswordsBubbleModelTest : public ::testing::Test {
   std::vector<std::unique_ptr<autofill::PasswordForm>> GetCurrentForms() const;
 
  private:
-  // TODO(lukasza): https://crbug.com/832100: Move the factory into
-  // TestingProfile, so individual tests don't need to worry about it.
-  content::ScopedMockRenderProcessHostFactory test_process_factory_;
-
   content::TestBrowserThreadBundle thread_bundle_;
   TestingProfile profile_;
   std::unique_ptr<content::WebContents> test_web_contents_;
@@ -332,6 +328,7 @@ TEST_F(ManagePasswordsBubbleModelTest, ClickSave) {
   EXPECT_FALSE(model()->IsCurrentStateUpdate());
 
   EXPECT_CALL(*GetStore(), RemoveSiteStatsImpl(GURL(kSiteOrigin).GetOrigin()));
+  EXPECT_CALL(*controller(), OnPasswordsRevealed()).Times(0);
   EXPECT_CALL(*controller(), SavePassword(pending_password().username_value,
                                           pending_password().password_value));
   EXPECT_CALL(*controller(), NeverSavePassword()).Times(0);
@@ -378,14 +375,6 @@ TEST_F(ManagePasswordsBubbleModelTest, ClickManage) {
   DestroyModelExpectReason(password_manager::metrics_util::CLICKED_MANAGE);
 }
 
-TEST_F(ManagePasswordsBubbleModelTest, ClickDone) {
-  PretendManagingPasswords();
-
-  model()->OnDoneClicked();
-  EXPECT_EQ(password_manager::ui::MANAGE_STATE, model()->state());
-  DestroyModelExpectReason(password_manager::metrics_util::CLICKED_DONE);
-}
-
 TEST_F(ManagePasswordsBubbleModelTest, PopupAutoSigninToast) {
   PretendAutoSigningIn();
 
@@ -401,6 +390,7 @@ TEST_F(ManagePasswordsBubbleModelTest, ClickUpdate) {
   EXPECT_TRUE(model()->IsCurrentStateUpdate());
 
   EXPECT_CALL(*GetStore(), RemoveSiteStatsImpl(GURL(kSiteOrigin).GetOrigin()));
+  EXPECT_CALL(*controller(), OnPasswordsRevealed()).Times(0);
   EXPECT_CALL(*controller(), SavePassword(pending_password().username_value,
                                           pending_password().password_value));
   EXPECT_CALL(*controller(), NeverSavePassword()).Times(0);
@@ -794,6 +784,23 @@ TEST_F(ManagePasswordsBubbleModelTest, EyeIcon_BubbleReopenedAfterAuth) {
 
   EXPECT_FALSE(model()->password_revealing_requires_reauth());
   EXPECT_TRUE(model()->RevealPasswords());
+}
+
+TEST_F(ManagePasswordsBubbleModelTest, PasswordsRevealedReported) {
+  PretendPasswordWaiting();
+
+  EXPECT_CALL(*controller(), OnPasswordsRevealed());
+  EXPECT_TRUE(model()->RevealPasswords());
+}
+
+TEST_F(ManagePasswordsBubbleModelTest, PasswordsRevealedReportedAfterReauth) {
+  // The bubble is opened after reauthentication and the passwords are revealed.
+  pending_password().form_has_autofilled_value = true;
+  // After successful authentication this value is set to true.
+  EXPECT_CALL(*controller(), ArePasswordsRevealedWhenBubbleIsOpened())
+      .WillOnce(Return(true));
+  EXPECT_CALL(*controller(), OnPasswordsRevealed());
+  PretendPasswordWaiting(ManagePasswordsBubbleModel::USER_ACTION);
 }
 
 TEST_F(ManagePasswordsBubbleModelTest, DisableEditing) {

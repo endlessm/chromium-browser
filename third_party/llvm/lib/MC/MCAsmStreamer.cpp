@@ -14,6 +14,7 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCCodeView.h"
 #include "llvm/MC/MCContext.h"
@@ -22,6 +23,7 @@
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/MCObjectFileInfo.h"
+#include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSectionMachO.h"
 #include "llvm/MC/MCStreamer.h"
@@ -31,6 +33,7 @@
 #include "llvm/Support/LEB128.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/TargetRegistry.h"
 #include <cctype>
 
 using namespace llvm;
@@ -42,12 +45,12 @@ class MCAsmStreamer final : public MCStreamer {
   formatted_raw_ostream &OS;
   const MCAsmInfo *MAI;
   std::unique_ptr<MCInstPrinter> InstPrinter;
-  std::unique_ptr<MCCodeEmitter> Emitter;
-  std::unique_ptr<MCAsmBackend> AsmBackend;
+  std::unique_ptr<MCAssembler> Assembler;
 
   SmallString<128> ExplicitCommentToEmit;
   SmallString<128> CommentToEmit;
   raw_svector_ostream CommentStream;
+  raw_null_ostream NullStream;
 
   unsigned IsVerboseAsm : 1;
   unsigned ShowInst : 1;
@@ -60,17 +63,23 @@ class MCAsmStreamer final : public MCStreamer {
 public:
   MCAsmStreamer(MCContext &Context, std::unique_ptr<formatted_raw_ostream> os,
                 bool isVerboseAsm, bool useDwarfDirectory,
-                MCInstPrinter *printer, MCCodeEmitter *emitter,
-                MCAsmBackend *asmbackend, bool showInst)
+                MCInstPrinter *printer, std::unique_ptr<MCCodeEmitter> emitter,
+                std::unique_ptr<MCAsmBackend> asmbackend, bool showInst)
       : MCStreamer(Context), OSOwner(std::move(os)), OS(*OSOwner),
-        MAI(Context.getAsmInfo()), InstPrinter(printer), Emitter(emitter),
-        AsmBackend(asmbackend), CommentStream(CommentToEmit),
-        IsVerboseAsm(isVerboseAsm), ShowInst(showInst),
-        UseDwarfDirectory(useDwarfDirectory) {
+        MAI(Context.getAsmInfo()), InstPrinter(printer),
+        Assembler(llvm::make_unique<MCAssembler>(
+            Context, std::move(asmbackend), std::move(emitter),
+            (asmbackend) ? asmbackend->createObjectWriter(NullStream)
+                         : nullptr)),
+        CommentStream(CommentToEmit), IsVerboseAsm(isVerboseAsm),
+        ShowInst(showInst), UseDwarfDirectory(useDwarfDirectory) {
     assert(InstPrinter);
     if (IsVerboseAsm)
         InstPrinter->setCommentStream(CommentStream);
   }
+
+  MCAssembler &getAssembler() { return *Assembler; }
+  MCAssembler *getAssemblerPtr() override { return nullptr; }
 
   inline void EmitEOL() {
     // Dump Explicit Comments here.
@@ -219,6 +228,10 @@ public:
                                                MD5::MD5Result *Checksum = 0,
                                                Optional<StringRef> Source = None,
                                                unsigned CUID = 0) override;
+  void emitDwarfFile0Directive(StringRef Directory, StringRef Filename,
+                               MD5::MD5Result *Checksum,
+                               Optional<StringRef> Source,
+                               unsigned CUID = 0) override;
   void EmitDwarfLocDirective(unsigned FileNo, unsigned Line,
                              unsigned Column, unsigned Flags,
                              unsigned Isa, unsigned Discriminator,
@@ -1077,21 +1090,12 @@ void MCAsmStreamer::EmitFileDirective(StringRef Filename) {
   EmitEOL();
 }
 
-Expected<unsigned> MCAsmStreamer::tryEmitDwarfFileDirective(
-    unsigned FileNo, StringRef Directory, StringRef Filename,
-    MD5::MD5Result *Checksum, Optional<StringRef> Source, unsigned CUID) {
-  assert(CUID == 0);
-
-  MCDwarfLineTable &Table = getContext().getMCDwarfLineTable(CUID);
-  unsigned NumFiles = Table.getMCDwarfFiles().size();
-  Expected<unsigned> FileNoOrErr =
-      Table.tryGetFile(Directory, Filename, Checksum, Source, FileNo);
-  if (!FileNoOrErr)
-    return FileNoOrErr.takeError();
-  FileNo = FileNoOrErr.get();
-  if (NumFiles == Table.getMCDwarfFiles().size())
-    return FileNo;
-
+static void printDwarfFileDirective(unsigned FileNo, StringRef Directory,
+                                    StringRef Filename,
+                                    MD5::MD5Result *Checksum,
+                                    Optional<StringRef> Source,
+                                    bool UseDwarfDirectory,
+                                    raw_svector_ostream &OS) {
   SmallString<128> FullPathName;
 
   if (!UseDwarfDirectory && !Directory.empty()) {
@@ -1105,29 +1109,67 @@ Expected<unsigned> MCAsmStreamer::tryEmitDwarfFileDirective(
     }
   }
 
+  OS << "\t.file\t" << FileNo << ' ';
+  if (!Directory.empty()) {
+    PrintQuotedString(Directory, OS);
+    OS << ' ';
+  }
+  PrintQuotedString(Filename, OS);
+  if (Checksum)
+    OS << " md5 0x" << Checksum->digest();
+  if (Source) {
+    OS << " source ";
+    PrintQuotedString(*Source, OS);
+  }
+}
+
+Expected<unsigned> MCAsmStreamer::tryEmitDwarfFileDirective(
+    unsigned FileNo, StringRef Directory, StringRef Filename,
+    MD5::MD5Result *Checksum, Optional<StringRef> Source, unsigned CUID) {
+  assert(CUID == 0 && "multiple CUs not supported by MCAsmStreamer");
+
+  MCDwarfLineTable &Table = getContext().getMCDwarfLineTable(CUID);
+  unsigned NumFiles = Table.getMCDwarfFiles().size();
+  Expected<unsigned> FileNoOrErr =
+      Table.tryGetFile(Directory, Filename, Checksum, Source, FileNo);
+  if (!FileNoOrErr)
+    return FileNoOrErr.takeError();
+  FileNo = FileNoOrErr.get();
+  if (NumFiles == Table.getMCDwarfFiles().size())
+    return FileNo;
+
   SmallString<128> Str;
   raw_svector_ostream OS1(Str);
-  OS1 << "\t.file\t" << FileNo << ' ';
-  if (!Directory.empty()) {
-    PrintQuotedString(Directory, OS1);
-    OS1 << ' ';
-  }
-  PrintQuotedString(Filename, OS1);
-  if (Checksum) {
-    OS1 << " md5 ";
-    PrintQuotedString(Checksum->digest(), OS1);
-  }
-  if (Source) {
-    OS1 << " source ";
-    PrintQuotedString(*Source, OS1);
-  }
-  if (MCTargetStreamer *TS = getTargetStreamer()) {
+  printDwarfFileDirective(FileNo, Directory, Filename, Checksum, Source,
+                          UseDwarfDirectory, OS1);
+
+  if (MCTargetStreamer *TS = getTargetStreamer())
     TS->emitDwarfFileDirective(OS1.str());
-  } else {
+  else
     EmitRawText(OS1.str());
-  }
 
   return FileNo;
+}
+
+void MCAsmStreamer::emitDwarfFile0Directive(StringRef Directory,
+                                            StringRef Filename,
+                                            MD5::MD5Result *Checksum,
+                                            Optional<StringRef> Source,
+                                            unsigned CUID) {
+  assert(CUID == 0);
+  // .file 0 is new for DWARF v5.
+  if (getContext().getDwarfVersion() < 5)
+    return;
+
+  SmallString<128> Str;
+  raw_svector_ostream OS1(Str);
+  printDwarfFileDirective(0, Directory, Filename, Checksum, Source,
+                          UseDwarfDirectory, OS1);
+
+  if (MCTargetStreamer *TS = getTargetStreamer())
+    TS->emitDwarfFileDirective(OS1.str());
+  else
+    EmitRawText(OS1.str());
 }
 
 void MCAsmStreamer::EmitDwarfLocDirective(unsigned FileNo, unsigned Line,
@@ -1136,27 +1178,29 @@ void MCAsmStreamer::EmitDwarfLocDirective(unsigned FileNo, unsigned Line,
                                           unsigned Discriminator,
                                           StringRef FileName) {
   OS << "\t.loc\t" << FileNo << " " << Line << " " << Column;
-  if (Flags & DWARF2_FLAG_BASIC_BLOCK)
-    OS << " basic_block";
-  if (Flags & DWARF2_FLAG_PROLOGUE_END)
-    OS << " prologue_end";
-  if (Flags & DWARF2_FLAG_EPILOGUE_BEGIN)
-    OS << " epilogue_begin";
+  if (MAI->supportsExtendedDwarfLocDirective()) {
+    if (Flags & DWARF2_FLAG_BASIC_BLOCK)
+      OS << " basic_block";
+    if (Flags & DWARF2_FLAG_PROLOGUE_END)
+      OS << " prologue_end";
+    if (Flags & DWARF2_FLAG_EPILOGUE_BEGIN)
+      OS << " epilogue_begin";
 
-  unsigned OldFlags = getContext().getCurrentDwarfLoc().getFlags();
-  if ((Flags & DWARF2_FLAG_IS_STMT) != (OldFlags & DWARF2_FLAG_IS_STMT)) {
-    OS << " is_stmt ";
+    unsigned OldFlags = getContext().getCurrentDwarfLoc().getFlags();
+    if ((Flags & DWARF2_FLAG_IS_STMT) != (OldFlags & DWARF2_FLAG_IS_STMT)) {
+      OS << " is_stmt ";
 
-    if (Flags & DWARF2_FLAG_IS_STMT)
-      OS << "1";
-    else
-      OS << "0";
+      if (Flags & DWARF2_FLAG_IS_STMT)
+        OS << "1";
+      else
+        OS << "0";
+    }
+
+    if (Isa)
+      OS << " isa " << Isa;
+    if (Discriminator)
+      OS << " discriminator " << Discriminator;
   }
-
-  if (Isa)
-    OS << " isa " << Isa;
-  if (Discriminator)
-    OS << " discriminator " << Discriminator;
 
   if (IsVerboseAsm) {
     OS.PadToColumn(MAI->getCommentColumn());
@@ -1613,7 +1657,12 @@ void MCAsmStreamer::AddEncodingComment(const MCInst &Inst,
   SmallString<256> Code;
   SmallVector<MCFixup, 4> Fixups;
   raw_svector_ostream VecOS(Code);
-  Emitter->encodeInstruction(Inst, VecOS, Fixups, STI);
+
+  // If we have no code emitter, don't emit code.
+  if (!getAssembler().getEmitterPtr())
+    return;
+
+  getAssembler().getEmitter().encodeInstruction(Inst, VecOS, Fixups, STI);
 
   // If we are showing fixups, create symbolic markers in the encoded
   // representation. We do this by making a per-bit map to the fixup item index,
@@ -1625,7 +1674,8 @@ void MCAsmStreamer::AddEncodingComment(const MCInst &Inst,
 
   for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
     MCFixup &F = Fixups[i];
-    const MCFixupKindInfo &Info = AsmBackend->getFixupKindInfo(F.getKind());
+    const MCFixupKindInfo &Info =
+        getAssembler().getBackend().getFixupKindInfo(F.getKind());
     for (unsigned j = 0; j != Info.TargetSize; ++j) {
       unsigned Index = F.getOffset() * 8 + Info.TargetOffset + j;
       assert(Index < Code.size() * 8 && "Invalid offset in fixup!");
@@ -1689,7 +1739,8 @@ void MCAsmStreamer::AddEncodingComment(const MCInst &Inst,
 
   for (unsigned i = 0, e = Fixups.size(); i != e; ++i) {
     MCFixup &F = Fixups[i];
-    const MCFixupKindInfo &Info = AsmBackend->getFixupKindInfo(F.getKind());
+    const MCFixupKindInfo &Info =
+        getAssembler().getBackend().getFixupKindInfo(F.getKind());
     OS << "  fixup " << char('A' + i) << " - " << "offset: " << F.getOffset()
        << ", value: " << *F.getValue() << ", kind: " << Info.Name << "\n";
   }
@@ -1702,8 +1753,7 @@ void MCAsmStreamer::EmitInstruction(const MCInst &Inst,
          "Cannot emit contents before setting section!");
 
   // Show the encoding in a comment if we have a code emitter.
-  if (Emitter)
-    AddEncodingComment(Inst, STI, PrintSchedInfo);
+  AddEncodingComment(Inst, STI, PrintSchedInfo);
 
   // Show the MCInst if enabled.
   if (ShowInst) {
@@ -1792,8 +1842,11 @@ void MCAsmStreamer::FinishImpl() {
 MCStreamer *llvm::createAsmStreamer(MCContext &Context,
                                     std::unique_ptr<formatted_raw_ostream> OS,
                                     bool isVerboseAsm, bool useDwarfDirectory,
-                                    MCInstPrinter *IP, MCCodeEmitter *CE,
-                                    MCAsmBackend *MAB, bool ShowInst) {
+                                    MCInstPrinter *IP,
+                                    std::unique_ptr<MCCodeEmitter> &&CE,
+                                    std::unique_ptr<MCAsmBackend> &&MAB,
+                                    bool ShowInst) {
   return new MCAsmStreamer(Context, std::move(OS), isVerboseAsm,
-                           useDwarfDirectory, IP, CE, MAB, ShowInst);
+                           useDwarfDirectory, IP, std::move(CE), std::move(MAB),
+                           ShowInst);
 }

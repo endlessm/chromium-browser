@@ -4,7 +4,7 @@
 
 #include "ui/app_list/app_list_util.h"
 
-#include "ui/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/focus/focus_manager.h"
 
@@ -75,23 +75,6 @@ bool ProcessLeftRightKeyTraversalForTextfield(views::Textfield* textfield,
   // Move focus outside the textfield.
   textfield->GetFocusManager()->AdvanceFocus(move_focus_reverse);
   return true;
-}
-
-int GetPreferredIconDimension(SearchResult::DisplayType display_type) {
-  switch (display_type) {
-    case ash::SearchResultDisplayType::kRecommendation:  // Falls through.
-    case ash::SearchResultDisplayType::kTile:
-      return kTileIconSize;
-    case ash::SearchResultDisplayType::kList:
-      return kListIconSize;
-    case ash::SearchResultDisplayType::kNone:
-    case ash::SearchResultDisplayType::kCard:
-      return 0;
-    case ash::SearchResultDisplayType::kLast:
-      break;
-  }
-  NOTREACHED();
-  return 0;
 }
 
 }  // namespace app_list

@@ -45,6 +45,7 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_manager_client.h"
 #include "chromeos/login/auth/user_context.h"
+#include "components/account_id/account_id.h"
 #include "components/cryptauth/cryptauth_client_impl.h"
 #include "components/cryptauth/cryptauth_device_manager.h"
 #include "components/cryptauth/cryptauth_enrollment_manager.h"
@@ -53,7 +54,6 @@
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/session_manager/core/session_manager.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/user_manager/user.h"
@@ -456,8 +456,8 @@ void EasyUnlockService::CheckCryptohomeKeysAndMaybeHardlock() {
   std::set<std::string> paired_devices;
   if (device_list) {
     EasyUnlockDeviceKeyDataList parsed_paired;
-    EasyUnlockKeyManager::RemoteDeviceListToDeviceDataList(*device_list,
-                                                           &parsed_paired);
+    EasyUnlockKeyManager::RemoteDeviceRefListToDeviceDataList(*device_list,
+                                                              &parsed_paired);
     for (const auto& device_key_data : parsed_paired)
       paired_devices.insert(device_key_data.psk);
   }
@@ -476,8 +476,11 @@ void EasyUnlockService::CheckCryptohomeKeysAndMaybeHardlock() {
       UserSessionManager::GetInstance()->GetEasyUnlockKeyManager();
   DCHECK(key_manager);
 
+  const user_manager::User* const user =
+      user_manager::UserManager::Get()->FindUser(account_id);
+  DCHECK(user);
   key_manager->GetDeviceDataList(
-      UserContext(account_id),
+      UserContext(*user),
       base::Bind(&EasyUnlockService::OnCryptohomeKeysFetchedForChecking,
                  weak_ptr_factory_.GetWeakPtr(), account_id, paired_devices));
 }
@@ -667,7 +670,10 @@ EasyUnlockAuthEvent EasyUnlockService::GetPasswordAuthEvent() const {
 
 void EasyUnlockService::SetProximityAuthDevices(
     const AccountId& account_id,
-    const cryptauth::RemoteDeviceList& remote_devices) {
+    const cryptauth::RemoteDeviceRefList& remote_devices) {
+  UMA_HISTOGRAM_COUNTS_100("SmartLock.EnabledDevicesCount",
+                           remote_devices.size());
+
   if (remote_devices.size() == 0) {
     proximity_auth_system_.reset();
     return;

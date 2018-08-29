@@ -9,14 +9,14 @@
 
 // clang-format off
 
-#include "v8_test_callback_interface.h"
+#include "third_party/blink/renderer/bindings/tests/results/core/v8_test_callback_interface.h"
 
-#include "bindings/core/v8/generated_code_helper.h"
-#include "bindings/core/v8/idl_types.h"
-#include "bindings/core/v8/native_value_traits_impl.h"
-#include "bindings/core/v8/v8_binding_for_core.h"
-#include "bindings/core/v8/v8_test_interface_empty.h"
-#include "core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
+#include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_interface_empty.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 
 namespace blink {
 
@@ -83,6 +83,7 @@ v8::Maybe<void> V8TestCallbackInterface::voidMethod(ScriptWrappable* callback_th
               "The provided callback is not callable."));
       return v8::Nothing<void>();
     }
+    function = value.As<v8::Function>();
   }
 
   v8::Local<v8::Value> this_arg;
@@ -102,9 +103,6 @@ v8::Maybe<void> V8TestCallbackInterface::voidMethod(ScriptWrappable* callback_th
   //   arguments list. If this throws an exception, set completion to the
   //   completion value representing the thrown exception and jump to the step
   //   labeled return.
-  v8::Local<v8::Object> argument_creation_context =
-      CallbackRelevantScriptState()->GetContext()->Global();
-  ALLOW_UNUSED_LOCAL(argument_creation_context);
   v8::Local<v8::Value> *argv = nullptr;
 
   // step 13. Let callResult be Call(X, thisArg, esArgs).
@@ -189,6 +187,7 @@ v8::Maybe<bool> V8TestCallbackInterface::booleanMethod(ScriptWrappable* callback
               "The provided callback is not callable."));
       return v8::Nothing<bool>();
     }
+    function = value.As<v8::Function>();
   }
 
   v8::Local<v8::Value> this_arg;
@@ -208,9 +207,6 @@ v8::Maybe<bool> V8TestCallbackInterface::booleanMethod(ScriptWrappable* callback
   //   arguments list. If this throws an exception, set completion to the
   //   completion value representing the thrown exception and jump to the step
   //   labeled return.
-  v8::Local<v8::Object> argument_creation_context =
-      CallbackRelevantScriptState()->GetContext()->Global();
-  ALLOW_UNUSED_LOCAL(argument_creation_context);
   v8::Local<v8::Value> *argv = nullptr;
 
   // step 13. Let callResult be Call(X, thisArg, esArgs).
@@ -307,6 +303,7 @@ v8::Maybe<void> V8TestCallbackInterface::voidMethodBooleanArg(ScriptWrappable* c
               "The provided callback is not callable."));
       return v8::Nothing<void>();
     }
+    function = value.As<v8::Function>();
   }
 
   v8::Local<v8::Value> this_arg;
@@ -414,6 +411,7 @@ v8::Maybe<void> V8TestCallbackInterface::voidMethodSequenceArg(ScriptWrappable* 
               "The provided callback is not callable."));
       return v8::Nothing<void>();
     }
+    function = value.As<v8::Function>();
   }
 
   v8::Local<v8::Value> this_arg;
@@ -521,6 +519,7 @@ v8::Maybe<void> V8TestCallbackInterface::voidMethodFloatArg(ScriptWrappable* cal
               "The provided callback is not callable."));
       return v8::Nothing<void>();
     }
+    function = value.As<v8::Function>();
   }
 
   v8::Local<v8::Value> this_arg;
@@ -628,6 +627,7 @@ v8::Maybe<void> V8TestCallbackInterface::voidMethodTestInterfaceEmptyArg(ScriptW
               "The provided callback is not callable."));
       return v8::Nothing<void>();
     }
+    function = value.As<v8::Function>();
   }
 
   v8::Local<v8::Value> this_arg;
@@ -735,6 +735,7 @@ v8::Maybe<void> V8TestCallbackInterface::voidMethodTestInterfaceEmptyStringArg(S
               "The provided callback is not callable."));
       return v8::Nothing<void>();
     }
+    function = value.As<v8::Function>();
   }
 
   v8::Local<v8::Value> this_arg;
@@ -843,6 +844,7 @@ v8::Maybe<void> V8TestCallbackInterface::callbackWithThisValueVoidMethodStringAr
               "The provided callback is not callable."));
       return v8::Nothing<void>();
     }
+    function = value.As<v8::Function>();
   }
 
   v8::Local<v8::Value> this_arg;
@@ -950,6 +952,7 @@ v8::Maybe<void> V8TestCallbackInterface::customVoidMethodTestInterfaceEmptyArg(S
               "The provided callback is not callable."));
       return v8::Nothing<void>();
     }
+    function = value.As<v8::Function>();
   }
 
   v8::Local<v8::Value> this_arg;

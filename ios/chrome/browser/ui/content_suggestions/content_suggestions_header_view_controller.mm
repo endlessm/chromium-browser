@@ -19,6 +19,7 @@
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_constants.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_view.h"
+#import "ios/chrome/browser/ui/toolbar/adaptive/primary_toolbar_view.h"
 #import "ios/chrome/browser/ui/toolbar/adaptive/primary_toolbar_view_controller.h"
 #import "ios/chrome/browser/ui/toolbar/public/fakebox_focuser.h"
 #import "ios/chrome/browser/ui/toolbar/public/omnibox_focuser.h"
@@ -66,7 +67,6 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
 @property(nonatomic, strong) UIButton* fakeOmnibox;
 @property(nonatomic, strong) UILabel* searchHintLabel;
 @property(nonatomic, strong) NSLayoutConstraint* hintLabelLeadingConstraint;
-@property(nonatomic, strong) NSLayoutConstraint* hintLabelWidthConstraint;
 @property(nonatomic, strong) NSLayoutConstraint* voiceTapTrailingConstraint;
 @property(nonatomic, strong) NSLayoutConstraint* doodleHeightConstraint;
 @property(nonatomic, strong) NSLayoutConstraint* doodleTopMarginConstraint;
@@ -97,7 +97,6 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
 @synthesize headerView = _headerView;
 @synthesize fakeOmnibox = _fakeOmnibox;
 @synthesize hintLabelLeadingConstraint = _hintLabelLeadingConstraint;
-@synthesize hintLabelWidthConstraint = _hintLabelWidthConstraint;
 @synthesize voiceTapTrailingConstraint = _voiceTapTrailingConstraint;
 @synthesize doodleHeightConstraint = _doodleHeightConstraint;
 @synthesize doodleTopMarginConstraint = _doodleTopMarginConstraint;
@@ -165,7 +164,9 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
     CGFloat progress =
         [self.headerView searchFieldProgressForOffset:offset
                                        safeAreaInsets:safeAreaInsets];
-    [self.toolbarDelegate setScrollProgressForTabletOmnibox:progress];
+    if (self.isShowing) {
+      [self.toolbarDelegate setScrollProgressForTabletOmnibox:progress];
+    }
   }
 
   NSArray* constraints =
@@ -175,11 +176,15 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
                                    height:self.fakeOmniboxHeightConstraint
                                 topMargin:self.fakeOmniboxTopMarginConstraint
                                 hintLabel:self.searchHintLabel
-                           hintLabelWidth:self.hintLabelWidthConstraint
                        subviewConstraints:constraints
                                 forOffset:offset
                               screenWidth:screenWidth
                            safeAreaInsets:safeAreaInsets];
+
+  // Before constraining the |fakeTapView| to |locationBarContainer| make sure
+  // to activate the constraints first.
+  if (IsUIRefreshPhase1Enabled())
+    [self.toolbarViewController contractLocationBar];
 }
 
 - (void)updateFakeOmniboxForWidth:(CGFloat)width {
@@ -202,10 +207,20 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
 - (CGFloat)pinnedOffsetY {
   CGFloat headerHeight = content_suggestions::heightForLogoHeader(
       self.logoIsShowing, self.promoCanShow, YES);
+
   CGFloat offsetY =
       headerHeight - ntp_header::kScrolledToTopOmniboxBottomMargin;
-  if (!content_suggestions::IsRegularXRegularSizeClass(self.view))
-    offsetY -= ntp_header::ToolbarHeight();
+  if (!content_suggestions::IsRegularXRegularSizeClass(self.view)) {
+    CGFloat top = 0;
+    if (@available(iOS 11, *)) {
+      top = self.parentViewController.view.safeAreaInsets.top;
+    } else if (IsUIRefreshPhase1Enabled()) {
+      // TODO(crbug.com/826369) Replace this when the NTP is contained by the
+      // BVC with |self.parentViewController.topLayoutGuide.length|.
+      top = StatusBarHeight();
+    }
+    offsetY -= ntp_header::ToolbarHeight() + top;
+  }
 
   return offsetY;
 }
@@ -221,6 +236,7 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
   if (!self.headerView) {
     if (IsUIRefreshPhase1Enabled()) {
       self.headerView = [[ContentSuggestionsHeaderView alloc] init];
+      [self addFakeTapView];
     } else {
       self.headerView = [[NewTabPageHeaderView alloc] init];
     }
@@ -296,21 +312,17 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
 
   // Set up fakebox hint label.
   _searchHintLabel = [[UILabel alloc] init];
-  content_suggestions::configureSearchHintLabel(_searchHintLabel,
-                                                self.fakeOmnibox);
+  UIView* hintLabelContainer = [[UIView alloc] init];
+  content_suggestions::configureSearchHintLabel(
+      _searchHintLabel, hintLabelContainer, self.fakeOmnibox);
 
-  self.hintLabelLeadingConstraint = [_searchHintLabel.leadingAnchor
+  self.hintLabelLeadingConstraint = [hintLabelContainer.leadingAnchor
       constraintEqualToAnchor:[self.fakeOmnibox leadingAnchor]
                      constant:ntp_header::kHintLabelSidePadding];
   if (!IsUIRefreshPhase1Enabled())
     self.hintLabelLeadingConstraint.constant =
         ntp_header::kHintLabelSidePaddingLegacy;
   [self.hintLabelLeadingConstraint setActive:YES];
-
-  if (IsUIRefreshPhase1Enabled()) {
-    self.hintLabelWidthConstraint =
-        [_searchHintLabel.widthAnchor constraintEqualToConstant:0];
-  }
 
   // Set a button the same size as the fake omnibox as the accessibility
   // element. If the hint is the only accessible element, when the fake omnibox
@@ -335,15 +347,11 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
 
   self.voiceTapTrailingConstraint = [voiceTapTarget.trailingAnchor
       constraintEqualToAnchor:[self.fakeOmnibox trailingAnchor]];
-  if (IsUIRefreshPhase1Enabled()) {
-    [NSLayoutConstraint activateConstraints:@[ _voiceTapTrailingConstraint ]];
-  } else {
-    [NSLayoutConstraint activateConstraints:@[
-      [_searchHintLabel.trailingAnchor
-          constraintEqualToAnchor:voiceTapTarget.leadingAnchor],
-      _voiceTapTrailingConstraint
-    ]];
-  }
+  [NSLayoutConstraint activateConstraints:@[
+    [hintLabelContainer.trailingAnchor
+        constraintEqualToAnchor:voiceTapTarget.leadingAnchor],
+    _voiceTapTrailingConstraint
+  ]];
 
   if (self.voiceSearchIsEnabled) {
     [voiceTapTarget addTarget:self
@@ -355,6 +363,20 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
   } else {
     [voiceTapTarget setEnabled:NO];
   }
+}
+
+- (void)addFakeTapView {
+  UIButton* fakeTapButton = [[UIButton alloc] init];
+  fakeTapButton.translatesAutoresizingMaskIntoConstraints = NO;
+  [self.toolbarViewController.view addSubview:fakeTapButton];
+  PrimaryToolbarView* primaryToolbarView =
+      base::mac::ObjCCastStrict<PrimaryToolbarView>(
+          self.toolbarViewController.view);
+  UIView* locationBarContainer = primaryToolbarView.locationBarContainer;
+  AddSameConstraints(locationBarContainer, fakeTapButton);
+  [fakeTapButton addTarget:self
+                    action:@selector(fakeOmniboxTapped:)
+          forControlEvents:UIControlEventTouchUpInside];
 }
 
 - (void)loadVoiceSearch:(id)sender {
@@ -460,7 +482,7 @@ const UIEdgeInsets kSearchBoxStretchInsets = {3, 3, 3, 3};
   return [self.logoVendor logoAnimationControllerOwner];
 }
 
-#pragma mark - GoogleLandingConsumer
+#pragma mark - NTPHomeConsumer
 
 - (void)setLogoIsShowing:(BOOL)logoIsShowing {
   _logoIsShowing = logoIsShowing;

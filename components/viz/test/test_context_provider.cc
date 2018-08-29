@@ -9,6 +9,7 @@
 
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
@@ -111,11 +112,10 @@ scoped_refptr<TestContextProvider> TestContextProvider::Create() {
 // static
 scoped_refptr<TestContextProvider> TestContextProvider::CreateWorker() {
   constexpr bool support_locking = true;
-  scoped_refptr<TestContextProvider> worker_context_provider(
-      new TestContextProvider(
-          std::make_unique<TestContextSupport>(),
-          std::make_unique<TestGLES2InterfaceForContextProvider>(),
-          TestWebGraphicsContext3D::Create(), support_locking));
+  auto worker_context_provider = base::MakeRefCounted<TestContextProvider>(
+      std::make_unique<TestContextSupport>(),
+      std::make_unique<TestGLES2InterfaceForContextProvider>(),
+      TestWebGraphicsContext3D::Create(), support_locking);
   // Worker contexts are bound to the thread they are created on.
   auto result = worker_context_provider->BindToCurrentThread();
   if (result != gpu::ContextResult::kSuccess)
@@ -158,17 +158,43 @@ scoped_refptr<TestContextProvider> TestContextProvider::Create(
 }
 
 // static
+scoped_refptr<TestContextProvider> TestContextProvider::Create(
+    std::unique_ptr<TestContextSupport> support) {
+  DCHECK(support);
+  constexpr bool support_locking = false;
+  return new TestContextProvider(
+      std::move(support),
+      std::make_unique<TestGLES2InterfaceForContextProvider>(),
+      TestWebGraphicsContext3D::Create(), support_locking);
+}
+
+// static
 scoped_refptr<TestContextProvider> TestContextProvider::CreateWorker(
     std::unique_ptr<TestWebGraphicsContext3D> context,
     std::unique_ptr<TestContextSupport> support) {
   DCHECK(context);
   DCHECK(support);
   constexpr bool support_locking = true;
-  scoped_refptr<TestContextProvider> worker_context_provider(
-      new TestContextProvider(
-          std::move(support),
-          std::make_unique<TestGLES2InterfaceForContextProvider>(),
-          std::move(context), support_locking));
+  auto worker_context_provider = base::MakeRefCounted<TestContextProvider>(
+      std::move(support),
+      std::make_unique<TestGLES2InterfaceForContextProvider>(),
+      std::move(context), support_locking);
+  // Worker contexts are bound to the thread they are created on.
+  auto result = worker_context_provider->BindToCurrentThread();
+  if (result != gpu::ContextResult::kSuccess)
+    return nullptr;
+  return worker_context_provider;
+}
+
+// static
+scoped_refptr<TestContextProvider> TestContextProvider::CreateWorker(
+    std::unique_ptr<TestContextSupport> support) {
+  DCHECK(support);
+  constexpr bool support_locking = true;
+  auto worker_context_provider = base::MakeRefCounted<TestContextProvider>(
+      std::move(support),
+      std::make_unique<TestGLES2InterfaceForContextProvider>(),
+      TestWebGraphicsContext3D::Create(), support_locking);
   // Worker contexts are bound to the thread they are created on.
   auto result = worker_context_provider->BindToCurrentThread();
   if (result != gpu::ContextResult::kSuccess)
@@ -193,7 +219,7 @@ TestContextProvider::TestContextProvider(
   context_gl_->set_test_context(context3d_.get());
   context3d_->set_test_support(support_.get());
   raster_context_ = std::make_unique<gpu::raster::RasterImplementationGLES>(
-      context_gl_.get(), support_.get(), context3d_->test_capabilities());
+      context_gl_.get(), nullptr, context3d_->test_capabilities());
   // Just pass nullptr to the ContextCacheController for its task runner.
   // Idle handling is tested directly in ContextCacheController's
   // unittests, and isn't needed here.

@@ -16,14 +16,16 @@ import android.os.PowerManager;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.rule.ActivityTestRule;
 import android.text.TextUtils;
+import android.view.ViewGroup;
 
 import org.junit.Assert;
 
+import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.content.browser.ContentViewCoreImpl;
-import org.chromium.content.browser.RenderCoordinates;
+import org.chromium.content.browser.RenderCoordinatesImpl;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer;
@@ -51,6 +53,8 @@ import java.util.concurrent.TimeUnit;
 public class ContentShellActivityTestRule extends ActivityTestRule<ContentShellActivity> {
     /** The maximum time the waitForActiveShellToBeDoneLoading method will wait. */
     private static final long WAIT_FOR_ACTIVE_SHELL_LOADING_TIMEOUT = scaleTimeout(10000);
+
+    private static final String TAG = "ContentShellATR";
 
     protected static final long WAIT_PAGE_LOADING_TIMEOUT_SECONDS = scaleTimeout(15);
 
@@ -107,8 +111,7 @@ public class ContentShellActivityTestRule extends ActivityTestRule<ContentShellA
         ContentShellActivity activity = launchContentShellWithUrl(isolatedTestFileUrl);
         Assert.assertNotNull(getActivity());
         waitForActiveShellToBeDoneLoading();
-        Assert.assertEquals(
-                isolatedTestFileUrl, getContentViewCore().getWebContents().getLastCommittedUrl());
+        Assert.assertEquals(isolatedTestFileUrl, getWebContents().getLastCommittedUrl());
         return activity;
     }
 
@@ -156,11 +159,27 @@ public class ContentShellActivityTestRule extends ActivityTestRule<ContentShellA
     /**
      * Returns the RenderCoordinates of the WebContents.
      */
-    public RenderCoordinates getRenderCoordinates() {
+    public RenderCoordinatesImpl getRenderCoordinates() {
         try {
             return ThreadUtils.runOnUiThreadBlocking(
                     () -> { return ((WebContentsImpl) getWebContents()).getRenderCoordinates(); });
         } catch (ExecutionException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Returns the current container view or null if there is no WebContents.
+     */
+    public ViewGroup getContainerView() {
+        final WebContents webContents = getWebContents();
+        try {
+            return ThreadUtils.runOnUiThreadBlocking(() -> {
+                return webContents != null ? webContents.getViewAndroidDelegate().getContainerView()
+                                           : null;
+            });
+        } catch (ExecutionException e) {
+            Log.w(TAG, "Getting container view failed. Returning null", e);
             return null;
         }
     }
@@ -193,8 +212,7 @@ public class ContentShellActivityTestRule extends ActivityTestRule<ContentShellA
                     updateFailureReason("Shell is still loading.");
                     return false;
                 }
-                if (TextUtils.isEmpty(
-                            shell.getContentViewCore().getWebContents().getLastCommittedUrl())) {
+                if (TextUtils.isEmpty(shell.getWebContents().getLastCommittedUrl())) {
                     updateFailureReason("Shell's URL is empty or null.");
                     return false;
                 }
@@ -265,7 +283,7 @@ public class ContentShellActivityTestRule extends ActivityTestRule<ContentShellA
      * from the compositor and asserts that this happens.
      */
     public void assertWaitForPageScaleFactorMatch(float expectedScale) {
-        final RenderCoordinates coord = getRenderCoordinates();
+        final RenderCoordinatesImpl coord = getRenderCoordinates();
         CriteriaHelper.pollInstrumentationThread(
                 Criteria.equals(expectedScale, new Callable<Float>() {
                     @Override

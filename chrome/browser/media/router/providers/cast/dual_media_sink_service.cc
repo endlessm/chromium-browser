@@ -4,7 +4,9 @@
 
 #include "chrome/browser/media/router/providers/cast/dual_media_sink_service.h"
 
+#include "base/time/default_tick_clock.h"
 #include "chrome/browser/media/router/discovery/dial/dial_media_sink_service.h"
+#include "chrome/browser/media/router/discovery/dial/dial_media_sink_service_impl.h"
 #include "chrome/browser/media/router/discovery/mdns/cast_media_sink_service.h"
 #include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/media/router/providers/cast/cast_app_discovery_service.h"
@@ -32,6 +34,14 @@ void DualMediaSinkService::SetInstanceForTest(
   instance_for_test_ = instance_for_test;
 }
 
+DialMediaSinkServiceImpl* DualMediaSinkService::GetDialMediaSinkServiceImpl() {
+  return dial_media_sink_service_->impl();
+}
+
+MediaSinkServiceBase* DualMediaSinkService::GetCastMediaSinkServiceImpl() {
+  return cast_media_sink_service_->impl();
+}
+
 DualMediaSinkService::Subscription
 DualMediaSinkService::AddSinksDiscoveredCallback(
     const OnSinksDiscoveredProviderCallback& callback) {
@@ -41,8 +51,7 @@ DualMediaSinkService::AddSinksDiscoveredCallback(
 
 void DualMediaSinkService::OnUserGesture() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  dial_media_sink_service_->OnUserGesture();
+  // TODO(imcheng): Move this call into CastMediaRouteProvider.
   if (cast_media_sink_service_)
     cast_media_sink_service_->OnUserGesture();
 }
@@ -55,35 +64,35 @@ void DualMediaSinkService::StartMdnsDiscovery() {
 }
 
 DualMediaSinkService::DualMediaSinkService() {
-  OnDialSinkAddedCallback dial_sink_added_cb;
-  if (CastDiscoveryEnabled()) {
-    if (CastMediaRouteProviderEnabled()) {
-      cast_channel::CastSocketService* cast_socket_service =
-          cast_channel::CastSocketService::GetInstance();
-      cast_app_discovery_service_ = std::make_unique<CastAppDiscoveryService>(
-          GetCastMessageHandler(), cast_socket_service);
-    }
+  dial_media_sink_service_ = std::make_unique<DialMediaSinkService>();
+  dial_media_sink_service_->Start(
+      base::BindRepeating(&DualMediaSinkService::OnSinksDiscovered,
+                          base::Unretained(this), "dial"));
 
+  if (CastDiscoveryEnabled()) {
     cast_media_sink_service_ = std::make_unique<CastMediaSinkService>();
     cast_media_sink_service_->Start(
         base::BindRepeating(&DualMediaSinkService::OnSinksDiscovered,
                             base::Unretained(this), "cast"),
-        cast_app_discovery_service_.get());
-    dial_sink_added_cb = cast_media_sink_service_->GetDialSinkAddedCallback();
-  }
+        dial_media_sink_service_->impl());
 
-  dial_media_sink_service_ = std::make_unique<DialMediaSinkService>();
-  dial_media_sink_service_->Start(
-      base::BindRepeating(&DualMediaSinkService::OnSinksDiscovered,
-                          base::Unretained(this), "dial"),
-      dial_sink_added_cb);
+    if (CastMediaRouteProviderEnabled()) {
+      cast_channel::CastSocketService* cast_socket_service =
+          cast_channel::CastSocketService::GetInstance();
+      cast_app_discovery_service_ =
+          std::make_unique<CastAppDiscoveryServiceImpl>(
+              GetCastMessageHandler(), cast_socket_service,
+              cast_media_sink_service_->impl(),
+              base::DefaultTickClock::GetInstance());
+    }
+  }
 }
 
 DualMediaSinkService::DualMediaSinkService(
     std::unique_ptr<CastMediaSinkService> cast_media_sink_service,
     std::unique_ptr<DialMediaSinkService> dial_media_sink_service)
-    : cast_media_sink_service_(std::move(cast_media_sink_service)),
-      dial_media_sink_service_(std::move(dial_media_sink_service)) {}
+    : dial_media_sink_service_(std::move(dial_media_sink_service)),
+      cast_media_sink_service_(std::move(cast_media_sink_service)) {}
 
 DualMediaSinkService::~DualMediaSinkService() = default;
 

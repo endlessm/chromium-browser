@@ -28,6 +28,7 @@
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
+#include "chrome/browser/ui/signin_view_controller.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/md_bookmarks/md_bookmarks_ui.h"
@@ -37,7 +38,6 @@
 #include "chrome/common/url_constants.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_node.h"
-#include "components/signin/core/browser/signin_header_helper.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/common/constants.h"
@@ -70,17 +70,16 @@ const char kHashMark[] = "#";
 void OpenBookmarkManagerForNode(Browser* browser, int64_t node_id) {
   GURL url = GURL(kChromeUIBookmarksURL)
                  .Resolve(base::StringPrintf(
-                     MdBookmarksUI::IsEnabled() ? "/?id=%s" : "/#%s",
-                     base::Int64ToString(node_id).c_str()));
+                     "/?id=%s", base::Int64ToString(node_id).c_str()));
   NavigateParams params(GetSingletonTabNavigateParams(browser, url));
   params.path_behavior = NavigateParams::IGNORE_AND_NAVIGATE;
-  ShowSingletonTabOverwritingNTP(browser, params);
+  ShowSingletonTabOverwritingNTP(browser, std::move(params));
 }
 
 void NavigateToSingletonTab(Browser* browser, const GURL& url) {
   NavigateParams params(GetSingletonTabNavigateParams(browser, url));
   params.path_behavior = NavigateParams::IGNORE_AND_NAVIGATE;
-  ShowSingletonTabOverwritingNTP(browser, params);
+  ShowSingletonTabOverwritingNTP(browser, std::move(params));
 }
 
 // Shows either the help app or the appropriate help page for |source|. If
@@ -203,7 +202,7 @@ void ShowBookmarkManager(Browser* browser) {
   NavigateParams params(
       GetSingletonTabNavigateParams(browser, GURL(kChromeUIBookmarksURL)));
   params.path_behavior = NavigateParams::IGNORE_AND_NAVIGATE;
-  ShowSingletonTabOverwritingNTP(browser, params);
+  ShowSingletonTabOverwritingNTP(browser, std::move(params));
 }
 
 void ShowBookmarkManagerForNode(Browser* browser, int64_t node_id) {
@@ -216,7 +215,7 @@ void ShowHistory(Browser* browser) {
   NavigateParams params(
       GetSingletonTabNavigateParams(browser, GURL(kChromeUIHistoryURL)));
   params.path_behavior = NavigateParams::IGNORE_AND_NAVIGATE;
-  ShowSingletonTabOverwritingNTP(browser, params);
+  ShowSingletonTabOverwritingNTP(browser, std::move(params));
 }
 
 void ShowDownloads(Browser* browser) {
@@ -242,7 +241,7 @@ void ShowExtensions(Browser* browser,
     replacements.SetQueryStr(query);
     params.url = params.url.ReplaceComponents(replacements);
   }
-  ShowSingletonTabOverwritingNTP(browser, params);
+  ShowSingletonTabOverwritingNTP(browser, std::move(params));
 }
 
 void ShowConflicts(Browser* browser) {
@@ -328,7 +327,7 @@ void ShowSettingsSubPageInTabbedBrowser(Browser* browser,
   GURL gurl = GetSettingsUrl(sub_page);
   NavigateParams params(GetSingletonTabNavigateParams(browser, gurl));
   params.path_behavior = NavigateParams::IGNORE_AND_NAVIGATE;
-  ShowSingletonTabOverwritingNTP(browser, params);
+  ShowSingletonTabOverwritingNTP(browser, std::move(params));
 }
 
 void ShowContentSettingsExceptions(Browser* browser,
@@ -385,7 +384,7 @@ void ShowAboutChrome(Browser* browser) {
   NavigateParams params(
       GetSingletonTabNavigateParams(browser, GURL(kChromeUIHelpURL)));
   params.path_behavior = NavigateParams::IGNORE_AND_NAVIGATE;
-  ShowSingletonTabOverwritingNTP(browser, params);
+  ShowSingletonTabOverwritingNTP(browser, std::move(params));
 #endif
 }
 
@@ -410,7 +409,7 @@ void ShowBrowserSignin(Browser* browser,
   browser = displayer->browser();
 
 #if defined(OS_CHROMEOS)
-  // ChromeOS doesn't have the avatar bubble.
+  // ChromeOS always loads the chrome://chrome-signin in a tab.
   const bool show_full_tab_chrome_signin_page = true;
 #else
   // When Desktop Identity Consistency (aka DICE) is not enabled, Chrome uses
@@ -438,9 +437,12 @@ void ShowBrowserSignin(Browser* browser,
             false));
     DCHECK_GT(browser->tab_strip_model()->count(), 0);
   } else {
-    browser->window()->ShowAvatarBubbleFromAvatarButton(
-        BrowserWindow::AVATAR_BUBBLE_MODE_SIGNIN,
-        signin::ManageAccountsParams(), access_point, false);
+#if defined(OS_CHROMEOS)
+    NOTREACHED();
+#else
+    browser->signin_view_controller()->ShowSignin(
+        profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN, browser, access_point);
+#endif
   }
 }
 

@@ -16,8 +16,11 @@ bool IsOpaqueUiMode(UiMode mode) {
     case kModeWebVrAutopresented:
     case kModeVoiceSearch:
     case kModeEditingOmnibox:
+    case kModeTabsView:
       return true;
     case kModeRepositionWindow:
+    case kModeModalPrompt:
+    case kModeVoiceSearchListening:
       return false;
   }
   NOTREACHED();
@@ -31,10 +34,10 @@ Model::~Model() = default;
 
 const ColorScheme& Model::color_scheme() const {
   ColorScheme::Mode mode = ColorScheme::kModeNormal;
-  if (fullscreen_enabled())
-    mode = ColorScheme::kModeFullscreen;
   if (incognito)
     mode = ColorScheme::kModeIncognito;
+  if (fullscreen_enabled())
+    mode = ColorScheme::kModeFullscreen;
   return ColorScheme::GetColorScheme(mode);
 }
 
@@ -62,6 +65,10 @@ void Model::toggle_mode(UiMode mode) {
     return;
   }
   push_mode(mode);
+}
+
+UiMode Model::get_mode() const {
+  return ui_modes.back();
 }
 
 UiMode Model::get_last_opaque_mode() const {

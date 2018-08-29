@@ -10,6 +10,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.support.annotation.Nullable;
+import android.support.v4.content.ContextCompat;
 
 import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
@@ -37,7 +38,6 @@ import org.chromium.chrome.browser.omaha.RequestGenerator;
 import org.chromium.chrome.browser.partnerbookmarks.PartnerBookmark;
 import org.chromium.chrome.browser.partnerbookmarks.PartnerBookmarksProviderIterator;
 import org.chromium.chrome.browser.partnercustomizations.PartnerBrowserCustomizations;
-import org.chromium.chrome.browser.physicalweb.PhysicalWebBleClient;
 import org.chromium.chrome.browser.policy.PolicyAuditor;
 import org.chromium.chrome.browser.preferences.LocationSettings;
 import org.chromium.chrome.browser.rlz.RevenueStats;
@@ -48,7 +48,7 @@ import org.chromium.chrome.browser.sync.GmsCoreSyncListener;
 import org.chromium.chrome.browser.tab.AuthenticatorNavigationInterceptor;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.webapps.GooglePlayWebApkInstallDelegate;
-import org.chromium.chrome.browser.webauth.U2fApiHandler;
+import org.chromium.chrome.browser.webauth.Fido2ApiHandler;
 import org.chromium.components.signin.AccountManagerDelegate;
 import org.chromium.components.signin.SystemAccountManagerDelegate;
 import org.chromium.policy.AppRestrictionsProvider;
@@ -226,13 +226,6 @@ public abstract class AppHooks {
     }
 
     /**
-     * @return A new {@link PhysicalWebBleClient} instance.
-     */
-    public PhysicalWebBleClient createPhysicalWebBleClient() {
-        return new PhysicalWebBleClient();
-    }
-
-    /**
      * @return a new {@link ProcessInitializationHandler} instance.
      */
     public ProcessInitializationHandler createProcessInitializationHandler() {
@@ -279,9 +272,7 @@ public abstract class AppHooks {
      * @param intent The {@link Intent} to fire to start the service.
      */
     public void startForegroundService(Intent intent) {
-        // TODO(crbug.com/758280): Remove this whole method once the downstream override is gone and
-        // all overrides have been ported over.
-        ContextUtils.startForegroundService(ContextUtils.getApplicationContext(), intent);
+        ContextCompat.startForegroundService(ContextUtils.getApplicationContext(), intent);
     }
 
     /**
@@ -345,9 +336,9 @@ public abstract class AppHooks {
     }
 
     /**
-     * @return a new {@link U2fApiHandler} instance.
+     * @return a new {@link Fido2ApiHandler} instance.
      */
-    public U2fApiHandler createU2fApiHandler() {
-        return new U2fApiHandler();
+    public Fido2ApiHandler createFido2ApiHandler() {
+        return new Fido2ApiHandler();
     }
 }

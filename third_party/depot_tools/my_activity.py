@@ -196,6 +196,7 @@ class MyActivity(object):
     self.referenced_issues = []
     self.check_cookies()
     self.google_code_auth_token = None
+    self.access_errors = set()
 
   def show_progress(self, how='.'):
     if sys.stdout.isatty():
@@ -351,8 +352,7 @@ class MyActivity(object):
       ret.append(r)
     return ret
 
-  @staticmethod
-  def gerrit_changes_over_rest(instance, filters):
+  def gerrit_changes_over_rest(self, instance, filters):
     # Convert the "key:value" filter to a list of (key, value) pairs.
     req = list(f.split(':', 1) for f in filters)
     try:
@@ -362,7 +362,9 @@ class MyActivity(object):
           o_params=['MESSAGES', 'LABELS', 'DETAILED_ACCOUNTS',
                     'CURRENT_REVISION', 'CURRENT_COMMIT']))
     except gerrit_util.GerritError, e:
-      logging.error('Looking up %r: %s', instance['url'], e)
+      error_message = 'Looking up %r: %s' % (instance['url'], e)
+      if error_message not in self.access_errors:
+        self.access_errors.add(error_message)
       return []
 
   def gerrit_search(self, instance, owner=None, reviewer=None):
@@ -669,6 +671,12 @@ class MyActivity(object):
       for change in self.changes:
           self.print_change(change)
 
+  def print_access_errors(self):
+    if self.access_errors:
+      logging.error('Access Errors:')
+      for error in self.access_errors:
+        logging.error(error.rstrip())
+
   def get_reviews(self):
     num_instances = len(rietveld_instances) + len(gerrit_instances)
     with contextlib.closing(ThreadPool(num_instances)) as pool:
@@ -694,6 +702,9 @@ class MyActivity(object):
       monorail_issues = pool.map(
           self.monorail_issue_search, monorail_projects.keys())
       monorail_issues = list(itertools.chain.from_iterable(monorail_issues))
+
+    if not monorail_issues:
+      return
 
     with contextlib.closing(ThreadPool(len(monorail_issues))) as pool:
       filtered_issues = pool.map(
@@ -1020,6 +1031,8 @@ def main():
     logging.error('auth.AuthenticationError: %s', e)
 
   my_activity.show_progress('\n')
+
+  my_activity.print_access_errors()
 
   output_file = None
   try:

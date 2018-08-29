@@ -12,10 +12,10 @@
 #include "chrome/browser/chrome_browser_main_linux.h"
 #include "chrome/browser/chromeos/external_metrics.h"
 #include "chrome/browser/memory/memory_kills_monitor.h"
-#include "chromeos/assistant/buildflags.h"
 #include "chromeos/system/version_loader.h"
 
 class NotificationPlatformBridge;
+class SpokenFeedbackEventRewriterDelegate;
 
 namespace lock_screen_apps {
 class StateController;
@@ -29,9 +29,7 @@ class VoiceInteractionControllerClient;
 namespace chromeos {
 
 class ArcKioskAppManager;
-class EventRewriterController;
 class EventRewriterDelegateImpl;
-class ExtensionVolumeObserver;
 class IdleActionWarningObserver;
 class LowDiskNotification;
 class NetworkPrefStateObserver;
@@ -45,11 +43,6 @@ namespace default_app_order {
 class ExternalLoader;
 }
 
-#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
-namespace assistant {
-class AssistantClient;
-}  // namespace assistant
-#endif
 
 namespace internal {
 class DBusPreEarlyInit;
@@ -71,15 +64,14 @@ class UserActivityController;
 class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
  public:
   explicit ChromeBrowserMainPartsChromeos(
-      const content::MainFunctionParams& parameters);
+      const content::MainFunctionParams& parameters,
+      std::unique_ptr<ui::DataPack> data_pack);
   ~ChromeBrowserMainPartsChromeos() override;
 
   // ChromeBrowserMainParts overrides.
   int PreEarlyInitialization() override;
   void PreMainMessageLoopStart() override;
   void PostMainMessageLoopStart() override;
-  void ServiceManagerConnectionStarted(
-      content::ServiceManagerConnection* connection) override;
   void PreMainMessageLoopRun() override;
 
   // Stages called from PreMainMessageLoopRun.
@@ -94,7 +86,6 @@ class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
  private:
   std::unique_ptr<default_app_order::ExternalLoader> app_order_loader_;
   std::unique_ptr<NetworkPrefStateObserver> network_pref_state_observer_;
-  std::unique_ptr<ExtensionVolumeObserver> extension_volume_observer_;
   std::unique_ptr<IdleActionWarningObserver> idle_action_warning_observer_;
   std::unique_ptr<RendererFreezer> renderer_freezer_;
   std::unique_ptr<PowerMetricsReporter> power_metrics_reporter_;
@@ -110,15 +101,14 @@ class ChromeBrowserMainPartsChromeos : public ChromeBrowserMainPartsLinux {
   std::unique_ptr<ShutdownPolicyForwarder> shutdown_policy_forwarder_;
 
   std::unique_ptr<EventRewriterDelegateImpl> event_rewriter_delegate_;
-  std::unique_ptr<EventRewriterController> keyboard_event_rewriters_;
+
+  // Handles event dispatch to the spoken feedback extension (ChromeVox).
+  std::unique_ptr<SpokenFeedbackEventRewriterDelegate>
+      spoken_feedback_event_rewriter_delegate_;
 
   scoped_refptr<chromeos::ExternalMetrics> external_metrics_;
 
   std::unique_ptr<arc::ArcServiceLauncher> arc_service_launcher_;
-
-#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
-  std::unique_ptr<assistant::AssistantClient> assistant_client_;
-#endif
 
   std::unique_ptr<arc::VoiceInteractionControllerClient>
       arc_voice_interaction_controller_client_;

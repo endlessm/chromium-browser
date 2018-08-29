@@ -685,6 +685,8 @@ CGFloat LineWidthFromContext(CGContextRef context) {
     case TabAlertState::MEDIA_RECORDING:
       return themeProvider->GetColor(
           ThemeProperties::COLOR_TAB_ALERT_RECORDING);
+    case TabAlertState::PIP_PLAYING:
+      return themeProvider->GetColor(ThemeProperties::COLOR_TAB_PIP_PLAYING);
     case TabAlertState::AUDIO_PLAYING:
     case TabAlertState::AUDIO_MUTING:
     case TabAlertState::TAB_CAPTURING:
@@ -846,36 +848,6 @@ CGFloat LineWidthFromContext(CGContextRef context) {
 
 - (void)setController:(TabController*)controller {
   controller_ = controller;
-}
-
-- (CALayer*)maskLayerWithPadding:(int)padding {
-  CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-  CGContextRef maskContext = CGBitmapContextCreate(
-      NULL, self.bounds.size.width, self.bounds.size.height, 8,
-      self.bounds.size.width * 4, colorSpace, kCGImageAlphaPremultipliedLast);
-  CGColorSpaceRelease(colorSpace);
-  if (!maskContext)
-    return nil;
-
-  NSGraphicsContext* graphicsContext =
-      [NSGraphicsContext graphicsContextWithGraphicsPort:maskContext
-                                                 flipped:NO];
-  [NSGraphicsContext setCurrentContext:graphicsContext];
-  gfx::ScopedNSGraphicsContextSaveGState scopedGraphicsContext;
-
-  // Uses black for alpha mask.
-  [[NSColor blackColor] setFill];
-  CGContextFillRect(maskContext, [self bounds]);
-  GetMaskImage().DrawInRect(NSInsetRect([self bounds], padding, 0),
-                            NSCompositeDestinationIn, 1.0);
-  CGImageRef alphaMask = CGBitmapContextCreateImage(maskContext);
-
-  CALayer* maskLayer = [CALayer layer];
-  maskLayer.bounds = self.bounds;
-  maskLayer.bounds.size =
-      CGSizeMake(self.bounds.size.width, [TabView maskImageFillHeight]);
-  maskLayer.contents = (id)alphaMask;
-  return maskLayer;
 }
 
 @end  // @implementation TabView (TabControllerInterface)

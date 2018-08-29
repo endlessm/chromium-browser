@@ -5,7 +5,6 @@
 #include "ui/aura/test/aura_test_base.h"
 
 #include "base/command_line.h"
-#include "base/test/scoped_feature_list.h"
 #include "ui/aura/client/window_parenting_client.h"
 #include "ui/aura/mus/property_utils.h"
 #include "ui/aura/mus/window_tree_client.h"
@@ -84,7 +83,7 @@ void AuraTestBase::SetUp() {
   // The ContextFactory must exist before any Compositors are created.
   ui::ContextFactory* context_factory = nullptr;
   ui::ContextFactoryPrivate* context_factory_private = nullptr;
-  if (use_mus_ && base::FeatureList::IsEnabled(features::kMash)) {
+  if (backend_type_ != BackendType::CLASSIC) {
     mus_context_factory_ = std::make_unique<AuraTestContextFactory>();
     context_factory = mus_context_factory_.get();
   } else {
@@ -94,9 +93,11 @@ void AuraTestBase::SetUp() {
   }
 
   helper_ = std::make_unique<AuraTestHelper>();
-  if (use_mus_) {
-    helper_->EnableMusWithTestWindowTree(window_tree_client_delegate_,
-                                         window_manager_delegate_);
+  if (backend_type_ != BackendType::CLASSIC) {
+    helper_->EnableMusWithTestWindowTree(
+        window_tree_client_delegate_, window_manager_delegate_,
+        backend_type_ == BackendType::MUS2 ? WindowTreeClient::Config::kMus2
+                                           : WindowTreeClient::Config::kMash);
   }
   helper_->SetUp(context_factory, context_factory_private);
 }
@@ -140,21 +141,17 @@ Window* AuraTestBase::CreateNormalWindow(int id, Window* parent,
 
 void AuraTestBase::EnableMusWithTestWindowTree() {
   DCHECK(!setup_called_);
-  use_mus_ = true;
+  backend_type_ = BackendType::MUS;
 }
 
 void AuraTestBase::DeleteWindowTreeClient() {
-  DCHECK(use_mus_);
+  DCHECK_NE(backend_type_, BackendType::CLASSIC);
   helper_->DeleteWindowTreeClient();
 }
 
 void AuraTestBase::ConfigureBackend(BackendType type) {
-  if (type != BackendType::CLASSIC)
-    EnableMusWithTestWindowTree();
-  if (type == BackendType::MASH) {
-    feature_list_ = std::make_unique<base::test::ScopedFeatureList>();
-    feature_list_->InitAndEnableFeature(features::kMash);
-  }
+  DCHECK(!setup_called_);
+  backend_type_ = type;
 }
 
 void AuraTestBase::RunAllPendingInMessageLoop() {
@@ -185,6 +182,7 @@ void AuraTestBase::OnEmbedRootDestroyed(WindowTreeHostMus* window_tree_host) {}
 void AuraTestBase::OnLostConnection(WindowTreeClient* client) {}
 
 void AuraTestBase::OnPointerEventObserved(const ui::PointerEvent& event,
+                                          int64_t display_id,
                                           Window* target) {
   observed_pointer_events_.push_back(std::unique_ptr<ui::PointerEvent>(
       static_cast<ui::PointerEvent*>(ui::Event::Clone(event).release())));
@@ -245,7 +243,7 @@ void AuraTestBase::OnWmDisplayModified(const display::Display& display) {}
 ui::mojom::EventResult AuraTestBase::OnAccelerator(
     uint32_t id,
     const ui::Event& event,
-    std::unordered_map<std::string, std::vector<uint8_t>>* properties) {
+    base::flat_map<std::string, std::vector<uint8_t>>* properties) {
   return ui::mojom::EventResult::HANDLED;
 }
 

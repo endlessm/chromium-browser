@@ -9,13 +9,16 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/memory/singleton.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/login/users/affiliation.h"
@@ -24,15 +27,23 @@
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_status_collector.h"
 #include "chrome/browser/chromeos/policy/policy_oauth2_token_fetcher.h"
+#include "chrome/browser/chromeos/policy/remote_commands/user_commands_factory_chromeos.h"
 #include "chrome/browser/chromeos/policy/status_uploader.h"
 #include "chrome/browser/chromeos/policy/user_policy_manager_factory_chromeos.h"
 #include "chrome/browser/chromeos/policy/wildcard_login_checker.h"
+#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/policy/cloud/remote_commands_invalidator_impl.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/system/statistics_provider.h"
 #include "components/crash/core/common/crash_key.h"
+#include "components/invalidation/impl/profile_invalidation_provider.h"
+#include "components/keyed_service/content/browser_context_keyed_service_shutdown_notifier_factory.h"
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
+#include "components/policy/core/common/cloud/cloud_policy_core.h"
 #include "components/policy/core/common/cloud/cloud_policy_refresh_scheduler.h"
 #include "components/policy/core/common/cloud/device_management_service.h"
 #include "components/policy/core/common/policy_map.h"
@@ -42,6 +53,8 @@
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
+#include "content/public/browser/notification_details.h"
+#include "content/public/browser/notification_source.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "url/gurl.h"
 
@@ -73,9 +86,35 @@ const char kUMAInitialFetchOAuth2NetworkError[] =
 constexpr base::TimeDelta kDeviceStatusUploadFrequency =
     base::TimeDelta::FromMinutes(10);
 
+// This class is used to subscribe for notifications that the current profile is
+// being shut down.
+class UserCloudPolicyManagerChromeOSNotifierFactory
+    : public BrowserContextKeyedServiceShutdownNotifierFactory {
+ public:
+  static UserCloudPolicyManagerChromeOSNotifierFactory* GetInstance() {
+    return base::Singleton<
+        UserCloudPolicyManagerChromeOSNotifierFactory>::get();
+  }
+
+ private:
+  friend struct base::DefaultSingletonTraits<
+      UserCloudPolicyManagerChromeOSNotifierFactory>;
+
+  UserCloudPolicyManagerChromeOSNotifierFactory()
+      : BrowserContextKeyedServiceShutdownNotifierFactory(
+            "UserRemoteCommandsInvalidator") {
+    DependsOn(invalidation::ProfileInvalidationProviderFactory::GetInstance());
+  }
+
+  ~UserCloudPolicyManagerChromeOSNotifierFactory() override = default;
+
+  DISALLOW_COPY_AND_ASSIGN(UserCloudPolicyManagerChromeOSNotifierFactory);
+};
+
 }  // namespace
 
 UserCloudPolicyManagerChromeOS::UserCloudPolicyManagerChromeOS(
+    Profile* profile,
     std::unique_ptr<CloudPolicyStore> store,
     std::unique_ptr<CloudExternalDataManager> external_data_manager,
     const base::FilePath& component_policy_cache_path,
@@ -90,6 +129,7 @@ UserCloudPolicyManagerChromeOS::UserCloudPolicyManagerChromeOS(
                          store.get(),
                          task_runner,
                          io_task_runner),
+      profile_(profile),
       store_(std::move(store)),
       external_data_manager_(std::move(external_data_manager)),
       component_policy_cache_path_(component_policy_cache_path),
@@ -100,6 +140,7 @@ UserCloudPolicyManagerChromeOS::UserCloudPolicyManagerChromeOS(
       task_runner_(task_runner),
       account_id_(account_id),
       fatal_error_callback_(std::move(fatal_error_callback)) {
+  DCHECK(profile_);
   time_init_started_ = base::Time::Now();
 
   // Some tests don't want to complete policy initialization until they have
@@ -120,6 +161,14 @@ UserCloudPolicyManagerChromeOS::UserCloudPolicyManagerChromeOS(
             &UserCloudPolicyManagerChromeOS::OnPolicyRefreshTimeout,
             base::Unretained(this)));
   }
+
+  // Register for notification that profile creation is complete - this is used
+  // for creating the invalidator for user remote commands. The invalidator must
+  // not be initialized before then because the invalidation service cannot be
+  // started because it depends on components initialized at the end of profile
+  // creation.
+  registrar_.Add(this, chrome::NOTIFICATION_PROFILE_ADDED,
+                 content::Source<Profile>(profile));
 }
 
 void UserCloudPolicyManagerChromeOS::ForceTimeoutForTest() {
@@ -159,8 +208,8 @@ void UserCloudPolicyManagerChromeOS::Connect(
   std::unique_ptr<CloudPolicyClient> cloud_policy_client =
       std::make_unique<CloudPolicyClient>(
           std::string() /* machine_id */, std::string() /* machine_model */,
-          device_management_service, system_request_context,
-          nullptr /* signing_service */,
+          std::string() /* brand_code */, device_management_service,
+          system_request_context, nullptr /* signing_service */,
           chromeos::GetDeviceDMTokenForUserPolicyGetter(account_id_));
   CreateComponentCloudPolicyService(
       dm_protocol::kChromeExtensionPolicyType, component_policy_cache_path_,
@@ -204,25 +253,6 @@ void UserCloudPolicyManagerChromeOS::Connect(
 
   app_install_event_log_uploader_ =
       std::make_unique<AppInstallEventLogUploader>(client());
-
-  // If non-enterprise device is registered with DMServer and has User Policy
-  // applied, it should upload device status to the server. For devices in
-  // enterprise mode status upload is controlled by
-  // DeviceCloudPolicyManagerChromeOS.
-  policy::BrowserPolicyConnectorChromeOS* connector =
-      g_browser_process->platform_part()->browser_policy_connector_chromeos();
-  if (connector->GetDeviceMode() == DEVICE_MODE_CONSUMER) {
-    status_uploader_.reset(new StatusUploader(
-        client(),
-        std::make_unique<DeviceStatusCollector>(
-            local_state_, chromeos::system::StatisticsProvider::GetInstance(),
-            DeviceStatusCollector::VolumeInfoFetcher(),
-            DeviceStatusCollector::CPUStatisticsFetcher(),
-            DeviceStatusCollector::CPUTempFetcher(),
-            DeviceStatusCollector::AndroidStatusFetcher(),
-            false /* is_enterprise_device */),
-        task_runner_, kDeviceStatusUploadFrequency));
-  }
 }
 
 void UserCloudPolicyManagerChromeOS::OnAccessTokenAvailable(
@@ -376,6 +406,22 @@ void UserCloudPolicyManagerChromeOS::OnRegistrationStateChanged(
       CancelWaitForPolicyFetch(true);
     }
   }
+
+  // TODO(agawronska): Move StatusUploader creation to profile keyed
+  // service, where profile pref service is fully initialized.
+
+  // If child is registered with DMServer and has User Policy applied, it
+  // should upload device status to the server. For enterprise reporting
+  // status upload is controlled by DeviceCloudPolicyManagerChromeOS.
+  const user_manager::User* const user =
+      chromeos::ProfileHelper::Get()->GetUserByProfile(profile_);
+  if (client()->is_registered() && user &&
+      user->GetType() == user_manager::USER_TYPE_CHILD) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(&UserCloudPolicyManagerChromeOS::CreateStatusUploader,
+                       base::Unretained(this)));
+  }
 }
 
 void UserCloudPolicyManagerChromeOS::OnClientError(
@@ -429,7 +475,7 @@ void UserCloudPolicyManagerChromeOS::OnStoreLoaded(
         policy_data->user_affiliation_ids().end());
 
     chromeos::ChromeUserManager::Get()->SetUserAffiliation(
-        policy_data->username(), set_of_user_affiliation_ids);
+        account_id_, set_of_user_affiliation_ids);
   }
 }
 
@@ -469,6 +515,13 @@ void UserCloudPolicyManagerChromeOS::GetChromePolicy(PolicyMap* policy_map) {
   // given that this is an enterprise user.
   if (!store()->has_policy())
     return;
+
+  // Don't apply enterprise defaults for Child user.
+  const user_manager::User* const user =
+      user_manager::UserManager::Get()->FindUser(account_id_);
+  if (user && user->GetType() == user_manager::USER_TYPE_CHILD)
+    return;
+
   SetEnterpriseUsersDefaults(policy_map);
 }
 
@@ -613,6 +666,61 @@ void UserCloudPolicyManagerChromeOS::StartRefreshSchedulerIfReady() {
   core()->StartRefreshScheduler();
   core()->TrackRefreshDelayPref(local_state_,
                                 policy_prefs::kUserPolicyRefreshRate);
+}
+
+void UserCloudPolicyManagerChromeOS::Observe(
+    int type,
+    const content::NotificationSource& source,
+    const content::NotificationDetails& details) {
+  DCHECK_EQ(chrome::NOTIFICATION_PROFILE_ADDED, type);
+
+  // Now that the profile is fully created we can unsubscribe from the
+  // notification.
+  registrar_.Remove(this, chrome::NOTIFICATION_PROFILE_ADDED,
+                    content::Source<Profile>(profile_));
+
+  invalidation::ProfileInvalidationProvider* const invalidation_provider =
+      invalidation::ProfileInvalidationProviderFactory::GetForProfile(profile_);
+
+  if (!invalidation_provider)
+    return;
+
+  core()->StartRemoteCommandsService(
+      std::make_unique<UserCommandsFactoryChromeOS>(profile_));
+  invalidator_ = std::make_unique<RemoteCommandsInvalidatorImpl>(core());
+  invalidator_->Initialize(invalidation_provider->GetInvalidationService());
+
+  shutdown_notifier_ =
+      UserCloudPolicyManagerChromeOSNotifierFactory::GetInstance()
+          ->Get(profile_)
+          ->Subscribe(base::AdaptCallbackForRepeating(
+              base::BindOnce(&UserCloudPolicyManagerChromeOS::ProfileShutdown,
+                             base::Unretained(this))));
+}
+
+void UserCloudPolicyManagerChromeOS::ProfileShutdown() {
+  // Unregister the RemoteCommandsInvalidatorImpl from the InvalidatorRegistrar.
+  invalidator_->Shutdown();
+  invalidator_.reset();
+  shutdown_notifier_.reset();
+}
+
+void UserCloudPolicyManagerChromeOS::CreateStatusUploader() {
+  // Do not recreate status uploader if this is called multiple times.
+  if (status_uploader_)
+    return;
+
+  status_uploader_ = std::make_unique<StatusUploader>(
+      client(),
+      std::make_unique<DeviceStatusCollector>(
+          profile_->GetPrefs(),
+          chromeos::system::StatisticsProvider::GetInstance(),
+          DeviceStatusCollector::VolumeInfoFetcher(),
+          DeviceStatusCollector::CPUStatisticsFetcher(),
+          DeviceStatusCollector::CPUTempFetcher(),
+          DeviceStatusCollector::AndroidStatusFetcher(),
+          false /* is_enterprise_device */),
+      task_runner_, kDeviceStatusUploadFrequency);
 }
 
 }  // namespace policy

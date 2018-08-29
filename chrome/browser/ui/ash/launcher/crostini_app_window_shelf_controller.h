@@ -13,7 +13,7 @@
 #include "base/scoped_observer.h"
 #include "base/time/time.h"
 #include "chrome/browser/ui/ash/launcher/app_window_launcher_controller.h"
-#include "chrome/browser/ui/ash/launcher/crostini_app_window.h"
+#include "chrome/browser/ui/browser_list_observer.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "ui/aura/env_observer.h"
 #include "ui/aura/window_observer.h"
@@ -22,7 +22,7 @@ namespace aura {
 class Window;
 }
 
-class CrostiniAppWindow;
+class AppWindowBase;
 class ChromeLauncherController;
 
 // A controller to manage Crostini app shelf items. It listens to window events
@@ -30,10 +30,14 @@ class ChromeLauncherController;
 // Chrome OS shelf.
 class CrostiniAppWindowShelfController : public AppWindowLauncherController,
                                          public aura::EnvObserver,
-                                         public aura::WindowObserver {
+                                         public aura::WindowObserver,
+                                         public BrowserListObserver {
  public:
   explicit CrostiniAppWindowShelfController(ChromeLauncherController* owner);
   ~CrostiniAppWindowShelfController() override;
+
+  // AppWindowLauncherController:
+  void ActiveUserChanged(const std::string& user_email) override;
 
   // aura::EnvObserver:
   void OnWindowInitialized(aura::Window* window) override;
@@ -42,13 +46,17 @@ class CrostiniAppWindowShelfController : public AppWindowLauncherController,
   void OnWindowVisibilityChanged(aura::Window* window, bool visible) override;
   void OnWindowDestroying(aura::Window* window) override;
 
+  // BrowserListObserver:
+  void OnBrowserAdded(Browser* browser) override;
+
  private:
   using AuraWindowToAppWindow =
-      std::map<aura::Window*, std::unique_ptr<CrostiniAppWindow>>;
+      std::map<aura::Window*, std::unique_ptr<AppWindowBase>>;
 
-  void RegisterAppWindow(aura::Window* window,
-                         const std::string* window_app_id);
-  void UnregisterAppWindow(CrostiniAppWindow* app_window);
+  void RegisterAppWindow(aura::Window* window, const std::string& shelf_app_id);
+  void UnregisterAppWindow(AppWindowBase* app_window);
+  void AddToShelf(aura::Window* window, AppWindowBase* app_window);
+  void RemoveFromShelf(aura::Window* window, AppWindowBase* app_window);
 
   // AppWindowLauncherController:
   AppWindowLauncherItemController* ControllerForWindow(

@@ -147,8 +147,10 @@ vs-chromium-project.txt
 /chrome/test/data/perf/third_party/
 /chrome/test/data/plugin/
 /chrome/test/data/vr/webvr_info/
+/chrome/test/data/vr/webxr_samples/
 /chrome/test/data/webrtc/resources
 /chrome/test/media_router/internal
+/chrome/test/python_tests/
 /chrome/tools/memory
 /chrome/tools/test/reference_build
 /chrome/unit_tests_run.xml

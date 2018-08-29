@@ -5,7 +5,7 @@
 #import "ios/web/net/cookies/wk_http_system_cookie_store.h"
 
 #include "base/bind.h"
-#include "base/ios/callback_counter.h"
+#import "base/ios/block_types.h"
 #import "base/mac/bind_objc_block.h"
 #import "ios/net/cookies/cookie_creation_time_manager.h"
 #include "ios/net/cookies/system_cookie_util.h"
@@ -21,18 +21,17 @@
 #endif
 
 namespace web {
+namespace {
 
-// private
-// Posts |callback| to run on IO Thread, this is needed because
+// Posts a task to run |block| on IO Thread. This is needed because
 // WKHTTPCookieStore executes callbacks on the main thread, while
 // SystemCookieStore should operate on IO thread.
-void RunSystemCookieCallbackOnIOThread(base::OnceClosure callback) {
-  if (callback.is_null())
-    return;
-  web::WebThread::PostTask(web::WebThread::IO, FROM_HERE, std::move(callback));
+void RunBlockOnIOThread(ProceduralBlock block) {
+  DCHECK(block != nil);
+  web::WebThread::PostTask(web::WebThread::IO, FROM_HERE,
+                           base::BindBlockArc(block));
 }
 
-// private
 // Returns wether |cookie| should be included for queries about |url|.
 // To include |cookie| for |url|, all these conditions need to be met:
 //   1- If the cookie is secure the URL needs to be secure.
@@ -49,6 +48,8 @@ bool ShouldIncludeForRequestUrl(NSHTTPCookie* cookie, const GURL& url) {
   options.set_include_httponly();
   return canonical_cookie.IncludeForRequestURL(url, options);
 }
+
+}  // namespace
 
 WKHTTPSystemCookieStore::WKHTTPSystemCookieStore(
     WKHTTPCookieStore* cookie_store)
@@ -111,12 +112,12 @@ void WKHTTPSystemCookieStore::DeleteCookieAsync(NSHTTPCookie* cookie,
       web::WebThread::UI, FROM_HERE, base::BindBlockArc(^{
         [cookie_store_ deleteCookie:block_cookie
                   completionHandler:^{
-                    RunSystemCookieCallbackOnIOThread(base::BindBlockArc(^{
+                    RunBlockOnIOThread(^{
                       if (weak_time_manager)
                         weak_time_manager->DeleteCreationTime(block_cookie);
                       if (!shared_callback.is_null())
                         std::move(shared_callback).Run();
-                    }));
+                    });
                   }];
       }));
 }
@@ -139,7 +140,7 @@ void WKHTTPSystemCookieStore::SetCookieAsync(
         [cookie_store_
                     setCookie:block_cookie
             completionHandler:^{
-              RunSystemCookieCallbackOnIOThread(base::BindBlockArc(^{
+              RunBlockOnIOThread(^{
                 if (weak_time_manager) {
                   weak_time_manager->SetCreationTime(
                       block_cookie,
@@ -147,7 +148,7 @@ void WKHTTPSystemCookieStore::SetCookieAsync(
                 }
                 if (!shared_callback.is_null())
                   std::move(shared_callback).Run();
-              }));
+              });
             }];
       }));
 }
@@ -159,19 +160,31 @@ void WKHTTPSystemCookieStore::ClearStoreAsync(SystemCookieCallback callback) {
   web::WebThread::PostTask(
       web::WebThread::UI, FROM_HERE, base::BindBlockArc(^{
         [cookie_store_ getAllCookies:^(NSArray<NSHTTPCookie*>* cookies) {
-          scoped_refptr<CallbackCounter> callback_counter =
-              new CallbackCounter(base::BindRepeating(
-                  &RunSystemCookieCallbackOnIOThread, base::BindBlockArc(^{
-                    if (weak_time_manager)
-                      weak_time_manager->Clear();
-                    std::move(shared_callback).Run();
-                  })));
-          // Add callback for each cookie
-          callback_counter->IncrementCount(cookies.count);
+          ProceduralBlock completionHandler = ^{
+            RunBlockOnIOThread(^{
+              if (weak_time_manager)
+                weak_time_manager->Clear();
+              std::move(shared_callback).Run();
+            });
+          };
+
+          // If there are no cookies to clear, immediately invoke the
+          // completion handler on IO thread, otherwise count the number
+          // of cookies that still need to be cleared and invoke it when
+          // all of them have been cleared.
+          __block NSUInteger remainingCookiesToClearCount = cookies.count;
+          if (remainingCookiesToClearCount == 0) {
+            completionHandler();
+            return;
+          }
+
           for (NSHTTPCookie* cookie in cookies) {
             [cookie_store_ deleteCookie:cookie
                       completionHandler:^{
-                        callback_counter->DecrementCount();
+                        DCHECK(remainingCookiesToClearCount);
+                        if (--remainingCookiesToClearCount == 0) {
+                          completionHandler();
+                        }
                       }];
           }
         }];
@@ -196,7 +209,7 @@ void WKHTTPSystemCookieStore::RunSystemCookieCallbackForCookies(
   NSArray* block_cookies = cookies;
   __block net::SystemCookieStore::SystemCookieCallbackForCookies
       shared_callback = std::move(callback);
-  RunSystemCookieCallbackOnIOThread(base::BindBlockArc(^{
+  RunBlockOnIOThread(^{
     if (weak_time_manager) {
       NSArray* result = [block_cookies
           sortedArrayUsingFunction:net::SystemCookieStore::CompareCookies
@@ -205,7 +218,7 @@ void WKHTTPSystemCookieStore::RunSystemCookieCallbackForCookies(
     } else {
       std::move(shared_callback).Run(block_cookies);
     }
-  }));
+  });
 }
 
 }  // namespace web

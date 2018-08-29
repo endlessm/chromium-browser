@@ -1,8 +1,3 @@
-#### Dev Tools
-# content::DevToolsProtocolTest::WaitForResponse times out
-# http://crbug.com/784941
--CaptureScreenshotTest.*
-
 #### GPU
 # GPU Shutdown https://crbug.com/781714
 -WebRtcCaptureFromElementBrowserTest.CaptureFromCanvas2DHandlesContextLoss
@@ -23,7 +18,6 @@
 # Further WaitForChildFrameSurfaceReady doesn't work http://crbug.com/787945
 -SitePerProcessBrowserTest.CompositorViewportPixelSizeTest
 -SitePerProcessBrowserTest.GestureFlingStartEventsBubble
--SitePerProcessBrowserTest.GestureFlingStart
 -SitePerProcessBrowserTest.NavigateCrashedSubframeToSameSite
 -SitePerProcessBrowserTest.OOPIFDetachDuringAnimation
 -SitePerProcessBrowserTest.PhysicalBackingSizeTest
@@ -31,8 +25,15 @@
 -SitePerProcessBrowserTest.ScrollBubblingFromOOPIFTest
 -SitePerProcessBrowserTest.ScrollBubblingFromOOPIFWithBodyOverflowHidden
 -SitePerProcessBrowserTest.ScrollLocalSubframeInOOPIF
+-SitePerProcessBrowserTest.TouchpadGestureFlingStart
+-SitePerProcessBrowserTest.TouchscreenGestureFlingStart
 -SitePerProcessBrowserTest.TwoSubframesCreatePopupMenuWidgetsSimultaneously
 -SitePerProcessBrowserTest.ViewBoundsInNestedFrameTest
+-SitePerProcessBrowserTouchActionTest.EffectiveTouchActionPropagatesAcrossFrames
+-SitePerProcessBrowserTouchActionTest.EffectiveTouchActionPropagatesAcrossNestedFrames
+-SitePerProcessBrowserTouchActionTest.EffectiveTouchActionPropagatesWhenChildFrameNavigates
+-SitePerProcessEmulatedTouchBrowserTest.EmulatedTouchScrollBubbles*
+-SitePerProcessEmulatedTouchBrowserTest.EmulatedTouchPinchGoesToMainFrame*
 -SitePerProcessHitTestBrowserTest.AsynchronousHitTestChildTimeout*
 -SitePerProcessHitTestBrowserTest.BubbledScrollEventsTransformedCorrectly*
 -SitePerProcessHitTestBrowserTest.CancelWheelScrollBubblingOnWheelTargetDeletion*
@@ -69,36 +70,20 @@
 -SitePerProcessBrowserTest.HiddenOOPIFWillNotGenerateCompositorFramesAfterNavigation
 -SitePerProcessBrowserTest.SubframeVisibleAfterRenderViewBecomesSwappedOut
 
-#### Tab Capture
-# Copy Surface timing out http://crbug.com/785257
--GLAndSoftwareCompositing/CompositingRenderWidgetHostViewBrowserTest.CopyFromSurface*
--GLAndSoftwareCompositing/CompositingRenderWidgetHostViewBrowserTestHiDPI.*
--GLAndSoftwareCompositing/CompositingRenderWidgetHostViewBrowserTestTabCapture.*
--GLAndSoftwareCompositing/CompositingRenderWidgetHostViewBrowserTestTabCaptureHighDPI.*
-
-# GetSnapshotFromBrowser doesn't return snapshots http://crbug.com/785308
--SnapshotBrowserTest.*
-
 #### VizProcessTransportFactory
 # No ContextProvider http://crbug.com/785268
 -ImageTransportFactoryTearDownBrowserTest.*
 -ImageTransportFactoryBrowserTest.TestLostContext
 
-#### Surface Invariants
-# Surface Invariants Failure on Mac http://crbug.com/817827
--NavigationControllerBrowserTest.FrameNavigationEntry_RecreatedSubframeBackForward
-
-#### GL Renderer
-# GL Renderer Check Failure on Mac https://crbug.com/817830
--WebContentsVideoCaptureDeviceBrowserTestP.CapturesContentChanges/*
-
 #### Hit Testing
 # Flaky Result on Windows-7 http://crbug.com/883463
 -MainThreadEventQueueBrowserTest.MouseMove
 
-# Browser side fling cannot use SetNeedsBeginFrame on viz https://crbug.com/823310
--CompositorEventAckBrowserTest.TouchStartDuringFling
--BrowserSideFlingBrowserTest.*
-
 # Uses LatencyInfo for input info https://crbug.com/791557
 -MouseLatencyBrowserTest.CoalescedMouseMovesCorrectlyTerminated
+
+### Mac
+# BrowserSideFlingBrowserTest timing out https://crbug.com/842325
+-BrowserSideFlingBrowserTest.AutoscrollFling
+-BrowserSideFlingBrowserTest.TouchpadFling
+-BrowserSideFlingBrowserTest.TouchscreenFling

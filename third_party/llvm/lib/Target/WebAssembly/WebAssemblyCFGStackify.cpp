@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 ///
 /// \file
-/// \brief This file implements a CFG stacking pass.
+/// This file implements a CFG stacking pass.
 ///
 /// This pass inserts BLOCK and LOOP markers to mark the start of scopes, since
 /// scope boundaries serve as the labels for WebAssembly's control transfers.
@@ -57,6 +57,10 @@ public:
 } // end anonymous namespace
 
 char WebAssemblyCFGStackify::ID = 0;
+INITIALIZE_PASS(WebAssemblyCFGStackify, DEBUG_TYPE,
+                "Insert BLOCK and LOOP markers for WebAssembly scopes",
+                false, false)
+
 FunctionPass *llvm::createWebAssemblyCFGStackify() {
   return new WebAssemblyCFGStackify();
 }
@@ -141,11 +145,15 @@ static void PlaceBlockMarker(
            std::prev(InsertPos)->getOpcode() != WebAssembly::END_LOOP)
       --InsertPos;
   }
+  // The header block in which a 'block' mark will be inserted should have a
+  // terminator because it is branching to a non-layout successor.
+  assert(InsertPos != Header->end());
 
   // Add the BLOCK.
-  MachineInstr *Begin = BuildMI(*Header, InsertPos, MBB.findDebugLoc(InsertPos),
-                                TII.get(WebAssembly::BLOCK))
-                            .addImm(int64_t(WebAssembly::ExprType::Void));
+  MachineInstr *Begin =
+      BuildMI(*Header, InsertPos, Header->findDebugLoc(InsertPos),
+              TII.get(WebAssembly::BLOCK))
+          .addImm(int64_t(WebAssembly::ExprType::Void));
 
   // Mark the end of the block.
   InsertPos = MBB.begin();
@@ -257,7 +265,7 @@ static void FixEndsAtEndOfFunction(
 
   for (MachineBasicBlock &MBB : reverse(MF)) {
     for (MachineInstr &MI : reverse(MBB)) {
-      if (MI.isPosition() || MI.isDebugValue())
+      if (MI.isPosition() || MI.isDebugInstr())
         continue;
       if (MI.getOpcode() == WebAssembly::END_BLOCK) {
         BlockTops[&MI]->getOperand(0).setImm(int32_t(retType));
@@ -358,9 +366,9 @@ static void PlaceMarkers(MachineFunction &MF, const MachineLoopInfo &MLI,
 }
 
 bool WebAssemblyCFGStackify::runOnMachineFunction(MachineFunction &MF) {
-  DEBUG(dbgs() << "********** CFG Stackifying **********\n"
-                  "********** Function: "
-               << MF.getName() << '\n');
+  LLVM_DEBUG(dbgs() << "********** CFG Stackifying **********\n"
+                       "********** Function: "
+                    << MF.getName() << '\n');
 
   const auto &MLI = getAnalysis<MachineLoopInfo>();
   auto &MDT = getAnalysis<MachineDominatorTree>();

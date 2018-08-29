@@ -24,10 +24,10 @@
 #include "chrome/common/buildflags.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/account_id/account_id.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/signin/core/browser/profile_management_switches.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -51,6 +51,7 @@ const char kGAIAPictureFileNameKey[] = "gaia_picture_file_name";
 const char kIsOmittedFromProfileListKey[] = "is_omitted_from_profile_list";
 const char kSigninRequiredKey[] = "signin_required";
 const char kSupervisedUserId[] = "managed_user_id";
+const char kAccountIdKey[] = "account_id_key";
 
 // TODO(dullweber): Remove these constants after the stored data is removed.
 const char kStatsBrowsingHistoryKeyDeprecated[] = "stats_browsing_history";
@@ -107,13 +108,13 @@ ProfileInfoCache::ProfileInfoCache(PrefService* prefs,
 ProfileInfoCache::~ProfileInfoCache() {
 }
 
-void ProfileInfoCache::AddProfileToCache(
-    const base::FilePath& profile_path,
-    const base::string16& name,
-    const std::string& gaia_id,
-    const base::string16& user_name,
-    size_t icon_index,
-    const std::string& supervised_user_id) {
+void ProfileInfoCache::AddProfileToCache(const base::FilePath& profile_path,
+                                         const base::string16& name,
+                                         const std::string& gaia_id,
+                                         const base::string16& user_name,
+                                         size_t icon_index,
+                                         const std::string& supervised_user_id,
+                                         const AccountId& account_id) {
   std::string key = CacheKeyFromProfilePath(profile_path);
   DictionaryPrefUpdate update(prefs_, prefs::kProfileInfoCache);
   base::DictionaryValue* cache = update.Get();
@@ -132,6 +133,8 @@ void ProfileInfoCache::AddProfileToCache(
   info->SetBoolean(kIsUsingDefaultNameKey, IsDefaultProfileName(name));
   // Assume newly created profiles use a default avatar.
   info->SetBoolean(kIsUsingDefaultAvatarKey, true);
+  if (account_id.HasAccountIdKey())
+    info->SetString(kAccountIdKey, account_id.GetAccountIdKey());
   cache->SetWithoutPathExpansion(key, std::move(info));
 
   sorted_keys_.insert(FindPositionForProfile(key, name), key);
@@ -729,30 +732,27 @@ void ProfileInfoCache::RemoveDeprecatedStatistics() {
   }
 }
 
-void ProfileInfoCache::AddProfile(
-    const base::FilePath& profile_path,
-    const base::string16& name,
-    const std::string& gaia_id,
-    const base::string16& user_name,
-    size_t icon_index,
-    const std::string& supervised_user_id) {
-  AddProfileToCache(
-      profile_path, name, gaia_id, user_name, icon_index, supervised_user_id);
+void ProfileInfoCache::AddProfile(const base::FilePath& profile_path,
+                                  const base::string16& name,
+                                  const std::string& gaia_id,
+                                  const base::string16& user_name,
+                                  size_t icon_index,
+                                  const std::string& supervised_user_id,
+                                  const AccountId& account_id) {
+  AddProfileToCache(profile_path, name, gaia_id, user_name, icon_index,
+                    supervised_user_id, account_id);
 }
 
 void ProfileInfoCache::RemoveProfileByAccountId(const AccountId& account_id) {
-  // TODO(rsorokin): https://crbug.com/810167 profile.info_cache entries for
-  // AD accounts should have enough information to be deletable.
-  if (account_id.GetAccountType() == AccountType::ACTIVE_DIRECTORY) {
-    LOG(ERROR)
-        << "Removing of AD profile.info_cache entries is NOTIMPLEMENTED.";
-  }
-
   for (size_t i = 0; i < GetNumberOfProfiles(); i++) {
+    std::string account_id_key;
     std::string gaia_id;
     std::string user_name;
     const base::DictionaryValue* info = GetInfoForProfileAtIndex(i);
-    if ((info->GetString(kGAIAIdKey, &gaia_id) && !gaia_id.empty() &&
+    if ((account_id.HasAccountIdKey() &&
+         info->GetString(kAccountIdKey, &account_id_key) &&
+         account_id_key == account_id.GetAccountIdKey()) ||
+        (info->GetString(kGAIAIdKey, &gaia_id) && !gaia_id.empty() &&
          account_id.GetGaiaId() == gaia_id) ||
         (info->GetString(ProfileAttributesEntry::kUserNameKey, &user_name) &&
          !user_name.empty() && account_id.GetUserEmail() == user_name)) {

@@ -46,8 +46,8 @@ import org.chromium.chrome.browser.webapps.ActivityAssigner;
 import org.chromium.chrome.browser.webapps.ChromeWebApkHost;
 import org.chromium.components.crash.browser.CrashDumpManager;
 import org.chromium.content.browser.BrowserStartupController;
-import org.chromium.content.browser.DeviceUtils;
-import org.chromium.content.browser.SpeechRecognition;
+import org.chromium.content_public.browser.DeviceUtils;
+import org.chromium.content_public.browser.SpeechRecognition;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.policy.CombinedPolicyProvider;
 
@@ -322,7 +322,7 @@ public class ChromeBrowserInitializer {
                         }
 
                         @Override
-                        public void onSuccess(boolean success) {
+                        public void onSuccess() {
                             tasks.start(false);
                         }
                     });
@@ -348,11 +348,10 @@ public class ChromeBrowserInitializer {
         try {
             TraceEvent.begin("ChromeBrowserInitializer.startChromeBrowserProcessesSync");
             ThreadUtils.assertOnUiThread();
-            LibraryLoader libraryLoader = LibraryLoader.get(LibraryProcessType.PROCESS_BROWSER);
             StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
-            libraryLoader.ensureInitialized();
+            LibraryLoader.getInstance().ensureInitialized(LibraryProcessType.PROCESS_BROWSER);
             StrictMode.setThreadPolicy(oldPolicy);
-            libraryLoader.asyncPrefetchLibrariesToMemory();
+            LibraryLoader.getInstance().asyncPrefetchLibrariesToMemory();
             BrowserStartupController.get(LibraryProcessType.PROCESS_BROWSER)
                     .startBrowserProcessesSync(false);
             GoogleServicesManager.get(mApplication);

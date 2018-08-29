@@ -159,10 +159,6 @@ scanEhFrameSection(EhInputSection &EH,
   if (!EH.NumRelocations)
     return;
 
-  // Unfortunately we need to split .eh_frame early since some relocations in
-  // .eh_frame keep other section alive and some don't.
-  EH.split<ELFT>();
-
   if (EH.AreRelocsRela)
     scanEhFrameSection<ELFT>(EH, EH.template relas<ELFT>(), Fn);
   else
@@ -207,7 +203,7 @@ template <class ELFT> static void doGcSections() {
     // (splittable) sections, each piece of data has independent liveness bit.
     // So we explicitly tell it which offset is in use.
     if (auto *MS = dyn_cast<MergeInputSection>(Sec))
-      MS->markLiveAt(Offset);
+      MS->getSectionPiece(Offset)->Live = true;
 
     if (Sec->Live)
       return;
@@ -279,13 +275,18 @@ template <class ELFT> void elf::markLive() {
 
   // The -gc-sections option works only for SHF_ALLOC sections
   // (sections that are memory-mapped at runtime). So we can
-  // unconditionally make non-SHF_ALLOC sections alive.
+  // unconditionally make non-SHF_ALLOC sections alive except
+  // SHF_LINK_ORDER and SHT_REL/SHT_RELA sections.
   //
-  // Non SHF_ALLOC sections are not removed even if they are
+  // Usually, SHF_ALLOC sections are not removed even if they are
   // unreachable through relocations because reachability is not
   // a good signal whether they are garbage or not (e.g. there is
   // usually no section referring to a .comment section, but we
-  // want to keep it.)
+  // want to keep it.).
+  //
+  // Note on SHF_LINK_ORDER: Such sections contain metadata and they
+  // have a reverse dependency on the InputSection they are linked with.
+  // We are able to garbage collect them.
   //
   // Note on SHF_REL{,A}: Such sections reach here only when -r
   // or -emit-reloc were given. And they are subject of garbage
@@ -293,8 +294,9 @@ template <class ELFT> void elf::markLive() {
   // remove its relocation section.
   for (InputSectionBase *Sec : InputSections) {
     bool IsAlloc = (Sec->Flags & SHF_ALLOC);
+    bool IsLinkOrder = (Sec->Flags & SHF_LINK_ORDER);
     bool IsRel = (Sec->Type == SHT_REL || Sec->Type == SHT_RELA);
-    if (!IsAlloc && !IsRel)
+    if (!IsAlloc && !IsLinkOrder && !IsRel)
       Sec->Live = true;
   }
 

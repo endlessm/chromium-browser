@@ -13,6 +13,7 @@
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/layout_constants.h"
+#include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_ink_drop_util.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/material_design/material_design_controller.h"
@@ -23,6 +24,7 @@
 #include "ui/views/controls/menu/menu_item_view.h"
 #include "ui/views/controls/menu/menu_model_adapter.h"
 #include "ui/views/controls/menu/menu_runner.h"
+#include "ui/views/style/platform_style.h"
 #include "ui/views/widget/widget.h"
 
 ToolbarButton::ToolbarButton(Profile* profile,
@@ -37,9 +39,15 @@ ToolbarButton::ToolbarButton(Profile* profile,
   SetInkDropMode(InkDropMode::ON);
   SetFocusPainter(nullptr);
   SetLeadingMargin(0);
+  SetInstallFocusRingOnFocus(views::PlatformStyle::kPreferFocusRings);
 
   if (ui::MaterialDesignController::IsTouchOptimizedUiEnabled())
     set_ink_drop_visible_opacity(kTouchToolbarInkDropVisibleOpacity);
+
+  const int size = GetLayoutConstant(LOCATION_BAR_HEIGHT);
+  const int radii = ChromeLayoutProvider::Get()->GetCornerRadiusMetric(
+      views::EMPHASIS_HIGH, gfx::Size(size, size));
+  set_ink_drop_corner_radii(radii, radii);
 }
 
 ToolbarButton::~ToolbarButton() {}
@@ -133,7 +141,7 @@ void ToolbarButton::OnGestureEvent(ui::GestureEvent* event) {
 void ToolbarButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   Button::GetAccessibleNodeData(node_data);
   node_data->role = ax::mojom::Role::kButton;
-  node_data->AddState(ax::mojom::State::kHaspopup);
+  node_data->SetHasPopup(ax::mojom::HasPopup::kMenu);
   if (enabled())
     node_data->SetDefaultActionVerb(ax::mojom::DefaultActionVerb::kPress);
 }
@@ -156,6 +164,10 @@ std::unique_ptr<views::InkDropHighlight> ToolbarButton::CreateInkDropHighlight()
 
 std::unique_ptr<views::InkDropMask> ToolbarButton::CreateInkDropMask() const {
   return CreateToolbarInkDropMask<ImageButton>(this);
+}
+
+SkColor ToolbarButton::GetInkDropBaseColor() const {
+  return GetToolbarInkDropBaseColor(this);
 }
 
 void ToolbarButton::ShowContextMenuForView(View* source,

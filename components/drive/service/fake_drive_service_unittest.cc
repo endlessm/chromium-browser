@@ -16,8 +16,10 @@
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "components/drive/file_system_core_util.h"
 #include "components/drive/service/test_util.h"
 #include "google_apis/drive/drive_api_parser.h"
 #include "google_apis/drive/test_util.h"
@@ -41,6 +43,7 @@ using google_apis::HTTP_PRECONDITION;
 using google_apis::HTTP_RESUME_INCOMPLETE;
 using google_apis::HTTP_SUCCESS;
 using google_apis::ProgressCallback;
+using google_apis::StartPageToken;
 using google_apis::TeamDriveList;
 using google_apis::UploadRangeResponse;
 
@@ -763,6 +766,24 @@ TEST_F(FakeDriveServiceTest, GetAboutResource) {
   EXPECT_EQ(fake_service_.GetRootResourceId(),
             about_resource->root_folder_id());
   EXPECT_EQ(1, fake_service_.about_resource_load_count());
+}
+
+TEST_F(FakeDriveServiceTest, GetStartPageToken) {
+  DriveApiErrorCode error = DRIVE_OTHER_ERROR;
+  std::unique_ptr<StartPageToken> start_page_token;
+  fake_service_.GetStartPageToken(
+      "team_drive_id",
+      test_util::CreateCopyResultCallback(&error, &start_page_token));
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(HTTP_SUCCESS, error);
+
+  ASSERT_TRUE(start_page_token);
+  // Do some sanity check.
+  EXPECT_EQ(drive::util::ConvertChangestampToStartPageToken(
+                GetLargestChangeByAboutResource()),
+            start_page_token->start_page_token());
+  EXPECT_EQ(1, fake_service_.start_page_token_load_count());
 }
 
 TEST_F(FakeDriveServiceTest, GetAboutResource_Offline) {
@@ -1817,7 +1838,7 @@ TEST_F(FakeDriveServiceTest, ResumeUpload_Offline) {
   base::RunLoop().RunUntilIdle();
 
   EXPECT_EQ(DRIVE_NO_CONNECTION, response.code);
-  EXPECT_FALSE(entry.get());
+  EXPECT_FALSE(entry);
 }
 
 TEST_F(FakeDriveServiceTest, ResumeUpload_NotFound) {
@@ -1844,7 +1865,7 @@ TEST_F(FakeDriveServiceTest, ResumeUpload_NotFound) {
   base::RunLoop().RunUntilIdle();
 
   EXPECT_EQ(HTTP_NOT_FOUND, response.code);
-  EXPECT_FALSE(entry.get());
+  EXPECT_FALSE(entry);
 }
 
 TEST_F(FakeDriveServiceTest, ResumeUpload_ExistingFile) {
@@ -1888,7 +1909,7 @@ TEST_F(FakeDriveServiceTest, ResumeUpload_ExistingFile) {
   base::RunLoop().RunUntilIdle();
 
   EXPECT_EQ(HTTP_RESUME_INCOMPLETE, response.code);
-  EXPECT_FALSE(entry.get());
+  EXPECT_FALSE(entry);
   ASSERT_TRUE(!upload_progress_values.empty());
   EXPECT_TRUE(base::STLIsSorted(upload_progress_values));
   EXPECT_LE(0, upload_progress_values.front().first);
@@ -1953,7 +1974,7 @@ TEST_F(FakeDriveServiceTest, ResumeUpload_NewFile) {
   base::RunLoop().RunUntilIdle();
 
   EXPECT_EQ(HTTP_RESUME_INCOMPLETE, response.code);
-  EXPECT_FALSE(entry.get());
+  EXPECT_FALSE(entry);
   ASSERT_TRUE(!upload_progress_values.empty());
   EXPECT_TRUE(base::STLIsSorted(upload_progress_values));
   EXPECT_LE(0, upload_progress_values.front().first);

@@ -10,6 +10,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.net.Uri;
+import android.os.Environment;
 import android.os.StrictMode;
 import android.support.annotation.IntDef;
 import android.support.annotation.Nullable;
@@ -21,6 +22,7 @@ import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.FileUtils;
 import org.chromium.base.Log;
+import org.chromium.base.StrictModeContext;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.metrics.RecordHistogram;
@@ -30,6 +32,7 @@ import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.UrlConstants;
+import org.chromium.chrome.browser.download.items.OfflineContentAggregatorFactory;
 import org.chromium.chrome.browser.download.ui.BackendProvider;
 import org.chromium.chrome.browser.download.ui.BackendProvider.DownloadDelegate;
 import org.chromium.chrome.browser.download.ui.DownloadFilter;
@@ -51,12 +54,15 @@ import org.chromium.chrome.browser.util.IntentUtils;
 import org.chromium.components.download.DownloadState;
 import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.feature_engagement.Tracker;
+import org.chromium.components.offline_items_collection.ContentId;
 import org.chromium.components.offline_items_collection.FailState;
+import org.chromium.components.offline_items_collection.LegacyHelpers;
 import org.chromium.components.offline_items_collection.OfflineItem;
 import org.chromium.components.offline_items_collection.OfflineItem.Progress;
 import org.chromium.components.offline_items_collection.OfflineItemProgressUnit;
 import org.chromium.components.offline_items_collection.OfflineItemState;
 import org.chromium.components.offline_items_collection.PendingState;
+import org.chromium.components.offlinepages.SavePageResult;
 import org.chromium.content.browser.BrowserStartupController;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.ui.base.DeviceFormFactor;
@@ -92,11 +98,14 @@ public class DownloadUtils {
             R.string.download_manager_ui_space_free_kb, R.string.download_manager_ui_space_free_mb,
             R.string.download_manager_ui_space_free_gb};
 
+    private static final int[] BYTES_STRINGS = {
+            R.string.download_ui_kb, R.string.download_ui_mb, R.string.download_ui_gb};
+
     private static final String TAG = "download";
 
     private static final String DEFAULT_MIME_TYPE = "*/*";
     private static final String MIME_TYPE_DELIMITER = "/";
-    private static final String MIME_TYPE_VIDEO = "video";
+    private static final String MIME_TYPE_SHARING_URL = "text/plain";
 
     private static final String EXTRA_IS_OFF_THE_RECORD =
             "org.chromium.chrome.browser.download.IS_OFF_THE_RECORD";
@@ -378,7 +387,12 @@ public class DownloadUtils {
                         DownloadHistoryItemWrapper.FILE_EXTENSION_BOUNDARY);
             }
 
-            String mimeType = Intent.normalizeMimeType(wrappedItem.getMimeType());
+            String mimeType;
+            if (shareUrl) {
+                mimeType = MIME_TYPE_SHARING_URL;
+            } else {
+                mimeType = Intent.normalizeMimeType(wrappedItem.getMimeType());
+            }
 
             // If a mime type was not retrieved from the backend or could not be normalized,
             // set the mime type to the default.
@@ -422,15 +436,20 @@ public class DownloadUtils {
             intentAction = Intent.ACTION_SEND_MULTIPLE;
         }
 
-        if (itemUris.size() == 1 && offlinePagesString.length() == 0) {
+        if (itemUris.size() == 1) {
             // Sharing a downloaded item or an offline page.
             shareIntent.putExtra(Intent.EXTRA_STREAM, itemUris.get(0));
-        } else {
+        } else if (itemUris.size() > 1) {
             shareIntent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, itemUris);
         }
 
         if (offlinePagesString.length() != 0) {
             shareIntent.putExtra(Intent.EXTRA_TEXT, offlinePagesString.toString());
+        }
+
+        if (items.size() == 1) {
+            shareIntent.putExtra(
+                    Intent.EXTRA_SUBJECT, new File(items.get(0).getFilePath()).getName());
         }
 
         shareIntent.setAction(intentAction);
@@ -479,9 +498,14 @@ public class DownloadUtils {
 
     static void publishOfflinePagesForSharing(OfflinePageBridge offlinePageBridge,
             List<OfflineItemWrapper> offlinePages, Callback<Map<String, String>> callback) {
-        // TODO(jianli): Check and request permission.
-        publishOfflinePageForSharing(
-                offlinePageBridge, offlinePages, 0, new HashMap<String, String>(), callback);
+        DownloadController.requestFileAccessPermission(granted -> {
+            if (!granted) {
+                OfflinePageUtils.recordPublishPageResult(SavePageResult.PERMISSION_DENIED);
+                return;
+            }
+            publishOfflinePageForSharing(
+                    offlinePageBridge, offlinePages, 0, new HashMap<String, String>(), callback);
+        });
     }
 
     static void publishOfflinePageForSharing(OfflinePageBridge offlinePageBridge,
@@ -526,6 +550,22 @@ public class DownloadUtils {
         StrictMode.setThreadPolicy(oldPolicy);
 
         return uri;
+    }
+
+    /**
+     * Utility method to open an {@link OfflineItem}, which can be a chrome download, offline page.
+     * Falls back to open download home.
+     * @param contentId The {@link ContentId} of the associated offline item.
+     */
+    public static void openItem(ContentId contentId, boolean isOffTheRecord,
+            @DownloadMetrics.DownloadOpenSource int source) {
+        if (LegacyHelpers.isLegacyOfflinePage(contentId)) {
+            OfflineContentAggregatorFactory.forProfile(Profile.getLastUsedProfile())
+                    .openItem(contentId);
+        } else {
+            DownloadManagerService.getDownloadManagerService().openDownload(
+                    contentId, isOffTheRecord, source);
+        }
     }
 
     /**
@@ -574,9 +614,11 @@ public class DownloadUtils {
             return true;
         } catch (ActivityNotFoundException e) {
             // Can't launch the Intent.
-            Toast.makeText(context, context.getString(R.string.download_cant_open_file),
-                         Toast.LENGTH_SHORT)
-                    .show();
+            if (source != DownloadMetrics.DOWNLOAD_PROGRESS_INFO_BAR) {
+                Toast.makeText(context, context.getString(R.string.download_cant_open_file),
+                             Toast.LENGTH_SHORT)
+                        .show();
+            }
             return false;
         }
     }
@@ -611,6 +653,51 @@ public class DownloadUtils {
         }
 
         return false;
+    }
+
+    /**
+     * Helper method to determine the progress text to use for an in progress download notification.
+     * @param progress The {@link Progress} struct that represents the current state of an in
+     *                 progress download.
+     * @return         The {@link String} that represents the progress.
+     */
+    public static String getProgressTextForNotification(Progress progress) {
+        Context context = ContextUtils.getApplicationContext();
+
+        if (progress.isIndeterminate() && progress.value == 0) {
+            return context.getResources().getString(R.string.download_started);
+        }
+
+        switch (progress.unit) {
+            case OfflineItemProgressUnit.PERCENTAGE:
+                if (progress.isIndeterminate()) {
+                    return context.getResources().getString(R.string.download_started);
+                } else {
+                    return getPercentageString(progress.getPercentage());
+                }
+            case OfflineItemProgressUnit.BYTES:
+                String bytes = getStringForBytes(context, progress.value);
+                if (progress.isIndeterminate()) {
+                    return context.getResources().getString(
+                            R.string.download_ui_indeterminate_bytes, bytes);
+                } else {
+                    String total = getStringForBytes(context, progress.max);
+                    return context.getResources().getString(
+                            R.string.download_ui_determinate_bytes, bytes, total);
+                }
+            case OfflineItemProgressUnit.FILES:
+                if (progress.isIndeterminate()) {
+                    int fileCount = (int) Math.min(Integer.MAX_VALUE, progress.value);
+                    return context.getResources().getQuantityString(
+                            R.plurals.download_ui_files_downloaded, fileCount, fileCount);
+                } else {
+                    return formatRemainingFiles(context, progress);
+                }
+            default:
+                assert false;
+        }
+
+        return "";
     }
 
     /**
@@ -663,7 +750,6 @@ public class DownloadUtils {
      * @param millis the remaining time in milli seconds.
      * @return the formatted remaining time.
      */
-    @VisibleForTesting
     public static String formatRemainingTime(Context context, long millis) {
         long secondsLong = millis / 1000;
 
@@ -881,7 +967,7 @@ public class DownloadUtils {
 
     /**
      * Format the number of available bytes into KB, MB, or GB and return the corresponding string
-     * resource. Uses deafult format "20 KB available."
+     * resource. Uses default format "20 KB available."
      *
      * @param context   Context to use.
      * @param bytes     Number of bytes needed to display.
@@ -889,6 +975,16 @@ public class DownloadUtils {
      */
     public static String getStringForAvailableBytes(Context context, long bytes) {
         return getStringForBytes(context, BYTES_AVAILABLE_STRINGS, bytes);
+    }
+
+    /**
+     * Format the number of bytes into KB, MB, or GB and return the corresponding generated string.
+     * @param context Context to use.
+     * @param bytes   Number of bytes needed to display.
+     * @return        The formatted string to be displayed.
+     */
+    public static String getStringForBytes(Context context, long bytes) {
+        return getStringForBytes(context, BYTES_STRINGS, bytes);
     }
 
     /**
@@ -1022,5 +1118,21 @@ public class DownloadUtils {
         cal.set(Calendar.SECOND, 0);
         cal.set(Calendar.MILLISECOND, 0);
         return cal.getTime();
+    }
+
+    /**
+     * Returns if the path is in the download directory on primary storage.
+     * @param path The directory to check.
+     * @return If the path is in the download directory on primary storage.
+     */
+    public static boolean isInPrimaryStorageDownloadDirectory(String path) {
+        File primaryDir = null;
+        try (StrictModeContext unused = StrictModeContext.allowDiskReads()) {
+            primaryDir = Environment.getExternalStorageDirectory();
+        }
+        if (primaryDir == null || path == null) return false;
+        String primaryPath = primaryDir.getAbsolutePath();
+        if (primaryPath == null) return false;
+        return path.contains(primaryPath);
     }
 }

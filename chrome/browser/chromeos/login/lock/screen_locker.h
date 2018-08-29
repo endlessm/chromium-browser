@@ -206,7 +206,7 @@ class ScreenLocker : public AuthStatusConsumer,
   // fingerprint::mojom::FingerprintObserver:
   void OnAuthScanDone(
       uint32_t scan_result,
-      const std::unordered_map<std::string, std::vector<std::string>>& matches)
+      const base::flat_map<std::string, std::vector<std::string>>& matches)
       override;
   void OnSessionFailed() override;
   void OnRestarted() override {}
@@ -235,6 +235,12 @@ class ScreenLocker : public AuthStatusConsumer,
   // ash is fully locked and post lock animation finishes. Otherwise, the start
   // lock request is failed.
   void OnStartLockCallback(bool locked);
+
+  void OnPinAttemptDone(const UserContext& user_context, bool success);
+
+  // Called to continue authentication against cryptohome after the pin login
+  // check has completed.
+  void ContinueAuthenticate(const UserContext& user_context);
 
   // WebUIScreenLocker instance in use.
   std::unique_ptr<WebUIScreenLocker> web_ui_;

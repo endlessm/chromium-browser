@@ -4,18 +4,50 @@
 
 #include "ash/frame/wide_frame_view.h"
 
-#include "ash/ash_layout_constants.h"
 #include "ash/frame/caption_buttons/frame_caption_button_container_view.h"
 #include "ash/frame/custom_frame_view_ash.h"
 #include "ash/frame/header_view.h"
+#include "ash/public/cpp/ash_layout_constants.h"
 #include "ash/public/cpp/immersive/immersive_fullscreen_controller.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ui/aura/window.h"
+#include "ui/aura/window_targeter.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/views/widget/widget.h"
 
 namespace ash {
+namespace {
+
+class WideFrameTargeter : public aura::WindowTargeter {
+ public:
+  WideFrameTargeter(HeaderView* header_view) : header_view_(header_view) {}
+  ~WideFrameTargeter() override = default;
+
+  // aura::WindowTargeter:
+  bool GetHitTestRects(aura::Window* target,
+                       gfx::Rect* hit_test_rect_mouse,
+                       gfx::Rect* hit_test_rect_touch) const override {
+    if (header_view_->in_immersive_mode() && !header_view_->is_revealed()) {
+      aura::Window* source = header_view_->GetWidget()->GetNativeWindow();
+      *hit_test_rect_mouse = source->bounds();
+      aura::Window::ConvertRectToTarget(source, target->parent(),
+                                        hit_test_rect_mouse);
+      hit_test_rect_mouse->set_y(target->bounds().y());
+      hit_test_rect_mouse->set_height(1);
+      hit_test_rect_touch->SetRect(0, 0, 0, 0);
+      return true;
+    }
+    return aura::WindowTargeter::GetHitTestRects(target, hit_test_rect_mouse,
+                                                 hit_test_rect_touch);
+  }
+
+ private:
+  HeaderView* header_view_;
+  DISALLOW_COPY_AND_ASSIGN(WideFrameTargeter);
+};
+
+}  // namespace
 
 // static
 WideFrameView* WideFrameView::Create(views::Widget* target) {
@@ -31,6 +63,9 @@ WideFrameView* WideFrameView::Create(views::Widget* target) {
   params.opacity = views::Widget::InitParams::TRANSLUCENT_WINDOW;
   widget->Init(params);
 
+  aura::Window* window = widget->GetNativeWindow();
+  window->SetEventTargeter(
+      std::make_unique<WideFrameTargeter>(frame_view->header_view()));
   return frame_view;
 }
 
@@ -74,11 +109,8 @@ WideFrameView::WideFrameView(views::Widget* target, views::Widget* widget)
 
   aura::Window* target_window = target->GetNativeWindow();
   target_window->AddObserver(this);
-  SkColor active = target_window->GetProperty(kFrameActiveColorKey);
-  SkColor inactive = target_window->GetProperty(kFrameInactiveColorKey);
   header_view_ = new HeaderView(target);
   AddChildView(header_view_);
-  header_view_->SetFrameColors(active, inactive);
   GetTargetHeaderView()->SetShouldPaintHeader(false);
 }
 

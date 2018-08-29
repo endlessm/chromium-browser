@@ -41,6 +41,7 @@ class FakeTabController : public TabController {
   bool ShouldHideCloseButtonForInactiveTabs() override {
     return false;
   }
+  bool ShouldShowCloseButtonOnHover() override { return false; }
   bool MaySetClip() override { return false; }
   void SelectTab(Tab* tab) override {}
   void ExtendSelectionTo(Tab* tab) override {}
@@ -63,13 +64,17 @@ class FakeTabController : public TabController {
   }
   bool EndDrag(EndDragReason reason) override { return false; }
   Tab* GetTabAt(Tab* tab, const gfx::Point& tab_in_tab_coordinates) override {
-    return NULL;
+    return nullptr;
+  }
+  Tab* GetAdjacentTab(Tab* tab, TabController::Direction direction) override {
+    return nullptr;
   }
   void OnMouseEventInTab(views::View* source,
                          const ui::MouseEvent& event) override {}
   bool ShouldPaintTab(
       const Tab* tab,
-      const base::Callback<gfx::Path(const gfx::Size&)>& border_callback,
+      const base::RepeatingCallback<gfx::Path(const gfx::Rect&)>&
+          border_callback,
       gfx::Path* clip) override {
     return true;
   }
@@ -292,8 +297,9 @@ TEST_F(TabTest, HitTestTopPixel) {
 
 TEST_F(TabTest, LayoutAndVisibilityOfElements) {
   static const TabAlertState kAlertStatesToTest[] = {
-      TabAlertState::NONE, TabAlertState::TAB_CAPTURING,
+      TabAlertState::NONE,          TabAlertState::TAB_CAPTURING,
       TabAlertState::AUDIO_PLAYING, TabAlertState::AUDIO_MUTING,
+      TabAlertState::PIP_PLAYING,
   };
 
   Widget widget;

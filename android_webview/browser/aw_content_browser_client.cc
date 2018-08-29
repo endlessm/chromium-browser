@@ -216,7 +216,7 @@ AwContentBrowserClient::~AwContentBrowserClient() {}
 
 AwBrowserContext* AwContentBrowserClient::InitBrowserContext() {
   base::FilePath user_data_dir;
-  if (!PathService::Get(base::DIR_ANDROID_APP_DATA, &user_data_dir)) {
+  if (!base::PathService::Get(base::DIR_ANDROID_APP_DATA, &user_data_dir)) {
     NOTREACHED() << "Failed to get app data directory for Android WebView";
   }
   browser_context_.reset(new AwBrowserContext(user_data_dir));
@@ -287,9 +287,12 @@ void AwContentBrowserClient::AppendExtraCommandLineSwitches(
     base::CommandLine* command_line,
     int child_process_id) {
   if (!command_line->HasSwitch(switches::kSingleProcess)) {
-    // The only kind of a child process WebView can have is renderer.
-    DCHECK_EQ(switches::kRendererProcess,
-              command_line->GetSwitchValueASCII(switches::kProcessType));
+    // The only kind of a child process WebView can have is renderer or utility.
+    std::string process_type =
+        command_line->GetSwitchValueASCII(switches::kProcessType);
+    DCHECK(process_type == switches::kRendererProcess ||
+           process_type == switches::kUtilityProcess)
+        << process_type;
     // Pass crash reporter enabled state to renderer processes.
     if (crash_reporter::IsCrashReporterEnabled()) {
       command_line->AppendSwitch(::switches::kEnableCrashReporter);
@@ -693,11 +696,10 @@ AwContentBrowserClient::CreateLoginDelegate(
     bool is_main_frame,
     const GURL& url,
     bool first_auth_attempt,
-    const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
-        auth_required_callback) {
-  return base::MakeRefCounted<AwLoginDelegate>(auth_info, web_contents_getter,
-                                               first_auth_attempt,
-                                               auth_required_callback);
+    LoginAuthRequiredCallback auth_required_callback) {
+  return base::MakeRefCounted<AwLoginDelegate>(
+      auth_info, web_contents_getter, first_auth_attempt,
+      std::move(auth_required_callback));
 }
 
 bool AwContentBrowserClient::HandleExternalProtocol(

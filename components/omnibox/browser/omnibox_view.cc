@@ -21,6 +21,11 @@
 #include "components/toolbar/toolbar_model.h"
 #include "extensions/common/constants.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/material_design/material_design_controller.h"
+
+#if !defined(OS_IOS)
+#include "ui/gfx/paint_vector_icon.h"
+#endif
 
 // static
 base::string16 OmniboxView::StripJavascriptSchemas(const base::string16& text) {
@@ -87,17 +92,6 @@ void OmniboxView::OpenMatch(const AutocompleteMatch& match,
   // Invalid URLs such as chrome://history can end up here.
   if (!match.destination_url.is_valid() || !model_)
     return;
-  // Unless user requests navigation, change disposition for this match type
-  // so downstream will switch tabs.
-  if (match.has_tab_match) {
-    // "with-button" option inverts default action.
-    bool invert = OmniboxFieldTrial::InTabSwitchSuggestionWithButtonTrial();
-    if (disposition == WindowOpenDisposition::CURRENT_TAB &&
-        // i.e. If shift is not pressed without button, or down with it,
-        // change it to switch tabs.
-        invert == shift_key_down_)
-      disposition = WindowOpenDisposition::SWITCH_TO_TAB;
-  }
   model_->OpenMatch(
       match, disposition, alternate_nav_url, pasted_text, selected_line);
 }
@@ -107,14 +101,40 @@ bool OmniboxView::IsEditingOrEmpty() const {
       (GetOmniboxTextLength() == 0);
 }
 
-const gfx::VectorIcon& OmniboxView::GetVectorIcon() const {
-  if (!IsEditingOrEmpty())
-    return controller_->GetToolbarModel()->GetVectorIcon();
+gfx::ImageSkia OmniboxView::GetIcon(int dip_size,
+                                    SkColor color,
+                                    IconFetchedCallback on_icon_fetched) const {
+#if defined(OS_IOS)
+  // OmniboxViewIOS provides its own icon logic. The iOS build also does not
+  // link in the vector icon rendering code.
+  return gfx::ImageSkia();
+#else   // !defined(OS_IOS)
+  if (!IsEditingOrEmpty()) {
+    return gfx::CreateVectorIcon(
+        controller_->GetToolbarModel()->GetVectorIcon(), dip_size, color);
+  }
 
-  return AutocompleteMatch::TypeToVectorIcon(
-      model_ ? model_->CurrentTextType()
-             : AutocompleteMatchType::URL_WHAT_YOU_TYPED,
-      /*is_bookmark=*/false, /*is_tab_match=*/false);
+  // For Material Refresh, display the favicon of the default search engine.
+  const auto type = model_ ? model_->CurrentTextType()
+                           : AutocompleteMatchType::URL_WHAT_YOU_TYPED;
+  if (ui::MaterialDesignController::IsNewerMaterialUi() &&
+      AutocompleteMatch::IsSearchType(type)) {
+    gfx::Image favicon = model_->client()->GetFaviconForDefaultSearchProvider(
+        std::move(on_icon_fetched));
+    if (!favicon.IsEmpty())
+      return favicon.AsImageSkia();
+
+    // If the client returns an empty favicon, fall through to provide the
+    // generic vector icon. |on_icon_fetched| may or may not be called later.
+    // If it's never called, the vector icon we provide below should remain.
+  }
+
+  const gfx::VectorIcon& vector_icon =
+      AutocompleteMatch::TypeToVectorIcon(type,
+                                          /*is_bookmark=*/false,
+                                          /*is_tab_match=*/false);
+  return gfx::CreateVectorIcon(vector_icon, dip_size, color);
+#endif  // defined(OS_IOS)
 }
 
 void OmniboxView::SetUserText(const base::string16& text) {
@@ -123,20 +143,20 @@ void OmniboxView::SetUserText(const base::string16& text) {
 
 void OmniboxView::SetUserText(const base::string16& text,
                               bool update_popup) {
-  if (model_.get())
+  if (model_)
     model_->SetUserText(text);
   SetWindowTextAndCaretPos(text, text.length(), update_popup, true);
 }
 
 void OmniboxView::RevertAll() {
   CloseOmniboxPopup();
-  if (model_.get())
+  if (model_)
     model_->Revert();
   TextChanged();
 }
 
 void OmniboxView::CloseOmniboxPopup() {
-  if (model_.get())
+  if (model_)
     model_->StopAutocomplete();
 }
 
@@ -149,6 +169,8 @@ bool OmniboxView::IsImeShowingPopup() const {
 
 void OmniboxView::ShowImeIfNeeded() {
 }
+
+void OmniboxView::HideImeIfNeeded() {}
 
 bool OmniboxView::IsIndicatingQueryRefinement() const {
   // The default implementation always returns false.  Mobile ports can override
@@ -208,7 +230,7 @@ OmniboxView::OmniboxView(OmniboxEditController* controller,
 
 void OmniboxView::TextChanged() {
   EmphasizeURLComponents();
-  if (model_.get())
+  if (model_)
     model_->OnChanged();
 }
 

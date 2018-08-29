@@ -103,7 +103,7 @@ StringRef llvm::X86Disassembler::GetInstrName(unsigned Opcode,
   return MII->getName(Opcode);
 }
 
-#define debug(s) DEBUG(Debug(__FILE__, __LINE__, s));
+#define debug(s) LLVM_DEBUG(Debug(__FILE__, __LINE__, s));
 
 namespace llvm {
 
@@ -265,13 +265,10 @@ MCDisassembler::DecodeStatus X86GenericDisassembler::getInstruction(
 /// @param reg        - The Reg to append.
 static void translateRegister(MCInst &mcInst, Reg reg) {
 #define ENTRY(x) X86::x,
-  uint8_t llvmRegnums[] = {
-    ALL_REGS
-    0
-  };
+  static constexpr MCPhysReg llvmRegnums[] = {ALL_REGS};
 #undef ENTRY
 
-  uint8_t llvmRegnum = llvmRegnums[reg];
+  MCPhysReg llvmRegnum = llvmRegnums[reg];
   mcInst.addOperand(MCOperand::createReg(llvmRegnum));
 }
 

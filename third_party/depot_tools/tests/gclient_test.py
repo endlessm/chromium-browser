@@ -34,17 +34,19 @@ def write(filename, content):
 
 
 class SCMMock(object):
-  def __init__(self, unit_test, name, url):
-    self.unit_test = unit_test
+  unit_test = None
+  def __init__(self, parsed_url, root_dir, name, out_fh=None, out_cb=None,
+               print_outbuf=False):
+    self.unit_test.assertTrue(
+        parsed_url.startswith('svn://example.com/'), parsed_url)
+    self.unit_test.assertTrue(
+        root_dir.startswith(self.unit_test.root_dir), root_dir)
     self.name = name
-    self.url = url
+    self.url = parsed_url
 
   def RunCommand(self, command, options, args, file_list):
     self.unit_test.assertEquals('None', command)
     self.unit_test.processed.put((self.name, self.url))
-
-  def FullUrlForRelativeUrl(self, url):
-    return self.url + url
 
   # pylint: disable=no-self-use
   def DoesRemoteURLMatch(self, _):
@@ -61,23 +63,19 @@ class GclientTest(trial_dir.TestCase):
     self.previous_dir = os.getcwd()
     os.chdir(self.root_dir)
     # Manual mocks.
-    self._old_createscm = gclient.Dependency.CreateSCM
-    gclient.Dependency.CreateSCM = self._createscm
+    self._old_createscm = gclient.gclient_scm.GitWrapper
+    gclient.gclient_scm.GitWrapper = SCMMock
+    SCMMock.unit_test = self
     self._old_sys_stdout = sys.stdout
     sys.stdout = gclient.gclient_utils.MakeFileAutoFlush(sys.stdout)
     sys.stdout = gclient.gclient_utils.MakeFileAnnotated(sys.stdout)
 
   def tearDown(self):
     self.assertEquals([], self._get_processed())
-    gclient.Dependency.CreateSCM = self._old_createscm
+    gclient.gclient_scm.GitWrapper = self._old_createscm
     sys.stdout = self._old_sys_stdout
     os.chdir(self.previous_dir)
     super(GclientTest, self).tearDown()
-
-  def _createscm(self, parsed_url, root_dir, name, out_fh=None, out_cb=None):
-    self.assertTrue(parsed_url.startswith('svn://example.com/'), parsed_url)
-    self.assertTrue(root_dir.startswith(self.root_dir), root_dir)
-    return SCMMock(self, name, parsed_url)
 
   def testDependencies(self):
     self._dependencies('1')
@@ -143,11 +141,11 @@ class GclientTest(trial_dir.TestCase):
       self.assertEquals(first_3, actual[0:3])
     self.assertEquals(
         [
-          ('foo/dir1', 'svn://example.com/foo/dir1'),
-          ('foo/dir1/dir2', 'svn://example.com/bar/dir1/dir2'),
-          ('foo/dir1/dir2/dir3', 'svn://example.com/foo/dir1/dir2/dir3'),
+          ('foo/dir1', 'svn://example.com/dir1'),
+          ('foo/dir1/dir2', 'svn://example.com/dir1/dir2'),
+          ('foo/dir1/dir2/dir3', 'svn://example.com/dir1/dir2/dir3'),
           ('foo/dir1/dir2/dir3/dir4',
-           'svn://example.com/foo/dir1/dir2/dir3/dir4'),
+           'svn://example.com/dir1/dir2/dir3/dir4'),
         ],
         actual[3:])
 
@@ -214,25 +212,27 @@ class GclientTest(trial_dir.TestCase):
     obj.add_dependencies_and_close(
       [
         gclient.Dependency(
-          obj, 'foo', 'raw_url', 'url', None, None, None, None, 'DEPS', True,
-          False, None, True),
+            obj, 'foo', 'svn://example.com/foo', 'svn://example.com/foo', None,
+            None, None, None, 'DEPS', True, False, None, True),
         gclient.Dependency(
-          obj, 'bar', 'raw_url', 'url', None, None, None, None, 'DEPS', True,
-          False, None, True),
+            obj, 'bar', 'svn://example.com/bar', 'svn://example.com/bar', None,
+            None, None, None, 'DEPS', True, False, None, True),
       ],
       [])
     obj.dependencies[0].add_dependencies_and_close(
       [
         gclient.Dependency(
-          obj.dependencies[0], 'foo/dir1', 'raw_url', 'url', None, None, None,
-          None, 'DEPS', True, False, None, True),
+            obj.dependencies[0], 'foo/dir1', 'svn://example.com/foo/dir1',
+            'svn://example.com/foo/dir1', None, None, None, None, 'DEPS', True,
+            False, None, True),
       ],
       [])
+    # TODO(ehmaldonado): Improve this test.
     # Make sure __str__() works fine.
     # pylint: disable=protected-access
     obj.dependencies[0]._file_list.append('foo')
     str_obj = str(obj)
-    self.assertEquals(263, len(str_obj), '%d\n%s' % (len(str_obj), str_obj))
+    self.assertEquals(322, len(str_obj), '%d\n%s' % (len(str_obj), str_obj))
 
   def testHooks(self):
     topdir = self.root_dir
@@ -436,19 +436,10 @@ class GclientTest(trial_dir.TestCase):
         '  }]\n')
     write(
         os.path.join('foo', 'DEPS'),
-        'target_os = ["baz"]\n'
-        'deps_os = {\n'
-        '  "unix": { "foo/unix": "/unix", },\n'
-        '  "baz": { "foo/baz": "/baz", },\n'
-        '  "jaz": { "foo/jaz": "/jaz", },\n'
-        '}')
+        'target_os = ["baz"]\n')
     write(
         os.path.join('bar', 'DEPS'),
-        'deps_os = {\n'
-        '  "unix": { "bar/unix": "/unix", },\n'
-        '  "baz": { "bar/baz": "/baz", },\n'
-        '  "jaz": { "bar/jaz": "/jaz", },\n'
-        '}')
+        '')
 
     parser = gclient.OptionParser()
     options, _ = parser.parse_args(['--jobs', '1'])
@@ -457,15 +448,11 @@ class GclientTest(trial_dir.TestCase):
     obj = gclient.GClient.LoadCurrentConfig(options)
     obj.RunOnDeps('None', [])
     self.assertEqual(['unix'], sorted(obj.enforced_os))
-    self.assertEquals(
-        [
-          ('bar', 'svn://example.com/bar'),
-          ('bar/unix', 'svn://example.com/bar/unix'),
-          ('foo', 'svn://example.com/foo'),
-          ('foo/baz', 'svn://example.com/foo/baz'),
-          ('foo/unix', 'svn://example.com/foo/unix'),
-          ],
-        sorted(self._get_processed()))
+    self.assertEqual([('unix', 'baz'), ('unix',)],
+                     [dep.target_os for dep in obj.dependencies])
+    self.assertEqual([('foo', 'svn://example.com/foo'),
+                      ('bar', 'svn://example.com/bar')],
+                     self._get_processed())
 
   def testTargetOsForHooksInDepsFile(self):
     """Verifies that specifying a target_os value in a DEPS file runs the right
@@ -506,127 +493,65 @@ class GclientTest(trial_dir.TestCase):
     obj = gclient.GClient.LoadCurrentConfig(options)
     obj.RunOnDeps('None', args)
     self.assertEqual(['zippy'], sorted(obj.enforced_os))
-    all_hooks = [h.action for h in obj.GetHooks(options)]
+    all_hooks = obj.GetHooks(options)
     self.assertEquals(
         [('.', 'svn://example.com/'),],
         sorted(self._get_processed()))
-    self.assertEquals(all_hooks,
-                      [('python', 'do_a')])
-
-    # Test for OS that has extra hooks in hooks_os.
-    parser = gclient.OptionParser()
-    options, args = parser.parse_args(['--jobs', '1'])
-    options.deps_os = 'blorp'
-
-    obj = gclient.GClient.LoadCurrentConfig(options)
-    obj.RunOnDeps('None', args)
-    self.assertEqual(['blorp'], sorted(obj.enforced_os))
-    all_hooks = [h.action for h in obj.GetHooks(options)]
-    self.assertEquals(
-        [('.', 'svn://example.com/'),],
-        sorted(self._get_processed()))
-    self.assertEquals(all_hooks,
+    self.assertEquals([h.action for h in all_hooks],
                       [('python', 'do_a'),
                        ('python', 'do_b')])
+    self.assertEquals([h.condition for h in all_hooks],
+                      [None, 'checkout_blorp'])
 
+  def testOverride(self):
+    """Verifies expected behavior of URL overrides."""
+    write(
+        '.gclient',
+        'solutions = [\n'
+        '  { "name": "foo",\n'
+        '    "url": "svn://example.com/foo",\n'
+        '    "custom_deps": {\n'
+        '      "foo/bar": "svn://example.com/override",\n'
+        '      "foo/skip2": None,\n'
+        '      "foo/new": "svn://example.com/new",\n'
+        '    },\n'
+        '  },]\n')
+    write(
+        os.path.join('foo', 'DEPS'),
+        'vars = {\n'
+        '  "origin": "svn://example.com",\n'
+        '}\n'
+        'deps = {\n'
+        '  "foo/skip": None,\n'
+        '  "foo/bar": "{origin}/bar",\n'
+        '  "foo/baz": "{origin}/baz",\n'
+        '  "foo/skip2": "{origin}/skip2",\n'
+        '  "foo/rel": "/rel",\n'
+        '}')
+    parser = gclient.OptionParser()
+    options, _ = parser.parse_args(['--jobs', '1'])
 
-  def testUpdateWithOsDeps(self):
-    """Verifies that complicated deps_os constructs result in the
-    correct data also with multple operating systems. Also see
-    testDepsOsOverrideDepsInDepsFile."""
+    obj = gclient.GClient.LoadCurrentConfig(options)
+    obj.RunOnDeps('None', [])
 
-    test_data = [
-      # Tuples of deps, deps_os, os_list and expected_deps.
-      (
-        # OS with no overrides at all.
-        {'foo': 'default_foo'},
-        {'os1': { 'foo': None } },
-        ['os2'],
-        {'foo': 'default_foo'}
-        ),
-      (
-        # One OS wants to add a module.
-        {'foo': 'default_foo'},
-        {'os1': { 'bar': 'os1_bar' }},
-        ['os1'],
-        {'foo': 'default_foo',
-         'bar': {'should_process': True, 'url': 'os1_bar'}}
-        ),
-      (
-        # One OS wants to add a module. One doesn't care.
-        {'foo': 'default_foo'},
-        {'os1': { 'bar': 'os1_bar' }},
-        ['os1', 'os2'],
-        {'foo': 'default_foo',
-         'bar': {'should_process': True, 'url': 'os1_bar'}}
-        ),
-      (
-        # Two OSes want to add a module with the same definition.
-        {'foo': 'default_foo'},
-        {'os1': { 'bar': 'os12_bar' },
-         'os2': { 'bar': 'os12_bar' }},
-        ['os1', 'os2'],
-        {'foo': 'default_foo',
-         'bar': {'should_process': True, 'url': 'os12_bar'}}
-        ),
-      (
-        # One OS doesn't need module, one OS wants the default.
-        {'foo': 'default_foo'},
-        {'os1': { 'foo': None },
-         'os2': {}},
-        ['os1', 'os2'],
-        {'foo': 'default_foo'}
-        ),
-      (
-        # OS doesn't need module.
-        {'foo': 'default_foo'},
-        {'os1': { 'foo': None } },
-        ['os1'],
-        {'foo': 'default_foo'}
-        ),
-      (
-        # No-op override. Regression test for http://crbug.com/735418 .
-        {'foo': 'default_foo'},
-        {'os1': { 'foo': 'default_foo' } },
-        [],
-        {'foo': {'should_process': True, 'url': 'default_foo'}}
-        ),
-      ]
-    for deps, deps_os, target_os_list, expected_deps in test_data:
-      orig_deps = copy.deepcopy(deps)
-      result = gclient.Dependency.MergeWithOsDeps(
-          deps, deps_os, target_os_list, False)
-      self.assertEqual(result, expected_deps)
-      self.assertEqual(deps, orig_deps)
+    sol = obj.dependencies[0]
+    self.assertEqual([
+        ('foo', 'svn://example.com/foo'),
+        ('foo/bar', 'svn://example.com/override'),
+        ('foo/baz', 'svn://example.com/baz'),
+        ('foo/new', 'svn://example.com/new'),
+        ('foo/rel', 'svn://example.com/rel'),
+    ], self._get_processed())
 
-  def testUpdateWithOsDepsInvalid(self):
-    test_data = [
-      # Tuples of deps, deps_os, os_list.
-      (
-        # OS wants a different version of module.
-        {'foo': 'default_foo'},
-        {'os1': { 'foo': 'os1_foo'} },
-        ['os1'],
-        ),
-      (
-        # One OS doesn't need module, another OS wants a special version.
-        {'foo': 'default_foo'},
-        {'os1': { 'foo': None },
-         'os2': { 'foo': 'os2_foo'}},
-        ['os1', 'os2'],
-        ),
-      ]
-    for deps, deps_os, target_os_list in test_data:
-      with self.assertRaises(gclient_utils.Error):
-        gclient.Dependency.MergeWithOsDeps(deps, deps_os, target_os_list, False)
-
-  def testLateOverride(self):
-    """Verifies expected behavior of LateOverride."""
-    url = "git@github.com:dart-lang/spark.git"
-    d = gclient.Dependency(None, 'name', 'raw_url', 'url',
-                           None, None, None, None, '', True, False, None, True)
-    late_url = d.LateOverride(url)
-    self.assertEquals(url, late_url)
+    self.assertEqual(6, len(sol.dependencies))
+    self.assertEqual([
+        ('foo/bar', 'svn://example.com/override'),
+        ('foo/baz', 'svn://example.com/baz'),
+        ('foo/new', 'svn://example.com/new'),
+        ('foo/rel', 'svn://example.com/rel'),
+        ('foo/skip', None),
+        ('foo/skip2', None),
+    ], [(dep.name, dep.url) for dep in sol.dependencies])
 
   def testDepsOsOverrideDepsInDepsFile(self):
     """Verifies that a 'deps_os' path cannot override a 'deps' path. Also
@@ -712,9 +637,9 @@ class GclientTest(trial_dir.TestCase):
         [
           ('foo', 'svn://example.com/foo'),
           ('foo/bar', 'svn://example.com/bar'),
-          ('bar', 'svn://example.com/foo/bar'),
-          ('baz', 'svn://example.com/foo/bar/baz'),
-          ('fizz', 'svn://example.com/foo/bar/baz/fizz'),
+          ('bar', 'svn://example.com/bar'),
+          ('baz', 'svn://example.com/baz'),
+          ('fizz', 'svn://example.com/fizz'),
         ],
         self._get_processed())
 
@@ -769,9 +694,9 @@ class GclientTest(trial_dir.TestCase):
     obj.RunOnDeps('None', [])
     self.assertEquals(
         [
-          ('bar', 'svn://example.com/foo/bar'),
-          ('baz', 'svn://example.com/foo/bar/baz'),
-          ('fizz', 'svn://example.com/foo/bar/baz/fizz'),
+          ('bar', 'svn://example.com/bar'),
+          ('baz', 'svn://example.com/baz'),
+          ('fizz', 'svn://example.com/fizz'),
           ('foo', 'svn://example.com/foo'),
           ('foo/bar', 'svn://example.com/bar'),
           ('foo/tar', 'svn://example.com/tar'),
@@ -810,8 +735,8 @@ class GclientTest(trial_dir.TestCase):
     self.assertEquals(
         [
           ('foo', 'svn://example.com/foo'),
-          ('foo/bar', 'svn://example.com/foo/bar'),
-          ('foo/baz', 'svn://example.com/foo/bar/baz'),
+          ('foo/bar', 'svn://example.com/bar'),
+          ('foo/baz', 'svn://example.com/baz'),
         ],
         self._get_processed())
 
@@ -847,8 +772,8 @@ class GclientTest(trial_dir.TestCase):
     self.assertEquals(
         [
           ('foo', 'svn://example.com/foo'),
-          ('foo/bar', 'svn://example.com/foo/bar'),
-          ('foo/bar/baz', 'svn://example.com/foo/bar/baz'),
+          ('foo/bar', 'svn://example.com/bar'),
+          ('foo/bar/baz', 'svn://example.com/baz'),
         ],
         self._get_processed())
 
@@ -930,11 +855,11 @@ class GclientTest(trial_dir.TestCase):
         [
           ('foo', 'svn://example.com/foo'),
           ('foo/bar', 'svn://example.com/bar'),
-          ('bar', 'svn://example.com/foo/bar'),
+          ('bar', 'svn://example.com/bar'),
           # Deps after this would have been skipped if we were obeying
           # |recursedeps|.
-          ('baz', 'svn://example.com/foo/bar/baz'),
-          ('fizz', 'svn://example.com/foo/bar/baz/fizz'),
+          ('baz', 'svn://example.com/baz'),
+          ('fizz', 'svn://example.com/fizz'),
           # And this dep would have been picked up if we were obeying
           # |recursedeps|.
           # 'svn://example.com/foo/bar/baz/fuzz',
@@ -972,8 +897,8 @@ class GclientTest(trial_dir.TestCase):
     self.assertEquals(
         [
           ('foo', 'svn://example.com/foo'),
-          ('bar', 'svn://example.com/foo/bar'),
-          ('baz', 'svn://example.com/foo/bar/baz'),
+          ('bar', 'svn://example.com/bar'),
+          ('baz', 'svn://example.com/baz'),
         ],
         self._get_processed())
 
@@ -1008,7 +933,7 @@ class GclientTest(trial_dir.TestCase):
     self.assertEquals(
         [
           ('foo', 'svn://example.com/foo'),
-          ('bar', 'svn://example.com/foo/bar'),
+          ('bar', 'svn://example.com/bar'),
         ],
         self._get_processed())
 
@@ -1033,7 +958,7 @@ class GclientTest(trial_dir.TestCase):
     self.assertEquals(
         [
           ('foo', 'svn://example.com/foo'),
-          ('bar', 'svn://example.com/foo/bar'),
+          ('bar', 'svn://example.com/bar'),
         ],
         self._get_processed())
 
@@ -1205,8 +1130,9 @@ class GclientTest(trial_dir.TestCase):
     obj.add_dependencies_and_close(
       [
         gclient.Dependency(
-          obj, 'foo', 'raw_url', 'url', None, None, None, None, 'DEPS', True,
-          False, None, True),
+            obj, 'foo', 'svn://example.com/foo', 'svn://example.com/foo', None,
+            None, None, None, 'DEPS', True,
+            False, None, True),
       ],
       [])
     obj.dependencies[0].add_dependencies_and_close(
@@ -1215,12 +1141,12 @@ class GclientTest(trial_dir.TestCase):
                                {'package': 'foo_package',
                                 'version': 'foo_version'},
                                cipd_root, None, True, False,
-                               'fake_condition', True),
+                               'fake_condition'),
         gclient.CipdDependency(obj.dependencies[0], 'foo',
                                {'package': 'bar_package',
                                 'version': 'bar_version'},
                                cipd_root, None, True, False,
-                               'fake_condition', True),
+                               'fake_condition'),
       ],
       [])
     dep0 = obj.dependencies[0].dependencies[0]
@@ -1246,8 +1172,8 @@ class GclientTest(trial_dir.TestCase):
     foo_sol = obj.dependencies[0]
     self.assertEqual(
         'https://example.com/foo.git',
-        foo_sol.FuzzyMatchUrl('https://example.com/foo.git',
-                                   ['https://example.com/foo.git', 'foo']))
+        foo_sol.FuzzyMatchUrl(['https://example.com/foo.git', 'foo'])
+    )
 
   def testFuzzyMatchUrlByURLNoGit(self):
     write(
@@ -1267,8 +1193,8 @@ class GclientTest(trial_dir.TestCase):
     foo_sol = obj.dependencies[0]
     self.assertEqual(
         'https://example.com/foo',
-        foo_sol.FuzzyMatchUrl('https://example.com/foo.git',
-                                   ['https://example.com/foo', 'foo']))
+        foo_sol.FuzzyMatchUrl(['https://example.com/foo', 'foo'])
+    )
 
   def testFuzzyMatchUrlByName(self):
     write(
@@ -1286,9 +1212,7 @@ class GclientTest(trial_dir.TestCase):
     options, _ = gclient.OptionParser().parse_args([])
     obj = gclient.GClient.LoadCurrentConfig(options)
     foo_sol = obj.dependencies[0]
-    self.assertEqual(
-        'foo',
-        foo_sol.FuzzyMatchUrl('https://example.com/foo.git', ['foo']))
+    self.assertEqual('foo', foo_sol.FuzzyMatchUrl(['foo']))
 
 
 if __name__ == '__main__':

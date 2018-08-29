@@ -78,6 +78,7 @@ enum class Channel;
 }
 
 namespace views {
+class EventMonitor;
 class ExternalFocusTracker;
 class WebView;
 }
@@ -307,11 +308,13 @@ class BrowserView : public BrowserWindow,
   void UpdateExclusiveAccessExitBubbleContent(
       const GURL& url,
       ExclusiveAccessBubbleType bubble_type,
-      ExclusiveAccessBubbleHideCallback bubble_first_hide_callback) override;
+      ExclusiveAccessBubbleHideCallback bubble_first_hide_callback,
+      bool force_update) override;
   void OnExclusiveAccessUserInput() override;
   bool ShouldHideUIForFullscreen() const override;
   bool IsFullscreen() const override;
   bool IsFullscreenBubbleVisible() const override;
+  PageActionIconContainer* GetPageActionIconContainer() override;
   LocationBar* GetLocationBar() const override;
   void SetFocusToLocationBar(bool select_all) override;
   void UpdateReloadStopState(bool is_loading, bool force) override;
@@ -334,6 +337,7 @@ class BrowserView : public BrowserWindow,
 #if defined(OS_CHROMEOS)
   void ShowIntentPickerBubble(
       std::vector<IntentPickerBubbleView::AppInfo> app_info,
+      bool disable_stay_in_chrome,
       IntentPickerResponse callback) override;
   void SetIntentPickerViewVisibility(bool visible) override;
 #endif  //  defined(OS_CHROMEOS)
@@ -397,7 +401,9 @@ class BrowserView : public BrowserWindow,
                      content::WebContents* contents,
                      int index,
                      bool foreground) override;
-  void TabDetachedAt(content::WebContents* contents, int index) override;
+  void TabDetachedAt(content::WebContents* contents,
+                     int index,
+                     bool was_active) override;
   void TabDeactivated(content::WebContents* contents) override;
   void TabStripEmpty() override;
   void WillCloseAllTabs() override;
@@ -467,6 +473,7 @@ class BrowserView : public BrowserWindow,
   content::WebContents* GetActiveWebContents() override;
   void HideDownloadShelf() override;
   void UnhideDownloadShelf() override;
+  ExclusiveAccessBubbleViews* GetExclusiveAccessBubble() override;
 
   // ExclusiveAccessBubbleViewsContext overrides
   ExclusiveAccessManager* GetExclusiveAccessManager() override;
@@ -740,6 +747,10 @@ class BrowserView : public BrowserWindow,
   std::unique_ptr<BrowserWindowHistogramHelper> histogram_helper_;
 
   std::unique_ptr<FullscreenControlHost> fullscreen_control_host_;
+
+#if !defined(USE_AURA)
+  std::unique_ptr<views::EventMonitor> fullscreen_control_host_event_monitor_;
+#endif
 
   struct ResizeSession {
     // The time when user started resizing the window.

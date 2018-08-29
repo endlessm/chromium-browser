@@ -4,6 +4,8 @@
 
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_header_synchronizer.h"
 
+#include "base/ios/ios_util.h"
+#import "base/mac/foundation_util.h"
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_cell.h"
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_most_visited_cell.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_collection_controlling.h"
@@ -11,6 +13,7 @@
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_header_controlling.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_view_controller.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
+#include "ios/web/public/features.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -19,6 +22,20 @@
 namespace {
 const CGFloat kShiftTilesDownAnimationDuration = 0.2;
 const CGFloat kShiftTilesUpAnimationDuration = 0.25;
+
+UIEdgeInsets SafeAreaInsetsForViewWithinNTP(UIView* view) {
+  UIEdgeInsets insets = SafeAreaInsetsForView(view);
+  if ((IsUIRefreshPhase1Enabled() ||
+       base::FeatureList::IsEnabled(
+           web::features::kBrowserContainerFullscreen)) &&
+      !base::ios::IsRunningOnIOS11OrLater()) {
+    // TODO(crbug.com/826369) Replace this when the NTP is contained by the
+    // BVC with |self.collectionController.topLayoutGuide.length|.
+    insets = UIEdgeInsetsMake(StatusBarHeight(), 0, 0, 0);
+  }
+  return insets;
+}
+
 }  // namespace
 
 @interface ContentSuggestionsHeaderSynchronizer ()<UIGestureRecognizerDelegate>
@@ -104,6 +121,13 @@ initWithCollectionController:
   // Add gesture recognizer to collection view when the omnibox is focused.
   [self.collectionView addGestureRecognizer:self.tapGestureRecognizer];
 
+  if (self.collectionView.decelerating) {
+    // Stop the scrolling if the scroll view is decelerating to prevent the
+    // focus to be immediately lost.
+    [self.collectionView setContentOffset:self.collectionView.contentOffset
+                                 animated:NO];
+  }
+
   CGFloat pinnedOffsetY = [self.headerController pinnedOffsetY];
   self.collectionShiftingOffset =
       MAX(0, pinnedOffsetY - self.collectionView.contentOffset.y);
@@ -160,20 +184,22 @@ initWithCollectionController:
   }
 
   if (self.shouldAnimateHeader) {
+    UIEdgeInsets insets = SafeAreaInsetsForViewWithinNTP(self.collectionView);
     [self.headerController
         updateFakeOmniboxForOffset:self.collectionView.contentOffset.y
                        screenWidth:self.collectionView.frame.size.width
-                    safeAreaInsets:SafeAreaInsetsForView(self.collectionView)];
+                    safeAreaInsets:insets];
   }
 }
 
 - (void)updateFakeOmniboxOnNewWidth:(CGFloat)width {
   if (self.shouldAnimateHeader &&
       (IsUIRefreshPhase1Enabled() || !IsIPadIdiom())) {
+    UIEdgeInsets insets = SafeAreaInsetsForViewWithinNTP(self.collectionView);
     [self.headerController
         updateFakeOmniboxForOffset:self.collectionView.contentOffset.y
                        screenWidth:width
-                    safeAreaInsets:SafeAreaInsetsForView(self.collectionView)];
+                    safeAreaInsets:insets];
   } else {
     [self.headerController updateFakeOmniboxForWidth:width];
   }

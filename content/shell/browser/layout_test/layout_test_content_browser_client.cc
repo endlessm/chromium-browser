@@ -26,6 +26,7 @@
 #include "content/shell/common/layout_test/layout_test_switches.h"
 #include "content/shell/common/shell_messages.h"
 #include "content/shell/renderer/layout_test/blink_test_helpers.h"
+#include "content/test/mock_clipboard_host.h"
 #include "device/bluetooth/test/fake_bluetooth.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
@@ -97,6 +98,11 @@ void LayoutTestContentBrowserClient::SetPopupBlockingEnabled(
   block_popups_ = block_popups;
 }
 
+void LayoutTestContentBrowserClient::ResetMockClipboardHost() {
+  if (mock_clipboard_host_)
+    mock_clipboard_host_->Reset();
+}
+
 std::unique_ptr<FakeBluetoothChooser>
 LayoutTestContentBrowserClient::GetNextFakeBluetoothChooser() {
   return std::move(next_fake_bluetooth_chooser_);
@@ -118,8 +124,6 @@ void LayoutTestContentBrowserClient::RenderProcessWillLaunch(
       host->GetID(), partition->GetDatabaseTracker(),
       partition->GetQuotaManager(), partition->GetURLRequestContext(),
       partition->GetNetworkContext()));
-
-  host->Send(new ShellViewMsg_SetWebKitSourceDir(GetWebKitRootDirFilePath()));
 }
 
 void LayoutTestContentBrowserClient::ExposeInterfacesToRenderer(
@@ -136,9 +140,9 @@ void LayoutTestContentBrowserClient::ExposeInterfacesToRenderer(
   registry->AddInterface(base::BindRepeating(&bluetooth::FakeBluetooth::Create),
                          ui_task_runner);
   // This class outlives |render_process_host|, which owns |registry|. Since
-  // CreateFakeBluetoothChooser will not be called after |registry| is deleted
+  // any binders will not be called after |registry| is deleted
   // and |registry| is outlived by this class, it is safe to use
-  // base::Unretained.
+  // base::Unretained in all binders.
   registry->AddInterface(
       base::BindRepeating(
           &LayoutTestContentBrowserClient::CreateFakeBluetoothChooser,
@@ -149,6 +153,19 @@ void LayoutTestContentBrowserClient::ExposeInterfacesToRenderer(
       base::Unretained(
           render_process_host->GetStoragePartition()->GetWebPackageContext())));
   registry->AddInterface(base::BindRepeating(&MojoLayoutTestHelper::Create));
+  registry->AddInterface(
+      base::BindRepeating(&LayoutTestContentBrowserClient::BindClipboardHost,
+                          base::Unretained(this)),
+      ui_task_runner);
+}
+
+void LayoutTestContentBrowserClient::BindClipboardHost(
+    blink::mojom::ClipboardHostRequest request) {
+  if (!mock_clipboard_host_) {
+    mock_clipboard_host_ =
+        std::make_unique<MockClipboardHost>(browser_context());
+  }
+  mock_clipboard_host_->Bind(std::move(request));
 }
 
 void LayoutTestContentBrowserClient::OverrideWebkitPrefs(
@@ -161,7 +178,7 @@ void LayoutTestContentBrowserClient::OverrideWebkitPrefs(
 void LayoutTestContentBrowserClient::AppendExtraCommandLineSwitches(
     base::CommandLine* command_line,
     int child_process_id) {
-  command_line->AppendSwitch(switches::kRunLayoutTest);
+  command_line->AppendSwitch(switches::kRunWebTests);
   ShellContentBrowserClient::AppendExtraCommandLineSwitches(command_line,
                                                             child_process_id);
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -182,6 +199,10 @@ void LayoutTestContentBrowserClient::AppendExtraCommandLineSwitches(
         switches::kEnableLeakDetection,
         base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
             switches::kEnableLeakDetection));
+  }
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableDisplayCompositorPixelDump)) {
+    command_line->AppendSwitch(switches::kEnableDisplayCompositorPixelDump);
   }
 }
 
@@ -246,8 +267,7 @@ LayoutTestContentBrowserClient::CreateLoginDelegate(
     bool is_main_frame,
     const GURL& url,
     bool first_auth_attempt,
-    const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
-        auth_required_callback) {
+    LoginAuthRequiredCallback auth_required_callback) {
   return nullptr;
 }
 

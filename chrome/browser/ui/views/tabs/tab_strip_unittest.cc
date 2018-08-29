@@ -6,7 +6,6 @@
 
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/tabs/fake_base_tab_strip_controller.h"
 #include "chrome/browser/ui/views/tabs/new_tab_button.h"
@@ -16,6 +15,8 @@
 #include "chrome/browser/ui/views/tabs/tab_strip_controller.h"
 #include "chrome/browser/ui/views/tabs/tab_strip_observer.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chrome/test/views/chrome_test_views_delegate.h"
+#include "chrome/test/views/chrome_views_test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/ui_base_switches.h"
@@ -23,7 +24,6 @@
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/path.h"
 #include "ui/gfx/skia_util.h"
-#include "ui/views/test/views_test_base.h"
 #include "ui/views/view.h"
 #include "ui/views/view_targeter.h"
 #include "ui/views/widget/widget.h"
@@ -46,6 +46,29 @@ std::string TouchOptimizedUiStatusToString(
   return info.param ? "TouchOptimizedUiEnabled" : "TouchOptimizedUiDisabled";
 }
 
+class TabStripTestViewsDelegate : public ChromeTestViewsDelegate {
+ public:
+  TabStripTestViewsDelegate() = default;
+  ~TabStripTestViewsDelegate() override = default;
+  void NotifyAccessibilityEvent(views::View* view,
+                                ax::mojom::Event event_type) override {
+    if (event_type == ax::mojom::Event::kSelectionRemove) {
+      remove_count_++;
+    }
+    if (event_type == ax::mojom::Event::kSelectionAdd) {
+      add_count_++;
+    }
+  }
+
+  int add_count() { return add_count_; }
+  int remove_count() { return remove_count_; }
+
+ private:
+  int add_count_ = 0;
+  int remove_count_ = 0;
+  DISALLOW_COPY_AND_ASSIGN(TabStripTestViewsDelegate);
+};
+
 }  // namespace
 
 class TestTabStripObserver : public TabStripObserver {
@@ -54,50 +77,34 @@ class TestTabStripObserver : public TabStripObserver {
     tab_strip_->AddObserver(this);
   }
 
-  ~TestTabStripObserver() override {
-    if (tab_strip_)
-      tab_strip_->RemoveObserver(this);
-  }
+  ~TestTabStripObserver() override { tab_strip_->RemoveObserver(this); }
 
   int last_tab_added() const { return last_tab_added_; }
   int last_tab_removed() const { return last_tab_removed_; }
   int last_tab_moved_from() const { return last_tab_moved_from_; }
   int last_tab_moved_to() const { return last_tab_moved_to_; }
-  bool tabstrip_deleted() const { return tabstrip_deleted_; }
 
  private:
   // TabStripObserver overrides.
-  void TabStripAddedTabAt(TabStrip* tab_strip, int index) override {
-    last_tab_added_ = index;
-  }
+  void OnTabAdded(int index) override { last_tab_added_ = index; }
 
-  void TabStripMovedTab(TabStrip* tab_strip,
-                        int from_index,
-                        int to_index) override {
+  void OnTabMoved(int from_index, int to_index) override {
     last_tab_moved_from_ = from_index;
     last_tab_moved_to_ = to_index;
   }
 
-  void TabStripRemovedTabAt(TabStrip* tab_strip, int index) override {
-    last_tab_removed_ = index;
-  }
-
-  void TabStripDeleted(TabStrip* tab_strip) override {
-    tabstrip_deleted_ = true;
-    tab_strip_ = nullptr;
-  }
+  void OnTabRemoved(int index) override { last_tab_removed_ = index; }
 
   TabStrip* tab_strip_;
   int last_tab_added_ = -1;
   int last_tab_removed_ = -1;
   int last_tab_moved_from_ = -1;
   int last_tab_moved_to_ = -1;
-  bool tabstrip_deleted_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(TestTabStripObserver);
 };
 
-class TabStripTest : public views::ViewsTestBase,
+class TabStripTest : public ChromeViewsTestBase,
                      public testing::WithParamInterface<bool> {
  public:
   TabStripTest() {}
@@ -110,7 +117,7 @@ class TabStripTest : public views::ViewsTestBase,
           switches::kTopChromeMD, switches::kTopChromeMDMaterialTouchOptimized);
     }
 
-    views::ViewsTestBase::SetUp();
+    ChromeViewsTestBase::SetUp();
 
     controller_ = new FakeBaseTabStripController;
     tab_strip_ = new TabStrip(std::unique_ptr<TabStripController>(controller_));
@@ -132,10 +139,17 @@ class TabStripTest : public views::ViewsTestBase,
   void TearDown() override {
     TabStrip::ResetTabSizeInfoForTesting();
     widget_.reset();
-    views::ViewsTestBase::TearDown();
+    ChromeViewsTestBase::TearDown();
   }
 
  protected:
+  std::unique_ptr<views::TestViewsDelegate> CreateTestViewsDelegate() override {
+    std::unique_ptr<TabStripTestViewsDelegate> delegate =
+        std::make_unique<TabStripTestViewsDelegate>();
+    test_views_delegate_ = delegate.get();
+    return delegate;
+  }
+
   bool IsShowingAttentionIndicator(int model_index) {
     return tab_strip_->tab_at(model_index)->icon_->ShowingAttentionIndicator();
   }
@@ -148,13 +162,28 @@ class TabStripTest : public views::ViewsTestBase,
     return tab->HitTestPoint(point_in_tab_coords);
   }
 
+  Tab* FindTabForEvent(const gfx::Point& point) {
+    return tab_strip_->FindTabForEvent(point);
+  }
+
   void DoLayout() { tab_strip_->DoLayout(); }
+
+  void AnimateToIdealBounds() { tab_strip_->AnimateToIdealBounds(); }
+
+  int current_inactive_width() const {
+    return tab_strip_->current_inactive_width_;
+  }
+
+  const StackedTabStripLayout* touch_layout() const {
+    return tab_strip_->touch_layout_.get();
+  }
 
   // Owned by TabStrip.
   FakeBaseTabStripController* controller_ = nullptr;
   // Owns |tab_strip_|.
   views::View parent_;
   TabStrip* tab_strip_ = nullptr;
+  TabStripTestViewsDelegate* test_views_delegate_ = nullptr;
   std::unique_ptr<views::Widget> widget_;
 
  private:
@@ -163,6 +192,26 @@ class TabStripTest : public views::ViewsTestBase,
 
 TEST_P(TabStripTest, GetModelCount) {
   EXPECT_EQ(0, tab_strip_->GetModelCount());
+}
+
+TEST_P(TabStripTest, AccessibilityEvents) {
+  // When adding tabs, SetSelection() is called after RemoveTabAt(), as
+  // otherwise the index would not be meaningful.
+  tab_strip_->AddTabAt(0, TabRendererData(), false);
+  tab_strip_->AddTabAt(1, TabRendererData(), true);
+  ui::ListSelectionModel selection;
+  selection.SetSelectedIndex(1);
+  tab_strip_->SetSelection(selection);
+  EXPECT_EQ(1, test_views_delegate_->add_count());
+  EXPECT_EQ(0, test_views_delegate_->remove_count());
+
+  // When removing tabs, SetSelection() is called before RemoveTabAt(), as
+  // otherwise the index would not be meaningful.
+  selection.SetSelectedIndex(0);
+  tab_strip_->SetSelection(selection);
+  tab_strip_->RemoveTabAt(nullptr, 1);
+  EXPECT_EQ(2, test_views_delegate_->add_count());
+  EXPECT_EQ(1, test_views_delegate_->remove_count());
 }
 
 TEST_P(TabStripTest, IsValidModelIndex) {
@@ -180,17 +229,6 @@ TEST_P(TabStripTest, AddTabAt) {
   EXPECT_EQ(0, observer.last_tab_added());
   Tab* tab = tab_strip_->tab_at(0);
   EXPECT_FALSE(tab == NULL);
-}
-
-// Confirms that TabStripObserver::TabStripDeleted() is sent.
-TEST_P(TabStripTest, TabStripDeleted) {
-  FakeBaseTabStripController* controller = new FakeBaseTabStripController;
-  std::unique_ptr<TabStrip> tab_strip(
-      new TabStrip(std::unique_ptr<TabStripController>(controller)));
-  controller->set_tab_strip(tab_strip.get());
-  TestTabStripObserver observer(tab_strip.get());
-  tab_strip.reset();
-  EXPECT_TRUE(observer.tabstrip_deleted());
 }
 
 TEST_P(TabStripTest, MoveTab) {
@@ -308,7 +346,7 @@ TEST_P(TabStripTest, TabForEventWhenStacked) {
 
   // Switch to stacked layout mode and force a layout to ensure tabs stack.
   tab_strip_->SetStackedLayout(true);
-  tab_strip_->DoLayout();
+  DoLayout();
 
   gfx::Point p;
   for (int y : {0, tab_strip_->height() / 2, tab_strip_->height() - 1}) {
@@ -316,7 +354,7 @@ TEST_P(TabStripTest, TabForEventWhenStacked) {
     int previous_tab = -1;
     for (int x = 0; x < tab_strip_->width(); ++x) {
       p.set_x(x);
-      int tab = tab_strip_->GetModelIndexOfTab(tab_strip_->FindTabForEvent(p));
+      int tab = tab_strip_->GetModelIndexOfTab(FindTabForEvent(p));
       if (tab == previous_tab)
         continue;
       if ((tab != -1) || (previous_tab != tab_strip_->tab_count() - 1))
@@ -352,9 +390,9 @@ TEST_P(TabStripTest, TabCloseButtonVisibilityWhenStacked) {
   EXPECT_TRUE(tab2->showing_close_button_);
 
   // Enter stacked layout mode and verify this sets |touch_layout_|.
-  ASSERT_FALSE(tab_strip_->touch_layout_.get());
+  ASSERT_FALSE(touch_layout());
   tab_strip_->SetStackedLayout(true);
-  ASSERT_TRUE(tab_strip_->touch_layout_.get());
+  ASSERT_TRUE(touch_layout());
 
   // Only the close button of the active tab should be visible in stacked
   // layout mode.
@@ -393,7 +431,7 @@ TEST_P(TabStripTest, TabCloseButtonVisibilityWhenStacked) {
 
   // All tab close buttons should be shown when disengaging stacked tab mode.
   tab_strip_->SetStackedLayout(false);
-  ASSERT_FALSE(tab_strip_->touch_layout_.get());
+  ASSERT_FALSE(touch_layout());
   EXPECT_TRUE(tab0->showing_close_button_);
   EXPECT_TRUE(tab2->showing_close_button_);
   EXPECT_TRUE(tab3->showing_close_button_);
@@ -425,7 +463,7 @@ TEST_P(TabStripTest, TabCloseButtonVisibilityWhenNotStacked) {
   ASSERT_FALSE(tab2->IsActive());
 
   // Ensure this is not in stacked layout mode.
-  ASSERT_FALSE(tab_strip_->touch_layout_.get());
+  ASSERT_FALSE(touch_layout());
 
   // Ensure that all tab close buttons are initially visible.
   EXPECT_TRUE(tab0->showing_close_button_);
@@ -477,7 +515,7 @@ TEST_P(TabStripTest, TabCloseButtonVisibilityWhenNotStacked) {
   tab_strip_->CloseTab(tab2, CLOSE_TAB_FROM_TOUCH);
   tab2 = nullptr;
   ASSERT_TRUE(tab3->IsActive());
-  tab_strip_->DoLayout();
+  DoLayout();
   EXPECT_FALSE(tab0->showing_close_button_);
   EXPECT_FALSE(tab1->showing_close_button_);
   EXPECT_TRUE(tab3->showing_close_button_);
@@ -624,30 +662,7 @@ TEST_P(TabStripTest, NewTabButtonStaysVisible) {
 
   DoLayout();
 
-  EXPECT_LE(tab_strip_->GetNewTabButtonBounds().right(), kTabStripWidth);
-}
-
-TEST_P(TabStripTest, AttentionIndicatorHidesOnSelect) {
-  for (int i = 0; i < 2; ++i)
-    controller_->AddTab(i, (i == 0));
-
-  // Two tabs, both pinned.
-  TabRendererData pinned_data;
-  pinned_data.pinned = true;
-  tab_strip_->SetTabData(0, pinned_data);
-  tab_strip_->SetTabData(1, pinned_data);
-
-  EXPECT_FALSE(IsShowingAttentionIndicator(0));
-  EXPECT_FALSE(IsShowingAttentionIndicator(1));
-
-  // Change the title of the second tab (first tab is selected).
-  tab_strip_->TabTitleChangedNotLoading(1);
-  // Indicator should be shown.
-  EXPECT_TRUE(IsShowingAttentionIndicator(1));
-  // Select the second tab.
-  controller_->SelectTab(1);
-  // Indicator should hide.
-  EXPECT_FALSE(IsShowingAttentionIndicator(1));
+  EXPECT_LE(tab_strip_->new_tab_button_bounds().right(), kTabStripWidth);
 }
 
 // The active tab should always be at least as wide as its minimum width.
@@ -658,9 +673,9 @@ TEST_P(TabStripTest, ActiveTabWidthWhenTabsAreTiny) {
   tab_strip_->GetWidget()->Show();
   tab_strip_->SetBounds(0, 0, 200, 20);
 
-  const int min_inactive_width = Tab::GetMinimumInactiveSize().width();
   // Create a lot of tabs in order to make inactive tabs tiny.
-  while (tab_strip_->current_inactive_width_ != min_inactive_width)
+  const int min_inactive_width = Tab::GetMinimumInactiveSize().width();
+  while (current_inactive_width() != min_inactive_width)
     controller_->CreateNewTab();
 
   const int min_active_width = Tab::GetMinimumActiveSize().width();

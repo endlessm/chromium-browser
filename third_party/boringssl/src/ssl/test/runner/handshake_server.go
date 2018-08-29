@@ -341,6 +341,10 @@ func (hs *serverHandshakeState) readClientHello() error {
 		return fmt.Errorf("tls: expected dummy PQ padding extension of length %d, but got one of length %d", expected, config.Bugs.ExpectDummyPQPaddingLength)
 	}
 
+	if err := checkRSAPSSSupport(config.Bugs.ExpectRSAPSSSupport, hs.clientHello.signatureAlgorithms, hs.clientHello.signatureAlgorithmsCert); err != nil {
+		return err
+	}
+
 	applyBugsToClientHello(hs.clientHello, config)
 
 	return nil
@@ -371,7 +375,8 @@ func (hs *serverHandshakeState) doTLS13Handshake() error {
 		sessionId:             hs.clientHello.sessionId,
 		compressionMethod:     config.Bugs.SendCompressionMethod,
 		versOverride:          config.Bugs.SendServerHelloVersion,
-		supportedVersOverride: config.Bugs.SendServerSupportedExtensionVersion,
+		supportedVersOverride: config.Bugs.SendServerSupportedVersionExtension,
+		omitSupportedVers:     config.Bugs.OmitServerSupportedVersionExtension,
 		customExtension:       config.Bugs.CustomUnencryptedExtension,
 		unencryptedALPN:       config.Bugs.SendUnencryptedALPN,
 	}
@@ -1118,7 +1123,7 @@ func (hs *serverHandshakeState) processClientHello() (isResume bool, err error) 
 		versOverride:      config.Bugs.SendServerHelloVersion,
 		compressionMethod: config.Bugs.SendCompressionMethod,
 		extensions: serverExtensions{
-			supportedVersion: config.Bugs.SendServerSupportedExtensionVersion,
+			supportedVersion: config.Bugs.SendServerSupportedVersionExtension,
 		},
 		omitExtensions:  config.Bugs.OmitExtensions,
 		emptyExtensions: config.Bugs.EmptyExtensions,

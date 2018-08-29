@@ -19,6 +19,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Compiler.h"
@@ -157,10 +158,10 @@ RecordRecTy *RecordRecTy::get(ArrayRef<Record *> UnsortedClasses) {
 
   SmallVector<Record *, 4> Classes(UnsortedClasses.begin(),
                                    UnsortedClasses.end());
-  std::sort(Classes.begin(), Classes.end(),
-            [](Record *LHS, Record *RHS) {
-              return LHS->getNameInitAsString() < RHS->getNameInitAsString();
-            });
+  llvm::sort(Classes.begin(), Classes.end(),
+             [](Record *LHS, Record *RHS) {
+               return LHS->getNameInitAsString() < RHS->getNameInitAsString();
+             });
 
   FoldingSetNodeID ID;
   ProfileRecordRecTy(ID, Classes);
@@ -1195,14 +1196,16 @@ Init *TernOpInit::resolveReferences(Resolver &R) const {
 
 std::string TernOpInit::getAsString() const {
   std::string Result;
+  bool UnquotedLHS = false;
   switch (getOpcode()) {
   case SUBST: Result = "!subst"; break;
-  case FOREACH: Result = "!foreach"; break;
+  case FOREACH: Result = "!foreach"; UnquotedLHS = true; break;
   case IF: Result = "!if"; break;
   case DAG: Result = "!dag"; break;
   }
-  return Result + "(" + LHS->getAsString() + ", " + MHS->getAsString() + ", " +
-         RHS->getAsString() + ")";
+  return (Result + "(" +
+          (UnquotedLHS ? LHS->getAsUnquotedString() : LHS->getAsString()) +
+          ", " + MHS->getAsString() + ", " + RHS->getAsString() + ")");
 }
 
 static void ProfileFoldOpInit(FoldingSetNodeID &ID, Init *A, Init *B,

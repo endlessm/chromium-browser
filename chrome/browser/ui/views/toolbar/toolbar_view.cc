@@ -68,8 +68,11 @@
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/non_client_view.h"
 
-#if defined(OS_WIN)
+#if defined(OS_WIN) || defined(OS_MACOSX)
 #include "chrome/browser/recovery/recovery_install_global_error_factory.h"
+#endif
+
+#if defined(OS_WIN)
 #include "chrome/browser/ui/views/conflicting_module_view_win.h"
 #include "chrome/browser/ui/views/critical_notification_bubble_view.h"
 #endif
@@ -93,9 +96,7 @@ int GetToolbarHorizontalPadding() {
   // In the touch-optimized UI, we don't use any horizontal paddings; the back
   // button starts from the beginning of the view, and the app menu button ends
   // at the end of the view.
-  using Md = ui::MaterialDesignController;
-  constexpr int kPaddings[] = {4, 8, 0, 4};
-  return kPaddings[Md::GetMode()];
+  return ui::MaterialDesignController::IsTouchOptimizedUiEnabled() ? 0 : 8;
 }
 
 }  // namespace
@@ -202,26 +203,8 @@ void ToolbarView::Init() {
 
 // ChromeOS never shows a profile icon in the browser window.
 #if !defined(OS_CHROMEOS)
-  if (ui::MaterialDesignController::IsNewerMaterialUi()) {
-    avatar_ = new ToolbarButton(browser_->profile(), this, nullptr);
-    avatar_->set_triggerable_event_flags(ui::EF_LEFT_MOUSE_BUTTON |
-                                         ui::EF_MIDDLE_MOUSE_BUTTON);
-    avatar_->set_tag(IDC_SHOW_AVATAR_MENU);
-    if (browser_->profile()->IsOffTheRecord()) {
-      avatar_->SetTooltipText(
-          l10n_util::GetStringUTF16(IDS_INCOGNITO_AVATAR_BUTTON_TOOLTIP));
-      avatar_->SetEnabled(false);
-    } else {
-      // TODO(pbos): Incorporate GetAvatarButtonTextForProfile. See
-      // AvatarButton.
-      avatar_->SetTooltipText(
-          l10n_util::GetStringUTF16(IDS_GENERIC_USER_AVATAR_LABEL));
-      avatar_->SetAccessibleName(
-          l10n_util::GetStringUTF16(IDS_GENERIC_USER_AVATAR_LABEL));
-    }
-    avatar_->set_id(VIEW_ID_AVATAR_BUTTON);
-    avatar_->Init();
-  }
+  if (ui::MaterialDesignController::IsNewerMaterialUi())
+    avatar_ = new AvatarToolbarButton(browser_->profile(), this);
 #endif  // !defined(OS_CHROMEOS)
 
   app_menu_button_ = new BrowserAppMenuButton(this);
@@ -248,7 +231,7 @@ void ToolbarView::Init() {
   // Start global error services now so we set the icon on the menu correctly.
 #if !defined(OS_CHROMEOS)
   SigninGlobalErrorFactory::GetForProfile(browser_->profile());
-#if defined(OS_WIN)
+#if defined(OS_WIN) || defined(OS_MACOSX)
   RecoveryInstallGlobalErrorFactory::GetForProfile(browser_->profile());
 #endif
 #endif  // OS_CHROMEOS
@@ -294,6 +277,7 @@ bool ToolbarView::IsAppMenuFocused() {
 #if defined(OS_CHROMEOS)
 void ToolbarView::ShowIntentPickerBubble(
     std::vector<IntentPickerBubbleView::AppInfo> app_info,
+    bool disable_stay_in_chrome,
     IntentPickerResponse callback) {
   IntentPickerView* intent_picker_view = location_bar()->intent_picker_view();
   if (intent_picker_view) {
@@ -304,7 +288,7 @@ void ToolbarView::ShowIntentPickerBubble(
 
     views::Widget* bubble_widget = IntentPickerBubbleView::ShowBubble(
         intent_picker_view, GetWebContents(), std::move(app_info),
-        false /* disable_stay_in_chrome */, std::move(callback));
+        disable_stay_in_chrome, std::move(callback));
     if (bubble_widget && intent_picker_view)
       intent_picker_view->OnBubbleWidgetCreated(bubble_widget);
   }
@@ -316,7 +300,7 @@ void ToolbarView::ShowBookmarkBubble(
     bool already_bookmarked,
     bookmarks::BookmarkBubbleObserver* observer) {
   views::View* anchor_view = location_bar();
-  BubbleIconView* const star_view = location_bar()->star_view();
+  PageActionIconView* const star_view = location_bar()->star_view();
   if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
     if (star_view && star_view->visible())
       anchor_view = star_view;
@@ -339,7 +323,8 @@ void ToolbarView::ShowTranslateBubble(
     translate::TranslateErrors::Type error_type,
     bool is_user_gesture) {
   views::View* anchor_view = location_bar();
-  BubbleIconView* translate_icon_view = location_bar()->translate_icon_view();
+  PageActionIconView* translate_icon_view =
+      location_bar()->translate_icon_view();
   if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
     if (translate_icon_view && translate_icon_view->visible())
       anchor_view = translate_icon_view;
@@ -362,7 +347,7 @@ bool ToolbarView::SetPaneFocus(views::View* initial_focus) {
   if (!AccessiblePaneView::SetPaneFocus(initial_focus))
     return false;
 
-  location_bar_->SetShowFocusRect(true);
+  location_bar_->SetFullKeyboardAcessibilityMode(true);
   return true;
 }
 
@@ -602,7 +587,7 @@ void ToolbarView::Layout() {
     next_element_x = avatar_->bounds().right() + element_padding;
   }
 
-  // Extend the app menu to the screen's right edge in tablet mode just like
+  // Extend the app menu to the screen's right edge in maximized mode just like
   // we extend the back button to the left edge.
   if (maximized)
     app_menu_width += end_padding;
@@ -653,7 +638,7 @@ bool ToolbarView::SetPaneFocusAndFocusDefault() {
 
 void ToolbarView::RemovePaneFocus() {
   AccessiblePaneView::RemovePaneFocus();
-  location_bar_->SetShowFocusRect(false);
+  location_bar_->SetFullKeyboardAcessibilityMode(false);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -704,6 +689,10 @@ BrowserActionsContainer* ToolbarView::GetBrowserActionsContainer() {
   return browser_actions_;
 }
 
+PageActionIconContainerView* ToolbarView::GetPageActionIconContainerView() {
+  return location_bar_->page_action_icon_container_view();
+}
+
 AppMenuButton* ToolbarView::GetAppMenuButton() {
   return app_menu_button_;
 }
@@ -713,6 +702,15 @@ void ToolbarView::FocusToolbar() {
 }
 
 views::AccessiblePaneView* ToolbarView::GetAsAccessiblePaneView() {
+  return this;
+}
+
+BrowserRootView::DropIndex ToolbarView::GetDropIndex(
+    const ui::DropTargetEvent& event) {
+  return {browser_->tab_strip_model()->active_index(), false};
+}
+
+views::View* ToolbarView::GetViewForDrop() {
   return this;
 }
 
@@ -763,12 +761,11 @@ void ToolbarView::LoadImages() {
   const SkColor disabled_color =
       tp->GetColor(ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON_INACTIVE);
 
-  browser_actions_->SetSeparatorColor(normal_color);
+  browser_actions_->SetSeparatorColor(
+      tp->GetColor(ThemeProperties::COLOR_TOOLBAR_VERTICAL_SEPARATOR));
 
   const bool is_touch =
       ui::MaterialDesignController::IsTouchOptimizedUiEnabled();
-  // TODO(pbos): Move these constants to LayoutProvider or LayoutConstants.
-  const int icon_size = is_touch ? 24 : 16;
 
   const gfx::VectorIcon& back_image =
       is_touch ? kBackArrowTouchIcon : vector_icons::kBackArrowIcon;
@@ -789,23 +786,12 @@ void ToolbarView::LoadImages() {
   home_->SetImage(views::Button::STATE_NORMAL,
                   gfx::CreateVectorIcon(home_image, normal_color));
 
-  if (avatar_) {
-    // TODO(pbos): Account for incognito by either changing the icon and
-    // effectively disabling the menu or by not showing it at all in incognito.
-    avatar_->SetImage(
-        views::Button::STATE_NORMAL,
-        gfx::CreateVectorIcon(kUserAccountAvatarIcon, icon_size, normal_color));
-  }
-  app_menu_button_->UpdateIcon(false);
-
-  const SkColor ink_drop_color = color_utils::BlendTowardOppositeLuma(
-      tp->GetColor(ThemeProperties::COLOR_TOOLBAR), SK_AlphaOPAQUE);
-  back_->set_ink_drop_base_color(ink_drop_color);
-  forward_->set_ink_drop_base_color(ink_drop_color);
-  home_->set_ink_drop_base_color(ink_drop_color);
+#if !defined(OS_CHROMEOS)
   if (avatar_)
-    avatar_->set_ink_drop_base_color(ink_drop_color);
-  app_menu_button_->set_ink_drop_base_color(ink_drop_color);
+    avatar_->UpdateIcon();
+#endif  // !defined(OS_CHROMEOS)
+
+  app_menu_button_->UpdateIcon(false);
 
   reload_->LoadImages();
 }

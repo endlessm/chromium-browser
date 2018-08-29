@@ -22,6 +22,9 @@
 // Blur effect for the toolbar background.
 @property(nonatomic, readonly) UIBlurEffect* blurEffect;
 
+// Background color of the blur effect.
+@property(nonatomic, readonly) UIColor* blurBackgroundColor;
+
 // Background color of the NTP. Used to do as if the toolbar was transparent and
 // the NTP is visible behind it.
 @property(nonatomic, readonly) UIColor* NTPBackgroundColor;
@@ -39,6 +42,16 @@
 
 // Tint color of the buttons.
 @property(nonatomic, readonly) UIColor* buttonsTintColor;
+
+// Tint color of the buttons in the highlighted state. This is only to be used
+// if the button has a custom style.
+@property(nonatomic, readonly) UIColor* buttonsTintColorHighlighted;
+
+// Color for the spotlight view's background.
+@property(nonatomic, readonly) UIColor* buttonsSpotlightColor;
+
+// Color for the spotlight view's background when the toolbar is dimmed.
+@property(nonatomic, readonly) UIColor* dimmedButtonsSpotlightColor;
 
 // Color of the title of the buttons for the normal state.
 // TODO(crbug.com/800266): Remove this property.

@@ -60,7 +60,7 @@ namespace {
   /// as the given instruction and the use.
   struct CapturesBefore : public CaptureTracker {
 
-    CapturesBefore(bool ReturnCaptures, const Instruction *I, DominatorTree *DT,
+    CapturesBefore(bool ReturnCaptures, const Instruction *I, const DominatorTree *DT,
                    bool IncludeI, OrderedBasicBlock *IC)
       : OrderedBB(IC), BeforeHere(I), DT(DT),
         ReturnCaptures(ReturnCaptures), IncludeI(IncludeI), Captured(false) {}
@@ -140,7 +140,7 @@ namespace {
 
     OrderedBasicBlock *OrderedBB;
     const Instruction *BeforeHere;
-    DominatorTree *DT;
+    const DominatorTree *DT;
 
     bool ReturnCaptures;
     bool IncludeI;
@@ -184,7 +184,7 @@ bool llvm::PointerMayBeCaptured(const Value *V,
 /// queries about relative order among instructions in the same basic block.
 bool llvm::PointerMayBeCapturedBefore(const Value *V, bool ReturnCaptures,
                                       bool StoreCaptures, const Instruction *I,
-                                      DominatorTree *DT, bool IncludeI,
+                                      const DominatorTree *DT, bool IncludeI,
                                       OrderedBasicBlock *OBB) {
   assert(!isa<GlobalValue>(V) &&
          "It doesn't make sense to ask whether a global is captured.");
@@ -215,18 +215,22 @@ void llvm::PointerMayBeCaptured(const Value *V, CaptureTracker *Tracker) {
   assert(V->getType()->isPointerTy() && "Capture is for pointers only!");
   SmallVector<const Use *, Threshold> Worklist;
   SmallSet<const Use *, Threshold> Visited;
-  int Count = 0;
 
-  for (const Use &U : V->uses()) {
-    // If there are lots of uses, conservatively say that the value
-    // is captured to avoid taking too much compile time.
-    if (Count++ >= Threshold)
-      return Tracker->tooManyUses();
-
-    if (!Tracker->shouldExplore(&U)) continue;
-    Visited.insert(&U);
-    Worklist.push_back(&U);
-  }
+  auto AddUses = [&](const Value *V) {
+    int Count = 0;
+    for (const Use &U : V->uses()) {
+      // If there are lots of uses, conservatively say that the value
+      // is captured to avoid taking too much compile time.
+      if (Count++ >= Threshold)
+        return Tracker->tooManyUses();
+      if (!Visited.insert(&U).second)
+        continue;
+      if (!Tracker->shouldExplore(&U))
+        continue;
+      Worklist.push_back(&U);
+    }
+  };
+  AddUses(V);
 
   while (!Worklist.empty()) {
     const Use *U = Worklist.pop_back_val();
@@ -242,6 +246,15 @@ void llvm::PointerMayBeCaptured(const Value *V, CaptureTracker *Tracker) {
       // by throwing an exception or not depending on the input value).
       if (CS.onlyReadsMemory() && CS.doesNotThrow() && I->getType()->isVoidTy())
         break;
+
+      // launder.invariant.group only captures pointer by returning it,
+      // so the pointer wasn't captured if returned pointer is not captured.
+      // Note that adding similar special cases for intrinsics requires handling
+      // them in 'isEscapeSource' in BasicAA.
+      if (CS.getIntrinsicID() == Intrinsic::launder_invariant_group) {
+        AddUses(I);
+        break;
+      }
 
       // Volatile operations effectively capture the memory location that they
       // load and store to.
@@ -313,17 +326,7 @@ void llvm::PointerMayBeCaptured(const Value *V, CaptureTracker *Tracker) {
     case Instruction::Select:
     case Instruction::AddrSpaceCast:
       // The original value is not captured via this if the new value isn't.
-      Count = 0;
-      for (Use &UU : I->uses()) {
-        // If there are lots of uses, conservatively say that the value
-        // is captured to avoid taking too much compile time.
-        if (Count++ >= Threshold)
-          return Tracker->tooManyUses();
-
-        if (Visited.insert(&UU).second)
-          if (Tracker->shouldExplore(&UU))
-            Worklist.push_back(&UU);
-      }
+      AddUses(I);
       break;
     case Instruction::ICmp: {
       // Don't count comparisons of a no-alias return value against null as

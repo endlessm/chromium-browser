@@ -117,10 +117,6 @@ void DeleteRegistryKeyPartial(
     const base::string16& path,
     const std::vector<base::string16>& keys_to_preserve);
 
-// Converts a product GUID into a SQuished gUID that is used for MSI installer
-// registry entries.
-base::string16 GuidToSquid(const base::string16& guid);
-
 // Returns true if downgrade is allowed by installer data.
 bool IsDowngradeAllowed(const MasterPreferences& prefs);
 
@@ -172,6 +168,10 @@ base::Optional<std::string> DecodeDMTokenSwitchValue(
 // Saves a DM token to a global location on the machine accessible to all
 // install modes of the browser (i.e., stable and all three side-by-side modes).
 bool StoreDMToken(const std::string& token);
+
+// Returns the file path to notification_helper.exe (in |version| directory).
+base::FilePath GetNotificationHelperPath(const base::FilePath& target_path,
+                                         const base::Version& version);
 
 }  // namespace installer
 

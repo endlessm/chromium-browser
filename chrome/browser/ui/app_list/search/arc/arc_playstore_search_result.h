@@ -19,21 +19,22 @@ class AppListControllerDelegate;
 class ArcPlayStoreAppContextMenu;
 class Profile;
 
-namespace app_list {
-
+namespace arc {
 class IconDecodeRequest;
+}  // namespace arc
+
+namespace app_list {
 
 class ArcPlayStoreSearchResult : public ChromeSearchResult,
                                  public AppContextMenuDelegate {
  public:
   ArcPlayStoreSearchResult(arc::mojom::AppDiscoveryResultPtr data,
                            Profile* profile,
-                           AppListControllerDelegate* list_controller_);
+                           AppListControllerDelegate* list_controller);
   ~ArcPlayStoreSearchResult() override;
 
   // ChromeSearchResult overrides:
-  std::unique_ptr<ChromeSearchResult> Duplicate() const override;
-  ui::MenuModel* GetContextMenuModel() override;
+  void GetContextMenuModel(GetMenuModelCallback callback) override;
   void Open(int event_flags) override;
 
   // app_list::AppContextMenuDelegate overrides:
@@ -53,14 +54,15 @@ class ArcPlayStoreSearchResult : public ChromeSearchResult,
     return data_->icon_png_data;
   }
 
+  // ChromeSearchResult overrides:
+  AppContextMenu* GetAppContextMenu() override;
+
   arc::mojom::AppDiscoveryResultPtr data_;
-  std::unique_ptr<IconDecodeRequest> icon_decode_request_;
+  std::unique_ptr<arc::IconDecodeRequest> icon_decode_request_;
 
   // |profile_| is owned by ProfileInfo.
-  Profile* const profile_;
-  // |list_controller_| is owned by AppListServiceAsh and lives
-  // until the service finishes.
-  AppListControllerDelegate* const list_controller_;
+  Profile* const profile_;                            // Owned by ProfileInfo.
+  AppListControllerDelegate* const list_controller_;  // Owned by AppListClient.
   std::unique_ptr<ArcPlayStoreAppContextMenu> context_menu_;
 
   base::WeakPtrFactory<ArcPlayStoreSearchResult> weak_ptr_factory_;

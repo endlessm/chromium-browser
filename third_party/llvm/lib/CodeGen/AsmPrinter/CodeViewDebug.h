@@ -48,7 +48,7 @@ class MCStreamer;
 class MCSymbol;
 class MachineFunction;
 
-/// \brief Collects and handles line tables information in a CodeView format.
+/// Collects and handles line tables information in a CodeView format.
 class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public DebugHandlerBase {
   MCStreamer &OS;
   BumpPtrAllocator Allocator;
@@ -239,7 +239,8 @@ class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public DebugHandlerBase {
   }
 
   /// Emit the magic version number at the start of a CodeView type or symbol
-  /// section. Appears at the front of every .debug$S or .debug$T section.
+  /// section. Appears at the front of every .debug$S or .debug$T or .debug$P
+  /// section.
   void emitCodeViewMagicVersion();
 
   void emitTypeInformation();
@@ -249,6 +250,10 @@ class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public DebugHandlerBase {
   void emitCompilerInformation();
 
   void emitInlineeLinesSubsection();
+
+  void emitDebugInfoForThunk(const Function *GV,
+                             FunctionInfo &FI,
+                             const MCSymbol *Fn);
 
   void emitDebugInfoForFunction(const Function *GV, FunctionInfo &FI);
 
@@ -374,10 +379,10 @@ class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public DebugHandlerBase {
   unsigned getPointerSizeInBytes();
 
 protected:
-  /// \brief Gather pre-function debug information.
+  /// Gather pre-function debug information.
   void beginFunctionImpl(const MachineFunction *MF) override;
 
-  /// \brief Gather post-function debug information.
+  /// Gather post-function debug information.
   void endFunctionImpl(const MachineFunction *) override;
 
 public:
@@ -385,10 +390,10 @@ public:
 
   void setSymbolSize(const MCSymbol *, uint64_t) override {}
 
-  /// \brief Emit the COFF section that holds the line table information.
+  /// Emit the COFF section that holds the line table information.
   void endModule() override;
 
-  /// \brief Process beginning of an instruction.
+  /// Process beginning of an instruction.
   void beginInstruction(const MachineInstr *MI) override;
 };
 

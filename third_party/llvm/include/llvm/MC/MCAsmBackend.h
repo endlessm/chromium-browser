@@ -99,7 +99,8 @@ public:
   virtual bool fixupNeedsRelaxationAdvanced(const MCFixup &Fixup, bool Resolved,
                                             uint64_t Value,
                                             const MCRelaxableFragment *DF,
-                                            const MCAsmLayout &Layout) const;
+                                            const MCAsmLayout &Layout,
+                                            const bool WasForced) const;
 
   /// Simple predicate for targets where !Resolved implies requiring relaxation
   virtual bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
@@ -136,7 +137,7 @@ public:
   /// Handle any target-specific assembler flags. By default, do nothing.
   virtual void handleAssemblerFlag(MCAssemblerFlag Flag) {}
 
-  /// \brief Generate the compact unwind encoding for the CFI instructions.
+  /// Generate the compact unwind encoding for the CFI instructions.
   virtual uint32_t
       generateCompactUnwindEncoding(ArrayRef<MCCFIInstruction>) const {
     return 0;

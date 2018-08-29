@@ -70,6 +70,7 @@ MITMSoftwareBlockingPage::MITMSoftwareBlockingPage(
     const base::Callback<void(content::CertificateRequestResultType)>& callback)
     : SSLBlockingPageBase(
           web_contents,
+          cert_error,
           CertificateErrorReport::INTERSTITIAL_MITM_SOFTWARE,
           ssl_info,
           request_url,
@@ -79,6 +80,7 @@ MITMSoftwareBlockingPage::MITMSoftwareBlockingPage(
           std::make_unique<SSLErrorControllerClient>(
               web_contents,
               ssl_info,
+              cert_error,
               request_url,
               CreateMitmSoftwareMetricsHelper(web_contents, request_url))),
       callback_(callback),

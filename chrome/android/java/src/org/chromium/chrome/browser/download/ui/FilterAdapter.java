@@ -58,8 +58,12 @@ class FilterAdapter
     public View getView(int position, View convertView, ViewGroup parent) {
         TextView labelView =
                 getTextViewFromResource(convertView, R.layout.download_manager_spinner);
-        labelView.setText(position == 0 ? R.string.menu_downloads
-                                        : DownloadFilter.getStringIdForFilter(position));
+
+        CharSequence title = mManagerUi.getActivity().getResources().getText(position == 0
+                        ? R.string.menu_downloads
+                        : DownloadFilter.getStringIdForFilter(position));
+        labelView.setText(title);
+
         if (!FeatureUtilities.isChromeModernDesignEnabled()) {
             ApiCompatibilityUtils.setTextAppearance(labelView, R.style.BlackHeadline2);
         }

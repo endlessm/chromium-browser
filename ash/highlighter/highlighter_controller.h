@@ -12,6 +12,7 @@
 #include "ash/public/interfaces/highlighter_controller.mojom.h"
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
 namespace base {
@@ -23,6 +24,17 @@ namespace ash {
 class HighlighterResultView;
 class HighlighterView;
 
+// Highlighter enabled state that is notified to observers.
+enum class HighlighterEnabledState {
+  // Highlighter is enabled by any ways.
+  kEnabled,
+  // Highlighter is disabled by user directly, for example disabling palette
+  // tool by user actions on palette menu.
+  kDisabledByUser,
+  // Highlighter is disabled on metalayer session aborted or complete.
+  kDisabledBySessionEnd,
+};
+
 // Controller for the highlighter functionality.
 // Enables/disables highlighter as well as receives points
 // and passes them off to be rendered.
@@ -30,8 +42,26 @@ class ASH_EXPORT HighlighterController
     : public fast_ink::FastInkPointerController,
       public mojom::HighlighterController {
  public:
+  // Interface for classes that wish to be notified with highlighter status.
+  class Observer {
+   public:
+    // Called when highlighter enabled state changes.
+    virtual void OnHighlighterEnabledChanged(HighlighterEnabledState state) {}
+
+    // Called when highlighter selection is recognized.
+    virtual void OnHighlighterSelectionRecognized(const gfx::Rect& rect) {}
+
+   protected:
+    virtual ~Observer() = default;
+  };
+
   HighlighterController();
   ~HighlighterController() override;
+
+  HighlighterEnabledState enabled_state() { return enabled_state_; }
+
+  void AddObserver(Observer* observer);
+  void RemoveObserver(Observer* observer);
 
   // Set the callback to exit the highlighter mode. If |require_success| is
   // true, the callback will be called only after a successful gesture
@@ -39,8 +69,8 @@ class ASH_EXPORT HighlighterController
   // after the first complete gesture, regardless of the recognition result.
   void SetExitCallback(base::OnceClosure callback, bool require_success);
 
-  // fast_ink::FastInkPointerController:
-  void SetEnabled(bool enabled) override;
+  // Update highlighter enabled |state| and notify observers.
+  void UpdateEnabledState(HighlighterEnabledState enabled_state);
 
   void BindRequest(mojom::HighlighterControllerRequest request);
 
@@ -52,6 +82,7 @@ class ASH_EXPORT HighlighterController
   friend class HighlighterControllerTestApi;
 
   // fast_ink::FastInkPointerController:
+  void SetEnabled(bool enabled) override;
   views::View* GetPointerView() const override;
   void CreatePointerView(base::TimeDelta presentation_delay,
                          aura::Window* root_window) override;
@@ -76,6 +107,10 @@ class ASH_EXPORT HighlighterController
   void CallExitCallback();
 
   void FlushMojoForTesting();
+
+  // Caches the highlighter enabled state.
+  HighlighterEnabledState enabled_state_ =
+      HighlighterEnabledState::kDisabledByUser;
 
   // |highlighter_view_| will only hold an instance when the highlighter is
   // enabled and activated (pressed or dragged) and until the fade out
@@ -114,6 +149,8 @@ class ASH_EXPORT HighlighterController
 
   // Interface to highlighter controller client (chrome).
   mojom::HighlighterControllerClientPtr client_;
+
+  base::ObserverList<Observer> observers_;
 
   base::WeakPtrFactory<HighlighterController> weak_factory_;
 

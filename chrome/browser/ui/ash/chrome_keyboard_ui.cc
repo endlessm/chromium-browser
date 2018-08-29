@@ -4,13 +4,15 @@
 
 #include "chrome/browser/ui/ash/chrome_keyboard_ui.h"
 
+#include <set>
+#include <string>
 #include <utility>
 
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
-#include "base/command_line.h"
 #include "base/macros.h"
+#include "base/no_destructor.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
@@ -56,7 +58,10 @@ namespace virtual_keyboard_private = extensions::api::virtual_keyboard_private;
 
 namespace {
 
-base::Optional<GURL> g_override_virtual_keyboard_url;
+GURL& GetOverrideVirtualKeyboardUrl() {
+  static base::NoDestructor<GURL> url;
+  return *url;
+}
 
 class WindowBoundsChangeObserver : public aura::WindowObserver {
  public:
@@ -70,9 +75,8 @@ class WindowBoundsChangeObserver : public aura::WindowObserver {
     }
   }
   void RemoveAllObservedWindows() {
-    for (std::set<aura::Window*>::iterator it = observed_windows_.begin();
-         it != observed_windows_.end(); ++it)
-      (*it)->RemoveObserver(this);
+    for (aura::Window* window : observed_windows_)
+      window->RemoveObserver(this);
     observed_windows_.clear();
   }
 
@@ -89,7 +93,7 @@ class WindowBoundsChangeObserver : public aura::WindowObserver {
     observed_windows_.erase(window);
   }
 
-  ChromeKeyboardUI* ui_;
+  ChromeKeyboardUI* const ui_;
   std::set<aura::Window*> observed_windows_;
 
   DISALLOW_COPY_AND_ASSIGN(WindowBoundsChangeObserver);
@@ -183,7 +187,7 @@ class ChromeKeyboardContentsDelegate : public content::WebContentsDelegate,
   // content::WebContentsObserver:
   void WebContentsDestroyed() override { delete this; }
 
-  ChromeKeyboardUI* ui_;
+  ChromeKeyboardUI* const ui_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeKeyboardContentsDelegate);
 };
@@ -204,9 +208,8 @@ class AshKeyboardControllerObserver
       return;
     }
 
-    std::unique_ptr<base::ListValue> event_args(new base::ListValue());
-    std::unique_ptr<base::DictionaryValue> new_bounds(
-        new base::DictionaryValue());
+    auto event_args = std::make_unique<base::ListValue>();
+    auto new_bounds = std::make_unique<base::DictionaryValue>();
     new_bounds->SetInteger("left", bounds.x());
     new_bounds->SetInteger("top", bounds.y());
     new_bounds->SetInteger("width", bounds.width());
@@ -243,22 +246,23 @@ class AshKeyboardControllerObserver
   }
 
  private:
-  content::BrowserContext* context_;
+  content::BrowserContext* const context_;
 
   DISALLOW_COPY_AND_ASSIGN(AshKeyboardControllerObserver);
 };
 
 }  // namespace
 
-void ChromeKeyboardUI::TestApi::SetOverrideVirtualKeyboardUrl(
-    base::Optional<GURL> url) {
-  g_override_virtual_keyboard_url = url;
+void ChromeKeyboardUI::TestApi::SetOverrideVirtualKeyboardUrl(const GURL& url) {
+  GURL& override_url = GetOverrideVirtualKeyboardUrl();
+  override_url = url;
 }
 
 ChromeKeyboardUI::ChromeKeyboardUI(content::BrowserContext* context)
     : browser_context_(context),
       default_url_(keyboard::kKeyboardURL),
-      window_bounds_observer_(new WindowBoundsChangeObserver(this)) {}
+      window_bounds_observer_(
+          std::make_unique<WindowBoundsChangeObserver>(this)) {}
 
 ChromeKeyboardUI::~ChromeKeyboardUI() {
   ResetInsets();
@@ -269,7 +273,7 @@ void ChromeKeyboardUI::RequestAudioInput(
     content::WebContents* web_contents,
     const content::MediaStreamRequest& request,
     const content::MediaResponseCallback& callback) {
-  const extensions::Extension* extension = NULL;
+  const extensions::Extension* extension = nullptr;
   GURL origin(request.security_origin);
   if (origin.SchemeIs(extensions::kExtensionScheme)) {
     const extensions::ExtensionRegistry* registry =
@@ -308,11 +312,23 @@ void ChromeKeyboardUI::UpdateInsetsForWindow(aura::Window* window) {
 
 aura::Window* ChromeKeyboardUI::GetContentsWindow() {
   if (!keyboard_contents_) {
-    keyboard_contents_.reset(CreateWebContents());
+    keyboard_contents_ = CreateWebContents();
     keyboard_contents_->SetDelegate(new ChromeKeyboardContentsDelegate(this));
     SetupWebContents(keyboard_contents_.get());
     LoadContents(GetVirtualKeyboardUrl());
     keyboard_contents_->GetNativeView()->AddObserver(this);
+    content::RenderWidgetHostView* view =
+        keyboard_contents_->GetMainFrame()->GetView();
+
+    // Only use transparent background when fullscreen handwriting is enabled.
+    // The UI sometimes reloads itself, which will cause the keyboard to be
+    // see-through.
+    // TODO(https://crbug.com/840731): Find a permanent fix for this on the
+    // keyboard extension side.
+    if (keyboard::IsFullscreenHandwritingVirtualKeyboardEnabled()) {
+      view->SetBackgroundColor(SK_ColorTRANSPARENT);
+      view->GetNativeView()->SetTransparent(true);
+    }
   }
 
   return keyboard_contents_->GetNativeView();
@@ -380,6 +396,11 @@ void ChromeKeyboardUI::InitInsets(const gfx::Rect& new_bounds) {
         gfx::Rect window_bounds = window->GetBoundsInScreen();
         gfx::Rect intersect = gfx::IntersectRects(window_bounds, new_bounds);
         int overlap = intersect.height();
+
+        // TODO(crbug.com/826617): get the actual obscured height from IME side.
+        if (keyboard::IsFullscreenHandwritingVirtualKeyboardEnabled())
+          overlap = 0;
+
         if (overlap > 0 && overlap < window_bounds.height())
           view->SetInsets(gfx::Insets(0, 0, overlap, 0));
         else
@@ -419,13 +440,12 @@ void ChromeKeyboardUI::OnWindowParentChanged(aura::Window* window,
 }
 
 const aura::Window* ChromeKeyboardUI::GetKeyboardRootWindow() const {
-  if (!keyboard_contents_) {
-    return nullptr;
-  }
-  return keyboard_contents_->GetNativeView()->GetRootWindow();
+  return keyboard_contents_
+             ? keyboard_contents_->GetNativeView()->GetRootWindow()
+             : nullptr;
 }
 
-content::WebContents* ChromeKeyboardUI::CreateWebContents() {
+std::unique_ptr<content::WebContents> ChromeKeyboardUI::CreateWebContents() {
   content::BrowserContext* context = browser_context();
   return content::WebContents::Create(content::WebContents::CreateParams(
       context,
@@ -443,8 +463,9 @@ void ChromeKeyboardUI::LoadContents(const GURL& url) {
 }
 
 const GURL& ChromeKeyboardUI::GetVirtualKeyboardUrl() {
-  if (g_override_virtual_keyboard_url.has_value())
-    return g_override_virtual_keyboard_url.value();
+  const GURL& override_url = GetOverrideVirtualKeyboardUrl();
+  if (!override_url.is_empty())
+    return override_url;
 
   chromeos::input_method::InputMethodManager* ime_manager =
       chromeos::input_method::InputMethodManager::Get();
@@ -462,7 +483,8 @@ bool ChromeKeyboardUI::ShouldEnableInsets(aura::Window* window) {
   return (contents_window->GetRootWindow() == window->GetRootWindow() &&
           keyboard::IsKeyboardOverscrollEnabled() &&
           contents_window->IsVisible() &&
-          keyboard_controller()->keyboard_visible());
+          keyboard_controller()->keyboard_visible() &&
+          !keyboard::IsFullscreenHandwritingVirtualKeyboardEnabled());
 }
 
 void ChromeKeyboardUI::AddBoundsChangedObserver(aura::Window* window) {
@@ -508,7 +530,8 @@ void ChromeKeyboardUI::SetController(keyboard::KeyboardController* controller) {
     return;
   }
   KeyboardUI::SetController(controller);
-  observer_.reset(new AshKeyboardControllerObserver(browser_context()));
+  observer_ =
+      std::make_unique<AshKeyboardControllerObserver>(browser_context());
   keyboard_controller()->AddObserver(observer_.get());
 }
 

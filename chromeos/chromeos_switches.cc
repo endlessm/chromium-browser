@@ -7,7 +7,6 @@
 #include <string>
 
 #include "base/command_line.h"
-#include "base/feature_list.h"
 #include "base/metrics/field_trial.h"
 #include "third_party/icu/source/common/unicode/locid.h"
 
@@ -28,10 +27,6 @@ const char kTestCrosGaiaIdMigration[] = "test-cros-gaia-id-migration";
 // all stored user keys will be converted to GaiaId)
 const char kTestCrosGaiaIdMigrationStarted[] = "started";
 
-// Controls whether enable Google Assistant feature.
-const base::Feature kAssistantFeature{"ChromeOSAssistant",
-                                      base::FEATURE_DISABLED_BY_DEFAULT};
-
 // Controls whether enable assistant for locale.
 const base::Feature kAssistantFeatureForLocale{
     "ChromeOSAssistantForLocale", base::FEATURE_DISABLED_BY_DEFAULT};
@@ -47,6 +42,14 @@ const base::Feature kInstantTetheringBackgroundAdvertisementSupport{
     base::FEATURE_ENABLED_BY_DEFAULT};
 
 }  // namespace
+
+// Controls whether to enable Chrome OS Account Manager.
+const base::Feature kAccountManager{"ChromeOSAccountManager",
+                                    base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Controls whether enable Google Assistant feature.
+const base::Feature kAssistantFeature{"ChromeOSAssistant",
+                                      base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Please keep the order of these switches synchronized with the header file
 // (i.e. in alphabetical order).
@@ -89,6 +92,9 @@ const char kArcAvailability[] = "arc-availability";
 // DEPRECATED: Please use --arc-availability=installed.
 // Signals the availability of the ARC instance on this device.
 const char kArcAvailable[] = "arc-available";
+
+// Flag that forces ARC data be cleaned on each start.
+const char kArcDataCleanupOnStart[] = "arc-data-cleanup-on-start";
 
 // Used in autotest to specifies how to handle packages cache. Can be
 // copy - copy resulting packages.xml to the temporary directory.
@@ -298,6 +304,9 @@ const char kDisableZipArchiverUnpacker[] = "disable-zip-archiver-unpacker";
 // Enables starting the ARC instance upon session start.
 const char kEnableArc[] = "enable-arc";
 
+// Enables "hide Skip button" for ARC setup in the OOBE flow.
+const char kEnableArcOobeOptinNoSkip[] = "enable-arc-oobe-optin-no-skip";
+
 // Enables using a random url for captive portal detection.
 const char kEnableCaptivePortalRandomUrl[] = "enable-captive-portal-random-url";
 
@@ -383,6 +392,10 @@ const char kEnterpriseDisableLicenseTypeSelection[] =
 // Whether to enable forced enterprise re-enrollment.
 const char kEnterpriseEnableForcedReEnrollment[] =
     "enterprise-enable-forced-re-enrollment";
+
+// Whether to enable initial enterprise enrollment.
+const char kEnterpriseEnableInitialEnrollment[] =
+    "enterprise-enable-initial-enrollment";
 
 // Enables the zero-touch enterprise enrollment flow.
 const char kEnterpriseEnableZeroTouchEnrollment[] =
@@ -518,6 +531,9 @@ const char kProfileRequiresPolicy[] = "profile-requires-policy";
 // The rlz ping delay (in seconds) that overwrites the default value.
 const char kRlzPingDelay[] = "rlz-ping-delay";
 
+// App window previews when hovering over the shelf.
+const char kShelfHoverPreviews[] = "shelf-hover-previews";
+
 // Overrides network stub behavior. By default, ethernet, wifi and vpn are
 // enabled, and transitions occur instantaneously. Multiple options can be
 // comma separated (no spaces). Note: all options are in the format 'foo=x'.
@@ -534,6 +550,9 @@ const char kRlzPingDelay[] = "rlz-ping-delay";
 //  'cellular=LTE' - Cellular is initially connected, technology is LTE
 //  'interactive=3' - Interactive mode, connect/scan/etc requests take 3 secs
 const char kShillStub[] = "shill-stub";
+
+// If true, files in Android internal storage will be shown in Files app.
+const char kShowAndroidFilesInFilesApp[] = "show-android-files-in-files-app";
 
 // If true, the developer tool overlay will be shown for the login/lock screen.
 // This makes it easier to test layout logic.
@@ -668,6 +687,10 @@ bool IsVoiceInteractionEnabled() {
          IsVoiceInteractionFlagsEnabled();
 }
 
+bool IsAccountManagerEnabled() {
+  return base::FeatureList::IsEnabled(kAccountManager);
+}
+
 bool IsAssistantFlagsEnabled() {
   return base::FeatureList::IsEnabled(kAssistantFeature);
 }
@@ -712,6 +735,10 @@ bool AreExperimentalAccessibilityFeaturesEnabled() {
 bool ShouldHideActiveAppsFromShelf() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
       kHideActiveAppsFromShelf);
+}
+
+bool ShouldShowShelfHoverPreviews() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(kShelfHoverPreviews);
 }
 
 bool IsInstantTetheringBackgroundAdvertisingSupported() {

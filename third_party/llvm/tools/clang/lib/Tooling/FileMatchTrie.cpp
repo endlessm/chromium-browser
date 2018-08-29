@@ -25,7 +25,7 @@ using namespace tooling;
 
 namespace {
 
-/// \brief Default \c PathComparator using \c llvm::sys::fs::equivalent().
+/// Default \c PathComparator using \c llvm::sys::fs::equivalent().
 struct DefaultPathComparator : public PathComparator {
   bool equivalent(StringRef FileA, StringRef FileB) const override {
     return FileA == FileB || llvm::sys::fs::equivalent(FileA, FileB);
@@ -37,13 +37,13 @@ struct DefaultPathComparator : public PathComparator {
 namespace clang {
 namespace tooling {
 
-/// \brief A node of the \c FileMatchTrie.
+/// A node of the \c FileMatchTrie.
 ///
 /// Each node has storage for up to one path and a map mapping a path segment to
 /// child nodes. The trie starts with an empty root node.
 class FileMatchTrieNode {
 public:
-  /// \brief Inserts 'NewPath' into this trie. \c ConsumedLength denotes
+  /// Inserts 'NewPath' into this trie. \c ConsumedLength denotes
   /// the number of \c NewPath's trailing characters already consumed during
   /// recursion.
   ///
@@ -81,7 +81,7 @@ public:
     Children[Element].insert(NewPath, ConsumedLength + Element.size() + 1);
   }
 
-  /// \brief Tries to find the node under this \c FileMatchTrieNode that best
+  /// Tries to find the node under this \c FileMatchTrieNode that best
   /// matches 'FileName'.
   ///
   /// If multiple paths fit 'FileName' equally well, \c IsAmbiguous is set to
@@ -91,7 +91,7 @@ public:
   ///
   /// To find the best matching node for a given path 'p', the
   /// \c findEquivalent() function is called recursively for each path segment
-  /// (back to fron) of 'p' until a node 'n' is reached that does not ..
+  /// (back to front) of 'p' until a node 'n' is reached that does not ..
   /// - .. have children. In this case it is checked
   ///   whether the stored path is equivalent to 'p'. If yes, the best match is
   ///   found. Otherwise continue with the parent node as if this node did not
@@ -139,7 +139,7 @@ public:
   }
 
 private:
-  /// \brief Gets all paths under this FileMatchTrieNode.
+  /// Gets all paths under this FileMatchTrieNode.
   void getAll(std::vector<StringRef> &Results,
               llvm::StringMap<FileMatchTrieNode>::const_iterator Except) const {
     if (Path.empty())

@@ -7,6 +7,7 @@
 
 import cStringIO
 import codecs
+from contextlib import contextmanager
 import copy
 import ctypes
 import json
@@ -40,6 +41,9 @@ CHROMIUM_SRC_URL = CHROMIUM_GIT_HOST + '/chromium/src.git'
 
 BRANCH_HEADS_REFSPEC = '+refs/branch-heads/*'
 TAGS_REFSPEC = '+refs/tags/*'
+
+# Regular expression to match sha1 git revision.
+COMMIT_HASH_RE = re.compile(r'[0-9a-f]{5,40}', re.IGNORECASE)
 
 # Regular expression that matches a single commit footer line.
 COMMIT_FOOTER_ENTRY_RE = re.compile(r'([^:]+):\s*(.*)')
@@ -146,7 +150,7 @@ def call(*args, **kwargs):  # pragma: no cover
     kwargs['stdin'] = subprocess.PIPE
   out = cStringIO.StringIO()
   new_env = kwargs.get('env', {})
-  env = copy.copy(os.environ)
+  env = os.environ.copy()
   env.update(new_env)
   kwargs['env'] = env
 
@@ -328,6 +332,24 @@ def gclient_configure(solutions, target_os, target_os_only, target_cpu,
         solutions, target_os, target_os_only, target_cpu, git_cache_dir))
 
 
+@contextmanager
+def git_config_if_not_set(key, value):
+  """Set git config for key equal to value if key was not set.
+
+  If key was not set, unset it once we're done."""
+  should_unset = True
+  try:
+    git('config', '--global', key)
+    should_unset = False
+  except SubprocessFailed as e:
+    git('config', '--global', key, value)
+  try:
+    yield
+  finally:
+    if should_unset:
+      git('config', '--global', '--unset', key)
+
+
 def gclient_sync(
     with_branch_heads, with_tags, shallow, revisions, break_repo_locks,
     disable_syntax_validation, gerrit_repo, gerrit_ref, gerrit_reset,
@@ -435,7 +457,7 @@ def create_manifest(gclient_output, patch_root, gerrit_ref):
     the directory -> repo:revision mapping.
   * Gerrit Patch info which contains info about patched revisions.
 
-  We normalize the URLs such that if they are googlesource.com urls, they:
+  We normalize the URLs using the normalize_git_url function.
   """
   manifest = {
       'version': 0,  # Currently the only valid version is 0.
@@ -445,19 +467,16 @@ def create_manifest(gclient_output, patch_root, gerrit_ref):
     patch_root = patch_root.strip('/')  # Normalize directory names.
   for directory, info in gclient_output.get('solutions', {}).iteritems():
     directory = directory.strip('/')  # Normalize the directory name.
-    # There are two places to the the revision from, we do it in this order:
-    # 1. In the "revision" field
-    # 2. At the end of the URL, after @
-    repo = ''
-    revision = info.get('revision', '')
     # The format of the url is "https://repo.url/blah.git@abcdefabcdef" or
     # just "https://repo.url/blah.git"
-    url_split = info.get('url', '').split('@')
-    if not revision and len(url_split) == 2:
-      revision = url_split[1]
-    if url_split:
-      repo = normalize_git_url(url_split[0])
-    if repo:
+    url = info.get('url') or ''
+    repo, _, url_revision = url.partition('@')
+    repo = normalize_git_url(repo)
+    # There are two places to get the revision from, we do it in this order:
+    # 1. In the "revision" field
+    # 2. At the end of the URL, after @
+    revision = info.get('revision') or url_revision
+    if repo and revision:
       dirs[directory] = {
         'git_checkout': {
           'repo_url': repo,
@@ -548,7 +567,7 @@ def get_target_pin(solution_name, git_url, revisions):
   """Returns revision to be checked out if it is pinned, else None."""
   _, revision = _get_target_branch_and_revision(
       solution_name, git_url, revisions)
-  if revision.upper() != 'HEAD':
+  if COMMIT_HASH_RE.match(revision):
     return revision
   return None
 
@@ -648,11 +667,19 @@ def _git_checkout(sln, sln_dir, revisions, shallow, refs, git_cache_dir,
   for ref in refs:
     populate_cmd.extend(['--ref', ref])
 
+  env = {}
+  if url == CHROMIUM_SRC_URL or url + '.git' == CHROMIUM_SRC_URL:
+    # This is for performance investigation of `git fetch` in chromium/src.
+    env = {
+        'GIT_TRACE': 'true',
+        'GIT_TRACE_PERFORMANCE': 'true',
+    }
+
   # Step 1: populate/refresh cache, if necessary.
   pin = get_target_pin(name, url, revisions)
   if not pin:
     # Refresh only once.
-    git(*populate_cmd)
+    git(*populate_cmd, env=env)
   elif _has_in_git_cache(pin, git_cache_dir, url):
     # No need to fetch at all, because we already have needed revision.
     pass
@@ -666,7 +693,7 @@ def _git_checkout(sln, sln_dir, revisions, shallow, refs, git_cache_dir,
       # TODO(tandrii): propagate the pin to git server per recommendation of
       # maintainers of *.googlesource.com (workaround git server replication
       # lag).
-      git(*populate_cmd)
+      git(*populate_cmd, env=env)
       if _has_in_git_cache(pin, git_cache_dir, url):
         break
       overrun = time.time() - soft_deadline
@@ -728,6 +755,7 @@ def _git_checkout(sln, sln_dir, revisions, shallow, refs, git_cache_dir,
         raise
 
 def _git_disable_gc(cwd):
+  git('config', 'gc.auto', '0', cwd=cwd)
   git('config', 'gc.autodetach', '0', cwd=cwd)
   git('config', 'gc.autopacklimit', '0', cwd=cwd)
 
@@ -898,21 +926,24 @@ def ensure_checkout(solutions, revisions, first_sln, target_os, target_os_only,
   # This forces gclient to always treat solutions deps as unmanaged.
   for solution_name in list(solution_dirs):
     gc_revisions[solution_name] = 'unmanaged'
-  # Let gclient do the DEPS syncing.
-  # The branch-head refspec is a special case because its possible Chrome
-  # src, which contains the branch-head refspecs, is DEPSed in.
-  gclient_output = gclient_sync(
-      BRANCH_HEADS_REFSPEC in refs,
-      TAGS_REFSPEC in refs,
-      shallow,
-      gc_revisions,
-      break_repo_locks,
-      disable_syntax_validation,
-      gerrit_repo,
-      gerrit_ref,
-      gerrit_reset,
-      gerrit_rebase_patch_ref,
-      apply_patch_on_gclient)
+
+  with git_config_if_not_set('user.name', 'chrome-bot'):
+    with git_config_if_not_set('user.email', 'chrome-bot@chromium.org'):
+      # Let gclient do the DEPS syncing.
+      # The branch-head refspec is a special case because its possible Chrome
+      # src, which contains the branch-head refspecs, is DEPSed in.
+      gclient_output = gclient_sync(
+          BRANCH_HEADS_REFSPEC in refs,
+          TAGS_REFSPEC in refs,
+          shallow,
+          gc_revisions,
+          break_repo_locks,
+          disable_syntax_validation,
+          gerrit_repo,
+          gerrit_ref,
+          gerrit_reset,
+          gerrit_rebase_patch_ref,
+          apply_patch_on_gclient)
 
   # Now that gclient_sync has finished, we should revert any .DEPS.git so that
   # presubmit doesn't complain about it being modified.
@@ -1026,7 +1057,9 @@ def parse_args():
   parse.add_option(
       '--disable-syntax-validation', action='store_true',
       help='Disable validation of .gclient and DEPS syntax.')
-  parse.add_option('--apply-patch-on-gclient', action='store_true',
+  parse.add_option('--no-apply-patch-on-gclient',
+                   dest='apply_patch_on_gclient', action='store_false',
+                   default=True,
                    help='Patch the gerrit ref in gclient instead of here.')
 
   options, args = parse.parse_args()

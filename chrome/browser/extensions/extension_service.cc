@@ -117,6 +117,7 @@ using content::BrowserContext;
 using content::BrowserThread;
 using extensions::APIPermission;
 using extensions::CrxInstaller;
+using extensions::disable_reason::DisableReason;
 using extensions::Extension;
 using extensions::ExtensionIdSet;
 using extensions::ExtensionInfo;
@@ -269,8 +270,7 @@ void ExtensionService::OnExternalProviderUpdateComplete(
 
   if (!update_url_extensions.empty() && updater_) {
     // Empty params will cause pending extensions to be updated.
-    extensions::ExtensionUpdater::CheckParams empty_params;
-    updater_->CheckNow(empty_params);
+    updater_->CheckNow(extensions::ExtensionUpdater::CheckParams());
   }
 
   error_controller_->ShowErrorIfNeeded();
@@ -779,6 +779,25 @@ void ExtensionService::DisableExtension(const std::string& extension_id,
   extension_registrar_.DisableExtension(extension_id, disable_reasons);
 }
 
+void ExtensionService::DisableExtensionWithSource(
+    const Extension* source_extension,
+    const std::string& extension_id,
+    DisableReason disable_reasons) {
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
+  DCHECK(disable_reasons == DisableReason::DISABLE_USER_ACTION ||
+         disable_reasons == DisableReason::DISABLE_BLOCKED_BY_POLICY);
+  if (disable_reasons == DisableReason::DISABLE_BLOCKED_BY_POLICY) {
+    DCHECK(Manifest::IsPolicyLocation(source_extension->location()) ||
+           Manifest::IsComponentLocation(source_extension->location()));
+  }
+
+  const Extension* extension = GetExtensionById(extension_id, true);
+  CHECK(system_->management_policy()->ExtensionMayModifySettings(
+      source_extension, extension, nullptr));
+  extension_registrar_.DisableExtension(extension_id, disable_reasons);
+}
+
 void ExtensionService::DisableUserExtensionsExcept(
     const std::vector<std::string>& except_ids) {
   extensions::ManagementPolicy* management_policy =
@@ -968,13 +987,12 @@ bool ExtensionService::is_ready() {
 }
 
 void ExtensionService::CheckManagementPolicy() {
-  std::map<std::string, extensions::disable_reason::DisableReason> to_disable;
+  std::map<std::string, DisableReason> to_disable;
   std::vector<std::string> to_enable;
 
   // Loop through the extensions list, finding extensions we need to disable.
   for (const auto& extension : registry_->enabled_extensions()) {
-    extensions::disable_reason::DisableReason disable_reason =
-        extensions::disable_reason::DISABLE_NONE;
+    DisableReason disable_reason = DisableReason::DISABLE_NONE;
     if (system_->management_policy()->MustRemainDisabled(
             extension.get(), &disable_reason, nullptr))
       to_disable[extension->id()] = disable_reason;
@@ -983,18 +1001,18 @@ void ExtensionService::CheckManagementPolicy() {
   extensions::ExtensionManagement* management =
       extensions::ExtensionManagementFactory::GetForBrowserContext(profile());
   extensions::PermissionsUpdater(profile()).SetDefaultPolicyHostRestrictions(
-      management->GetDefaultRuntimeBlockedHosts(),
-      management->GetDefaultRuntimeAllowedHosts());
+      management->GetDefaultPolicyBlockedHosts(),
+      management->GetDefaultPolicyAllowedHosts());
   for (const auto& extension : registry_->enabled_extensions()) {
     bool uses_default =
-        management->UsesDefaultRuntimeHostRestrictions(extension.get());
+        management->UsesDefaultPolicyHostRestrictions(extension.get());
     if (uses_default) {
       extensions::PermissionsUpdater(profile()).SetUsesDefaultHostRestrictions(
           extension.get());
     } else {
       extensions::PermissionsUpdater(profile()).SetPolicyHostRestrictions(
-          extension.get(), management->GetRuntimeBlockedHosts(extension.get()),
-          management->GetRuntimeAllowedHosts(extension.get()));
+          extension.get(), management->GetPolicyBlockedHosts(extension.get()),
+          management->GetPolicyAllowedHosts(extension.get()));
     }
   }
 
@@ -1045,7 +1063,7 @@ void ExtensionService::CheckManagementPolicy() {
       }
     }
     if (!to_recheck.ids.empty())
-      updater_->CheckNow(to_recheck);
+      updater_->CheckNow(std::move(to_recheck));
   }
 }
 
@@ -1110,15 +1128,17 @@ bool ExtensionService::AreAllExternalProvidersReady() const {
 
 void ExtensionService::OnAllExternalProvidersReady() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::TimeDelta elapsed = base::Time::Now() - profile_->GetStartTime();
-  UMA_HISTOGRAM_TIMES("Extension.ExternalProvidersReadyAfter", elapsed);
-
   // Install any pending extensions.
   if (update_once_all_providers_are_ready_ && updater()) {
     update_once_all_providers_are_ready_ = false;
     extensions::ExtensionUpdater::CheckParams params;
-    params.callback = external_updates_finished_callback_;
-    updater()->CheckNow(params);
+    params.callback =
+        external_updates_finished_callback_.is_null()
+            ? base::OnceClosure()
+            : base::BindOnce(
+                  [](base::RepeatingClosure callback) { callback.Run(); },
+                  external_updates_finished_callback_);
+    updater()->CheckNow(std::move(params));
   }
 
   // Uninstall all the unclaimed extensions.
@@ -1873,8 +1893,7 @@ int ExtensionService::GetDisableReasonsOnInstalled(const Extension* extension) {
         existing_extension &&
         existing_extension->manifest()->type() == extension->manifest()->type();
   }
-  extensions::disable_reason::DisableReason disable_reason =
-      extensions::disable_reason::DISABLE_NONE;
+  DisableReason disable_reason = DisableReason::DISABLE_NONE;
   // Extensions disabled by management policy should always be disabled, even
   // if it's force-installed.
   if (system_->management_policy()->MustRemainDisabled(

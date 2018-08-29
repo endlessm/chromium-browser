@@ -8,11 +8,8 @@
 
 #include "base/macros.h"
 #include "base/test/simple_test_tick_clock.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/resource_coordinator/tab_activity_watcher.h"
-#include "chrome/browser/resource_coordinator/tab_manager.h"
-#include "chrome/browser/resource_coordinator/tab_metrics_event.pb.h"
 #include "chrome/browser/resource_coordinator/time.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_activity_simulator.h"
@@ -34,7 +31,6 @@
 
 using blink::WebInputEvent;
 using content::WebContentsTester;
-using metrics::TabMetricsEvent;
 using ukm::builders::TabManager_TabMetrics;
 using ForegroundedOrClosed =
     ukm::builders::TabManager_Background_ForegroundedOrClosed;
@@ -50,18 +46,14 @@ const GURL kTestUrls[] = {
 
 // The default metric values for a tab.
 const UkmMetricMap kBasicMetricValues({
-    {TabManager_TabMetrics::kContentTypeName,
-     TabMetricsEvent::CONTENT_TYPE_TEXT_HTML},
     {TabManager_TabMetrics::kHasBeforeUnloadHandlerName, 0},
     {TabManager_TabMetrics::kHasFormEntryName, 0},
-    {TabManager_TabMetrics::kIsExtensionProtectedName, 0},
     {TabManager_TabMetrics::kIsPinnedName, 0},
     {TabManager_TabMetrics::kKeyEventCountName, 0},
     {TabManager_TabMetrics::kMouseEventCountName, 0},
     {TabManager_TabMetrics::kSiteEngagementScoreName, 0},
     {TabManager_TabMetrics::kTouchEventCountName, 0},
     {TabManager_TabMetrics::kWasRecentlyAudibleName, 0},
-    {TabManager_TabMetrics::kDefaultProtocolHandlerName, base::nullopt},
 });
 
 blink::WebMouseEvent CreateMouseEvent(WebInputEvent::Type event_type) {
@@ -247,11 +239,6 @@ TEST_F(TabMetricsTest, TabMetrics) {
     SCOPED_TRACE("");
     ExpectNewEntry(kTestUrls[1], expected_metrics);
   }
-
-  // Simulate an extension protecting the tab.
-  g_browser_process->GetTabManager()->SetTabAutoDiscardableState(
-      test_contents_2, false);
-  expected_metrics[TabManager_TabMetrics::kIsExtensionProtectedName] = 1;
 
   // Site engagement score should round down to the nearest 10.
   SiteEngagementService::Get(profile())->ResetBaseScoreForURL(kTestUrls[1], 45);
@@ -550,8 +537,8 @@ TEST_F(TabMetricsTest, ReplaceForegroundTab) {
   WebContentsTester::For(new_contents.get())->TestSetIsLoading(false);
 
   // Replace and delete the old contents.
-  std::unique_ptr<content::WebContents> old_contents(
-      tab_strip_model->ReplaceWebContentsAt(0, new_contents.release()));
+  std::unique_ptr<content::WebContents> old_contents =
+      tab_strip_model->ReplaceWebContentsAt(0, std::move(new_contents));
   ASSERT_EQ(old_contents.get(), orig_contents);
   old_contents.reset();
   tab_strip_model->GetWebContentsAt(0)->WasShown();
@@ -594,8 +581,14 @@ class ForegroundedOrClosedTest : public TabActivityWatcherTest {
   DISALLOW_COPY_AND_ASSIGN(ForegroundedOrClosedTest);
 };
 
+// TODO(michaelpg): test is flaky on ChromeOS. https://crbug.com/839886
+#if defined(OS_CHROMEOS)
+#define MAYBE_SingleTab DISABLED_SingleTab
+#else
+#define MAYBE_SingleTab SingleTab
+#endif
 // Tests TabManager.Backgrounded.ForegroundedOrClosed UKM logging.
-TEST_F(ForegroundedOrClosedTest, SingleTab) {
+TEST_F(ForegroundedOrClosedTest, MAYBE_SingleTab) {
   Browser::CreateParams params(profile(), true);
   std::unique_ptr<Browser> browser =
       CreateBrowserWithTestWindowForParams(&params);
@@ -667,7 +660,11 @@ TEST_F(ForegroundedOrClosedTest, MultipleTabs) {
         kEntryName, kTestUrls[2],
         {
             {ForegroundedOrClosed::kIsForegroundedName, 0},
-            {ForegroundedOrClosed::kMRUIndexName, 1},
+            // TODO(michaelpg): The final tab has an MRU of 0 because the
+            // remaining tabs were closed first. It would be more accurate to
+            // use the MRUIndex this tab had when CloseAllTabs() was called.
+            // See https://crbug.com/817174.
+            {ForegroundedOrClosed::kMRUIndexName, 0},
         });
 
     // The leftmost tab was in the background and was closed.

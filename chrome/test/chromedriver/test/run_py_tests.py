@@ -12,7 +12,6 @@ import optparse
 import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -71,8 +70,6 @@ _NEGATIVE_FILTER = [
     'ChromeDriverTest.testHoverOverElement',
     # https://bugs.chromium.org/p/chromedriver/issues/detail?id=833
     'ChromeDriverTest.testAlertOnNewWindow',
-    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1882
-    'PerfTest.testColdExecuteScript',
     # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2144
     'MobileEmulationCapabilityTest.testClickElement',
     'MobileEmulationCapabilityTest.testNetworkConnectionTypeIsAppliedToAllTabs',
@@ -82,29 +79,10 @@ _NEGATIVE_FILTER = [
 _VERSION_SPECIFIC_FILTER = {}
 _VERSION_SPECIFIC_FILTER['HEAD'] = []
 
+_VERSION_SPECIFIC_FILTER['67'] = []
+
 _VERSION_SPECIFIC_FILTER['66'] = [
     # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2304
-    'ChromeDriverSiteIsolation.testCanClickOOPIF',
-    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2350
-    'ChromeDriverTest.testSlowIFrame',
-]
-
-_VERSION_SPECIFIC_FILTER['65'] = [
-    # https://bugs.chromium.org/p/chromium/issues/detail?id=803678
-    'ChromeDriverTest.testGoBackAndGoForward',
-    'ChromeDriverTest.testAlertHandlingOnPageUnload',
-    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2350
-    'ChromeDriverTest.testSlowIFrame',
-]
-
-_VERSION_SPECIFIC_FILTER['64'] = [
-    # These tests are implemented to run on the latest versions of Chrome > 64
-    'HeadlessInvalidCertificateTest.*',
-    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2025
-    'ChromeDriverTest.testDoesntHangOnFragmentNavigation',
-    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1819
-    'ChromeExtensionsCapabilityTest.testIFrameWithExtensionsSource',
-    # https://bugs.chromium.org/p/chromium/issues/detail?id=746266
     'ChromeDriverSiteIsolation.testCanClickOOPIF',
     # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2350
     'ChromeDriverTest.testSlowIFrame',
@@ -120,8 +98,6 @@ _OS_SPECIFIC_FILTER['win'] = [
 _OS_SPECIFIC_FILTER['linux'] = [
     # Xvfb doesn't support maximization.
     'ChromeDriverTest.testWindowMaximize',
-    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2132
-    'MobileEmulationCapabilityTest.testDeviceMetricsWithDeviceWidth',
 ]
 _OS_SPECIFIC_FILTER['mac'] = [
     # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1927
@@ -174,6 +150,8 @@ _INTEGRATION_NEGATIVE_FILTER = [
     # SessionHandlingTest tests an internal ChromeDriver feature, not needed
     # for integration test. It is also slightly flaky.
     'SessionHandlingTest.*',
+    # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2431
+    'ChromeDriverTest.testCloseWindow*',
 ]
 
 
@@ -207,9 +185,7 @@ _ANDROID_NEGATIVE_FILTER['chrome'] = (
         'ChromeLogPathCapabilityTest.testChromeLogPath',
         'RemoteBrowserTest.*',
         # Don't enable perf testing on Android yet.
-        'PerfTest.testSessionStartTime',
-        'PerfTest.testSessionStopTime',
-        'PerfTest.testColdExecuteScript',
+        'PerfTest.*',
         # Android doesn't support multiple sessions on one device.
         'SessionHandlingTest.testGetSessions',
         # Android doesn't use the chrome://print dialog.
@@ -223,44 +199,26 @@ _ANDROID_NEGATIVE_FILTER['chrome'] = (
         'ChromeDriverTest.testCanClickAlertInIframes',
         # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2081
         'ChromeDriverTest.testCloseWindowUsingJavascript',
-        # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2108
-        'ChromeLoggingCapabilityTest.testPerformanceLogger',
         # Android doesn't support headless mode
         'HeadlessInvalidCertificateTest.*',
+        # Tests of the desktop Chrome launch process.
+        'LaunchDesktopTest.*',
     ]
 )
 _ANDROID_NEGATIVE_FILTER['chrome_stable'] = (
     _ANDROID_NEGATIVE_FILTER['chrome'] + [
-        # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2025
-        'ChromeDriverTest.testDoesntHangOnFragmentNavigation',
-        # https://bugs.chromium.org/p/chromium/issues/detail?id=746266
-        'ChromeDriverSiteIsolation.testCanClickOOPIF',
         # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2350
         'ChromeDriverTest.testSlowIFrame',
     ]
 )
 _ANDROID_NEGATIVE_FILTER['chrome_beta'] = (
-    _ANDROID_NEGATIVE_FILTER['chrome'] + [
-        # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2025
-        'ChromeDriverTest.testDoesntHangOnFragmentNavigation',
-        # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2350
-        'ChromeDriverTest.testSlowIFrame',
-    ]
+    _ANDROID_NEGATIVE_FILTER['chrome'] + []
 )
 _ANDROID_NEGATIVE_FILTER['chromium'] = (
-    _ANDROID_NEGATIVE_FILTER['chrome'] + [
-        'ChromeDriverTest.testSwitchToWindow',
-        # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1503
-        'ChromeDriverTest.testShadowDomHover',
-        'ChromeDriverTest.testMouseMoveTo',
-        'ChromeDriverTest.testHoverOverElement',
-        # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1478
-        'ChromeDriverTest.testShouldHandleNewWindowLoadingProperly',
-    ]
+    _ANDROID_NEGATIVE_FILTER['chrome'] + []
 )
 _ANDROID_NEGATIVE_FILTER['chromedriver_webview_shell'] = (
     _ANDROID_NEGATIVE_FILTER['chrome_stable'] + [
-        'ChromeLoggingCapabilityTest.testPerformanceLogger',
         # WebView doesn't support emulating network conditions.
         'ChromeDriverTest.testEmulateNetworkConditions',
         'ChromeDriverTest.testEmulateNetworkConditionsNameSpeed',
@@ -1759,9 +1717,9 @@ class ChromeDriverPageLoadTimeoutTest(ChromeDriverBaseTestWithWebServer):
     self._initial_url = self.GetHttpUrlForFile('/chromedriver/empty.html')
     self._driver.Load(self._initial_url)
     # When send_response_event is set, navigating to the hang URL takes only
-    # about 0.1 second on Linux and Windows, but takes about 0.4 to 0.6 second
-    # on Mac. So we use a timeout of 1 second on Mac, 0.5 second on others.
-    timeout = 1000 if util.GetPlatformName() == 'mac' else 500
+    # about 0.1 second on Linux and Windows, but takes half a second or longer
+    # on Mac. So we use longer timeout on Mac, 0.5 second on others.
+    timeout = 3000 if util.GetPlatformName() == 'mac' else 500
     self._driver.SetTimeout('page load', timeout)
 
   def tearDown(self):
@@ -2065,6 +2023,26 @@ class ChromeSwitchesCapabilityTest(ChromeDriverBaseTest):
     self.assertNotEqual(
         None,
         driver.ExecuteScript('return window.domAutomationController'))
+
+  def testRemoteDebuggingPort(self):
+    """Tests that passing --remote-debugging-port through capabilities works.
+    """
+    # Must use retries since there is an inherent race condition in port
+    # selection.
+    ports_generator = util.FindProbableFreePorts()
+    for _ in range(3):
+      port = ports_generator.next()
+      port_flag = 'remote-debugging-port=%s' % port
+      try:
+        driver = self.CreateDriver(chrome_switches=[port_flag])
+      except:
+        continue
+      driver.Load('chrome:version')
+      command_line = driver.FindElement('id', 'command_line').GetText()
+      self.assertIn(port_flag, command_line)
+      break
+    else:  # Else clause gets invoked if "break" never happens.
+      raise  # This re-raises the most recent exception.
 
 
 class ChromeDesiredCapabilityTest(ChromeDriverBaseTest):
@@ -2632,35 +2610,135 @@ class RemoteBrowserTest(ChromeDriverBaseTest):
                     'must supply a chrome binary arg')
 
   def testConnectToRemoteBrowser(self):
-    port = self.FindFreePort()
-    temp_dir = util.MakeTempDir()
-    print 'temp dir is ' + temp_dir
-    cmd = [_CHROME_BINARY,
-           '--remote-debugging-port=%d' % port,
-           '--user-data-dir=%s' % temp_dir,
-           '--use-mock-keychain']
-    if util.IsLinux() and not util.Is64Bit():
-      # Workaround for crbug.com/611886.
-      cmd.append('--no-sandbox')
-      # https://bugs.chromium.org/p/chromedriver/issues/detail?id=1695
-      cmd.append('--disable-gpu')
-    process = subprocess.Popen(cmd)
-    if process is None:
-      raise RuntimeError('Chrome could not be started with debugging port')
-    try:
-      driver = self.CreateDriver(debugger_address='localhost:%d' % port)
-      driver.ExecuteScript('console.info("%s")' % 'connecting at %d!' % port)
-      driver.Quit()
-    finally:
-      process.terminate()
-
-  def FindFreePort(self):
-    for port in range(10000, 10100):
+    # Must use retries since there is an inherent race condition in port
+    # selection.
+    ports_generator = util.FindProbableFreePorts()
+    for _ in range(3):
+      port = ports_generator.next()
+      temp_dir = util.MakeTempDir()
+      print 'temp dir is ' + temp_dir
+      cmd = [_CHROME_BINARY,
+             '--remote-debugging-port=%d' % port,
+             '--user-data-dir=%s' % temp_dir,
+             '--use-mock-keychain']
+      process = subprocess.Popen(cmd)
       try:
-        socket.create_connection(('127.0.0.1', port), 0.2).close()
-      except socket.error:
-        return port
-    raise RuntimeError('Cannot find open port')
+        driver = self.CreateDriver(debugger_address='localhost:%d' % port)
+        driver.ExecuteScript('console.info("%s")' % 'connecting at %d!' % port)
+        driver.Quit()
+      except:
+        continue
+      finally:
+        if process.poll() is None:
+          process.terminate()
+          # Wait for Chrome to exit here to prevent a race with Chrome to
+          # delete/modify the temporary user-data-dir.
+          # Maximum wait ~1 second.
+          for _ in range(20):
+            if process.poll() is not None:
+              break
+            print 'continuing to wait for Chrome to exit'
+            time.sleep(.05)
+          else:
+            process.kill()
+      break
+    else:  # Else clause gets invoked if "break" never happens.
+      raise  # This re-raises the most recent exception.
+
+
+class LaunchDesktopTest(ChromeDriverBaseTest):
+  """Tests that launching desktop Chrome works."""
+
+  def testExistingDevToolsPortFile(self):
+    """If a DevTools port file already exists before startup, then we should
+    ignore it and get our debug port number from the new file."""
+    user_data_dir = tempfile.mkdtemp()
+    try:
+      dev_tools_port_file = os.path.join(user_data_dir, 'DevToolsActivePort')
+      with open(dev_tools_port_file, 'w') as fd:
+        fd.write('34\n/devtools/browser/2dab5fb1-5571-40d8-a6ad-98823bc5ff84')
+      driver = self.CreateDriver(
+          chrome_switches=['user-data-dir=' + user_data_dir])
+      with open(dev_tools_port_file, 'r') as fd:
+        port = int(fd.readlines()[0])
+      # Ephemeral ports are always high numbers.
+      self.assertTrue(port > 100)
+    finally:
+      shutil.rmtree(user_data_dir, ignore_errors=True)
+
+  def testHelpfulErrorMessage_AbnormalExit(self):
+    """If Chrome fails to start abnormally, we should provide a useful error
+    message."""
+    file_descriptor, path = tempfile.mkstemp()
+    try:
+      os.close(file_descriptor)
+      exception_raised = False
+      try:
+        driver = chromedriver.ChromeDriver(_CHROMEDRIVER_SERVER_URL,
+                                           chrome_binary=path,
+                                           test_name=self.id())
+      except Exception as e:
+        self.assertIn('Chrome failed to start', e.message)
+        self.assertIn('exited abnormally', e.message)
+        self.assertIn('ChromeDriver is assuming that Chrome has crashed',
+                      e.message)
+        exception_raised = True
+      self.assertTrue(exception_raised)
+      try:
+        driver.Quit()
+      except:
+        pass
+    finally:
+      pass
+      os.remove(path)
+
+  def testHelpfulErrorMessage_NormalExit(self):
+    """If Chrome fails to start, we should provide a useful error message."""
+    if util.IsWindows():
+      # Not bothering implementing a Windows test since then I would have
+      # to implement Windows-specific code for a program that quits and ignores
+      # any arguments. Linux and Mac should be good enough coverage.
+      return
+
+    file_descriptor, path = tempfile.mkstemp()
+    try:
+      os.write(file_descriptor, '#!/bin/bash\nexit 0')
+      os.close(file_descriptor)
+      os.chmod(path, 0777)
+      exception_raised = False
+      try:
+        driver = chromedriver.ChromeDriver(_CHROMEDRIVER_SERVER_URL,
+                                           chrome_binary=path,
+                                           test_name=self.id())
+      except Exception as e:
+        self.assertIn('Chrome failed to start', e.message)
+        self.assertIn('exited normally', e.message)
+        self.assertIn('ChromeDriver is assuming that Chrome has crashed',
+                      e.message)
+        exception_raised = True
+      self.assertTrue(exception_raised)
+      try:
+        driver.Quit()
+      except:
+        pass
+    finally:
+      pass
+      os.remove(path)
+
+  def testNoBinaryErrorMessage(self):
+    temp_dir = tempfile.mkdtemp()
+    exception_raised = False
+    try:
+      driver = chromedriver.ChromeDriver(
+          _CHROMEDRIVER_SERVER_URL,
+          chrome_binary=os.path.join(temp_dir, 'this_file_should_not_exist'),
+          test_name=self.id())
+    except Exception as e:
+      self.assertIn('no chrome binary', e.message)
+      exception_raised = True
+    finally:
+      shutil.rmtree(temp_dir)
+    self.assertTrue(exception_raised)
 
 
 class PerfTest(ChromeDriverBaseTest):
@@ -2685,7 +2763,7 @@ class PerfTest(ChromeDriverBaseTest):
     results = Results()
     result_url_pairs = zip([results.new, results.ref],
                            [_CHROMEDRIVER_SERVER_URL, ref_server.GetUrl()])
-    for iteration in range(30):
+    for iteration in range(10):
       for result, url in result_url_pairs:
         result += [test_func(url)]
       # Reverse the order for the next run.

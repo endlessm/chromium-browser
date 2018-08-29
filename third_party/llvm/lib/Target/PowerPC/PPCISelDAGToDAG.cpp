@@ -37,6 +37,7 @@
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
+#include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Function.h"
@@ -44,7 +45,6 @@
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Module.h"
-#include "llvm/IR/ValueTypes.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/CommandLine.h"
@@ -327,6 +327,7 @@ private:
 
     bool isOffsetMultipleOf(SDNode *N, unsigned Val) const;
     void transferMemOperands(SDNode *N, SDNode *Result);
+    MachineSDNode *flipSignBit(const SDValue &N, SDNode **SignBit = nullptr);
   };
 
 } // end anonymous namespace
@@ -517,10 +518,10 @@ static unsigned getBranchHint(unsigned PCC, FunctionLoweringInfo *FuncInfo,
   if (std::max(TProb, FProb) / Threshold < std::min(TProb, FProb))
     return PPC::BR_NO_HINT;
 
-  DEBUG(dbgs() << "Use branch hint for '" << FuncInfo->Fn->getName() << "::"
-               << BB->getName() << "'\n"
-               << " -> " << TBB->getName() << ": " << TProb << "\n"
-               << " -> " << FBB->getName() << ": " << FProb << "\n");
+  LLVM_DEBUG(dbgs() << "Use branch hint for '" << FuncInfo->Fn->getName()
+                    << "::" << BB->getName() << "'\n"
+                    << " -> " << TBB->getName() << ": " << TProb << "\n"
+                    << " -> " << FBB->getName() << ": " << FProb << "\n");
 
   const BasicBlockSDNode *BBDN = cast<BasicBlockSDNode>(DestMBB);
 
@@ -1130,8 +1131,8 @@ class BitPermutationSelector {
     BitGroup(SDValue V, unsigned R, unsigned S, unsigned E)
       : V(V), RLAmt(R), StartIdx(S), EndIdx(E), Repl32(false), Repl32CR(false),
         Repl32Coalesced(false) {
-      DEBUG(dbgs() << "\tbit group for " << V.getNode() << " RLAmt = " << R <<
-                      " [" << S << ", " << E << "]\n");
+      LLVM_DEBUG(dbgs() << "\tbit group for " << V.getNode() << " RLAmt = " << R
+                        << " [" << S << ", " << E << "]\n");
     }
   };
 
@@ -1365,7 +1366,7 @@ class BitPermutationSelector {
           BitGroups[BitGroups.size()-1].EndIdx == Bits.size()-1 &&
           BitGroups[0].V == BitGroups[BitGroups.size()-1].V &&
           BitGroups[0].RLAmt == BitGroups[BitGroups.size()-1].RLAmt) {
-        DEBUG(dbgs() << "\tcombining final bit group with initial one\n");
+        LLVM_DEBUG(dbgs() << "\tcombining final bit group with initial one\n");
         BitGroups[BitGroups.size()-1].EndIdx = BitGroups[0].EndIdx;
         BitGroups.erase(BitGroups.begin());
       }
@@ -1394,7 +1395,7 @@ class BitPermutationSelector {
     for (auto &I : ValueRots) {
       ValueRotsVec.push_back(I.second);
     }
-    std::sort(ValueRotsVec.begin(), ValueRotsVec.end());
+    llvm::sort(ValueRotsVec.begin(), ValueRotsVec.end());
   }
 
   // In 64-bit mode, rlwinm and friends have a rotation operator that
@@ -1452,9 +1453,9 @@ class BitPermutationSelector {
 
           BG.Repl32 = true;
 
-          DEBUG(dbgs() << "\t32-bit replicated bit group for " <<
-                          BG.V.getNode() << " RLAmt = " << BG.RLAmt <<
-                          " [" << BG.StartIdx << ", " << BG.EndIdx << "]\n");
+          LLVM_DEBUG(dbgs() << "\t32-bit replicated bit group for "
+                            << BG.V.getNode() << " RLAmt = " << BG.RLAmt << " ["
+                            << BG.StartIdx << ", " << BG.EndIdx << "]\n");
         }
       }
     }
@@ -1468,11 +1469,11 @@ class BitPermutationSelector {
       if (I->Repl32 && IP->Repl32 && I->V == IP->V && I->RLAmt == IP->RLAmt &&
           I->StartIdx == (IP->EndIdx + 1) % 64 && I != IP) {
 
-        DEBUG(dbgs() << "\tcombining 32-bit replicated bit group for " <<
-                        I->V.getNode() << " RLAmt = " << I->RLAmt <<
-                        " [" << I->StartIdx << ", " << I->EndIdx <<
-                        "] with group with range [" <<
-                        IP->StartIdx << ", " << IP->EndIdx << "]\n");
+        LLVM_DEBUG(dbgs() << "\tcombining 32-bit replicated bit group for "
+                          << I->V.getNode() << " RLAmt = " << I->RLAmt << " ["
+                          << I->StartIdx << ", " << I->EndIdx
+                          << "] with group with range [" << IP->StartIdx << ", "
+                          << IP->EndIdx << "]\n");
 
         IP->EndIdx = I->EndIdx;
         IP->Repl32CR = IP->Repl32CR || I->Repl32CR;
@@ -1496,12 +1497,12 @@ class BitPermutationSelector {
               IP->EndIdx == 31 && IN->StartIdx == 0 && I != IP &&
               IsAllLow32(*I)) {
 
-            DEBUG(dbgs() << "\tcombining bit group for " <<
-                            I->V.getNode() << " RLAmt = " << I->RLAmt <<
-                            " [" << I->StartIdx << ", " << I->EndIdx <<
-                            "] with 32-bit replicated groups with ranges [" <<
-                            IP->StartIdx << ", " << IP->EndIdx << "] and [" <<
-                            IN->StartIdx << ", " << IN->EndIdx << "]\n");
+            LLVM_DEBUG(dbgs() << "\tcombining bit group for " << I->V.getNode()
+                              << " RLAmt = " << I->RLAmt << " [" << I->StartIdx
+                              << ", " << I->EndIdx
+                              << "] with 32-bit replicated groups with ranges ["
+                              << IP->StartIdx << ", " << IP->EndIdx << "] and ["
+                              << IN->StartIdx << ", " << IN->EndIdx << "]\n");
 
             if (IP == IN) {
               // There is only one other group; change it to cover the whole
@@ -1610,15 +1611,15 @@ class BitPermutationSelector {
                              (unsigned) (ANDIMask != 0 && ANDISMask != 0) +
                              (unsigned) (bool) Res;
 
-      DEBUG(dbgs() << "\t\trotation groups for " << VRI.V.getNode() <<
-                      " RL: " << VRI.RLAmt << ":" <<
-                      "\n\t\t\tisel using masking: " << NumAndInsts <<
-                      " using rotates: " << VRI.NumGroups << "\n");
+      LLVM_DEBUG(dbgs() << "\t\trotation groups for " << VRI.V.getNode()
+                        << " RL: " << VRI.RLAmt << ":"
+                        << "\n\t\t\tisel using masking: " << NumAndInsts
+                        << " using rotates: " << VRI.NumGroups << "\n");
 
       if (NumAndInsts >= VRI.NumGroups)
         continue;
 
-      DEBUG(dbgs() << "\t\t\t\tusing masking\n");
+      LLVM_DEBUG(dbgs() << "\t\t\t\tusing masking\n");
 
       if (InstCnt) *InstCnt += NumAndInsts;
 
@@ -1966,10 +1967,10 @@ class BitPermutationSelector {
         FirstBG = false;
       }
 
-      DEBUG(dbgs() << "\t\trotation groups for " << VRI.V.getNode() <<
-                      " RL: " << VRI.RLAmt << (VRI.Repl32 ? " (32):" : ":") <<
-                      "\n\t\t\tisel using masking: " << NumAndInsts <<
-                      " using rotates: " << NumRLInsts << "\n");
+      LLVM_DEBUG(dbgs() << "\t\trotation groups for " << VRI.V.getNode()
+                        << " RL: " << VRI.RLAmt << (VRI.Repl32 ? " (32):" : ":")
+                        << "\n\t\t\tisel using masking: " << NumAndInsts
+                        << " using rotates: " << NumRLInsts << "\n");
 
       // When we'd use andi/andis, we bias toward using the rotates (andi only
       // has a record form, and is cracked on POWER cores). However, when using
@@ -1983,7 +1984,7 @@ class BitPermutationSelector {
       if ((Use32BitInsts || MoreBG) && NumAndInsts == NumRLInsts)
         continue;
 
-      DEBUG(dbgs() << "\t\t\t\tusing masking\n");
+      LLVM_DEBUG(dbgs() << "\t\t\t\tusing masking\n");
 
       if (InstCnt) *InstCnt += NumAndInsts;
 
@@ -2234,9 +2235,9 @@ public:
       return nullptr;
     Bits = std::move(*Result.second);
 
-    DEBUG(dbgs() << "Considering bit-permutation-based instruction"
-                    " selection for:    ");
-    DEBUG(N->dump(CurDAG));
+    LLVM_DEBUG(dbgs() << "Considering bit-permutation-based instruction"
+                         " selection for:    ");
+    LLVM_DEBUG(N->dump(CurDAG));
 
     // Fill it RLAmt and set HasZeros.
     computeRotationAmounts();
@@ -2253,21 +2254,21 @@ public:
     // masking, we only insert the non-zero parts of the result at every step.
 
     unsigned InstCnt, InstCntLateMask;
-    DEBUG(dbgs() << "\tEarly masking:\n");
+    LLVM_DEBUG(dbgs() << "\tEarly masking:\n");
     SDNode *RN = Select(N, false, &InstCnt);
-    DEBUG(dbgs() << "\t\tisel would use " << InstCnt << " instructions\n");
+    LLVM_DEBUG(dbgs() << "\t\tisel would use " << InstCnt << " instructions\n");
 
-    DEBUG(dbgs() << "\tLate masking:\n");
+    LLVM_DEBUG(dbgs() << "\tLate masking:\n");
     SDNode *RNLM = Select(N, true, &InstCntLateMask);
-    DEBUG(dbgs() << "\t\tisel would use " << InstCntLateMask <<
-                    " instructions\n");
+    LLVM_DEBUG(dbgs() << "\t\tisel would use " << InstCntLateMask
+                      << " instructions\n");
 
     if (InstCnt <= InstCntLateMask) {
-      DEBUG(dbgs() << "\tUsing early-masking for isel\n");
+      LLVM_DEBUG(dbgs() << "\tUsing early-masking for isel\n");
       return RN;
     }
 
-    DEBUG(dbgs() << "\tUsing late-masking for isel\n");
+    LLVM_DEBUG(dbgs() << "\tUsing late-masking for isel\n");
     return RNLM;
   }
 };
@@ -3937,19 +3938,27 @@ bool PPCDAGToDAGISel::isOffsetMultipleOf(SDNode *N, unsigned Val) const {
   else if (STN)
     AddrOp = STN->getOperand(2);
 
+  // If the address points a frame object or a frame object with an offset,
+  // we need to check the object alignment.
   short Imm = 0;
-  if (AddrOp.getOpcode() == ISD::ADD) {
+  if (FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(
+          AddrOp.getOpcode() == ISD::ADD ? AddrOp.getOperand(0) :
+                                           AddrOp)) {
     // If op0 is a frame index that is under aligned, we can't do it either,
     // because it is translated to r31 or r1 + slot + offset. We won't know the
     // slot number until the stack frame is finalized.
-    if (FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(AddrOp.getOperand(0))) {
-      const MachineFrameInfo &MFI = CurDAG->getMachineFunction().getFrameInfo();
-      unsigned SlotAlign = MFI.getObjectAlignment(FI->getIndex());
-      if ((SlotAlign % Val) != 0)
-        return false;
-    }
-    return isIntS16Immediate(AddrOp.getOperand(1), Imm) && !(Imm % Val);
+    const MachineFrameInfo &MFI = CurDAG->getMachineFunction().getFrameInfo();
+    unsigned SlotAlign = MFI.getObjectAlignment(FI->getIndex());
+    if ((SlotAlign % Val) != 0)
+      return false;
+
+    // If we have an offset, we need further check on the offset.
+    if (AddrOp.getOpcode() != ISD::ADD)
+      return true;
   }
+
+  if (AddrOp.getOpcode() == ISD::ADD)
+    return isIntS16Immediate(AddrOp.getOperand(1), Imm) && !(Imm % Val);
 
   // If the address comes from the outside, the offset will be zero.
   return AddrOp.getOpcode() == ISD::CopyFromReg;
@@ -3960,6 +3969,51 @@ void PPCDAGToDAGISel::transferMemOperands(SDNode *N, SDNode *Result) {
   MachineSDNode::mmo_iterator MemOp = MF->allocateMemRefsArray(1);
   MemOp[0] = cast<MemSDNode>(N)->getMemOperand();
   cast<MachineSDNode>(Result)->setMemRefs(MemOp, MemOp + 1);
+}
+
+/// This method returns a node after flipping the MSB of each element
+/// of vector integer type. Additionally, if SignBitVec is non-null,
+/// this method sets a node with one at MSB of all elements
+/// and zero at other bits in SignBitVec.
+MachineSDNode *
+PPCDAGToDAGISel::flipSignBit(const SDValue &N, SDNode **SignBitVec) {
+  SDLoc dl(N);
+  EVT VecVT = N.getValueType();
+  if (VecVT == MVT::v4i32) {
+    if (SignBitVec) {
+      SDNode *ZV = CurDAG->getMachineNode(PPC::V_SET0, dl, MVT::v4i32);
+      *SignBitVec = CurDAG->getMachineNode(PPC::XVNEGSP, dl, VecVT,
+                                        SDValue(ZV, 0));
+    }
+    return CurDAG->getMachineNode(PPC::XVNEGSP, dl, VecVT, N);
+  }
+  else if (VecVT == MVT::v8i16) {
+    SDNode *Hi = CurDAG->getMachineNode(PPC::LIS, dl, MVT::i32,
+                                     getI32Imm(0x8000, dl));
+    SDNode *ScaImm = CurDAG->getMachineNode(PPC::ORI, dl, MVT::i32,
+                                         SDValue(Hi, 0),
+                                         getI32Imm(0x8000, dl));
+    SDNode *VecImm = CurDAG->getMachineNode(PPC::MTVSRWS, dl, VecVT,
+                                         SDValue(ScaImm, 0));
+    /*
+    Alternatively, we can do this as follow to use VRF instead of GPR.
+      vspltish 5, 1
+      vspltish 6, 15
+      vslh 5, 6, 5
+    */
+    if (SignBitVec) *SignBitVec = VecImm;
+    return CurDAG->getMachineNode(PPC::VADDUHM, dl, VecVT, N,
+                                  SDValue(VecImm, 0));
+  }
+  else if (VecVT == MVT::v16i8) {
+    SDNode *VecImm = CurDAG->getMachineNode(PPC::XXSPLTIB, dl, MVT::i32,
+                                         getI32Imm(0x80, dl));
+    if (SignBitVec) *SignBitVec = VecImm;
+    return CurDAG->getMachineNode(PPC::VADDUBM, dl, VecVT, N,
+                                  SDValue(VecImm, 0));
+  }
+  else
+    llvm_unreachable("Unsupported vector data type for flipSignBit");
 }
 
 // Select - Convert the specified operand from a target-independent to a
@@ -4775,6 +4829,55 @@ void PPCDAGToDAGISel::Select(SDNode *N) {
       return;
     }
   }
+  case ISD::ABS: {
+    assert(PPCSubTarget->hasP9Vector() && "ABS is supported with P9 Vector");
+
+    // For vector absolute difference, we use VABSDUW instruction of POWER9.
+    // Since VABSDU instructions are for unsigned integers, we need adjustment
+    // for signed integers.
+    // For abs(sub(a, b)), we generate VABSDUW(a+0x80000000, b+0x80000000).
+    // Otherwise, abs(sub(-1, 0)) returns 0xFFFFFFFF(=-1) instead of 1.
+    // For abs(a), we generate VABSDUW(a+0x80000000, 0x80000000).
+    EVT VecVT = N->getOperand(0).getValueType();
+    SDNode *AbsOp = nullptr;
+    unsigned AbsOpcode;
+
+    if (VecVT == MVT::v4i32)
+      AbsOpcode = PPC::VABSDUW;
+    else if (VecVT == MVT::v8i16)
+      AbsOpcode = PPC::VABSDUH;
+    else if (VecVT == MVT::v16i8)
+      AbsOpcode = PPC::VABSDUB;
+    else
+      llvm_unreachable("Unsupported vector data type for ISD::ABS");
+
+    // Even for signed integers, we can skip adjustment if all values are
+    // known to be positive (as signed integer) due to zero-extended inputs.
+    if (N->getOperand(0).getOpcode() == ISD::SUB &&
+        N->getOperand(0)->getOperand(0).getOpcode() == ISD::ZERO_EXTEND &&
+        N->getOperand(0)->getOperand(1).getOpcode() == ISD::ZERO_EXTEND) {
+      AbsOp = CurDAG->getMachineNode(AbsOpcode, dl, VecVT,
+                                     SDValue(N->getOperand(0)->getOperand(0)),
+                                     SDValue(N->getOperand(0)->getOperand(1)));
+      ReplaceNode(N, AbsOp);
+      return;
+    }
+    if (N->getOperand(0).getOpcode() == ISD::SUB) {
+      SDValue SubVal = N->getOperand(0);
+      SDNode *Op0 = flipSignBit(SubVal->getOperand(0));
+      SDNode *Op1 = flipSignBit(SubVal->getOperand(1));
+      AbsOp = CurDAG->getMachineNode(AbsOpcode, dl, VecVT,
+                                     SDValue(Op0, 0), SDValue(Op1, 0));
+    }
+    else {
+      SDNode *Op1 = nullptr;
+      SDNode *Op0 = flipSignBit(N->getOperand(0), &Op1);
+      AbsOp = CurDAG->getMachineNode(AbsOpcode, dl, VecVT, SDValue(Op0, 0),
+                                     SDValue(Op1, 0));
+    }
+    ReplaceNode(N, AbsOp);
+    return;
+  }
   }
 
   SelectCode(N);
@@ -5087,11 +5190,11 @@ void PPCDAGToDAGISel::PreprocessISelDAG() {
       foldBoolExts(Res, N);
 
     if (Res) {
-      DEBUG(dbgs() << "PPC DAG preprocessing replacing:\nOld:    ");
-      DEBUG(N->dump(CurDAG));
-      DEBUG(dbgs() << "\nNew: ");
-      DEBUG(Res.getNode()->dump(CurDAG));
-      DEBUG(dbgs() << "\n");
+      LLVM_DEBUG(dbgs() << "PPC DAG preprocessing replacing:\nOld:    ");
+      LLVM_DEBUG(N->dump(CurDAG));
+      LLVM_DEBUG(dbgs() << "\nNew: ");
+      LLVM_DEBUG(Res.getNode()->dump(CurDAG));
+      LLVM_DEBUG(dbgs() << "\n");
 
       CurDAG->ReplaceAllUsesOfValueWith(SDValue(N, 0), Res);
       MadeChange = true;
@@ -5168,13 +5271,13 @@ void PPCDAGToDAGISel::SwapAllSelectUsers(SDNode *N) {
                              User->getOperand(2),
                              User->getOperand(1));
 
-      DEBUG(dbgs() << "CR Peephole replacing:\nOld:    ");
-      DEBUG(User->dump(CurDAG));
-      DEBUG(dbgs() << "\nNew: ");
-      DEBUG(ResNode->dump(CurDAG));
-      DEBUG(dbgs() << "\n");
+    LLVM_DEBUG(dbgs() << "CR Peephole replacing:\nOld:    ");
+    LLVM_DEBUG(User->dump(CurDAG));
+    LLVM_DEBUG(dbgs() << "\nNew: ");
+    LLVM_DEBUG(ResNode->dump(CurDAG));
+    LLVM_DEBUG(dbgs() << "\n");
 
-      ReplaceUses(User, ResNode);
+    ReplaceUses(User, ResNode);
   }
 }
 
@@ -5582,11 +5685,11 @@ void PPCDAGToDAGISel::PeepholeCROps() {
         SwapAllSelectUsers(MachineNode);
 
       if (ResNode != MachineNode) {
-        DEBUG(dbgs() << "CR Peephole replacing:\nOld:    ");
-        DEBUG(MachineNode->dump(CurDAG));
-        DEBUG(dbgs() << "\nNew: ");
-        DEBUG(ResNode->dump(CurDAG));
-        DEBUG(dbgs() << "\n");
+        LLVM_DEBUG(dbgs() << "CR Peephole replacing:\nOld:    ");
+        LLVM_DEBUG(MachineNode->dump(CurDAG));
+        LLVM_DEBUG(dbgs() << "\nNew: ");
+        LLVM_DEBUG(ResNode->dump(CurDAG));
+        LLVM_DEBUG(dbgs() << "\n");
 
         ReplaceUses(MachineNode, ResNode);
         IsModified = true;
@@ -5881,25 +5984,25 @@ void PPCDAGToDAGISel::PeepholePPC64ZExt() {
         else
           NewVTs.push_back(VTs.VTs[i]);
 
-      DEBUG(dbgs() << "PPC64 ZExt Peephole morphing:\nOld:    ");
-      DEBUG(PN->dump(CurDAG));
+      LLVM_DEBUG(dbgs() << "PPC64 ZExt Peephole morphing:\nOld:    ");
+      LLVM_DEBUG(PN->dump(CurDAG));
 
       CurDAG->SelectNodeTo(PN, NewOpcode, CurDAG->getVTList(NewVTs), Ops);
 
-      DEBUG(dbgs() << "\nNew: ");
-      DEBUG(PN->dump(CurDAG));
-      DEBUG(dbgs() << "\n");
+      LLVM_DEBUG(dbgs() << "\nNew: ");
+      LLVM_DEBUG(PN->dump(CurDAG));
+      LLVM_DEBUG(dbgs() << "\n");
     }
 
     // Now we replace the original zero extend and its associated INSERT_SUBREG
     // with the value feeding the INSERT_SUBREG (which has now been promoted to
     // return an i64).
 
-    DEBUG(dbgs() << "PPC64 ZExt Peephole replacing:\nOld:    ");
-    DEBUG(N->dump(CurDAG));
-    DEBUG(dbgs() << "\nNew: ");
-    DEBUG(Op32.getNode()->dump(CurDAG));
-    DEBUG(dbgs() << "\n");
+    LLVM_DEBUG(dbgs() << "PPC64 ZExt Peephole replacing:\nOld:    ");
+    LLVM_DEBUG(N->dump(CurDAG));
+    LLVM_DEBUG(dbgs() << "\nNew: ");
+    LLVM_DEBUG(Op32.getNode()->dump(CurDAG));
+    LLVM_DEBUG(dbgs() << "\n");
 
     ReplaceUses(N, Op32.getNode());
   }
@@ -6074,11 +6177,11 @@ void PPCDAGToDAGISel::PeepholePPC64() {
     // immediate and substitute them into the load or store.  If
     // needed, update the target flags for the immediate operand to
     // reflect the necessary relocation information.
-    DEBUG(dbgs() << "Folding add-immediate into mem-op:\nBase:    ");
-    DEBUG(Base->dump(CurDAG));
-    DEBUG(dbgs() << "\nN: ");
-    DEBUG(N->dump(CurDAG));
-    DEBUG(dbgs() << "\n");
+    LLVM_DEBUG(dbgs() << "Folding add-immediate into mem-op:\nBase:    ");
+    LLVM_DEBUG(Base->dump(CurDAG));
+    LLVM_DEBUG(dbgs() << "\nN: ");
+    LLVM_DEBUG(N->dump(CurDAG));
+    LLVM_DEBUG(dbgs() << "\n");
 
     // If the relocation information isn't already present on the
     // immediate operand, add it now.
@@ -6091,7 +6194,7 @@ void PPCDAGToDAGISel::PeepholePPC64() {
         if (GV->getAlignment() < 4 &&
             (StorageOpcode == PPC::LD || StorageOpcode == PPC::STD ||
              StorageOpcode == PPC::LWA || (Offset % 4) != 0)) {
-          DEBUG(dbgs() << "Rejected this candidate for alignment.\n\n");
+          LLVM_DEBUG(dbgs() << "Rejected this candidate for alignment.\n\n");
           continue;
         }
         ImmOpnd = CurDAG->getTargetGlobalAddress(GV, dl, MVT::i64, Offset, Flags);

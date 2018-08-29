@@ -108,15 +108,11 @@ enum ModelType {
   // These preferences are synced before other user types and are never
   // encrypted.
   PRIORITY_PREFERENCES,
-  // Supervised user settings.
+  // Supervised user settings. Cannot be encrypted.
   SUPERVISED_USER_SETTINGS,
-  // Supervised users. Every supervised user is a profile that is configured
-  // remotely by this user and can have restrictions applied. SUPERVISED_USERS
-  // and SUPERVISED_USER_SETTINGS can not be encrypted.
-  SUPERVISED_USERS,
-  // Supervised user shared settings. Shared settings can be modified both by
-  // the manager and the supervised user.
-  SUPERVISED_USER_SHARED_SETTINGS,
+  // Deprecated supervised user types that are not used anymore.
+  DEPRECATED_SUPERVISED_USERS,
+  DEPRECATED_SUPERVISED_USER_SHARED_SETTINGS,
   // Distilled articles.
   ARTICLES,
   // App List items
@@ -135,6 +131,8 @@ enum ModelType {
   READING_LIST,
   // Commit only user events.
   USER_EVENTS,
+  // Shares in project Mountain.
+  MOUNTAIN_SHARES,
 
   // ---- Proxy types ----
   // Proxy types are excluded from the sync protocol, but are still considered
@@ -212,17 +210,17 @@ constexpr const char* kUserSelectableDataTypeNames[] = {
 // representations. This distinguishes them from Proxy types, which have no
 // protocol representation and are never sent to the server.
 constexpr ModelTypeSet ProtocolTypes() {
-  return ModelTypeSet(BOOKMARKS, PREFERENCES, PASSWORDS, AUTOFILL_PROFILE,
-                      AUTOFILL, AUTOFILL_WALLET_DATA, AUTOFILL_WALLET_METADATA,
-                      THEMES, TYPED_URLS, EXTENSIONS, SEARCH_ENGINES, SESSIONS,
-                      APPS, APP_SETTINGS, EXTENSION_SETTINGS, APP_NOTIFICATIONS,
-                      HISTORY_DELETE_DIRECTIVES, SYNCED_NOTIFICATIONS,
-                      SYNCED_NOTIFICATION_APP_INFO, DICTIONARY, FAVICON_IMAGES,
-                      FAVICON_TRACKING, DEVICE_INFO, PRIORITY_PREFERENCES,
-                      SUPERVISED_USER_SETTINGS, SUPERVISED_USERS,
-                      SUPERVISED_USER_SHARED_SETTINGS, ARTICLES, APP_LIST,
-                      WIFI_CREDENTIALS, SUPERVISED_USER_WHITELISTS, ARC_PACKAGE,
-                      PRINTERS, READING_LIST, USER_EVENTS, NIGORI, EXPERIMENTS);
+  return ModelTypeSet(
+      BOOKMARKS, PREFERENCES, PASSWORDS, AUTOFILL_PROFILE, AUTOFILL,
+      AUTOFILL_WALLET_DATA, AUTOFILL_WALLET_METADATA, THEMES, TYPED_URLS,
+      EXTENSIONS, SEARCH_ENGINES, SESSIONS, APPS, APP_SETTINGS,
+      EXTENSION_SETTINGS, APP_NOTIFICATIONS, HISTORY_DELETE_DIRECTIVES,
+      SYNCED_NOTIFICATIONS, SYNCED_NOTIFICATION_APP_INFO, DICTIONARY,
+      FAVICON_IMAGES, FAVICON_TRACKING, DEVICE_INFO, PRIORITY_PREFERENCES,
+      SUPERVISED_USER_SETTINGS, DEPRECATED_SUPERVISED_USERS,
+      DEPRECATED_SUPERVISED_USER_SHARED_SETTINGS, ARTICLES, APP_LIST,
+      WIFI_CREDENTIALS, SUPERVISED_USER_WHITELISTS, ARC_PACKAGE, PRINTERS,
+      READING_LIST, USER_EVENTS, NIGORI, EXPERIMENTS, MOUNTAIN_SHARES);
 }
 
 // These are the normal user-controlled types. This is to distinguish from
@@ -286,15 +284,13 @@ constexpr bool IsControlType(ModelType model_type) {
 //
 // The set of all core types.
 constexpr ModelTypeSet CoreTypes() {
-  return ModelTypeSet(
-      NIGORI, EXPERIMENTS, SUPERVISED_USERS, SUPERVISED_USER_SETTINGS,
-      SYNCED_NOTIFICATIONS, SYNCED_NOTIFICATION_APP_INFO,
-      SUPERVISED_USER_SHARED_SETTINGS, SUPERVISED_USER_WHITELISTS);
+  return ModelTypeSet(NIGORI, EXPERIMENTS, SUPERVISED_USER_SETTINGS,
+                      SYNCED_NOTIFICATIONS, SYNCED_NOTIFICATION_APP_INFO,
+                      SUPERVISED_USER_WHITELISTS);
 }
 // Those core types that have high priority (includes ControlTypes()).
 constexpr ModelTypeSet PriorityCoreTypes() {
-  return ModelTypeSet(NIGORI, EXPERIMENTS, SUPERVISED_USERS,
-                      SUPERVISED_USER_SETTINGS);
+  return ModelTypeSet(NIGORI, EXPERIMENTS, SUPERVISED_USER_SETTINGS);
 }
 
 // Types that may commit data, but should never be included in a GetUpdates.
@@ -349,9 +345,6 @@ int ModelTypeToHistogramInt(ModelType model_type);
 // Handles all model types, and not just real ones.
 std::unique_ptr<base::Value> ModelTypeToValue(ModelType model_type);
 
-// Converts a Value into a ModelType - complement to ModelTypeToValue().
-ModelType ModelTypeFromValue(const base::Value& value);
-
 // Returns the ModelType corresponding to the name |model_type_string|.
 ModelType ModelTypeFromString(const std::string& model_type_string);
 
@@ -366,13 +359,11 @@ ModelTypeSet ModelTypeSetFromString(const std::string& model_type_string);
 
 std::unique_ptr<base::ListValue> ModelTypeSetToValue(ModelTypeSet model_types);
 
-ModelTypeSet ModelTypeSetFromValue(const base::ListValue& value);
-
 // Returns a string corresponding to the syncable tag for this datatype.
 std::string ModelTypeToRootTag(ModelType type);
 
 // Returns root_tag for |model_type| in ModelTypeInfo.
-// Difference with ModelTypeToRootTag(), this just simply return toor_tag in
+// Difference with ModelTypeToRootTag(), this just simply returns root_tag in
 // ModelTypeInfo.
 const char* GetModelTypeRootTag(ModelType model_type);
 

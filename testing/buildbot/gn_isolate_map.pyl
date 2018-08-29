@@ -26,7 +26,7 @@
 #  "windowed_test_launcher"
 #  : the test is a gtest-based test that uses the "brave-new-test-launcher"
 #    from //base/test:test_support and needs to run under Xvfb if run on
-#    some platforms (eg. Linux Desktop, X11 CrOS and Ozone CrOS).
+#    some platforms (eg. Linux Desktop and Ozone CrOS).
 #  "console_test_launcher"
 #  : the test is a gtest-based test that uses the "brave-new-test-launcher"
 #    from //base/test:test_support but does not need Xvfb.
@@ -80,6 +80,10 @@
   "android_webview_unittests": {
     "label": "//android_webview/test:android_webview_unittests",
     "type": "console_test_launcher",
+  },
+  "libANGLE": {
+    "label": "//third_party/angle:libANGLE",
+    "type": "additional_compile_target",
   },
   "angle_deqp_egl_tests": {
     "label": "//third_party/angle/src/tests:angle_deqp_egl_tests",
@@ -173,6 +177,10 @@
   },
   "battor_agent_unittests": {
     "label": "//tools/battor_agent:battor_agent_unittests",
+    "type": "console_test_launcher",
+  },
+  "blink_common_unittests": {
+    "label": "//third_party/blink/common:blink_common_unittests",
     "type": "console_test_launcher",
   },
   "blink_heap_unittests": {
@@ -277,6 +285,10 @@
   },
   "chrome_app_unittests": {
     "label": "//chrome/test:chrome_app_unittests",
+    "type": "console_test_launcher",
+  },
+  "chrome_cleaner_unittests": {
+    "label": "//chrome/chrome_cleaner:chrome_cleaner_unittests",
     "type": "console_test_launcher",
   },
   "chrome_elf_import_unittests": {
@@ -475,6 +487,10 @@
     "label": "//components/cronet/android:cronet_test_instrumentation_apk",
     "type": "additional_compile_target",
   },
+  "cros_vm_sanity_test": {
+    "label": "//chromeos:cros_vm_sanity_test",
+    "type": "raw",
+  },
   "crypto_unittests": {
     "label": "//crypto:crypto_unittests",
     "type": "console_test_launcher",
@@ -514,6 +530,10 @@
   "dump_syms" : {
     "label": "//third_party/breakpad:dump_syms",
     "type": "additional_compile_target",
+  },
+  "elevation_service_unittests": {
+    "label": "//chrome/elevation_service:elevation_service_unittests",
+    "type": "windowed_test_launcher",
   },
   "empty_main": {
     "label": "//testing:empty_main",
@@ -820,10 +840,6 @@
       "../../chrome/test/mini_installer/test_installer.py",
     ],
   },
-  "mojo_common_unittests": {
-    "label": "//mojo/common:mojo_common_unittests",
-    "type": "console_test_launcher",
-  },
   "mojo_core_unittests": {
     "label": "//mojo/edk:mojo_core_unittests",
     "type": "console_test_launcher",
@@ -887,7 +903,7 @@
   "net_perftests": {
     "label": "//net:net_perftests",
     "type": "script",
-    "script": "//testing/scripts/run_gtest_perf_test.py",
+    "script": "//testing/scripts/run_performance_tests_wrapper.py",
     "args": [
       "net_perftests",
     ],
@@ -896,12 +912,12 @@
     "label": "//net:net_unittests",
     "type": "console_test_launcher",
   },
-  "next_version_mini_installer": {
-    "label": "//chrome/installer/mini_installer:next_version_mini_installer",
+  "previous_version_mini_installer": {
+    "label": "//chrome/installer/mini_installer:previous_version_mini_installer",
     "type": "additional_compile_target",
   },
   "notification_helper_unittests": {
-    "label": "//notification_helper:notification_helper_unittests",
+    "label": "//chrome/notification_helper:notification_helper_unittests",
     "type": "windowed_test_launcher",
   },
   "ocmock_support_unittests": {
@@ -928,6 +944,10 @@
   "pdf_unittests": {
     "label": "//pdf:pdf_unittests",
     "type": "console_test_launcher",
+  },
+  "pdfium_all": {
+    "label": "//third_party/pdfium:pdfium_all",
+    "type": "additional_compile_target",
   },
   "pdfium_test": {
     "label": "//third_party/pdfium/samples:pdfium_test",
@@ -1068,8 +1088,8 @@
       "../../tools/perf/run_benchmark",
     ],
   },
-  "telemetry_perf_tests_experimental": {
-    "label": "//chrome/test:telemetry_perf_tests_experimental",
+  "telemetry_perf_tests_without_chrome": {
+    "label": "//chrome/test:telemetry_perf_tests_without_chrome",
     "type": "script",
     "script": "//testing/scripts/run_performance_tests.py",
     "args": [
@@ -1084,6 +1104,21 @@
     "type": "script",
     "script": "//testing/scripts/run_performance_tests.py",
     "args": [
+      "../../tools/perf/run_benchmark",
+    ],
+  },
+  "performance_webview_test_suite": {
+    "label": "//chrome/test:performance_webview_test_suite",
+    "type": "script",
+    "script": "//third_party/catapult/devil/devil/android/tools/system_app.py",
+    "args": [
+      "remove",
+      "--package",
+      "com.android.webview",
+      "com.google.android.webview",
+      "-v",
+      "--",
+      "../../testing/scripts/run_performance_tests.py",
       "../../tools/perf/run_benchmark",
     ],
   },
@@ -1122,20 +1157,10 @@
       "//tools/traffic_annotation/auditor:traffic_annotation_auditor_unittests",
     "type": "console_test_launcher",
   },
-  "cc_perftests": {
-    "label": "//cc:cc_perftests",
-    "type": "script",
-    "script": "//testing/scripts/run_gtest_perf_test.py",
-    "args": [
-      "cc_perftests",
-      "--adb-path",
-      "src/third_party/android_tools/sdk/platform-tools/adb"
-    ],
-  },
   "media_perftests": {
     "label": "//media:media_perftests",
     "type": "script",
-    "script": "//testing/scripts/run_gtest_perf_test.py",
+    "script": "//testing/scripts/run_performance_tests_wrapper.py",
     "args": [
       "media_perftests",
       "--single-process-tests",
@@ -1155,7 +1180,7 @@
   "tracing_perftests": {
     "label": "//components/tracing:tracing_perftests",
     "type": "script",
-    "script": "//testing/scripts/run_gtest_perf_test.py",
+    "script": "//testing/scripts/run_performance_tests_wrapper.py",
     "args": [
       "tracing_perftests",
       "--test-launcher-print-test-stdio=always",
@@ -1236,10 +1261,6 @@
     "label": "//ui/chromeos:ui_chromeos_unittests",
     "type": "windowed_test_launcher",
   },
-  "ui_arc_unittests": {
-    "label": "//ui/arc:ui_arc_unittests",
-    "type": "windowed_test_launcher",
-  },
   "ui_junit_tests": {
     "label": "//ui/android:ui_junit_tests",
     "type": "junit_test",
@@ -1255,6 +1276,10 @@
   "url_unittests": {
     "label": "//url:url_unittests",
     "type": "console_test_launcher",
+  },
+  "v8:gn_all": {
+    "label": "//v8:gn_all",
+    "type": "additional_compile_target",
   },
   "video_decode_accelerator_unittest": {
     "label": "//media/gpu:video_decode_accelerator_unittest",
@@ -1272,7 +1297,7 @@
   "views_perftests": {
     "label": "//ui/views:views_perftests",
     "type": "script",
-    "script": "//testing/scripts/run_gtest_perf_test.py",
+    "script": "//testing/scripts/run_performance_tests_wrapper.py",
     "args": [
       "--xvfb",
       "views_perftests",
@@ -1316,7 +1341,7 @@
     "script": "//testing/scripts/run_isolated_script_test.py",
     "args": [
       "--xvfb",
-      "../../third_party/WebKit/Tools/Scripts/run-webkit-tests",
+      "../../third_party/blink/tools/run_web_tests.py",
       "--clobber-old-results",
       "--debug-rwt-logging",
       "--no-show-results",
@@ -1329,9 +1354,10 @@
     "script": "//testing/scripts/run_isolated_script_test.py",
     "args": [
       "--xvfb",
-      "../../third_party/WebKit/Tools/Scripts/run-webkit-tests",
+      "../../third_party/blink/tools/run_web_tests.py",
       "--seed", "4",
       "--no-show-results",
+      "--zero-tests-executed-ok",
       "--clobber-old-results",
       "--exit-after-n-failures", "5000",
       "--exit-after-n-crashes-or-timeouts", "100",
@@ -1344,7 +1370,7 @@
     "type": "script",
     "script": "//testing/scripts/run_isolated_script_test.py",
     "args": [
-      "../../third_party/WebKit/Tools/Scripts/test-webkitpy"
+      "../../third_party/blink/tools/run_blinkpy_tests.py"
     ]
   },
   "webkit_unit_tests": {

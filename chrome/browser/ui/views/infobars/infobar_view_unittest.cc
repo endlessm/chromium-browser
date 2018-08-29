@@ -13,11 +13,13 @@
 
 class TestInfoBarDelegate : public infobars::InfoBarDelegate {
  public:
-  static bool Create(InfoBarService* infobar_service) {
-    return !!infobar_service->AddInfoBar(
-        std::make_unique<InfoBarView>(std::make_unique<TestInfoBarDelegate>()));
+  static InfoBarView* Create(InfoBarService* infobar_service) {
+    return static_cast<InfoBarView*>(
+        infobar_service->AddInfoBar(std::make_unique<InfoBarView>(
+            std::make_unique<TestInfoBarDelegate>())));
   }
 
+  // infobars::InfoBarDelegate:
   InfoBarIdentifier GetIdentifier() const override { return TEST_INFOBAR; }
 };
 
@@ -34,6 +36,13 @@ class InfoBarViewTest : public ChromeViewsTestBase {
     return InfoBarService::FromWebContents(web_contents_);
   }
 
+  // Detaches |infobar_container_view_| from infobar_service(), so that newly-
+  // created infobars will not be placed in a container.  This can be used to
+  // simulate creating an infobar in a background tab.
+  void DetachContainer() {
+    infobar_container_view_.ChangeInfoBarManager(nullptr);
+  }
+
  private:
   content::TestBrowserThreadBundle thread_bundle_;
   TestingProfile profile_;
@@ -43,15 +52,22 @@ class InfoBarViewTest : public ChromeViewsTestBase {
 };
 
 TEST_F(InfoBarViewTest, ShouldDrawSeparator) {
-  // Add multiple infobars.
-  for (int i = 0; i < 3; ++i)
-    EXPECT_TRUE(TestInfoBarDelegate::Create(infobar_service()));
+  // Add multiple infobars.  The top infobar should not draw a separator; the
+  // others should.
+  for (int i = 0; i < 3; ++i) {
+    InfoBarView* infobar = TestInfoBarDelegate::Create(infobar_service());
+    ASSERT_TRUE(infobar);
+    EXPECT_EQ(i > 0, infobar->ShouldDrawSeparator());
+  }
+}
 
-  // The top infobar should not draw a separator; the others should.
-  auto infobar_at = [this](size_t index) {
-    return static_cast<InfoBarView*>(infobar_service()->infobar_at(index));
-  };
-  EXPECT_FALSE(infobar_at(0)->ShouldDrawSeparator());
-  EXPECT_TRUE(infobar_at(1)->ShouldDrawSeparator());
-  EXPECT_TRUE(infobar_at(2)->ShouldDrawSeparator());
+// Regression test for crbug.com/834728 .
+TEST_F(InfoBarViewTest, LayoutOnHiddenInfoBar) {
+  // Calling Layout() on an infobar inside a container should not crash.
+  InfoBarView* infobar = TestInfoBarDelegate::Create(infobar_service());
+  ASSERT_TRUE(infobar);
+  infobar->Layout();
+  // Neither should calling it on an infobar not in a container.
+  DetachContainer();
+  infobar->Layout();
 }

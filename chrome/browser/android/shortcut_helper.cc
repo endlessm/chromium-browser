@@ -13,9 +13,11 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/guid.h"
+#include "base/optional.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "chrome/browser/android/color_helpers.h"
 #include "chrome/browser/android/webapk/chrome_webapk_host.h"
 #include "chrome/browser/android/webapk/webapk_install_service.h"
 #include "chrome/browser/android/webapk/webapk_metrics.h"
@@ -24,8 +26,9 @@
 #include "content/public/browser/manifest_icon_downloader.h"
 #include "content/public/browser/manifest_icon_selector.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/manifest.h"
 #include "jni/ShortcutHelper_jni.h"
+#include "third_party/blink/public/common/manifest/manifest.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/android/java_bitmap.h"
 #include "ui/gfx/color_analysis.h"
 #include "url/gurl.h"
@@ -110,8 +113,10 @@ void AddWebappWithSkBitmap(const ShortcutInfo& info,
   Java_ShortcutHelper_addWebapp(
       env, java_webapp_id, java_url, java_scope_url, java_user_title, java_name,
       java_short_name, java_best_primary_icon_url, java_bitmap, info.display,
-      info.orientation, info.source, info.theme_color, info.background_color,
-      java_splash_screen_url, callback_pointer);
+      info.orientation, info.source,
+      OptionalSkColorToJavaColor(info.theme_color),
+      OptionalSkColorToJavaColor(info.background_color), java_splash_screen_url,
+      callback_pointer);
 }
 
 // Adds a shortcut which opens in a browser tab to the launcher.
@@ -138,7 +143,7 @@ void AddShortcutWithSkBitmap(const ShortcutInfo& info,
 // static
 std::unique_ptr<ShortcutInfo> ShortcutHelper::CreateShortcutInfo(
     const GURL& manifest_url,
-    const content::Manifest& manifest,
+    const blink::Manifest& manifest,
     const GURL& primary_icon_url,
     const GURL& badge_icon_url) {
   auto shortcut_info = std::make_unique<ShortcutInfo>(GURL());
@@ -156,7 +161,7 @@ std::unique_ptr<ShortcutInfo> ShortcutHelper::CreateShortcutInfo(
       content::ManifestIconSelector::FindBestMatchingIcon(
           manifest.icons, shortcut_info->ideal_splash_image_size_in_px,
           shortcut_info->minimum_splash_image_size_in_px,
-          content::Manifest::Icon::IconPurpose::ANY);
+          blink::Manifest::Icon::IconPurpose::ANY);
 
   return shortcut_info;
 }
@@ -430,7 +435,8 @@ void JNI_ShortcutHelper_OnWebApksRetrieved(
         std::move(manifest_start_urls[i]),
         static_cast<blink::WebDisplayMode>(display_modes[i]),
         static_cast<blink::WebScreenOrientationLockType>(orientations[i]),
-        theme_colors[i], background_colors[i],
+        JavaColorToOptionalSkColor(theme_colors[i]),
+        JavaColorToOptionalSkColor(background_colors[i]),
         base::Time::FromJavaTime(last_update_check_times_ms[i]),
         relax_updates[i]));
   }

@@ -66,7 +66,8 @@ import org.chromium.chrome.browser.fullscreen.BrowserStateBrowserControlsVisibil
 import org.chromium.chrome.browser.gsa.GSAState;
 import org.chromium.chrome.browser.metrics.PageLoadMetrics;
 import org.chromium.chrome.browser.net.spdyproxy.DataReductionProxySettings;
-import org.chromium.chrome.browser.page_info.PageInfoPopup;
+import org.chromium.chrome.browser.page_info.PageInfoController;
+import org.chromium.chrome.browser.payments.ServiceWorkerPaymentAppBridge;
 import org.chromium.chrome.browser.rappor.RapporServiceBridge;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
@@ -408,7 +409,9 @@ public class CustomTabActivity extends ChromeActivity {
             mConnection.cancelSpeculation(mSession);
         }
 
-        getTabModelSelector().getModel(false).addObserver(mTabModelObserver);
+        getTabModelSelector()
+                .getModel(mIntentDataProvider.isIncognito())
+                .addObserver(mTabModelObserver);
 
         boolean successfulStateRestore = false;
         // Attempt to restore the previous tab state if applicable.
@@ -430,7 +433,9 @@ public class CustomTabActivity extends ChromeActivity {
             } else {
                 mMainTab = createMainTab();
             }
-            getTabModelSelector().getModel(false).addTab(mMainTab, 0, mMainTab.getLaunchType());
+            getTabModelSelector()
+                    .getModel(mIntentDataProvider.isIncognito())
+                    .addTab(mMainTab, 0, mMainTab.getLaunchType());
         }
 
         // This cannot be done before because we want to do the reparenting only
@@ -461,7 +466,7 @@ public class CustomTabActivity extends ChromeActivity {
                         recordClientConnectionStatus();
                         finishAndClose(false);
                     }
-                });
+                }, null);
 
         mBrowserSessionContentHandler = new BrowserSessionContentHandler() {
             @Override
@@ -586,8 +591,8 @@ public class CustomTabActivity extends ChromeActivity {
                 getIntent(), IntentHandler.EXTRA_TAB_ID, Tab.INVALID_TAB_ID);
         int parentTabId = IntentUtils.safeGetIntExtra(
                 getIntent(), IntentHandler.EXTRA_PARENT_TAB_ID, Tab.INVALID_TAB_ID);
-        Tab tab = new Tab(assignedTabId, parentTabId, false, getWindowAndroid(),
-                TabLaunchType.FROM_EXTERNAL_APP, null, null);
+        Tab tab = new Tab(assignedTabId, parentTabId, mIntentDataProvider.isIncognito(),
+                getWindowAndroid(), TabLaunchType.FROM_EXTERNAL_APP, null, null);
         if (getIntent().getIntExtra(
                     CustomTabIntentDataProvider.EXTRA_BROWSER_LAUNCH_SOURCE, ACTIVITY_TYPE_OTHER)
                 == ACTIVITY_TYPE_WEBAPK) {
@@ -620,11 +625,13 @@ public class CustomTabActivity extends ChromeActivity {
             webContentsStateOnLaunch = WEBCONTENTS_STATE_TRANSFERRED_WEBCONTENTS;
             webContents.resumeLoadingCreatedWebContents();
         } else {
-            webContents = WarmupManager.getInstance().takeSpareWebContents(false, false);
+            webContents = WarmupManager.getInstance().takeSpareWebContents(
+                    mIntentDataProvider.isIncognito(), false);
             if (webContents != null) {
                 webContentsStateOnLaunch = WEBCONTENTS_STATE_SPARE_WEBCONTENTS;
             } else {
-                webContents = WebContentsFactory.createWebContentsWithWarmRenderer(false, false);
+                webContents = WebContentsFactory.createWebContentsWithWarmRenderer(
+                        mIntentDataProvider.isIncognito(), false);
                 webContentsStateOnLaunch = WEBCONTENTS_STATE_NO_WEBCONTENTS;
             }
         }
@@ -658,6 +665,11 @@ public class CustomTabActivity extends ChromeActivity {
         PageLoadMetrics.addObserver(mMetricsObserver);
         tab.addObserver(mTabObserver);
         tab.addObserver(mTabNavigationEventObserver);
+
+        // Let ServiceWorkerPaymentAppBridge observe the opened tab for payment request.
+        if (mIntentDataProvider.isForPaymentRequest()) {
+            ServiceWorkerPaymentAppBridge.addTabObserverForPaymentRequestTab(tab);
+        }
 
         prepareTabBackground(tab);
     }
@@ -872,6 +884,14 @@ public class CustomTabActivity extends ChromeActivity {
     public final void finishAndClose(boolean reparenting) {
         if (mIsClosing) return;
         mIsClosing = true;
+
+        // Notify the window is closing so as to abort invoking payment app early.
+        if (mIntentDataProvider.isForPaymentRequest()
+                && getActivityTab().getWebContents() != null) {
+            ServiceWorkerPaymentAppBridge.onClosingPaymentAppWindow(
+                    getActivityTab().getWebContents());
+        }
+
         if (!reparenting) {
             // Closing the activity destroys the renderer as well. Re-create a spare renderer some
             // time after, so that we have one ready for the next tab open. This does not increase
@@ -975,7 +995,9 @@ public class CustomTabActivity extends ChromeActivity {
 
     @Override
     public boolean shouldShowAppMenu() {
-        return getActivityTab() != null && getToolbarManager().isInitialized();
+        if (getActivityTab() == null || !getToolbarManager().isInitialized()) return false;
+
+        return super.shouldShowAppMenu();
     }
 
     @Override
@@ -1032,8 +1054,8 @@ public class CustomTabActivity extends ChromeActivity {
             return true;
         } else if (id == R.id.info_menu_id) {
             if (getTabModelSelector().getCurrentTab() == null) return false;
-            PageInfoPopup.show(this, getTabModelSelector().getCurrentTab(),
-                    getToolbarManager().getContentPublisher(), PageInfoPopup.OPENED_FROM_MENU);
+            PageInfoController.show(this, getTabModelSelector().getCurrentTab(),
+                    getToolbarManager().getContentPublisher(), PageInfoController.OPENED_FROM_MENU);
             return true;
         }
         return super.onMenuOrKeyboardAction(id, fromMenu);

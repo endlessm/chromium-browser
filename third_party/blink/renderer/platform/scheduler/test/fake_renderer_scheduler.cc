@@ -68,10 +68,6 @@ void FakeRendererScheduler::DidHandleInputEventOnMainThread(
     const blink::WebInputEvent& web_input_event,
     WebInputEventResult result) {}
 
-base::TimeDelta FakeRendererScheduler::MostRecentExpectedQueueingTime() {
-  return base::TimeDelta();
-}
-
 void FakeRendererScheduler::DidAnimateForInputOnCompositorThread() {}
 
 bool FakeRendererScheduler::IsHighPriorityWorkAnticipated() {
@@ -95,37 +91,14 @@ void FakeRendererScheduler::PauseTimersForAndroidWebView() {}
 void FakeRendererScheduler::ResumeTimersForAndroidWebView() {}
 #endif
 
-void FakeRendererScheduler::AddPendingNavigation(NavigatingFrameType type) {}
-
-void FakeRendererScheduler::RemovePendingNavigation(NavigatingFrameType type) {}
-
-bool FakeRendererScheduler::ShouldYieldForHighPriorityWork() {
-  return false;
-}
-
-bool FakeRendererScheduler::CanExceedIdleDeadlineIfRequired() const {
-  return false;
-}
-
-void FakeRendererScheduler::AddTaskObserver(
-    base::MessageLoop::TaskObserver* task_observer) {}
-
-void FakeRendererScheduler::RemoveTaskObserver(
-    base::MessageLoop::TaskObserver* task_observer) {}
-
 void FakeRendererScheduler::Shutdown() {}
 
-void FakeRendererScheduler::SetStoppingWhenBackgroundedEnabled(bool enabled) {}
+void FakeRendererScheduler::SetFreezingWhenBackgroundedEnabled(bool enabled) {}
 
 void FakeRendererScheduler::SetTopLevelBlameContext(
     base::trace_event::BlameContext* blame_context) {}
 
 void FakeRendererScheduler::SetRAILModeObserver(RAILModeObserver* observer) {}
-
-bool FakeRendererScheduler::MainThreadSeemsUnresponsive(
-    base::TimeDelta main_thread_responsiveness_threshold) {
-  return false;
-}
 
 void FakeRendererScheduler::SetRendererProcessType(RendererProcessType type) {}
 

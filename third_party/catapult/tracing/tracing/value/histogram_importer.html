@@ -86,7 +86,7 @@ tr.exportTo('tr.v', function() {
         stopIndex = Math.min(
             this.jsonDivIndex_ + 100, this.jsonEls_.length);
         for (; this.jsonDivIndex_ < stopIndex; ++this.jsonDivIndex_) {
-          const dict = JSON.parse(this.jsonEls_[this.jsonDivIndex_].innerHTML);
+          const dict = JSON.parse(this.jsonEls_[this.jsonDivIndex_].innerText);
           this.histograms_.importDicts([dict]);
         }
       } while (new Date() - start < 50);
@@ -99,7 +99,7 @@ tr.exportTo('tr.v', function() {
     }
 
     async displayHistograms_() {
-      this.view_.addEventListener('display-ready', async () => {
+      this.view_.addEventListener('display-ready', async() => {
         this.loadingEl_.style.display = 'none';
         this.view_.style.display = 'block';
         await tr.b.animationFrame();

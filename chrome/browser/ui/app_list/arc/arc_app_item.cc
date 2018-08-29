@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/app_list/arc/arc_app_item.h"
 
+#include "ash/public/cpp/app_list/app_list_constants.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_context_menu.h"
@@ -11,7 +12,6 @@
 #include "components/arc/arc_bridge_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/app_sorting.h"
-#include "ui/app_list/app_list_constants.h"
 #include "ui/gfx/image/image_skia.h"
 
 // static
@@ -56,8 +56,9 @@ void ArcAppItem::Activate(int event_flags) {
   }
 
   // Manually close app_list view because focus is not changed on ARC app start,
-  // and current view remains active.
-  GetController()->DismissView();
+  // and current view remains active. Do not close app list for home launcher.
+  if (!GetController()->IsHomeLauncherEnabledInTabletMode())
+    GetController()->DismissView();
 }
 
 void ArcAppItem::ExecuteLaunchCommand(int event_flags) {
@@ -77,12 +78,10 @@ void ArcAppItem::OnIconUpdated(ArcAppIcon* icon) {
   UpdateIcon();
 }
 
-ui::MenuModel* ArcAppItem::GetContextMenuModel() {
-  context_menu_.reset(new ArcAppContextMenu(this,
-                                            profile(),
-                                            id(),
-                                            GetController()));
-  return context_menu_->GetMenuModel();
+void ArcAppItem::GetContextMenuModel(GetMenuModelCallback callback) {
+  context_menu_ = std::make_unique<ArcAppContextMenu>(this, profile(), id(),
+                                                      GetController());
+  context_menu_->GetMenuModel(std::move(callback));
 }
 
 app_list::AppContextMenu* ArcAppItem::GetAppContextMenu() {

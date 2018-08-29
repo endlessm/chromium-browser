@@ -88,9 +88,6 @@ class ASH_EXPORT CustomFrameViewAsh : public views::NonClientFrameView,
   gfx::Rect GetClientBoundsForWindowBounds(
       const gfx::Rect& window_bounds) const;
 
-  // Returns the title string which should be shown in the frame.
-  virtual base::string16 GetFrameTitle() const;
-
   // views::NonClientFrameView:
   gfx::Rect GetBoundsForClientView() const override;
   gfx::Rect GetWindowBoundsForClientBounds(
@@ -144,7 +141,6 @@ class ASH_EXPORT CustomFrameViewAsh : public views::NonClientFrameView,
   void UpdateHeaderView();
 
  private:
-  class AvatarObserver;
   class OverlayView;
   friend class CustomFrameViewAshSizeLock;
   friend class CustomFrameTestWidgetDelegate;
@@ -170,9 +166,6 @@ class ASH_EXPORT CustomFrameViewAsh : public views::NonClientFrameView,
   OverlayView* overlay_view_;
 
   ImmersiveFullscreenControllerDelegate* immersive_delegate_;
-
-  // Observes avatar icon change and updates |header_view_|.
-  std::unique_ptr<AvatarObserver> avatar_observer_;
 
   static bool use_empty_minimum_size_for_test_;
 

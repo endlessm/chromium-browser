@@ -4,17 +4,16 @@
 
 #include "chrome/browser/ui/app_list/crostini/crostini_app_model_builder.h"
 
-#include "ash/resources/grit/ash_resources.h"
+#include "chrome/browser/chromeos/crostini/crostini_manager.h"
+#include "chrome/browser/chromeos/crostini/crostini_pref_names.h"
 #include "chrome/browser/chromeos/crostini/crostini_registry_service_factory.h"
+#include "chrome/browser/chromeos/crostini/crostini_util.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
 #include "chrome/browser/ui/app_list/crostini/crostini_app_item.h"
 #include "components/crx_file/id_util.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/resource/resource_bundle.h"
-
-namespace {
-const char kCrostiniTerminalAppName[] = "Terminal";
-}  // namespace
 
 CrostiniAppModelBuilder::CrostiniAppModelBuilder(
     AppListControllerDelegate* controller)
@@ -26,43 +25,44 @@ CrostiniAppModelBuilder::~CrostiniAppModelBuilder() {
 }
 
 void CrostiniAppModelBuilder::BuildModel() {
-  static const std::string kCrostiniTerminalId =
-      crx_file::id_util::GenerateId(kCrostiniTerminalAppName);
-  InsertApp(std::make_unique<CrostiniAppItem>(
-      profile(), GetSyncItem(kCrostiniTerminalId), kCrostiniTerminalId,
-      kCrostiniTerminalAppName,
-      ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
-          IDR_LOGO_CROSTINI_TERMINAL)));
-
-  chromeos::CrostiniRegistryService* registry_service =
-      chromeos::CrostiniRegistryServiceFactory::GetForProfile(profile());
+  crostini::CrostiniRegistryService* registry_service =
+      crostini::CrostiniRegistryServiceFactory::GetForProfile(profile());
   for (const std::string& app_id : registry_service->GetRegisteredAppIds()) {
     InsertCrostiniAppItem(registry_service, app_id);
   }
 
   registry_service->AddObserver(this);
+
+  pref_change_registrar_ = std::make_unique<PrefChangeRegistrar>();
+  pref_change_registrar_->Init(profile()->GetPrefs());
+  pref_change_registrar_->Add(
+      crostini::prefs::kCrostiniEnabled,
+      base::BindRepeating(&CrostiniAppModelBuilder::OnCrostiniEnabledChanged,
+                          base::Unretained(this)));
 }
 
 void CrostiniAppModelBuilder::InsertCrostiniAppItem(
-    const chromeos::CrostiniRegistryService* registry_service,
+    const crostini::CrostiniRegistryService* registry_service,
     const std::string& app_id) {
-  std::unique_ptr<chromeos::CrostiniRegistryService::Registration>
+  if (app_id == kCrostiniTerminalId && !IsCrostiniEnabled(profile())) {
+    // If Crostini isn't enabled, don't show the Terminal item until it
+    // becomes enabled.
+    return;
+  }
+  std::unique_ptr<crostini::CrostiniRegistryService::Registration>
       registration = registry_service->GetRegistration(app_id);
   DCHECK(registration);
   if (registration->no_display)
     return;
   const std::string& localized_name =
-      chromeos::CrostiniRegistryService::Registration::Localize(
+      crostini::CrostiniRegistryService::Registration::Localize(
           registration->name);
-  // TODO(timloh): Use a real icon
   InsertApp(std::make_unique<CrostiniAppItem>(
-      profile(), GetSyncItem(app_id), app_id, localized_name,
-      ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
-          IDR_LOGO_CROSTINI_TERMINAL)));
+      profile(), model_updater(), GetSyncItem(app_id), app_id, localized_name));
 }
 
 void CrostiniAppModelBuilder::OnRegistryUpdated(
-    chromeos::CrostiniRegistryService* registry_service,
+    crostini::CrostiniRegistryService* registry_service,
     const std::vector<std::string>& updated_apps,
     const std::vector<std::string>& removed_apps,
     const std::vector<std::string>& inserted_apps) {
@@ -75,4 +75,28 @@ void CrostiniAppModelBuilder::OnRegistryUpdated(
   }
   for (const std::string& app_id : inserted_apps)
     InsertCrostiniAppItem(registry_service, app_id);
+}
+
+void CrostiniAppModelBuilder::OnAppIconUpdated(const std::string& app_id,
+                                               ui::ScaleFactor scale_factor) {
+  CrostiniAppItem* app_item = static_cast<CrostiniAppItem*>(GetAppItem(app_id));
+  if (!app_item) {
+    VLOG(2) << "Could not update the icon of Crostini app (" << app_id
+            << ") because it was not found";
+    return;
+  }
+
+  // Initiate async icon reloading.
+  app_item->crostini_app_icon()->LoadForScaleFactor(scale_factor);
+}
+
+void CrostiniAppModelBuilder::OnCrostiniEnabledChanged() {
+  if (IsCrostiniEnabled(profile())) {
+    crostini::CrostiniRegistryService* registry_service =
+        crostini::CrostiniRegistryServiceFactory::GetForProfile(profile());
+    InsertCrostiniAppItem(registry_service, kCrostiniTerminalId);
+  } else {
+    const bool unsynced_change = false;
+    RemoveApp(kCrostiniTerminalId, unsynced_change);
+  }
 }

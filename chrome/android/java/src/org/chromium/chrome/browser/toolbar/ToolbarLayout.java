@@ -13,6 +13,8 @@ import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
+import android.support.annotation.Nullable;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.InputDevice;
 import android.view.MotionEvent;
@@ -32,17 +34,18 @@ import org.chromium.chrome.browser.fullscreen.BrowserStateBrowserControlsVisibil
 import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.omaha.UpdateMenuItemHelper;
 import org.chromium.chrome.browser.omnibox.LocationBar;
+import org.chromium.chrome.browser.omnibox.UrlBarData;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.util.ViewUtils;
 import org.chromium.chrome.browser.widget.PulseDrawable;
 import org.chromium.chrome.browser.widget.TintedImageButton;
 import org.chromium.chrome.browser.widget.ToolbarProgressBar;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet;
 import org.chromium.components.security_state.ConnectionSecurityLevel;
+import org.chromium.components.variations.VariationsAssociatedData;
 import org.chromium.ui.UiUtils;
-
-import javax.annotation.Nullable;
 
 /**
  * Layout class that contains the base shared logic for manipulating the toolbar component. For
@@ -50,7 +53,11 @@ import javax.annotation.Nullable;
  * through {@link Toolbar} rather than using this class directly.
  */
 public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
-    protected static final int BACKGROUND_TRANSITION_DURATION_MS = 400;
+    private static final String NTP_BUTTON_TRIAL_NAME = "NewTabPage";
+    private static final String NTP_BUTTON_VARIATION_PARAM_NAME = "variation";
+    public static final String NTP_BUTTON_NEWS_FEED_VARIATION = "news_feed";
+    public static final String NTP_BUTTON_HOME_VARIATION = "home";
+    public static final String NTP_BUTTON_CHROME_VARIATION = "chrome";
 
     private Invalidator mInvalidator;
 
@@ -174,13 +181,8 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
             }
 
             @Override
-            public String getDisplayText() {
-                return null;
-            }
-
-            @Override
-            public String getEditingText() {
-                return null;
+            public UrlBarData getUrlBarData() {
+                return UrlBarData.EMPTY;
             }
 
             @Override
@@ -209,11 +211,6 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
             }
 
             @Override
-            public boolean isShowingUntrustedOfflinePage() {
-                return false;
-            }
-
-            @Override
             public boolean shouldShowGoogleG(String urlBarText) {
                 return false;
             }
@@ -231,6 +228,11 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
             @Override
             public int getSecurityIconResource(boolean isTablet) {
                 return 0;
+            }
+
+            @Override
+            public ColorStateList getSecurityIconColorStateList() {
+                return null;
             }
 
             @Override
@@ -419,6 +421,12 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
      * @param listener The callback that will be notified when the close button is pressed.
      */
     public void setCustomTabCloseClickHandler(OnClickListener listener) { }
+
+    /**
+     * Sets the OnClickListener to notify when the incognito button is pressed.
+     * @param listener The callback that will be notifed when the incognito button is pressed.
+     */
+    public void setIncognitoClickHandler(OnClickListener listener) {}
 
     /**
      * Sets whether the urlbar should be hidden on first page load.
@@ -933,4 +941,42 @@ public abstract class ToolbarLayout extends FrameLayout implements Toolbar {
 
     @Override
     public void setBottomSheet(BottomSheet sheet) {}
+
+    /**
+     * Sets the current TabModelSelector so the toolbar can pass it into buttons that need access to
+     * it.
+     */
+    public void setTabModelSelector(TabModelSelector selector) {}
+
+    /**
+     * Gets the variation of the NTP button based on finch config.
+     * @return The NTP button variation.
+     */
+    public static String getNTPButtonVariation() {
+        return VariationsAssociatedData.getVariationParamValue(
+                NTP_BUTTON_TRIAL_NAME, NTP_BUTTON_VARIATION_PARAM_NAME);
+    }
+
+    protected void changeIconToNTPIcon(TintedImageButton ntpButton) {
+        String variation = getNTPButtonVariation();
+        if (TextUtils.isEmpty(variation)) return;
+
+        int iconResId = 0;
+        switch (variation) {
+            case NTP_BUTTON_HOME_VARIATION:
+                iconResId = R.drawable.ic_home;
+                break;
+            case NTP_BUTTON_NEWS_FEED_VARIATION:
+                iconResId = R.drawable.ic_library_news_feed;
+                break;
+            case NTP_BUTTON_CHROME_VARIATION:
+                iconResId = R.drawable.ic_chrome;
+                break;
+            default:
+                break;
+        }
+        assert iconResId != 0;
+
+        ntpButton.setImageResource(iconResId);
+    }
 }

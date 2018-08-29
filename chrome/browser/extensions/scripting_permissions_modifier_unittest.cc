@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "base/strings/stringprintf.h"
+#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/extensions/extension_service_test_base.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/permissions_updater.h"
@@ -14,7 +15,7 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
-#include "extensions/common/feature_switch.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/permissions/permission_set.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/url_pattern.h"
@@ -85,17 +86,28 @@ testing::AssertionResult SetsAreEqual(const std::set<URLPattern>& set1,
   return testing::AssertionSuccess();
 }
 
+class RuntimeHostPermissionsEnabledScope {
+ public:
+  RuntimeHostPermissionsEnabledScope() {
+    feature_list_.InitAndEnableFeature(features::kRuntimeHostPermissions);
+  }
+  ~RuntimeHostPermissionsEnabledScope() {}
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+
+  DISALLOW_COPY_AND_ASSIGN(RuntimeHostPermissionsEnabledScope);
+};
+
 using ScriptingPermissionsModifierUnitTest = ExtensionServiceTestBase;
 
 }  // namespace
 
-TEST_F(ScriptingPermissionsModifierUnitTest, WithholdAllHosts) {
+TEST_F(ScriptingPermissionsModifierUnitTest, WithholdAndGrantAllHosts) {
   InitializeEmptyExtensionService();
 
-  // Permissions are only withheld with the appropriate switch turned on.
-  std::unique_ptr<FeatureSwitch::ScopedOverride> switch_override(
-      new FeatureSwitch::ScopedOverride(FeatureSwitch::scripts_require_action(),
-                                        FeatureSwitch::OVERRIDE_ENABLED));
+  // Permissions can only be withheld with the appropriate feature turned on.
+  RuntimeHostPermissionsEnabledScope enabled_scope;
 
   URLPattern google(URLPattern::SCHEME_ALL, "http://www.google.com/*");
   URLPattern sub_google(URLPattern::SCHEME_ALL, "http://*.google.com/*");
@@ -122,46 +134,26 @@ TEST_F(ScriptingPermissionsModifierUnitTest, WithholdAllHosts) {
   PermissionsUpdater updater(profile());
   updater.InitializePermissions(extension.get());
 
-  // At first, the active permissions should have only the safe patterns and
-  // the withheld permissions should have only the all host patterns.
+  // By default, all permissions are granted.
   EXPECT_TRUE(SetsAreEqual(
       permissions_data->active_permissions().scriptable_hosts().patterns(),
-      safe_patterns));
+      all_patterns));
   EXPECT_TRUE(SetsAreEqual(
       permissions_data->active_permissions().explicit_hosts().patterns(),
-      safe_patterns));
-  EXPECT_TRUE(SetsAreEqual(
-      permissions_data->withheld_permissions().scriptable_hosts().patterns(),
-      all_host_patterns));
-  EXPECT_TRUE(SetsAreEqual(
-      permissions_data->withheld_permissions().explicit_hosts().patterns(),
-      all_host_patterns));
-
-  ScriptingPermissionsModifier modifier(profile(), extension);
-  // Then, we grant the withheld all-hosts permissions.
-  modifier.SetAllowedOnAllUrls(true);
-  // Now, active permissions should have all patterns, and withheld permissions
-  // should have none.
-  EXPECT_TRUE(SetsAreEqual(
-      permissions_data->active_permissions().scriptable_hosts().patterns(),
       all_patterns));
   EXPECT_TRUE(permissions_data->withheld_permissions()
                   .scriptable_hosts()
                   .patterns()
                   .empty());
-  EXPECT_TRUE(SetsAreEqual(
-      permissions_data->active_permissions().explicit_hosts().patterns(),
-      all_patterns));
   EXPECT_TRUE(permissions_data->withheld_permissions()
                   .explicit_hosts()
                   .patterns()
                   .empty());
 
-  // Finally, we revoke the all hosts permissions.
+  // Then, withhold the all-hosts permissions.
+  ScriptingPermissionsModifier modifier(profile(), extension);
   modifier.SetAllowedOnAllUrls(false);
 
-  // We should be back to our initial state - all_hosts should be withheld, and
-  // the safe patterns should be granted.
   EXPECT_TRUE(SetsAreEqual(
       permissions_data->active_permissions().scriptable_hosts().patterns(),
       safe_patterns));
@@ -175,126 +167,88 @@ TEST_F(ScriptingPermissionsModifierUnitTest, WithholdAllHosts) {
       permissions_data->withheld_permissions().explicit_hosts().patterns(),
       all_host_patterns));
 
-  // Creating a component extension should result in no withheld permissions.
-  extension = CreateExtensionWithPermissions(all_patterns, all_patterns,
-                                             Manifest::COMPONENT, "b");
-  permissions_data = extension->permissions_data();
-  updater.InitializePermissions(extension.get());
-  EXPECT_TRUE(SetsAreEqual(
-      permissions_data->active_permissions().scriptable_hosts().patterns(),
-      all_patterns));
-  EXPECT_TRUE(permissions_data->withheld_permissions()
-                  .scriptable_hosts()
-                  .patterns()
-                  .empty());
-  EXPECT_TRUE(SetsAreEqual(
-      permissions_data->active_permissions().explicit_hosts().patterns(),
-      all_patterns));
-  EXPECT_TRUE(permissions_data->withheld_permissions()
-                  .explicit_hosts()
-                  .patterns()
-                  .empty());
+  // Finally, re-grant the withheld permissions.
+  modifier.SetAllowedOnAllUrls(true);
 
-  // Without the switch, we shouldn't withhold anything.
-  switch_override.reset();
-  extension = CreateExtensionWithPermissions(all_patterns, all_patterns,
-                                             Manifest::INTERNAL, "c");
-  permissions_data = extension->permissions_data();
-  updater.InitializePermissions(extension.get());
+  // We should be back to our initial state - all requested permissions are
+  // granted.
   EXPECT_TRUE(SetsAreEqual(
       permissions_data->active_permissions().scriptable_hosts().patterns(),
+      all_patterns));
+  EXPECT_TRUE(SetsAreEqual(
+      permissions_data->active_permissions().explicit_hosts().patterns(),
       all_patterns));
   EXPECT_TRUE(permissions_data->withheld_permissions()
                   .scriptable_hosts()
                   .patterns()
                   .empty());
-  EXPECT_TRUE(SetsAreEqual(
-      permissions_data->active_permissions().explicit_hosts().patterns(),
-      all_patterns));
   EXPECT_TRUE(permissions_data->withheld_permissions()
                   .explicit_hosts()
                   .patterns()
                   .empty());
 }
 
-// Tests that withholding all hosts behaves properly with extensions installed
-// when the switch is turned on and off.
-TEST_F(ScriptingPermissionsModifierUnitTest,
-       WithholdAllHostsWithTransientSwitch) {
+TEST_F(ScriptingPermissionsModifierUnitTest, SwitchBehavior) {
   InitializeEmptyExtensionService();
+
+  // Permissions can only be withheld with the appropriate feature turned on.
+  auto enabled_scope = std::make_unique<RuntimeHostPermissionsEnabledScope>();
 
   URLPattern all_hosts(URLPattern::SCHEME_ALL, "<all_urls>");
   std::set<URLPattern> all_host_patterns;
   all_host_patterns.insert(all_hosts);
 
-  scoped_refptr<const Extension> extension_a = CreateExtensionWithPermissions(
+  scoped_refptr<const Extension> extension = CreateExtensionWithPermissions(
       all_host_patterns, all_host_patterns, Manifest::INTERNAL, "a");
   PermissionsUpdater updater(profile());
-  updater.InitializePermissions(extension_a.get());
-  const PermissionsData* permissions_data = extension_a->permissions_data();
+  updater.InitializePermissions(extension.get());
+  const PermissionsData* permissions_data = extension->permissions_data();
 
-  // Since the extension was created without the switch on, it should default
-  // to having all urls access.
+  // By default, the extension should have all its permissions.
   EXPECT_TRUE(SetsAreEqual(
       permissions_data->active_permissions().scriptable_hosts().patterns(),
       all_host_patterns));
   EXPECT_TRUE(
       permissions_data->withheld_permissions().scriptable_hosts().is_empty());
-  ScriptingPermissionsModifier modifier_a(profile(), extension_a);
-  EXPECT_TRUE(modifier_a.IsAllowedOnAllUrls());
+  ScriptingPermissionsModifier modifier(profile(), extension);
+  EXPECT_TRUE(modifier.IsAllowedOnAllUrls());
 
-  // Enable the switch, and re-init permission for the extension.
-  std::unique_ptr<FeatureSwitch::ScopedOverride> switch_override(
-      new FeatureSwitch::ScopedOverride(FeatureSwitch::scripts_require_action(),
-                                        FeatureSwitch::OVERRIDE_ENABLED));
-  updater.InitializePermissions(extension_a.get());
+  // Revoke access.
+  modifier.SetAllowedOnAllUrls(false);
+  EXPECT_FALSE(modifier.IsAllowedOnAllUrls());
+  EXPECT_TRUE(
+      permissions_data->active_permissions().scriptable_hosts().is_empty());
+  EXPECT_TRUE(SetsAreEqual(
+      permissions_data->withheld_permissions().scriptable_hosts().patterns(),
+      all_host_patterns));
 
-  // Since the extension was installed when the switch was off, it should still
-  // have the all urls pref.
-  permissions_data = extension_a->permissions_data();
+  // Remove the switch. The extension should have permission again.
+  enabled_scope.reset();
+  updater.InitializePermissions(extension.get());
+  EXPECT_FALSE(modifier.CanAffectExtension());
   EXPECT_TRUE(SetsAreEqual(
       permissions_data->active_permissions().scriptable_hosts().patterns(),
       all_host_patterns));
   EXPECT_TRUE(
       permissions_data->withheld_permissions().scriptable_hosts().is_empty());
-  EXPECT_TRUE(modifier_a.IsAllowedOnAllUrls());
 
-  // Load a new extension, which also has all urls. Since the switch is now on,
-  // the permissions should be withheld.
-  scoped_refptr<const Extension> extension_b = CreateExtensionWithPermissions(
-      all_host_patterns, all_host_patterns, Manifest::INTERNAL, "b");
-  updater.InitializePermissions(extension_b.get());
-  permissions_data = extension_b->permissions_data();
+  // Reapply the switch; the extension should go back to having permissions
+  // withheld.
+  enabled_scope = std::make_unique<RuntimeHostPermissionsEnabledScope>();
+  updater.InitializePermissions(extension.get());
+  EXPECT_FALSE(modifier.IsAllowedOnAllUrls());
   EXPECT_TRUE(
       permissions_data->active_permissions().scriptable_hosts().is_empty());
   EXPECT_TRUE(SetsAreEqual(
       permissions_data->withheld_permissions().scriptable_hosts().patterns(),
       all_host_patterns));
-  ScriptingPermissionsModifier modifier_b(profile(), extension_b);
-  EXPECT_FALSE(modifier_b.IsAllowedOnAllUrls());
-
-  // Disable the switch, and reload the extension.
-  switch_override.reset();
-  updater.InitializePermissions(extension_b.get());
-
-  // Since the extension was installed with the switch on, it should still be
-  // restricted with the switch off.
-  permissions_data = extension_b->permissions_data();
-  EXPECT_TRUE(
-      permissions_data->active_permissions().scriptable_hosts().is_empty());
-  EXPECT_TRUE(SetsAreEqual(
-      permissions_data->withheld_permissions().scriptable_hosts().patterns(),
-      all_host_patterns));
-  EXPECT_FALSE(modifier_b.IsAllowedOnAllUrls());
 }
 
 TEST_F(ScriptingPermissionsModifierUnitTest, GrantHostPermission) {
   InitializeEmptyExtensionService();
 
-  // Permissions are only withheld with the appropriate switch turned on.
-  std::unique_ptr<FeatureSwitch::ScopedOverride> switch_override(
-      new FeatureSwitch::ScopedOverride(FeatureSwitch::scripts_require_action(),
-                                        FeatureSwitch::OVERRIDE_ENABLED));
+  // Permissions can only be withheld with the appropriate feature turned on.
+  RuntimeHostPermissionsEnabledScope enabled_scope;
 
   URLPattern all_hosts(URLPattern::SCHEME_ALL, "<all_urls>");
   std::set<URLPattern> all_host_patterns;
@@ -305,6 +259,7 @@ TEST_F(ScriptingPermissionsModifierUnitTest, GrantHostPermission) {
   PermissionsUpdater(profile()).InitializePermissions(extension.get());
 
   ScriptingPermissionsModifier modifier(profile(), extension);
+  modifier.SetAllowedOnAllUrls(false);
 
   const GURL kUrl("https://www.google.com/");
   const GURL kUrl2("https://www.chromium.org/");
@@ -312,65 +267,65 @@ TEST_F(ScriptingPermissionsModifierUnitTest, GrantHostPermission) {
   EXPECT_FALSE(modifier.HasGrantedHostPermission(kUrl2));
 
   const PermissionsData* permissions = extension->permissions_data();
-  auto get_page_access = [&permissions, &extension](const GURL& url) {
-    return permissions->GetPageAccess(extension.get(), url, 0, nullptr);
+  auto get_page_access = [&permissions](const GURL& url) {
+    return permissions->GetPageAccess(url, 0, nullptr);
   };
 
-  EXPECT_EQ(PermissionsData::ACCESS_WITHHELD, get_page_access(kUrl));
-  EXPECT_EQ(PermissionsData::ACCESS_WITHHELD, get_page_access(kUrl2));
+  EXPECT_EQ(PermissionsData::PageAccess::kWithheld, get_page_access(kUrl));
+  EXPECT_EQ(PermissionsData::PageAccess::kWithheld, get_page_access(kUrl2));
 
   modifier.GrantHostPermission(kUrl);
   EXPECT_TRUE(modifier.HasGrantedHostPermission(kUrl));
   EXPECT_FALSE(modifier.HasGrantedHostPermission(kUrl2));
-  EXPECT_EQ(PermissionsData::ACCESS_ALLOWED, get_page_access(kUrl));
-  EXPECT_EQ(PermissionsData::ACCESS_WITHHELD, get_page_access(kUrl2));
+  EXPECT_EQ(PermissionsData::PageAccess::kAllowed, get_page_access(kUrl));
+  EXPECT_EQ(PermissionsData::PageAccess::kWithheld, get_page_access(kUrl2));
 
   modifier.RemoveGrantedHostPermission(kUrl);
   EXPECT_FALSE(modifier.HasGrantedHostPermission(kUrl));
   EXPECT_FALSE(modifier.HasGrantedHostPermission(kUrl2));
-  EXPECT_EQ(PermissionsData::ACCESS_WITHHELD, get_page_access(kUrl));
-  EXPECT_EQ(PermissionsData::ACCESS_WITHHELD, get_page_access(kUrl2));
+  EXPECT_EQ(PermissionsData::PageAccess::kWithheld, get_page_access(kUrl));
+  EXPECT_EQ(PermissionsData::PageAccess::kWithheld, get_page_access(kUrl2));
 }
 
-// Checks that policy-installed extensions don't have permissions withheld and
-// that preferences are correctly recovered in the case of an improper value.
-// Fix for crbug.com/629927.
-TEST_F(ScriptingPermissionsModifierUnitTest,
-       PolicyExtensionsCanExecuteEverywhere) {
-  std::unique_ptr<FeatureSwitch::ScopedOverride> switch_override(
-      new FeatureSwitch::ScopedOverride(FeatureSwitch::scripts_require_action(),
-                                        FeatureSwitch::OVERRIDE_ENABLED));
+TEST_F(ScriptingPermissionsModifierUnitTest, CanAffectExtensionByLocation) {
+  auto enabled_scope = std::make_unique<RuntimeHostPermissionsEnabledScope>();
+
   InitializeEmptyExtensionService();
-  URLPattern all_hosts(URLPattern::SCHEME_ALL, "<all_urls>");
-  std::set<URLPattern> all_host_patterns;
-  all_host_patterns.insert(all_hosts);
-  scoped_refptr<const Extension> extension =
-      CreateExtensionWithPermissions(all_host_patterns, all_host_patterns,
-                                     Manifest::EXTERNAL_POLICY, "extension");
-  PermissionsUpdater(profile()).InitializePermissions(extension.get());
 
-  ScriptingPermissionsModifier modifier(profile(), extension);
-  EXPECT_TRUE(modifier.IsAllowedOnAllUrls());
+  struct {
+    Manifest::Location location;
+    bool can_be_affected;
+  } test_cases[] = {
+      {Manifest::INTERNAL, true},   {Manifest::EXTERNAL_PREF, true},
+      {Manifest::UNPACKED, true},   {Manifest::EXTERNAL_POLICY_DOWNLOAD, false},
+      {Manifest::COMPONENT, false},
+  };
 
-  // Simulate preferences being incorrectly set.
-  const char* kAllowedPref = "extension_can_script_all_urls";
-  const char* kHasSetPref = "has_set_script_all_urls";
-  ExtensionPrefs* prefs = ExtensionPrefs::Get(profile());
-  prefs->UpdateExtensionPref(extension->id(), kAllowedPref,
-                             std::make_unique<base::Value>(false));
-  prefs->UpdateExtensionPref(extension->id(), kHasSetPref,
-                             std::make_unique<base::Value>(true));
+  for (const auto& test_case : test_cases) {
+    scoped_refptr<const Extension> extension =
+        ExtensionBuilder("test")
+            .SetLocation(test_case.location)
+            .AddPermission("<all_urls>")
+            .Build();
+    EXPECT_EQ(test_case.can_be_affected,
+              ScriptingPermissionsModifier(profile(), extension.get())
+                  .CanAffectExtension())
+        << test_case.location;
+  }
 
-  // The modifier should still return the correct value and should fix the
-  // preferences.
-  EXPECT_TRUE(modifier.IsAllowedOnAllUrls());
-  bool stored_allowed = false;
-  EXPECT_TRUE(
-      prefs->ReadPrefAsBoolean(extension->id(), kAllowedPref, &stored_allowed));
-  EXPECT_TRUE(stored_allowed);
-  bool has_set = false;
-  EXPECT_FALSE(
-      prefs->ReadPrefAsBoolean(extension->id(), kHasSetPref, &has_set));
+  enabled_scope.reset();
+
+  // With the feature disabled, no extension should be able to be affected.
+  for (const auto& test_case : test_cases) {
+    scoped_refptr<const Extension> extension =
+        ExtensionBuilder("test")
+            .SetLocation(test_case.location)
+            .AddPermission("<all_urls>")
+            .Build();
+    EXPECT_FALSE(ScriptingPermissionsModifier(profile(), extension.get())
+                     .CanAffectExtension())
+        << test_case.location;
+  }
 }
 
 }  // namespace extensions

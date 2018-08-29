@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "ash/frame/custom_frame_header.h"
 #include "ash/public/interfaces/split_view.mojom.h"
 #include "ash/shell_observer.h"
 #include "base/gtest_prod_util.h"
@@ -14,6 +15,7 @@
 #include "chrome/browser/command_observer.h"
 #include "chrome/browser/ui/ash/tablet_mode_client_observer.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
+#include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
 #include "chrome/browser/ui/views/tab_icon_view_model.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "ui/aura/window_observer.h"
@@ -28,18 +30,20 @@ class TabIconView;
 namespace ash {
 class FrameCaptionButton;
 class FrameCaptionButtonContainerView;
-class FrameHeader;
 class FrameHeaderOriginText;
 }
 
 // Provides the BrowserNonClientFrameView for Chrome OS.
-class BrowserNonClientFrameViewAsh : public BrowserNonClientFrameView,
-                                     public ash::ShellObserver,
-                                     public TabletModeClientObserver,
-                                     public TabIconViewModel,
-                                     public CommandObserver,
-                                     public ash::mojom::SplitViewObserver,
-                                     public aura::WindowObserver {
+class BrowserNonClientFrameViewAsh
+    : public BrowserNonClientFrameView,
+      public ash::CustomFrameHeader::AppearanceProvider,
+      public ash::ShellObserver,
+      public TabletModeClientObserver,
+      public TabIconViewModel,
+      public CommandObserver,
+      public ash::mojom::SplitViewObserver,
+      public aura::WindowObserver,
+      public ImmersiveModeController::Observer {
  public:
   // How long to delay the hosted app origin text animation from starting.
   static const base::TimeDelta kTitlebarAnimationDelay;
@@ -68,6 +72,7 @@ class BrowserNonClientFrameViewAsh : public BrowserNonClientFrameView,
   void UpdateWindowIcon() override;
   void UpdateWindowTitle() override;
   void SizeConstraintsChanged() override;
+  void ActivationChanged(bool active) override;
 
   // views::View:
   void OnPaint(gfx::Canvas* canvas) override;
@@ -76,6 +81,12 @@ class BrowserNonClientFrameViewAsh : public BrowserNonClientFrameView,
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   gfx::Size GetMinimumSize() const override;
   void ChildPreferredSizeChanged(views::View* child) override;
+
+  // ash::CustomFrameHeader::AppearanceProvider:
+  SkColor GetFrameHeaderColor(bool active) override;
+  gfx::ImageSkia GetFrameHeaderImage(bool active) override;
+  gfx::ImageSkia GetFrameHeaderOverlayImage(bool active) override;
+  bool IsTabletMode() override;
 
   // ash::ShellObserver:
   void OnOverviewModeStarting() override;
@@ -101,6 +112,11 @@ class BrowserNonClientFrameViewAsh : public BrowserNonClientFrameView,
                                const void* key,
                                intptr_t old) override;
 
+  // ImmersiveModeController::Observer:
+  void OnImmersiveRevealStarted() override;
+  void OnImmersiveRevealEnded() override;
+  void OnImmersiveFullscreenExited() override;
+
   HostedAppButtonContainer* GetHostedAppButtonContainerForTesting() const;
 
  protected:
@@ -125,12 +141,13 @@ class BrowserNonClientFrameViewAsh : public BrowserNonClientFrameView,
   FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewAshTest,
                            ToggleTabletModeOnMinimizedWindow);
   FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewAshTest,
+                           ActiveStateOfButtonMatchesWidget);
+  FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewAshTest,
                            RestoreMinimizedBrowserUpdatesCaption);
   FRIEND_TEST_ALL_PREFIXES(ImmersiveModeControllerAshHostedAppBrowserTest,
                            FrameLayoutToggleTabletMode);
 
   friend class HostedAppNonClientFrameViewAshTest;
-  friend class BrowserFrameHeaderAsh;
   friend class ImmersiveModeControllerAshHostedAppBrowserTest;
 
   // Distance between the right edge of the NonClientFrameView and the tab
@@ -142,8 +159,8 @@ class BrowserNonClientFrameViewAsh : public BrowserNonClientFrameView,
   // scheme than browser windows.
   bool UsePackagedAppHeaderStyle() const;
 
-  // Returns true if there is anything to paint. Some fullscreen windows do not
-  // need their frames painted.
+  // Returns true if there is anything to paint. Some fullscreen windows do
+  // not need their frames painted.
   bool ShouldPaint() const;
 
   // Helps to hide or show the header as needed when overview mode starts or
@@ -153,8 +170,8 @@ class BrowserNonClientFrameViewAsh : public BrowserNonClientFrameView,
   // Creates the frame header for the browser window.
   std::unique_ptr<ash::FrameHeader> CreateFrameHeader();
 
-  // Triggers the hosted app origin and icon animations, assumes the hosted app
-  // UI elements exist.
+  // Triggers the hosted app origin and icon animations, assumes the hosted
+  // app UI elements exist.
   void StartHostedAppAnimation();
 
   // View which contains the window controls.

@@ -25,13 +25,12 @@
 #include "content/shell/renderer/layout_test/layout_test_render_frame_observer.h"
 #include "content/shell/renderer/layout_test/layout_test_render_thread_observer.h"
 #include "content/shell/renderer/layout_test/test_media_stream_renderer_factory.h"
-#include "content/shell/renderer/layout_test/test_websocket_handshake_throttle.h"
+#include "content/shell/renderer/layout_test/test_websocket_handshake_throttle_provider.h"
 #include "content/shell/renderer/shell_render_view_observer.h"
 #include "content/shell/test_runner/web_frame_test_proxy.h"
 #include "content/shell/test_runner/web_test_interfaces.h"
 #include "content/shell/test_runner/web_test_runner.h"
 #include "content/shell/test_runner/web_view_test_proxy.h"
-#include "content/test/mock_webclipboard_impl.h"
 #include "media/base/audio_latency.h"
 #include "media/base/mime_util.h"
 #include "media/media_buildflags.h"
@@ -49,7 +48,6 @@
 #include "v8/include/v8.h"
 
 using blink::WebAudioDevice;
-using blink::WebClipboard;
 using blink::WebFrame;
 using blink::WebLocalFrame;
 using blink::WebMIDIAccessor;
@@ -128,6 +126,7 @@ LayoutTestContentRendererClient::LayoutTestContentRendererClient() {
   EnableWebTestProxyCreation(base::Bind(&WebViewTestProxyCreated),
                              base::Bind(&WebWidgetTestProxyCreated),
                              base::Bind(&WebFrameTestProxyCreated));
+  SetWorkerRewriteURLFunction(RewriteLayoutTestsURL);
 }
 
 LayoutTestContentRendererClient::~LayoutTestContentRendererClient() {
@@ -171,45 +170,6 @@ LayoutTestContentRendererClient::OverrideCreateMIDIAccessor(
   return interfaces->CreateMIDIAccessor(client);
 }
 
-std::unique_ptr<WebAudioDevice>
-LayoutTestContentRendererClient::OverrideCreateAudioDevice(
-    const blink::WebAudioLatencyHint& latency_hint) {
-  const double hw_buffer_size = 128;
-  const double hw_sample_rate = 44100;
-  double buffer_size = 0;
-  switch (latency_hint.Category()) {
-    case blink::WebAudioLatencyHint::kCategoryInteractive:
-      buffer_size =
-          media::AudioLatency::GetInteractiveBufferSize(hw_buffer_size);
-      break;
-    case blink::WebAudioLatencyHint::kCategoryBalanced:
-      buffer_size =
-          media::AudioLatency::GetRtcBufferSize(hw_sample_rate, hw_buffer_size);
-      break;
-    case blink::WebAudioLatencyHint::kCategoryPlayback:
-      buffer_size = media::AudioLatency::GetHighLatencyBufferSize(
-          hw_sample_rate, hw_buffer_size);
-      break;
-    case blink::WebAudioLatencyHint::kCategoryExact:
-      buffer_size = media::AudioLatency::GetExactBufferSize(
-          base::TimeDelta::FromSecondsD(latency_hint.Seconds()), hw_sample_rate,
-          hw_buffer_size);
-      break;
-    default:
-      NOTREACHED();
-      break;
-  }
-  test_runner::WebTestInterfaces* interfaces =
-      LayoutTestRenderThreadObserver::GetInstance()->test_interfaces();
-  return interfaces->CreateAudioDevice(hw_sample_rate, buffer_size);
-}
-
-WebClipboard* LayoutTestContentRendererClient::OverrideWebClipboard() {
-  if (!clipboard_)
-    clipboard_.reset(new MockWebClipboardImpl);
-  return clipboard_.get();
-}
-
 WebThemeEngine* LayoutTestContentRendererClient::OverrideThemeEngine() {
   return LayoutTestRenderThreadObserver::GetInstance()
       ->test_interfaces()
@@ -218,17 +178,13 @@ WebThemeEngine* LayoutTestContentRendererClient::OverrideThemeEngine() {
 
 std::unique_ptr<MediaStreamRendererFactory>
 LayoutTestContentRendererClient::CreateMediaStreamRendererFactory() {
-#if BUILDFLAG(ENABLE_WEBRTC)
   return std::unique_ptr<MediaStreamRendererFactory>(
       new TestMediaStreamRendererFactory());
-#else
-  return nullptr;
-#endif
 }
 
-std::unique_ptr<blink::WebSocketHandshakeThrottle>
-LayoutTestContentRendererClient::CreateWebSocketHandshakeThrottle() {
-  return std::make_unique<TestWebSocketHandshakeThrottle>();
+std::unique_ptr<content::WebSocketHandshakeThrottleProvider>
+LayoutTestContentRendererClient::CreateWebSocketHandshakeThrottleProvider() {
+  return std::make_unique<TestWebSocketHandshakeThrottleProvider>();
 }
 
 void LayoutTestContentRendererClient::DidInitializeWorkerContextOnWorkerThread(

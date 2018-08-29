@@ -402,7 +402,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTestWithManagementPolicy,
   // Set enterprise policy to block injection to policy specified host.
   {
     ExtensionManagementPolicyUpdater pref(&policy_provider_);
-    pref.AddRuntimeBlockedHost("*", "*://example.com");
+    pref.AddPolicyBlockedHost("*", "*://example.com");
   }
   ASSERT_TRUE(StartEmbeddedTestServer());
   ASSERT_TRUE(RunExtensionTest("content_scripts/policy")) << message_;
@@ -414,7 +414,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTestWithManagementPolicy,
   // Set enterprise policy to block injection to policy specified hosts.
   {
     ExtensionManagementPolicyUpdater pref(&policy_provider_);
-    pref.AddRuntimeBlockedHost("*", "*://example.*");
+    pref.AddPolicyBlockedHost("*", "*://example.*");
   }
   ASSERT_TRUE(StartEmbeddedTestServer());
   ASSERT_TRUE(RunExtensionTest("content_scripts/policy")) << message_;
@@ -441,7 +441,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTestWithManagementPolicy,
   // specified host.
   {
     ExtensionManagementPolicyUpdater pref(&policy_provider_);
-    pref.AddRuntimeBlockedHost(extension_id, "*://example.com");
+    pref.AddPolicyBlockedHost(extension_id, "*://example.com");
   }
   // Some policy updating operations are performed asynchronuosly. Wait for them
   // to complete before installing extension.
@@ -764,6 +764,38 @@ IN_PROC_BROWSER_TEST_F(ContentScriptApiTest, ExecuteScriptCodeSameSiteCookies) {
 
   EXPECT_EQ("success", result);
   EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
+}
+
+// Tests that extension content scripts can execute (including asynchronously
+// through timeouts) in pages with Content-Security-Policy: sandbox.
+// See https://crbug.com/811528.
+IN_PROC_BROWSER_TEST_F(ContentScriptApiTest, ExecuteScriptBypassingSandbox) {
+  ASSERT_TRUE(StartEmbeddedTestServer());
+
+  TestExtensionDir test_dir;
+  test_dir.WriteManifest(
+      R"({
+           "name": "Bypass Sandbox CSP",
+           "description": "Extensions should bypass a page's CSP sandbox.",
+           "version": "0.1",
+           "manifest_version": 2,
+           "content_scripts": [{
+             "matches": ["*://example.com:*/*"],
+             "js": ["script.js"]
+           }]
+         })");
+  test_dir.WriteFile(
+      FILE_PATH_LITERAL("script.js"),
+      R"(window.setTimeout(() => { chrome.test.notifyPass(); }, 10);)");
+
+  ResultCatcher catcher;
+  const Extension* extension = LoadExtension(test_dir.UnpackedPath());
+  ASSERT_TRUE(extension);
+
+  GURL url = embedded_test_server()->GetURL(
+      "example.com", "/extensions/page_with_sandbox_csp.html");
+  ui_test_utils::NavigateToURL(browser(), url);
+  ASSERT_TRUE(catcher.GetNextResult()) << catcher.message();
 }
 
 }  // namespace extensions

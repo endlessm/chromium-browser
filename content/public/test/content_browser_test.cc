@@ -40,11 +40,11 @@ ContentBrowserTest::ContentBrowserTest() {
 #if defined(OS_MACOSX)
   // See comment in InProcessBrowserTest::InProcessBrowserTest().
   base::FilePath content_shell_path;
-  CHECK(PathService::Get(base::FILE_EXE, &content_shell_path));
+  CHECK(base::PathService::Get(base::FILE_EXE, &content_shell_path));
   content_shell_path = content_shell_path.DirName();
   content_shell_path = content_shell_path.Append(
       FILE_PATH_LITERAL("Content Shell.app/Contents/MacOS/Content Shell"));
-  CHECK(PathService::Override(base::FILE_EXE, content_shell_path));
+  CHECK(base::PathService::Override(base::FILE_EXE, content_shell_path));
 #endif
   base::FilePath content_test_data(FILE_PATH_LITERAL("content/test/data"));
   CreateTestServer(content_test_data);
@@ -67,7 +67,7 @@ void ContentBrowserTest::SetUp() {
     // setting a global that may be used after ContentBrowserTest is
     // destroyed.
     ContentRendererClient* old_client =
-        switches::IsRunLayoutTestSwitchPresent()
+        switches::IsRunWebTestsSwitchPresent()
             ? SetRendererClientForTesting(new LayoutTestContentRendererClient)
             : SetRendererClientForTesting(new ShellContentRendererClient);
     // No-one should have set this value before we did.
@@ -76,7 +76,7 @@ void ContentBrowserTest::SetUp() {
 #elif defined(OS_MACOSX)
   // See InProcessBrowserTest::PrepareTestCommandLine().
   base::FilePath subprocess_path;
-  PathService::Get(base::FILE_EXE, &subprocess_path);
+  base::PathService::Get(base::FILE_EXE, &subprocess_path);
   subprocess_path = subprocess_path.DirName().DirName();
   DCHECK_EQ(subprocess_path.BaseName().value(), "Contents");
   subprocess_path = subprocess_path.Append(
@@ -114,7 +114,7 @@ void ContentBrowserTest::TearDown() {
 }
 
 void ContentBrowserTest::PreRunTestOnMainThread() {
-  if (!switches::IsRunLayoutTestSwitchPresent()) {
+  if (!switches::IsRunWebTestsSwitchPresent()) {
     CHECK_EQ(Shell::windows().size(), 1u);
     shell_ = Shell::windows()[0];
     SetInitialWebContents(shell_->web_contents());

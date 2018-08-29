@@ -11,7 +11,6 @@
 #include <functional>
 
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/trace_event/trace_event.h"
 #include "components/sync/base/model_type.h"
@@ -35,16 +34,12 @@ static const ModelType kStartOrder[] = {
     SYNCED_NOTIFICATION_APP_INFO,
 
     // UI thread data types.
-    BOOKMARKS,
-    SUPERVISED_USERS,  //  Syncing supervised users on initial login
-                       //  might block creating a new supervised user,
-                       //  so we want to do it early.
-    PREFERENCES, PRIORITY_PREFERENCES, EXTENSIONS, APPS, APP_LIST, ARC_PACKAGE,
-    READING_LIST, THEMES, SEARCH_ENGINES, SESSIONS, APP_NOTIFICATIONS,
-    DICTIONARY, FAVICON_IMAGES, FAVICON_TRACKING, PRINTERS, USER_EVENTS,
-    SUPERVISED_USER_SETTINGS, SUPERVISED_USER_SHARED_SETTINGS,
-    SUPERVISED_USER_WHITELISTS, ARTICLES, WIFI_CREDENTIALS,
-};
+    BOOKMARKS, PREFERENCES, PRIORITY_PREFERENCES, EXTENSIONS, APPS, APP_LIST,
+    ARC_PACKAGE, READING_LIST, THEMES, SEARCH_ENGINES, SESSIONS,
+    APP_NOTIFICATIONS, DICTIONARY, FAVICON_IMAGES, FAVICON_TRACKING, PRINTERS,
+    USER_EVENTS, SUPERVISED_USER_SETTINGS, SUPERVISED_USER_WHITELISTS, ARTICLES,
+    WIFI_CREDENTIALS, DEPRECATED_SUPERVISED_USERS, MOUNTAIN_SHARES,
+    DEPRECATED_SUPERVISED_USER_SHARED_SETTINGS};
 
 static_assert(arraysize(kStartOrder) ==
                   MODEL_TYPE_COUNT - FIRST_REAL_MODEL_TYPE,

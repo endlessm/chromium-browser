@@ -23,22 +23,28 @@ class FakeAssistantManagerServiceImpl : public AssistantManagerService {
   ~FakeAssistantManagerServiceImpl() override;
 
   // assistant::AssistantManagerService overrides
-  void Start(const std::string& access_token) override;
+  void Start(const std::string& access_token,
+             base::OnceClosure callback) override;
   void SetAccessToken(const std::string& access_token) override;
   void EnableListening(bool enable) override;
-  bool IsRunning() const override;
+  State GetState() const override;
   AssistantSettingsManager* GetAssistantSettingsManager() override;
   void SendGetSettingsUiRequest(
       const std::string& selector,
       GetSettingsUiResponseCallback callback) override;
+  void SendUpdateSettingsUiRequest(
+      const std::string& update,
+      UpdateSettingsUiResponseCallback callback) override;
 
   // mojom::AssistantEvent overrides:
+  void StartVoiceInteraction() override;
+  void StopActiveInteraction() override;
   void SendTextQuery(const std::string& query) override;
   void AddAssistantEventSubscriber(
       mojom::AssistantEventSubscriberPtr subscriber) override;
 
  private:
-  bool running_ = false;
+  State state_ = State::STOPPED;
   DISALLOW_COPY_AND_ASSIGN(FakeAssistantManagerServiceImpl);
 };
 

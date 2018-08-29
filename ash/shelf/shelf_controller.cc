@@ -17,6 +17,7 @@
 #include "ash/shelf/shelf_constants.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/system/message_center/arc/arc_notification_constants.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/auto_reset.h"
 #include "base/strings/utf_string_conversions.h"
@@ -241,7 +242,7 @@ void ShelfController::UpdateShelfItem(const ShelfItem& item) {
   base::AutoReset<bool> reset(&applying_remote_shelf_model_changes_, true);
 
   // Keep any existing image if the item was sent without one for efficiency.
-  ash::ShelfItem new_item = item;
+  ShelfItem new_item = item;
   if (item.image.isNull())
     new_item.image = model_.items()[index].image;
   model_.Set(index, new_item);
@@ -333,6 +334,10 @@ void ShelfController::OnActiveUserPrefServiceChanged(
 }
 
 void ShelfController::OnTabletModeStarted() {
+  // Do nothing when running in app mode.
+  if (Shell::Get()->session_controller()->IsRunningInAppMode())
+    return;
+
   // Force the shelf to be visible and to be bottom aligned in tablet mode; the
   // prefs are restored on exit.
   for (const auto& display : display::Screen::GetScreen()->GetAllDisplays()) {
@@ -348,6 +353,10 @@ void ShelfController::OnTabletModeStarted() {
 }
 
 void ShelfController::OnTabletModeEnded() {
+  // Do nothing when running in app mode.
+  if (Shell::Get()->session_controller()->IsRunningInAppMode())
+    return;
+
   SetShelfBehaviorsFromPrefs();
   // Only animate out of tablet mode if the shelf alignment will not change.
   for (const auto& display : display::Screen::GetScreen()->GetAllDisplays()) {
@@ -409,7 +418,7 @@ void ShelfController::OnNotificationAdded(const std::string& notification_id) {
   }
 
   // Skip this if the notification doesn't have a valid app id.
-  if (notification->notifier_id().id == ash::kDefaultArcNotifierId)
+  if (notification->notifier_id().id == kDefaultArcNotifierId)
     return;
 
   model_.AddNotificationRecord(notification->notifier_id().id, notification_id);

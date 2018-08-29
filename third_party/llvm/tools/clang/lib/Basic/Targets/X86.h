@@ -81,7 +81,6 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
   bool HasSHA = false;
   bool HasMPX = false;
   bool HasSHSTK = false;
-  bool HasIBT = false;
   bool HasSGX = false;
   bool HasCX16 = false;
   bool HasFXSR = false;
@@ -91,6 +90,8 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
   bool HasXSAVES = false;
   bool HasMWAITX = false;
   bool HasCLZERO = false;
+  bool HasCLDEMOTE = false;
+  bool HasPCONFIG = false;
   bool HasPKU = false;
   bool HasCLFLUSHOPT = false;
   bool HasCLWB = false;
@@ -100,9 +101,14 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
   bool HasRetpoline = false;
   bool HasRetpolineExternalThunk = false;
   bool HasLAHFSAHF = false;
+  bool HasWBNOINVD = false;
+  bool HasWAITPKG = false;
+  bool HasMOVDIRI = false;
+  bool HasMOVDIR64B = false;
+  bool HasPTWRITE = false;
 
 protected:
-  /// \brief Enumeration of all of the X86 CPUs supported by Clang.
+  /// Enumeration of all of the X86 CPUs supported by Clang.
   ///
   /// Each enumeration represents a particular CPU supported by Clang. These
   /// loosely correspond to the options passed to '-march' or '-mtune' flags.
@@ -164,10 +170,15 @@ public:
   bool validateInputSize(StringRef Constraint, unsigned Size) const override;
 
   virtual bool
-  checkCFProtectionReturnSupported(DiagnosticsEngine &Diags) const override;
+  checkCFProtectionReturnSupported(DiagnosticsEngine &Diags) const override {
+    return true;
+  };
 
   virtual bool
-  checkCFProtectionBranchSupported(DiagnosticsEngine &Diags) const override;
+  checkCFProtectionBranchSupported(DiagnosticsEngine &Diags) const override {
+    return true;
+  };
+
 
   virtual bool validateOperandSize(StringRef Constraint, unsigned Size) const;
 
@@ -287,6 +298,7 @@ public:
     case CC_X86VectorCall:
     case CC_X86RegCall:
     case CC_C:
+    case CC_PreserveMost:
     case CC_Swift:
     case CC_X86Pascal:
     case CC_IntelOclBicc:
@@ -727,6 +739,11 @@ public:
     WindowsX86_64TargetInfo::getVisualStudioDefines(Opts, Builder);
     Builder.defineMacro("_M_X64", "100");
     Builder.defineMacro("_M_AMD64", "100");
+  }
+
+  TargetInfo::CallingConvKind
+  getCallingConvKind(bool ClangABICompat4) const override {
+    return CCK_MicrosoftX86_64;
   }
 };
 

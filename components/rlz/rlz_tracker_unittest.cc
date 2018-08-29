@@ -9,7 +9,6 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -340,13 +339,13 @@ void RlzLibTest::ExpectEventRecorded(const char* event_name, bool expected) {
 void RlzLibTest::ExpectRlzPingSent(bool expected) {
   std::string brand;
   delegate_->GetBrand(&brand);
-  EXPECT_EQ(expected, tracker_->was_ping_sent_for_brand(brand.c_str()));
+  EXPECT_EQ(expected, tracker_->was_ping_sent_for_brand(brand));
 }
 
 void RlzLibTest::ExpectReactivationRlzPingSent(bool expected) {
   std::string brand;
   delegate_->GetReactivationBrand(&brand);
-  EXPECT_EQ(expected, tracker_->was_ping_sent_for_brand(brand.c_str()));
+  EXPECT_EQ(expected, tracker_->was_ping_sent_for_brand(brand));
 }
 
 // The events that affect the different RLZ scenarios are the following:

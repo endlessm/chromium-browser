@@ -9,9 +9,9 @@
 #include <memory>
 
 #include "ash/app_list/model/search/search_result.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/app_list_features.h"
 #include "base/i18n/rtl.h"
-#include "ui/app_list/app_list_constants.h"
-#include "ui/app_list/app_list_features.h"
 #include "ui/app_list/app_list_util.h"
 #include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/views/search_result_page_view.h"
@@ -35,7 +35,7 @@ constexpr int kSeparatorLeftRightPadding = 4;
 constexpr int kSeparatorHeight = 46;
 constexpr int kSeparatorTopPadding = 10;
 
-constexpr SkColor kSeparatorColor = SkColorSetARGBMacro(0x1F, 0x00, 0x00, 0x00);
+constexpr SkColor kSeparatorColor = SkColorSetARGB(0x1F, 0x00, 0x00, 0x00);
 
 }  // namespace
 
@@ -144,7 +144,7 @@ int SearchResultTileItemListView::DoUpdate() {
   }
 
   set_container_score(
-      display_results.empty() ? 0 : display_results.front()->relevance());
+      display_results.empty() ? 0 : display_results.front()->display_score());
 
   return display_results.size();
 }

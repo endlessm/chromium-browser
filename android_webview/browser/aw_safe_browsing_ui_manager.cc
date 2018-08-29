@@ -6,6 +6,7 @@
 
 #include "android_webview/browser/aw_safe_browsing_blocking_page.h"
 #include "android_webview/browser/net/aw_url_request_context_getter.h"
+#include "android_webview/common/aw_content_client.h"
 #include "android_webview/common/aw_paths.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
@@ -17,9 +18,13 @@
 #include "components/safe_browsing/browser/safe_browsing_url_request_context_getter.h"
 #include "components/safe_browsing/common/safebrowsing_constants.h"
 #include "content/public/browser/browser_thread.h"
+#include "services/network/public/cpp/features.h"
+#include "services/network/public/mojom/network_service.mojom.h"
 
 using content::BrowserThread;
 using content::WebContents;
+
+namespace android_webview {
 
 namespace {
 
@@ -33,9 +38,14 @@ void RecordIsWebViewViewable(bool isViewable) {
   UMA_HISTOGRAM_BOOLEAN("SafeBrowsing.WebView.Viewable", isViewable);
 }
 
-}  // namespace
+network::mojom::NetworkContextParamsPtr CreateDefaultNetworkContextParams() {
+  network::mojom::NetworkContextParamsPtr network_context_params =
+      network::mojom::NetworkContextParams::New();
+  network_context_params->user_agent = GetUserAgent();
+  return network_context_params;
+}
 
-namespace android_webview {
+}  // namespace
 
 AwSafeBrowsingUIManager::AwSafeBrowsingUIManager(
     AwURLRequestContextGetter* browser_url_request_context_getter,
@@ -45,17 +55,20 @@ AwSafeBrowsingUIManager::AwSafeBrowsingUIManager(
 
   // TODO(timvolodine): verify this is what we want regarding the directory.
   base::FilePath user_data_dir;
-  bool result =
-      PathService::Get(android_webview::DIR_SAFE_BROWSING, &user_data_dir);
+  bool result = base::PathService::Get(android_webview::DIR_SAFE_BROWSING,
+                                       &user_data_dir);
   DCHECK(result);
 
-  url_request_context_getter_ =
-      new safe_browsing::SafeBrowsingURLRequestContextGetter(
-          browser_url_request_context_getter, user_data_dir);
+  if (!base::FeatureList::IsEnabled(network::features::kNetworkService)) {
+    url_request_context_getter_ =
+        new safe_browsing::SafeBrowsingURLRequestContextGetter(
+            browser_url_request_context_getter, user_data_dir);
+  }
 
   network_context_ =
       std::make_unique<safe_browsing::SafeBrowsingNetworkContext>(
-          url_request_context_getter_);
+          url_request_context_getter_, user_data_dir,
+          base::BindRepeating(CreateDefaultNetworkContextParams));
 }
 
 AwSafeBrowsingUIManager::~AwSafeBrowsingUIManager() {}
@@ -96,7 +109,7 @@ AwSafeBrowsingUIManager::GetURLLoaderFactoryOnIOThread() {
         base::BindOnce(&AwSafeBrowsingUIManager::CreateURLLoaderFactoryForIO,
                        this, MakeRequest(&url_loader_factory_on_io_)));
     shared_url_loader_factory_on_io_ =
-        base::MakeRefCounted<content::WeakWrapperSharedURLLoaderFactory>(
+        base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
             url_loader_factory_on_io_.get());
   }
   return shared_url_loader_factory_on_io_;
@@ -139,8 +152,12 @@ void AwSafeBrowsingUIManager::SendSerializedThreatDetails(
 void AwSafeBrowsingUIManager::CreateURLLoaderFactoryForIO(
     network::mojom::URLLoaderFactoryRequest request) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  auto url_loader_factory_params =
+      network::mojom::URLLoaderFactoryParams::New();
+  url_loader_factory_params->process_id = network::mojom::kBrowserProcessId;
+  url_loader_factory_params->is_corb_enabled = false;
   network_context_->GetNetworkContext()->CreateURLLoaderFactory(
-      std::move(request), 0);
+      std::move(request), std::move(url_loader_factory_params));
 }
 
 }  // namespace android_webview

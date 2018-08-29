@@ -37,6 +37,7 @@ class OverviewWindowAnimationObserver;
 // The controller for the split view. It snaps a window to left/right side of
 // the screen. It also observes the two snapped windows and decides when to exit
 // the split view mode.
+// TODO(xdai): Make it work for multi-display non mirror environment.
 class ASH_EXPORT SplitViewController : public mojom::SplitViewController,
                                        public aura::WindowObserver,
                                        public ash::wm::WindowStateObserver,
@@ -92,12 +93,10 @@ class ASH_EXPORT SplitViewController : public mojom::SplitViewController,
   // primary orientation.
   bool IsCurrentScreenOrientationPrimary() const;
 
-  // Snaps window to left/right. |window_item_bounds| is the bounds of the
-  // overview window item in overview. It's empty if the snapped window doesn't
-  // come from overview grid.
-  void SnapWindow(aura::Window* window,
-                  SnapPosition snap_position,
-                  const gfx::Rect& window_item_bounds = gfx::Rect());
+  // Snaps window to left/right. It will try to remove |window| from the
+  // overview window grid first before snapping it if |window| is currently
+  // showing in the overview window grid.
+  void SnapWindow(aura::Window* window, SnapPosition snap_position);
 
   // Swaps the left and right windows. This will do nothing if one of the
   // windows is not snapped.
@@ -126,6 +125,9 @@ class ASH_EXPORT SplitViewController : public mojom::SplitViewController,
   gfx::Rect GetSnappedWindowBoundsInScreenUnadjusted(aura::Window* window,
                                                      SnapPosition snap_postion);
 
+  // Gets the default value of |divider_position_|.
+  int GetDefaultDividerPosition(aura::Window* window) const;
+
   void StartResize(const gfx::Point& location_in_screen);
   void Resize(const gfx::Point& location_in_screen);
   void EndResize(const gfx::Point& location_in_screen);
@@ -136,6 +138,12 @@ class ASH_EXPORT SplitViewController : public mojom::SplitViewController,
 
   // Ends the split view mode.
   void EndSplitView();
+
+  // Called when a window's tab(s) start/end being dragging around.
+  void OnWindowDragStarted(aura::Window* dragged_window);
+  void OnWindowDragEnded(aura::Window* dragged_window,
+                         SnapPosition desired_snap_position,
+                         const gfx::Point& last_location_in_screen);
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
@@ -185,19 +193,19 @@ class ASH_EXPORT SplitViewController : public mojom::SplitViewController,
  private:
   friend class SplitViewControllerTest;
   friend class SplitViewWindowSelectorTest;
+  class TabDraggedWindowObserver;
 
-  // Starts/Stops observing |window|.
+  // Start observing |window|.
   void StartObserving(aura::Window* window);
-  void StopObserving(aura::Window* window);
+  // Stop observing the window at associated with |snap_position|. Also updates
+  // shadows and sets |left_window_| or |right_window_| to nullptr.
+  void StopObserving(SnapPosition snap_position);
 
   // Update split view state and notify its observer about the change.
   void UpdateSplitViewStateAndNotifyObservers();
 
   // Notifies observers that the split view divider position has been changed.
   void NotifyDividerPositionChanged();
-
-  // Gets the default value of |divider_position_|.
-  int GetDefaultDividerPosition(aura::Window* window) const;
 
   // Updates the black scrim layer's bounds and opacity while dragging the
   // divider. The opacity increases as the split divider gets closer to the edge
@@ -252,12 +260,13 @@ class ASH_EXPORT SplitViewController : public mojom::SplitViewController,
   // the snapped window's transform if it's not identity and activate it.
   void OnWindowSnapped(aura::Window* window);
 
-  // If there are two snapped windows, closing/minimizing one of them will open
-  // overview window grid on the closed/minimized window side of the screen. If
-  // there is only one snapped windows, closing/minimizing the sanpped window
-  // will end split view mode and adjust the overview window grid bounds if the
-  // overview mode is active at that moment.
-  void OnSnappedWindowMinimizedOrDestroyed(aura::Window* window);
+  // If there are two snapped windows, closing/minimizing/tab-dragging one of
+  // them will open overview window grid on the closed/minimized/tab-dragged
+  // window side of the screen. If there is only one snapped windows, closing/
+  // minimizing/tab-dragging the sanpped window will end split view mode and
+  // adjust the overview window grid bounds if the overview mode is active at
+  // that moment.
+  void OnSnappedWindowDetached(aura::Window* window);
 
   // If the desired bounds of the snapped windows bounds |left_or_top_rect| and
   // |right_or_bottom_rect| are smaller than the minimum bounds of the snapped
@@ -302,6 +311,18 @@ class ASH_EXPORT SplitViewController : public mojom::SplitViewController,
   // Set |transform| for |window| and its transient descendants.
   void SetTransform(aura::Window* window, const gfx::Transform& transform);
 
+  // Removes the window item that contains |window| from the overview window
+  // grid if |window| is currently showing in overview window grid. It should be
+  // called before trying to snap the window.
+  void RemoveWindowFromOverviewIfApplicable(aura::Window* window);
+
+  // Returns the window that is currently snapped at |snap_position|.
+  aura::Window* GetSnappedWindowAt(SnapPosition snap_position);
+
+  // Inserts |window| into overview window grid if overview mode is active. Do
+  // nothing if overview mode is inactive at the moment.
+  void InsertWindowToOverview(aura::Window* window);
+
   // Starts/Ends overview mode if the overview mode is inactive/active.
   void StartOverview();
   void EndOverview();
@@ -326,6 +347,9 @@ class ASH_EXPORT SplitViewController : public mojom::SplitViewController,
   // 1/3 of the width of the screen, increasing in opacity as the divider gets
   // closer to the edge of the screen.
   std::unique_ptr<ui::Layer> black_scrim_layer_;
+
+  // The window observer that obseves the tab-dragged window.
+  std::unique_ptr<TabDraggedWindowObserver> dragged_window_observer_;
 
   // The distance between the origin of the divider and the origin of the screen
   // in screen coordinates.

@@ -15,7 +15,6 @@
 #include "base/guid.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
 #include "base/run_loop.h"
@@ -24,6 +23,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/test/bind_test_util.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_restrictions.h"
@@ -35,6 +35,7 @@
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
@@ -87,6 +88,8 @@
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_fetcher_delegate.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/cpp/simple_url_loader.h"
 #include "url/gurl.h"
 
 #if defined(OS_CHROMEOS)
@@ -142,27 +145,6 @@ class SyncProfileDelegate : public Profile::Delegate {
   DISALLOW_COPY_AND_ASSIGN(SyncProfileDelegate);
 };
 
-// Helper class that checks whether a sync test server is running or not.
-class SyncServerStatusChecker : public net::URLFetcherDelegate {
- public:
-  SyncServerStatusChecker() : running_(false) {}
-
-  void OnURLFetchComplete(const net::URLFetcher* source) override {
-    std::string data;
-    source->GetResponseAsString(&data);
-    running_ =
-        (source->GetStatus().status() == net::URLRequestStatus::SUCCESS &&
-         source->GetResponseCode() == 200 &&
-         base::StartsWith(data, "ok", base::CompareCase::SENSITIVE));
-    base::RunLoop::QuitCurrentWhenIdleDeprecated();
-  }
-
-  bool running() const { return running_; }
-
- private:
-  bool running_;
-};
-
 bool IsEncryptionComplete(const ProfileSyncService* service) {
   return service->IsEncryptEverythingEnabled() &&
          !service->encryption_pending();
@@ -215,7 +197,6 @@ SyncTest::SyncTest(TestType test_type)
       server_type_(SERVER_TYPE_UNDECIDED),
       previous_profile_(nullptr),
       num_clients_(-1),
-      configuration_refresher_(std::make_unique<ConfigurationRefresher>()),
       use_verifier_(true),
       create_gaia_account_at_runtime_(false) {
   sync_datatype_helper::AssociateWithTest(this);
@@ -258,8 +239,8 @@ void SyncTest::SetUp() {
     }
     // Decide on password to use.
     password_ = cl->HasSwitch(switches::kSyncPasswordForTest)
-        ? cl->GetSwitchValueASCII(switches::kSyncPasswordForTest)
-        : "password";
+                    ? cl->GetSwitchValueASCII(switches::kSyncPasswordForTest)
+                    : "password";
   }
 
   if (username_.empty() || password_.empty())
@@ -359,7 +340,7 @@ bool SyncTest::CreateProfile(int index) {
     // about it. This is needed in tests such as supervised user cases which
     // assume browser->profile() as the custodian profile.
     base::FilePath user_data_dir;
-    PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
+    base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
     if (!tmp_profile_paths_[index]->CreateUniqueTempDirUnderPath(
             user_data_dir)) {
       ADD_FAILURE();
@@ -576,7 +557,7 @@ bool SyncTest::SetupClients() {
   // Create the verifier profile.
   if (use_verifier_) {
     base::FilePath user_data_dir;
-    PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
+    base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
     profile_delegates_[num_clients_] =
         std::make_unique<SyncProfileDelegate>(base::Callback<void(Profile*)>());
     verifier_ = MakeTestProfile(
@@ -628,7 +609,12 @@ void SyncTest::InitializeProfile(int index, Profile* profile) {
   InitializeInvalidations(index);
 }
 
+void SyncTest::DisableNotificationsForClient(int index) {
+  fake_server_->RemoveObserver(fake_server_invalidation_services_[index]);
+}
+
 void SyncTest::InitializeInvalidations(int index) {
+  configuration_refresher_ = std::make_unique<ConfigurationRefresher>();
   if (UsingExternalServers()) {
     // DO NOTHING. External live sync servers use GCM to notify profiles of any
     // invalidations in sync'ed data. In this case, to notify other profiles of
@@ -801,7 +787,9 @@ void SyncTest::TearDownOnMainThread() {
 }
 
 void SyncTest::SetUpOnMainThread() {
+  // Allows google.com as well as country-specific TLDs.
   host_resolver()->AllowDirectLookup("*.google.com");
+  host_resolver()->AllowDirectLookup("accounts.google.*");
 
   // Allow connection to googleapis.com for oauth token requests in E2E tests.
   host_resolver()->AllowDirectLookup("*.googleapis.com");
@@ -1031,17 +1019,28 @@ bool SyncTest::IsTestServerRunning() {
   base::CommandLine* cl = base::CommandLine::ForCurrentProcess();
   std::string sync_url = cl->GetSwitchValueASCII(switches::kSyncServiceURL);
   GURL sync_url_status(sync_url.append("/healthz"));
-  SyncServerStatusChecker delegate;
-  std::unique_ptr<net::URLFetcher> fetcher =
-      net::URLFetcher::Create(sync_url_status, net::URLFetcher::GET, &delegate,
-                              TRAFFIC_ANNOTATION_FOR_TESTS);
-  fetcher->SetLoadFlags(net::LOAD_DISABLE_CACHE |
-                        net::LOAD_DO_NOT_SEND_COOKIES |
-                        net::LOAD_DO_NOT_SAVE_COOKIES);
-  fetcher->SetRequestContext(g_browser_process->system_request_context());
-  fetcher->Start();
-  content::RunMessageLoop();
-  return delegate.running();
+  auto resource_request = std::make_unique<network::ResourceRequest>();
+  resource_request->url = sync_url_status;
+  resource_request->load_flags = net::LOAD_DISABLE_CACHE |
+                                 net::LOAD_DO_NOT_SEND_COOKIES |
+                                 net::LOAD_DO_NOT_SAVE_COOKIES;
+  std::unique_ptr<network::SimpleURLLoader> simple_url_loader =
+      network::SimpleURLLoader::Create(std::move(resource_request),
+                                       TRAFFIC_ANNOTATION_FOR_TESTS);
+  bool server_running = false;
+  base::RunLoop run_loop;
+  simple_url_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      g_browser_process->system_network_context_manager()
+          ->GetURLLoaderFactory(),
+      base::BindLambdaForTesting(
+          [&server_running,
+           &run_loop](std::unique_ptr<std::string> response_body) {
+            server_running =
+                response_body && base::StartsWith(*response_body, "ok",
+                                                  base::CompareCase::SENSITIVE);
+            run_loop.Quit();
+          }));
+  return server_running;
 }
 
 bool SyncTest::TestUsesSelfNotifications() {
@@ -1172,6 +1171,10 @@ void SyncTest::TriggerSyncForModelTypes(int index,
   GetSyncService(index)->TriggerRefresh(model_types);
 }
 
+void SyncTest::StopConfigurationRefresher() {
+  configuration_refresher_.reset();
+}
+
 arc::SyncArcPackageHelper* SyncTest::sync_arc_helper() {
 #if defined(OS_CHROMEOS)
   return arc::SyncArcPackageHelper::GetInstance();
@@ -1193,5 +1196,6 @@ bool SyncTest::ClearServerData(ProfileSyncServiceHarness* harness) {
 
   // Our birthday is invalidated on the server here so restart sync to get
   // the new birthday from the server.
-  return harness->RestartSyncService();
+  harness->StopSyncService(syncer::SyncService::CLEAR_DATA);
+  return harness->StartSyncService();
 }

@@ -113,9 +113,7 @@ class ChromeSubresourceFilterClient
   void ShowNotification() override;
   void OnNewNavigationStarted() override;
   bool OnPageActivationComputed(content::NavigationHandle* navigation_handle,
-                                bool activated,
-                                bool suppressing_notifications) override;
-  void WhitelistInCurrentWebContents(const GURL& url) override;
+                                bool activated) override;
   subresource_filter::VerifiedRulesetDealer::Handle* GetRulesetDealer()
       override;
   bool ForceActivationInCurrentWebContents() override;
@@ -132,6 +130,10 @@ class ChromeSubresourceFilterClient
   static void LogAction(SubresourceFilterAction action);
 
  private:
+  // TODO(csharrison): Remove this once the experimental UI flag is either
+  // removed or merged with the top-level subresource filter flag.
+  void WhitelistInCurrentWebContents(const GURL& url);
+
   void WhitelistByContentSettings(const GURL& url);
   void ShowUI(const GURL& url);
 

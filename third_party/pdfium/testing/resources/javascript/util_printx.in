@@ -32,6 +32,7 @@ endobj
 endobj
 % JS program to exexute
 {{object 11 0}} <<
+  {{streamlen}}
 >>
 stream
 function TestOneFormat(fmt, src) {
@@ -81,8 +82,6 @@ TestOneFormat("cl\\9ms", "-1Afp3.d33F$");
 endstream
 endobj
 {{xref}}
-trailer <<
-  /Root 1 0 R
->>
+{{trailer}}
 {{startxref}}
 %%EOF

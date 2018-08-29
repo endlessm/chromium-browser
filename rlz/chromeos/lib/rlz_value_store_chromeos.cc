@@ -19,6 +19,7 @@
 #include "base/values.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/debug_daemon_client.h"
+#include "chromeos/system/factory_ping_embargo_check.h"
 #include "chromeos/system/statistics_provider.h"
 #include "rlz/lib/financial_ping.h"
 #include "rlz/lib/lib_values.h"
@@ -52,7 +53,7 @@ base::LazyInstance<base::FilePath>::Leaky g_testing_rlz_store_path =
 
 base::FilePath GetRlzStorePathCommon() {
   base::FilePath homedir;
-  PathService::Get(base::DIR_HOME, &homedir);
+  base::PathService::Get(base::DIR_HOME, &homedir);
   return g_testing_rlz_store_path.Get().empty()
              ? homedir
              : g_testing_rlz_store_path.Get();
@@ -84,42 +85,7 @@ std::string GetKeyName(const std::string& key, Product product) {
   return key + "." + GetProductName(product) + "." + brand;
 }
 
-// Returns true if the |rlz_embargo_end_date| present in VPD has passed
-// compared to the current time.
-bool HasRlzEmbargoEndDatePassed() {
-  chromeos::system::StatisticsProvider* stats =
-      chromeos::system::StatisticsProvider::GetInstance();
-
-  std::string rlz_embargo_end_date;
-  if (!stats->GetMachineStatistic(chromeos::system::kRlzEmbargoEndDateKey,
-                                  &rlz_embargo_end_date)) {
-    // |rlz_embargo_end_date| only exists on new devices that have not yet
-    // launched. When the field doesn't exist, returns true so it's a no-op.
-    return true;
-  }
-  base::Time parsed_time;
-  if (!base::Time::FromUTCString(rlz_embargo_end_date.c_str(), &parsed_time)) {
-    LOG(ERROR) << "|rlz_embargo_end_date| exists but cannot be parsed.";
-    return true;
-  }
-
-  if (parsed_time - base::Time::Now() >=
-      base::TimeDelta::FromDays(
-          RlzValueStoreChromeOS::kRlzEmbargoEndDateGarbageDateThresholdDays)) {
-    // If |rlz_embargo_end_date| is more than this many days in the future,
-    // ignore it. Because it indicates that the device is not connected to an
-    // ntp server in the factory, and its internal clock could be off when the
-    // date is written.
-    return true;
-  }
-
-  return base::Time::Now() > parsed_time;
-}
-
 }  // namespace
-
-const int RlzValueStoreChromeOS::kRlzEmbargoEndDateGarbageDateThresholdDays =
-    14;
 
 const int RlzValueStoreChromeOS::kMaxRetryCount = 3;
 
@@ -291,12 +257,17 @@ bool RlzValueStoreChromeOS::IsStatefulEvent(Product product,
       if (should_send_rlz_ping_value ==
           chromeos::system::kShouldSendRlzPingValueFalse) {
         return true;
+      } else if (should_send_rlz_ping_value !=
+                 chromeos::system::kShouldSendRlzPingValueTrue) {
+        LOG(WARNING) << chromeos::system::kShouldSendRlzPingKey
+                     << " has an unexpected value: "
+                     << should_send_rlz_ping_value << ". Treat it as "
+                     << chromeos::system::kShouldSendRlzPingValueFalse
+                     << " to avoid sending duplicate rlz ping.";
+        return true;
       }
       if (!HasRlzEmbargoEndDatePassed())
         return true;
-
-      DCHECK_EQ(should_send_rlz_ping_value,
-                chromeos::system::kShouldSendRlzPingValueTrue);
     } else {
       // If |kShouldSendRlzPingKey| doesn't exist in RW_VPD, treat it in the
       // same way with the case of |kShouldSendRlzPingValueFalse|.
@@ -316,6 +287,14 @@ bool RlzValueStoreChromeOS::ClearAllStatefulEvents(Product product) {
 void RlzValueStoreChromeOS::CollectGarbage() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   NOTIMPLEMENTED();
+}
+
+// static
+bool RlzValueStoreChromeOS::HasRlzEmbargoEndDatePassed() {
+  chromeos::system::StatisticsProvider* statistics_provider =
+      chromeos::system::StatisticsProvider::GetInstance();
+  return chromeos::system::GetFactoryPingEmbargoState(statistics_provider) !=
+         chromeos::system::FactoryPingEmbargoState::kNotPassed;
 }
 
 void RlzValueStoreChromeOS::ReadStore() {
@@ -385,8 +364,8 @@ void RlzValueStoreChromeOS::OnSetRlzPingSent(bool success) {
     UMA_HISTOGRAM_BOOLEAN("Rlz.SetRlzPingSent", true);
   } else if (set_rlz_ping_sent_attempts_ >= kMaxRetryCount) {
     UMA_HISTOGRAM_BOOLEAN("Rlz.SetRlzPingSent", false);
-    LOG(ERROR) << "Setting |should_send_rlz_ping| to 0 failed after "
-               << kMaxRetryCount << " attempts";
+    LOG(ERROR) << "Setting " << chromeos::system::kShouldSendRlzPingKey
+               << " failed after " << kMaxRetryCount << " attempts.";
   } else {
     SetRlzPingSent();
   }

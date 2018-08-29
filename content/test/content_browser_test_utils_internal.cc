@@ -22,7 +22,7 @@
 #include "content/browser/frame_host/render_frame_host_delegate.h"
 #include "content/browser/frame_host/render_frame_proxy_host.h"
 #include "content/browser/renderer_host/delegated_frame_host.h"
-#include "content/common/frame_resize_params.h"
+#include "content/common/frame_visual_properties.h"
 #include "content/common/view_messages.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_handle.h"
@@ -363,93 +363,6 @@ void UrlCommitObserver::DidFinishNavigation(
       navigation_handle->GetFrameTreeNodeId() == frame_tree_node_id_) {
     run_loop_.Quit();
   }
-}
-
-UpdateResizeParamsMessageFilter::UpdateResizeParamsMessageFilter()
-    : content::BrowserMessageFilter(FrameMsgStart),
-      screen_space_rect_run_loop_(std::make_unique<base::RunLoop>()),
-      screen_space_rect_received_(false) {}
-
-void UpdateResizeParamsMessageFilter::WaitForRect() {
-  screen_space_rect_run_loop_->Run();
-}
-
-void UpdateResizeParamsMessageFilter::ResetRectRunLoop() {
-  last_rect_ = gfx::Rect();
-  screen_space_rect_run_loop_.reset(new base::RunLoop);
-  screen_space_rect_received_ = false;
-}
-
-viz::FrameSinkId UpdateResizeParamsMessageFilter::GetOrWaitForId() {
-  // No-opt if already quit.
-  frame_sink_id_run_loop_.Run();
-  return frame_sink_id_;
-}
-
-UpdateResizeParamsMessageFilter::~UpdateResizeParamsMessageFilter() {}
-
-void UpdateResizeParamsMessageFilter::OnUpdateResizeParams(
-    const viz::SurfaceId& surface_id,
-    const FrameResizeParams& resize_params) {
-  gfx::Rect screen_space_rect_in_dip = resize_params.screen_space_rect;
-  if (IsUseZoomForDSFEnabled()) {
-    screen_space_rect_in_dip =
-        gfx::Rect(gfx::ScaleToFlooredPoint(
-                      resize_params.screen_space_rect.origin(),
-                      1.f / resize_params.screen_info.device_scale_factor),
-                  gfx::ScaleToCeiledSize(
-                      resize_params.screen_space_rect.size(),
-                      1.f / resize_params.screen_info.device_scale_factor));
-  }
-  // Track each rect updates.
-  content::BrowserThread::PostTask(
-      content::BrowserThread::UI, FROM_HERE,
-      base::BindOnce(&UpdateResizeParamsMessageFilter::OnUpdatedFrameRectOnUI,
-                     this, screen_space_rect_in_dip));
-
-  // Record the received value. We cannot check the current state of the child
-  // frame, as it can only be processed on the UI thread, and we cannot block
-  // here.
-  frame_sink_id_ = surface_id.frame_sink_id();
-
-  // There can be several updates before a valid viz::FrameSinkId is ready. Do
-  // not quit |run_loop_| until after we receive a valid one.
-  if (!frame_sink_id_.is_valid())
-    return;
-
-  // We can't nest on the IO thread. So tests will wait on the UI thread, so
-  // post there to exit the nesting.
-  content::BrowserThread::GetTaskRunnerForThread(content::BrowserThread::UI)
-      ->PostTask(FROM_HERE,
-                 base::BindOnce(
-                     &UpdateResizeParamsMessageFilter::OnUpdatedFrameSinkIdOnUI,
-                     this));
-}
-
-void UpdateResizeParamsMessageFilter::OnUpdatedFrameRectOnUI(
-    const gfx::Rect& rect) {
-  last_rect_ = rect;
-  if (!screen_space_rect_received_) {
-    screen_space_rect_received_ = true;
-    // Tests looking at the rect currently expect all received input to finish
-    // processing before the test continutes.
-    screen_space_rect_run_loop_->QuitWhenIdle();
-  }
-}
-
-void UpdateResizeParamsMessageFilter::OnUpdatedFrameSinkIdOnUI() {
-  frame_sink_id_run_loop_.Quit();
-}
-
-bool UpdateResizeParamsMessageFilter::OnMessageReceived(
-    const IPC::Message& message) {
-  IPC_BEGIN_MESSAGE_MAP(UpdateResizeParamsMessageFilter, message)
-    IPC_MESSAGE_HANDLER(FrameHostMsg_UpdateResizeParams, OnUpdateResizeParams)
-  IPC_END_MESSAGE_MAP()
-
-  // We do not consume the message, so that we can verify the effects of it
-  // being processed.
-  return false;
 }
 
 RenderProcessHostKillWaiter::RenderProcessHostKillWaiter(

@@ -59,6 +59,7 @@ struct TestConfig {
   std::string expected_advertised_alpn;
   std::string select_alpn;
   bool decline_alpn = false;
+  bool select_empty_alpn = false;
   std::string quic_transport_params;
   std::string expected_quic_transport_params;
   bool expect_session_miss = false;
@@ -115,6 +116,7 @@ struct TestConfig {
   bool renegotiate_once = false;
   bool renegotiate_freely = false;
   bool renegotiate_ignore = false;
+  bool forbid_renegotiation_after_handshake = false;
   int expect_peer_signature_algorithm = 0;
   bool p384_only = false;
   bool enable_all_curves = false;
@@ -154,6 +156,11 @@ struct TestConfig {
   int dummy_pq_padding_len = 0;
   bool handoff = false;
   bool expect_dummy_pq_padding = false;
+  bool no_rsa_pss_rsae_certs = false;
+  bool use_ocsp_callback = false;
+  bool set_ocsp_in_callback = false;
+  bool decline_ocsp_callback = false;
+  bool fail_ocsp_callback = false;
 };
 
 bool ParseConfig(int argc, char **argv, TestConfig *out_initial,

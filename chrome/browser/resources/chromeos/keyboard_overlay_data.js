@@ -4178,7 +4178,9 @@ var keyboardOverlayData = {
     'c<>CTRL<>SHIFT': 'keyboardOverlayDomInspector',
     'd<>ALT': 'keyboardOverlayFocusAddressBar',
     'd<>CTRL': 'keyboardOverlayBookmarkCurrentPage',
+    'd<>CTRL<>SEARCH': 'keyboardOverlayToggleDockedMagnifier',
     'd<>CTRL<>SHIFT': 'keyboardOverlayBookmarkAllTabs',
+    'd<>SEARCH': 'keyboardOverlayToggleDictation',
     'down<>ALT': 'keyboardOverlayPageDown',
     'down<>ALT<>CTRL': 'keyboardOverlayEnd',
     'down<>SEARCH': 'keyboardOverlayPageDown',
@@ -4241,6 +4243,7 @@ var keyboardOverlayData = {
     'left<>SEARCH': 'keyboardOverlayHome',
     'm<>ALT<>SEARCH': 'keyboardOverlayMoveActiveWindowBetweenDisplays',
     'm<>ALT<>SHIFT': 'keyboardOverlayOpenFileManager',
+    'm<>CTRL<>SEARCH': 'keyboardOverlayToggleFullscreenMagnifier',
     'mute<>SEARCH': 'keyboardOverlayF8',
     'n<>ALT<>SHIFT': 'keyboardOverlayShowMessageCenter',
     'n<>CTRL': 'keyboardOverlayNewWindow',
@@ -4294,6 +4297,5 @@ var keyboardOverlayData = {
     'z<>ALT<>CTRL': 'keyboardOverlayToggleChromevoxSpokenFeedback',
     'z<>CTRL': 'keyboardOverlayUndo',
     'a<>SEARCH': 'keyboardOverlayVoiceInteraction',
-    's<>SEARCH<>SHIFT': 'keyboardOverlayToggleDictation'
   }
 };

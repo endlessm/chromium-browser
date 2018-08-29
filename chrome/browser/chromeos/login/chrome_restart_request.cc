@@ -7,12 +7,12 @@
 #include <sys/socket.h>
 #include <vector>
 
+#include "ash/public/cpp/app_list/app_list_switches.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/process/launch.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -31,22 +31,20 @@
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager_client.h"
+#include "components/account_id/account_id.h"
 #include "components/policy/core/common/policy_switches.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/tracing/common/tracing_switches.h"
 #include "components/user_manager/user_names.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "gpu/ipc/host/gpu_switches.h"
-#include "gpu/ipc/service/switches.h"
 #include "media/base/media_switches.h"
 #include "media/media_buildflags.h"
 #include "services/service_manager/sandbox/switches.h"
 #include "third_party/cros_system_api/switches/chrome_switches.h"
-#include "ui/app_list/app_list_switches.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/compositor/compositor_switches.h"
 #include "ui/display/display_switches.h"
@@ -76,10 +74,12 @@ void DeriveCommandLine(const GURL& start_url,
   DCHECK_NE(&base_command_line, command_line);
 
   static const char* const kForwardSwitches[] = {
+    service_manager::switches::kDisableGpuSandbox,
     service_manager::switches::kDisableSeccompFilterSandbox,
     service_manager::switches::kDisableSetuidSandbox,
     service_manager::switches::kGpuSandboxAllowSysVShm,
     service_manager::switches::kGpuSandboxFailuresFatal,
+    service_manager::switches::kNoSandbox,
     ::switches::kBlinkSettings,
     ::switches::kDisable2dCanvasImageChromium,
     ::switches::kDisableAccelerated2dCanvas,
@@ -105,7 +105,6 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kDisableTouchDragDrop,
     ::switches::kDisableZeroCopy,
     ::switches::kEnableBlinkFeatures,
-    ::switches::kDisableGpuSandbox,
     ::switches::kEnableGpuMemoryBufferVideoFrames,
     ::switches::kEnableGpuRasterization,
     ::switches::kEnableLogging,
@@ -116,7 +115,6 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kEnablePartialRaster,
     ::switches::kEnablePinch,
     ::switches::kEnablePreferCompositingToLCDText,
-    ::switches::kEnableRasterDecoder,
     ::switches::kEnableRGBA4444Textures,
     ::switches::kEnableSlimmingPaintV175,
     ::switches::kEnableSlimmingPaintV2,
@@ -125,7 +123,6 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kEnableUseZoomForDSF,
     ::switches::kEnableViewport,
     ::switches::kEnableZeroCopy,
-    ::switches::kEnableDrmAtomic,
     ::switches::kEnableHardwareOverlays,
     ::switches::kExtraTouchNoiseFiltering,
     ::switches::kEdgeTouchFiltering,
@@ -137,7 +134,7 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kGpuRasterizationMSAASampleCount,
     ::switches::kGpuStartupDialog,
     ::switches::kGpuSandboxStartEarly,
-    ::switches::kNoSandbox,
+    ::switches::kLowPressureTouchFiltering,
     ::switches::kNumRasterThreads,
     ::switches::kPpapiFlashArgs,
     ::switches::kPpapiFlashPath,
@@ -162,10 +159,8 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kDisableWebGLImageChromium,
     ::switches::kEnableWebGLImageChromium,
     ::switches::kEnableWebVR,
-#if BUILDFLAG(ENABLE_WEBRTC)
     ::switches::kDisableWebRtcHWDecoding,
     ::switches::kDisableWebRtcHWEncoding,
-#endif
     ::switches::kOzonePlatform,
     ash::switches::kAshEnableTabletMode,
     ash::switches::kAshEnableWaylandServer,
@@ -173,9 +168,7 @@ void DeriveCommandLine(const GURL& start_url,
     ash::switches::kAshEnablePaletteOnAllDisplays,
     ash::switches::kAshTouchHud,
     ash::switches::kAuraLegacyPowerButton,
-    ash::switches::kForceClamshellPowerButton,
     ash::switches::kShowTaps,
-    ash::switches::kShowViewsLogin,
     ash::switches::kShowWebUiLock,
     ash::switches::kShowWebUiLogin,
     chromeos::switches::kDefaultWallpaperLarge,

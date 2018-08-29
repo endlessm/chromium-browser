@@ -215,7 +215,7 @@ DirOpenResult Directory::OpenImpl(
 }
 
 DeleteJournal* Directory::delete_journal() {
-  DCHECK(delete_journal_.get());
+  DCHECK(delete_journal_);
   return delete_journal_.get();
 }
 
@@ -818,13 +818,6 @@ void Directory::GetDownloadProgress(
   ScopedKernelLock lock(this);
   return value_out->CopyFrom(
       kernel_->persisted_info.download_progress[model_type]);
-}
-
-void Directory::GetDownloadProgressAsString(ModelType model_type,
-                                            std::string* value_out) const {
-  ScopedKernelLock lock(this);
-  kernel_->persisted_info.download_progress[model_type].SerializeToString(
-      value_out);
 }
 
 size_t Directory::GetEntriesCount() const {

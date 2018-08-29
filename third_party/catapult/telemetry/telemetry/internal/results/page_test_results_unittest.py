@@ -2,9 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import os
-import mock
 import StringIO
+import time
+import mock
+import os
 import unittest
 
 from py_utils import tempfile_ext
@@ -429,7 +430,10 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     self.assertEqual(results.AsHistogramDicts(), histogram_dicts)
 
   def testAddSharedDiagnostic(self):
-    results = page_test_results.PageTestResults()
+    benchmark_metadata = benchmark.BenchmarkMetadata(
+        'benchmark_name', 'benchmark_description')
+    results = page_test_results.PageTestResults(
+        benchmark_metadata=benchmark_metadata)
     results.telemetry_info.benchmark_start_epoch = 1501773200
     results.WillRunPage(self.pages[0])
     results.DidRunPage(self.pages[0])
@@ -438,9 +442,7 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
         reserved_infos.BENCHMARKS.name,
         generic_set.GenericSet(['benchmark_name']))
 
-    benchmark_metadata = benchmark.BenchmarkMetadata(
-        'benchmark_name', 'benchmark_description')
-    results.PopulateHistogramSet(benchmark_metadata)
+    results.PopulateHistogramSet()
 
     histogram_dicts = results.AsHistogramDicts()
     self.assertEquals(1, len(histogram_dicts))
@@ -449,7 +451,10 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     self.assertIsInstance(diag, generic_set.GenericSet)
 
   def testPopulateHistogramSet_UsesScalarValueData(self):
-    results = page_test_results.PageTestResults()
+    benchmark_metadata = benchmark.BenchmarkMetadata(
+        'benchmark_name', 'benchmark_description')
+    results = page_test_results.PageTestResults(
+        benchmark_metadata=benchmark_metadata)
     results.telemetry_info.benchmark_start_epoch = 1501773200
     results.WillRunPage(self.pages[0])
     results.AddValue(scalar.ScalarValue(
@@ -458,9 +463,7 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     results.DidRunPage(self.pages[0])
     results.CleanUp()
 
-    benchmark_metadata = benchmark.BenchmarkMetadata(
-        'benchmark_name', 'benchmark_description')
-    results.PopulateHistogramSet(benchmark_metadata)
+    results.PopulateHistogramSet()
 
     hs = histogram_set.HistogramSet()
     hs.ImportDicts(results.AsHistogramDicts())
@@ -470,7 +473,10 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
   def testPopulateHistogramSet_UsesHistogramSetData(self):
     original_diagnostic = generic_set.GenericSet(['benchmark_name'])
 
-    results = page_test_results.PageTestResults()
+    benchmark_metadata = benchmark.BenchmarkMetadata(
+        'benchmark_name', 'benchmark_description')
+    results = page_test_results.PageTestResults(
+        benchmark_metadata=benchmark_metadata)
     results.telemetry_info.benchmark_start_epoch = 1501773200
     results.WillRunPage(self.pages[0])
     results.AddHistogram(histogram_module.Histogram('foo', 'count'))
@@ -479,9 +485,7 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
     results.DidRunPage(self.pages[0])
     results.CleanUp()
 
-    benchmark_metadata = benchmark.BenchmarkMetadata(
-        'benchmark_name', 'benchmark_description')
-    results.PopulateHistogramSet(benchmark_metadata)
+    results.PopulateHistogramSet()
 
     histogram_dicts = results.AsHistogramDicts()
     self.assertEquals(2, len(histogram_dicts))
@@ -523,6 +527,46 @@ class PageTestResultsTest(base_test_results_unittest.BaseTestResultsUnittest):
         hist.diagnostics[
             reserved_infos.BENCHMARK_DESCRIPTIONS.name].GetOnlyElement(),
         'desc')
+
+  def testAddDurationHistogram_NoLabelAndDescription(self):
+    results = page_test_results.PageTestResults()
+    results.telemetry_info.benchmark_start_epoch = 1234
+    results.telemetry_info.benchmark_name = 'bar'
+    results.AddDurationHistogram(42)
+
+    histograms = histogram_set.HistogramSet()
+    histograms.ImportDicts(results.AsHistogramDicts())
+    self.assertEqual(len(histograms), 1)
+    hist = histograms.GetFirstHistogram()
+    self.assertEqual(hist.name, 'benchmark_total_duration')
+    self.assertNotIn(reserved_infos.LABELS.name, hist.diagnostics)
+    self.assertIn(reserved_infos.BENCHMARKS.name, hist.diagnostics)
+    self.assertEqual(
+        len(hist.diagnostics[reserved_infos.BENCHMARKS.name]), 1)
+    self.assertEqual(
+        hist.diagnostics[reserved_infos.BENCHMARKS.name].GetOnlyElement(),
+        'bar')
+    self.assertNotIn(
+        reserved_infos.BENCHMARK_DESCRIPTIONS.name, hist.diagnostics)
+
+  def testAddDurationHistogram_BenchmarkStart(self):
+    results = page_test_results.PageTestResults()
+    results.telemetry_info.benchmark_start_epoch = 1525978345
+    results.AddDurationHistogram(42)
+
+    histograms = histogram_set.HistogramSet()
+    histograms.ImportDicts(results.AsHistogramDicts())
+    self.assertEqual(len(histograms), 1)
+    hist = histograms.GetFirstHistogram()
+    self.assertEqual(hist.name, 'benchmark_total_duration')
+    self.assertIn(reserved_infos.BENCHMARK_START.name, hist.diagnostics)
+    min_date = hist.diagnostics[reserved_infos.BENCHMARK_START.name].min_date
+    self.assertEqual(time.mktime(min_date.timetuple()),
+                     results.telemetry_info.benchmark_start_epoch)
+    max_date = hist.diagnostics[reserved_infos.BENCHMARK_START.name].max_date
+    self.assertEqual(time.mktime(max_date.timetuple()),
+                     results.telemetry_info.benchmark_start_epoch)
+
 
 class PageTestResultsFilterTest(unittest.TestCase):
   def setUp(self):

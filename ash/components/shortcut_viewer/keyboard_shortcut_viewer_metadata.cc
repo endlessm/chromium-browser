@@ -13,6 +13,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/chromeos/events/keyboard_layout_util.h"
+#include "ui/events/devices/input_device_manager.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/keycodes/dom/dom_key.h"
@@ -75,6 +76,9 @@ base::Optional<base::string16> GetSpecialStringForKeyboardCode(
       msg_id = IDS_KSV_MODIFIER_SHIFT;
       break;
     case ui::VKEY_COMMAND:
+      // DeviceUsesKeyboardLayout2() relies on InputDeviceManager.
+      DCHECK(ui::InputDeviceManager::HasInstance());
+      DCHECK(ui::InputDeviceManager::GetInstance()->AreDeviceListsComplete());
       msg_id = ui::DeviceUsesKeyboardLayout2() ? IDS_KSV_MODIFIER_LAUNCHER
                                                : IDS_KSV_MODIFIER_SEARCH;
       break;
@@ -193,6 +197,20 @@ const gfx::VectorIcon* GetVectorIconForKeyboardCode(ui::KeyboardCode key_code) {
 
 const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
   static base::NoDestructor<std::vector<KeyboardShortcutItem>> item_list({
+      {// |categories|
+       {ShortcutCategory::kAccessibility},
+       IDS_KSV_DESCRIPTION_TOGGLE_DOCKED_MAGNIFIER,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_D, ui::EF_COMMAND_DOWN | ui::EF_CONTROL_DOWN}}},
+
+      {// |categories|
+       {ShortcutCategory::kAccessibility},
+       IDS_KSV_DESCRIPTION_TOGGLE_FULLSCREEN_MAGNIFIER,
+       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       // |accelerator_ids|
+       {{ui::VKEY_M, ui::EF_COMMAND_DOWN | ui::EF_CONTROL_DOWN}}},
+
       {// |categories|
        {ShortcutCategory::kPopular},
        IDS_KSV_DESCRIPTION_LOCK_SCREEN,
@@ -1209,9 +1227,9 @@ const std::vector<KeyboardShortcutItem>& GetKeyboardShortcutItemList() {
       {// |categories|
        {ShortcutCategory::kAccessibility},
        IDS_KSV_DESCRIPTION_TOGGLE_DICTATION,
-       IDS_KSV_SHORTCUT_TWO_MODIFIERS_ONE_KEY,
+       IDS_KSV_SHORTCUT_ONE_MODIFIER_ONE_KEY,
        // |accelerator_ids|
-       {{ui::VKEY_S, ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN}}},
+       {{ui::VKEY_D, ui::EF_COMMAND_DOWN}}},
 
       {// |categories|
        {ShortcutCategory::kSystemAndDisplay},

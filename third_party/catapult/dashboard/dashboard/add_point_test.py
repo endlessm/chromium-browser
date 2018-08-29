@@ -232,13 +232,11 @@ class AddPointTest(testing_common.TestCase):
     self.assertEqual('1355', rows[0].r_webkit)
     self.assertEqual('hello', rows[0].a_extra)
     self.assertEqual(22.2, rows[0].d_median)
-    self.assertTrue(rows[0].internal_only)
 
     # Verify all properties of the second Row.
     self.assertEqual(12345, rows[1].key.id())
     self.assertEqual(12345, rows[1].revision)
     self.assertEqual(44.3, rows[1].value)
-    self.assertTrue(rows[1].internal_only)
     self.assertEqual(
         'ChromiumPerf/win7/dromaeo/jslib', utils.TestPath(rows[1].parent_test))
     self.assertEqual('Test', rows[1].parent_test.kind())
@@ -256,9 +254,6 @@ class AddPointTest(testing_common.TestCase):
     self.assertFalse(tests[0].has_rows)
     self.assertEqual('ChromiumPerf/win7/dromaeo', tests[0].test_path)
     self.assertTrue(tests[0].internal_only)
-    self.assertEqual(1, len(tests[0].monitored))
-    self.assertEqual(
-        'ChromiumPerf/win7/dromaeo/dom', tests[0].monitored[0].string_id())
     self.assertIsNone(tests[0].units)
 
     self.assertEqual('ChromiumPerf/win7/dromaeo/dom', tests[1].key.id())
@@ -580,9 +575,6 @@ class AddPointTest(testing_common.TestCase):
 
     rows = graph_data.Row.query().fetch(limit=_FETCH_LIMIT)
     self.assertEqual(3, len(rows))
-    self.assertTrue(rows[0].internal_only)
-    self.assertTrue(rows[1].internal_only)
-    self.assertFalse(rows[2].internal_only)
 
   @mock.patch.object(
       add_point_queue.find_anomalies, 'ProcessTestsAsync', mock.MagicMock())
@@ -636,13 +628,6 @@ class AddPointTest(testing_common.TestCase):
     no_sheriff_test = ndb.Key(
         'TestMetadata', 'ChromiumWebkit/win7/dromaeo/jslib').get()
     self.assertIsNone(no_sheriff_test.sheriff)
-
-    test_suite = ndb.Key(
-        'TestMetadata', 'ChromiumPerf/win7/scrolling_benchmark').get()
-    self.assertEqual(1, len(test_suite.monitored))
-    self.assertEqual(
-        'ChromiumPerf/win7/scrolling_benchmark/mean_frame_time',
-        test_suite.monitored[0].string_id())
 
   def testPost_NewTest_AnomalyConfigPropertyIsAdded(self):
     """Tests that AnomalyConfig keys are added to TestMetadata upon creation.

@@ -26,6 +26,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/proxy_resolution/proxy_config.h"
 #include "net/proxy_resolution/proxy_config_service_common_unittest.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
@@ -404,7 +405,8 @@ class SyncConfigGetter : public ProxyConfigService::Observer {
 // This test fixture is only really needed for the KDEConfigParser test case,
 // but all the test cases with the same prefix ("ProxyConfigServiceLinuxTest")
 // must use the same test fixture class (also "ProxyConfigServiceLinuxTest").
-class ProxyConfigServiceLinuxTest : public PlatformTest {
+class ProxyConfigServiceLinuxTest : public PlatformTest,
+                                    public WithScopedTaskEnvironment {
  protected:
   void SetUp() override {
     PlatformTest::SetUp();
@@ -1120,6 +1122,20 @@ TEST_F(ProxyConfigServiceLinuxTest, GSettingsNotification) {
   EXPECT_EQ(ProxyConfigService::CONFIG_VALID,
             sync_config_getter.SyncGetLatestProxyConfig(&config));
   EXPECT_TRUE(config.value().auto_detect());
+
+  // Simulate two settings changes, where PROXY_MODE is missing. This will make
+  // the settings be interpreted as DIRECT.
+  //
+  // Trigering the check a *second* time is a regression test for
+  // https://crbug.com/848237, where a comparison is done between two nullopts.
+  for (size_t i = 0; i < 2; ++i) {
+    setting_getter->values.mode = nullptr;
+    service->OnCheckProxyConfigSettings();
+    EXPECT_EQ(ProxyConfigService::CONFIG_VALID,
+              sync_config_getter.SyncGetLatestProxyConfig(&config));
+    EXPECT_FALSE(config.value().auto_detect());
+    EXPECT_TRUE(config.value().proxy_rules().empty());
+  }
 }
 
 TEST_F(ProxyConfigServiceLinuxTest, KDEConfigParser) {

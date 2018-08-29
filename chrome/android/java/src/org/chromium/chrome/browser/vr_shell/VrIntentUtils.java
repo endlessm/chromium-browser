@@ -17,6 +17,7 @@ import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.util.IntentUtils;
+import org.chromium.chrome.browser.vr.VrMainActivity;
 
 /**
  * Utilities dealing with extracting information about VR intents.
@@ -111,6 +112,20 @@ public class VrIntentUtils {
     }
 
     /**
+     * @param activity The Activity to check.
+     * @param intent The intent the Activity was launched with.
+     * @return Whether this Activity is launching into VR.
+     */
+    public static boolean isLaunchingIntoVr(Activity activity, Intent intent) {
+        if (!VrShellDelegate.deviceSupportsVrLaunches()) return false;
+        return isLaunchingIntoVrBrowsing(activity, intent) || isCustomTabVrIntent(intent);
+    }
+
+    private static boolean isLaunchingIntoVrBrowsing(Activity activity, Intent intent) {
+        return isVrIntent(intent) && VrShellDelegate.activitySupportsVrBrowsing(activity);
+    }
+
+    /**
      * @return whether the given intent is should open in a Custom Tab.
      */
     public static boolean isCustomTabVrIntent(Intent intent) {
@@ -174,11 +189,13 @@ public class VrIntentUtils {
 
     /**
      * @param intent The intent to possibly forward to the VR launcher.
+     * @param activity The activity launching the intent.
      * @return whether the intent was forwarded to the VR launcher.
      */
     public static boolean maybeForwardToVrLauncher(Intent intent, Activity activity) {
         // Standalone VR devices use 2D-in-VR rendering on O+.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false;
+        if (activity instanceof VrMainActivity) return false;
         if (wouldUse2DInVrRenderingMode(activity) && VrShellDelegate.deviceSupportsVrLaunches()) {
             Intent vrIntent = new Intent(intent);
             vrIntent.setComponent(null);

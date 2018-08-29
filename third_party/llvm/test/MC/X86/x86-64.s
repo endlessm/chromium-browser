@@ -340,13 +340,9 @@ fucomi	%st(2), %st
 
 // CHECK: fnstsw %ax
 // CHECK: fnstsw %ax
-// CHECK: fnstsw %ax
-// CHECK: fnstsw %ax
 
 fnstsw
 fnstsw %ax
-fnstsw %eax
-fnstsw %al
 
 // rdar://8431880
 // CHECK: rclb	%bl
@@ -1558,6 +1554,86 @@ ptwriteq 0xdeadbeef(%rbx,%rcx,8)
 // CHECK: ptwriteq %rax
 // CHECK:  encoding: [0xf3,0x48,0x0f,0xae,0xe0]
 ptwriteq %rax
+
+// CHECK: wbnoinvd
+// CHECK:  encoding: [0xf3,0x0f,0x09]
+wbnoinvd
+
+// CHECK: cldemote 4(%rax)
+// CHECK:  encoding: [0x0f,0x1c,0x40,0x04]
+cldemote 4(%rax)
+
+// CHECK: cldemote 3735928559(%rbx,%rcx,8)
+// CHECK:  encoding: [0x0f,0x1c,0x84,0xcb,0xef,0xbe,0xad,0xde]
+cldemote 0xdeadbeef(%rbx,%rcx,8)
+
+// CHECK: umonitor %r13
+// CHECK:  encoding: [0xf3,0x41,0x0f,0xae,0xf5]
+umonitor %r13
+
+// CHECK: umonitor %rax
+// CHECK:  encoding: [0xf3,0x0f,0xae,0xf0]
+umonitor %rax
+
+// CHECK: umonitor %eax
+// CHECK:  encoding: [0x67,0xf3,0x0f,0xae,0xf0]
+umonitor %eax
+
+// CHECK: umwait %r15
+// CHECK:  encoding: [0xf2,0x41,0x0f,0xae,0xf7]
+umwait %r15
+
+// CHECK: umwait %ebx
+// CHECK:  encoding: [0xf2,0x0f,0xae,0xf3]
+umwait %ebx
+
+// CHECK: tpause %r15
+// CHECK:  encoding: [0x66,0x41,0x0f,0xae,0xf7]
+tpause %r15
+
+// CHECK: tpause %ebx
+// CHECK:  encoding: [0x66,0x0f,0xae,0xf3]
+tpause %ebx
+
+// CHECK: movdiri %r15, 485498096
+// CHECK: # encoding: [0x4c,0x0f,0x38,0xf9,0x3c,0x25,0xf0,0x1c,0xf0,0x1c]
+movdiri %r15, 485498096
+
+// CHECK: movdiri %r15, (%rdx)
+// CHECK: # encoding: [0x4c,0x0f,0x38,0xf9,0x3a]
+movdiri %r15, (%rdx)
+
+// CHECK: movdiri %r15, 64(%rdx)
+// CHECK: # encoding: [0x4c,0x0f,0x38,0xf9,0x7a,0x40]
+movdiri %r15, 64(%rdx)
+
+// CHECK: movdir64b 485498096, %rax
+// CHECK: # encoding: [0x66,0x0f,0x38,0xf8,0x04,0x25,0xf0,0x1c,0xf0,0x1c]
+movdir64b 485498096, %rax
+
+// CHECK: movdir64b 485498096, %eax
+// CHECK: # encoding: [0x67,0x66,0x0f,0x38,0xf8,0x04,0x25,0xf0,0x1c,0xf0,0x1c]
+movdir64b 485498096, %eax
+
+// CHECK: movdir64b (%rdx), %r15
+// CHECK: # encoding: [0x66,0x44,0x0f,0x38,0xf8,0x3a]
+movdir64b (%rdx), %r15
+
+// CHECK: pconfig
+// CHECK: # encoding: [0x0f,0x01,0xc5]
+pconfig
+
+// CHECK: encls
+// CHECK: encoding: [0x0f,0x01,0xcf]
+encls
+
+// CHECK: enclu
+// CHECK: encoding: [0x0f,0x01,0xd7]
+enclu
+
+// CHECK: enclv
+// CHECK: encoding: [0x0f,0x01,0xc0]
+enclv
 
 //  __asm __volatile(
 //    "pushf        \n\t"

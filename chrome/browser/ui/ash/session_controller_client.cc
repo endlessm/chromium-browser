@@ -33,12 +33,15 @@
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/pref_names.h"
+#include "chromeos/assistant/buildflags.h"
+#include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager_client.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/user_type.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/common/service_manager_connection.h"
 #include "mojo/public/cpp/bindings/equals_traits.h"
@@ -47,12 +50,16 @@
 #include "ui/chromeos/resources/grit/ui_chromeos_resources.h"
 #include "ui/gfx/image/image_skia.h"
 
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+#include "chrome/browser/ui/ash/assistant/assistant_client.h"
+#endif
+
 using session_manager::Session;
 using session_manager::SessionManager;
 using session_manager::SessionState;
-using user_manager::UserManager;
 using user_manager::User;
 using user_manager::UserList;
+using user_manager::UserManager;
 
 namespace {
 
@@ -92,12 +99,16 @@ ash::mojom::UserSessionPtr UserToUserSession(const User& user) {
   session->user_info->display_email = user.display_email();
   session->user_info->is_ephemeral =
       UserManager::Get()->IsUserNonCryptohomeDataEphemeral(user.GetAccountId());
-  if (profile)
+  if (profile) {
+    session->user_info->service_user_id =
+        content::BrowserContext::GetServiceUserIdFor(profile);
     session->user_info->is_new_profile = profile->IsNewProfile();
+  }
 
-  session->user_info->avatar = user.GetImage();
-  if (session->user_info->avatar.isNull()) {
-    session->user_info->avatar =
+  session->user_info->avatar = ash::mojom::UserAvatar::New();
+  session->user_info->avatar->image = user.GetImage();
+  if (session->user_info->avatar->image.isNull()) {
+    session->user_info->avatar->image =
         *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
             IDR_LOGIN_DEFAULT_USER);
   }
@@ -219,7 +230,7 @@ void SessionControllerClient::PrepareForLock(base::OnceClosure callback) {
 }
 
 void SessionControllerClient::StartLock(StartLockCallback callback) {
-  session_controller_->StartLock(callback);
+  session_controller_->StartLock(std::move(callback));
 }
 
 void SessionControllerClient::NotifyChromeLockAnimationsComplete() {
@@ -227,8 +238,9 @@ void SessionControllerClient::NotifyChromeLockAnimationsComplete() {
 }
 
 void SessionControllerClient::RunUnlockAnimation(
-    base::Closure animation_finished_callback) {
-  session_controller_->RunUnlockAnimation(animation_finished_callback);
+    base::OnceClosure animation_finished_callback) {
+  session_controller_->RunUnlockAnimation(
+      std::move(animation_finished_callback));
 }
 
 void SessionControllerClient::ShowTeleportWarningDialog(
@@ -450,6 +462,15 @@ void SessionControllerClient::OnSessionStateChanged() {
     primary_user_session_sent_ = true;
     SendUserSession(*UserManager::Get()->GetPrimaryUser());
     SendUserSessionOrder();
+
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+    // Assistant is initialized only once when primary user logs in.
+    if (chromeos::switches::IsAssistantEnabled()) {
+      AssistantClient::Get()->MaybeInit(
+          content::BrowserContext::GetConnectorFor(
+              ProfileManager::GetPrimaryUserProfile()));
+    }
+#endif
   }
 
   SendSessionInfoIfChanged();

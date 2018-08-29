@@ -22,6 +22,7 @@
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Function.h"
@@ -150,10 +151,11 @@ MachineRegisterInfo::recomputeRegClass(unsigned Reg) {
   return true;
 }
 
-unsigned MachineRegisterInfo::createIncompleteVirtualRegister() {
+unsigned MachineRegisterInfo::createIncompleteVirtualRegister(StringRef Name) {
   unsigned Reg = TargetRegisterInfo::index2VirtReg(getNumVirtRegs());
   VRegInfo.grow(Reg);
   RegAllocHints.grow(Reg);
+  insertVRegByName(Name, Reg);
   return Reg;
 }
 
@@ -161,13 +163,14 @@ unsigned MachineRegisterInfo::createIncompleteVirtualRegister() {
 /// function with the specified register class.
 ///
 unsigned
-MachineRegisterInfo::createVirtualRegister(const TargetRegisterClass *RegClass){
+MachineRegisterInfo::createVirtualRegister(const TargetRegisterClass *RegClass,
+                                           StringRef Name) {
   assert(RegClass && "Cannot create register without RegClass!");
   assert(RegClass->isAllocatable() &&
          "Virtual register RegClass must be allocatable.");
 
   // New virtual register number.
-  unsigned Reg = createIncompleteVirtualRegister();
+  unsigned Reg = createIncompleteVirtualRegister(Name);
   VRegInfo[Reg].first = RegClass;
   if (TheDelegate)
     TheDelegate->MRI_NoteNewVirtualRegister(Reg);
@@ -188,9 +191,9 @@ void MachineRegisterInfo::setType(unsigned VReg, LLT Ty) {
 }
 
 unsigned
-MachineRegisterInfo::createGenericVirtualRegister(LLT Ty) {
+MachineRegisterInfo::createGenericVirtualRegister(LLT Ty, StringRef Name) {
   // New virtual register number.
-  unsigned Reg = createIncompleteVirtualRegister();
+  unsigned Reg = createIncompleteVirtualRegister(Name);
   // FIXME: Should we use a dummy register class?
   VRegInfo[Reg].first = static_cast<RegisterBank *>(nullptr);
   getVRegToType()[Reg] = Ty;

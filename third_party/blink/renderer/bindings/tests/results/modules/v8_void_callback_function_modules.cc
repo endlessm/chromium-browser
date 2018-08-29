@@ -9,19 +9,19 @@
 
 // clang-format off
 
-#include "v8_void_callback_function_modules.h"
+#include "third_party/blink/renderer/bindings/tests/results/modules/v8_void_callback_function_modules.h"
 
-#include "bindings/core/v8/exception_state.h"
-#include "bindings/core/v8/generated_code_helper.h"
-#include "bindings/core/v8/native_value_traits_impl.h"
-#include "bindings/core/v8/to_v8_for_core.h"
-#include "bindings/core/v8/v8_binding_for_core.h"
-#include "core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
+#include "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h"
+#include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
+#include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 
 namespace blink {
 
 v8::Maybe<void> V8VoidCallbackFunctionModules::Invoke(ScriptWrappable* callback_this_value) {
-  // This function implements "invoke" steps in
+  // This function implements "invoke" algorithm defined in
   // "3.10. Invoking callback functions".
   // https://heycam.github.io/webidl/#es-invoking-callback-functions
 
@@ -75,9 +75,6 @@ v8::Maybe<void> V8VoidCallbackFunctionModules::Invoke(ScriptWrappable* callback_
   //   arguments list. If this throws an exception, set completion to the
   //   completion value representing the thrown exception and jump to the step
   //   labeled return.
-  v8::Local<v8::Object> argument_creation_context =
-      CallbackRelevantScriptState()->GetContext()->Global();
-  ALLOW_UNUSED_LOCAL(argument_creation_context);
   v8::Local<v8::Value> *argv = nullptr;
 
   // step 11. Let callResult be Call(X, thisArg, esArgs).

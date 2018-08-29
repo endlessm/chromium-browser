@@ -19,6 +19,7 @@
 #include "llvm/CodeGen/RegisterPressure.h"
 #include "llvm/CodeGen/SlotIndexes.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/MC/LaneBitmask.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
@@ -300,7 +301,7 @@ void GCNUpwardRPTracker::recede(const MachineInstr &MI) {
 
   LastTrackedMI = &MI;
 
-  if (MI.isDebugValue())
+  if (MI.isDebugInstr())
     return;
 
   auto const RegUses = collectVirtualRegUses(MI, LIS, *MRI);

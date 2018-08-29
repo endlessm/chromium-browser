@@ -140,6 +140,9 @@ class TestMockTimeTaskRunner : public SingleThreadTaskRunner,
   // non-negative.
   void FastForwardBy(TimeDelta delta);
 
+  // Fast-forwards virtual time by |delta| but not causing any task execution.
+  void AdvanceMockTickClock(TimeDelta delta);
+
   // Fast-forwards virtual time just until all tasks are executed.
   void FastForwardUntilNoTasksRemain();
 
@@ -171,10 +174,11 @@ class TestMockTimeTaskRunner : public SingleThreadTaskRunner,
   std::unique_ptr<TickClock> DeprecatedGetMockTickClock() const;
   const TickClock* GetMockTickClock() const;
 
+  // Cancelled pending tasks get pruned automatically.
   base::circular_deque<TestPendingTask> TakePendingTasks();
-  bool HasPendingTask() const;
-  size_t GetPendingTaskCount() const;
-  TimeDelta NextPendingTaskDelay() const;
+  bool HasPendingTask();
+  size_t GetPendingTaskCount();
+  TimeDelta NextPendingTaskDelay();
 
   // SingleThreadTaskRunner:
   bool RunsTasksInCurrentSequence() const override;
@@ -212,7 +216,7 @@ class TestMockTimeTaskRunner : public SingleThreadTaskRunner,
     TimeTicks NowTicks() const override;
 
     // Clock:
-    Time Now() override;
+    Time Now() const override;
 
    private:
     TestMockTimeTaskRunner* task_runner_;

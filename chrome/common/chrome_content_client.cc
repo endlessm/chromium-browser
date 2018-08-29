@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "base/command_line.h"
+#include "base/containers/flat_set.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/lazy_instance.h"
@@ -49,6 +50,7 @@
 #include "extensions/common/constants.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_util.h"
+#include "media/base/decrypt_config.h"
 #include "media/base/media_switches.h"
 #include "media/base/video_codecs.h"
 #include "media/media_buildflags.h"
@@ -128,16 +130,18 @@ content::PepperPluginInfo::PPP_ShutdownModuleFunc g_nacl_shutdown_module;
 #endif
 
 #if defined(WIDEVINE_CDM_AVAILABLE_NOT_COMPONENT)
-bool IsWidevineAvailable(base::FilePath* cdm_path,
-                         std::vector<media::VideoCodec>* codecs_supported,
-                         bool* supports_persistent_license) {
+bool IsWidevineAvailable(
+    base::FilePath* cdm_path,
+    std::vector<media::VideoCodec>* codecs_supported,
+    bool* supports_persistent_license,
+    base::flat_set<media::EncryptionMode>* modes_supported) {
   static enum {
     NOT_CHECKED,
     FOUND,
     NOT_FOUND,
   } widevine_cdm_file_check = NOT_CHECKED;
 
-  if (PathService::Get(chrome::FILE_WIDEVINE_CDM, cdm_path)) {
+  if (base::PathService::Get(chrome::FILE_WIDEVINE_CDM, cdm_path)) {
     if (widevine_cdm_file_check == NOT_CHECKED)
       widevine_cdm_file_check = base::PathExists(*cdm_path) ? FOUND : NOT_FOUND;
 
@@ -157,6 +161,10 @@ bool IsWidevineAvailable(base::FilePath* cdm_path,
 #else
       *supports_persistent_license = false;
 #endif  // defined(OS_CHROMEOS)
+
+      // TODO(crbug.com/835009): Update once Widevine on Linux supports more
+      // encryption schemes.
+      modes_supported->insert(media::EncryptionMode::kCenc);
 
       return true;
     }
@@ -198,7 +206,7 @@ void ComputeBuiltInPlugins(std::vector<content::PepperPluginInfo>* plugins) {
   // from the Chrome Web Store to use NaCl even if the command line switch
   // isn't set.  For other uses of NaCl we check for the command line switch.
   base::FilePath path;
-  if (PathService::Get(chrome::FILE_NACL_PLUGIN, &path)) {
+  if (base::PathService::Get(chrome::FILE_NACL_PLUGIN, &path)) {
     content::PepperPluginInfo nacl;
     // The nacl plugin is now built into the Chromium binary.
     nacl.is_internal = true;
@@ -369,8 +377,8 @@ bool GetSystemPepperFlash(content::PepperPluginInfo* plugin) {
     return false;
 
   base::FilePath flash_filename;
-  if (!PathService::Get(chrome::FILE_PEPPER_FLASH_SYSTEM_PLUGIN,
-                        &flash_filename))
+  if (!base::PathService::Get(chrome::FILE_PEPPER_FLASH_SYSTEM_PLUGIN,
+                              &flash_filename))
     return false;
 
   return TryCreatePepperFlashInfo(flash_filename, plugin);
@@ -524,15 +532,18 @@ void ChromeContentClient::AddContentDecryptionModules(
     base::FilePath cdm_path;
     std::vector<media::VideoCodec> video_codecs_supported;
     bool supports_persistent_license = false;
+    base::flat_set<media::EncryptionMode> encryption_modes_supported;
     if (IsWidevineAvailable(&cdm_path, &video_codecs_supported,
-                            &supports_persistent_license)) {
+                            &supports_persistent_license,
+                            &encryption_modes_supported)) {
       const base::Version version(WIDEVINE_CDM_VERSION_STRING);
       DCHECK(version.IsValid());
 
       cdms->push_back(content::CdmInfo(
           kWidevineCdmDisplayName, kWidevineCdmGuid, version, cdm_path,
           kWidevineCdmFileSystemId, video_codecs_supported,
-          supports_persistent_license, kWidevineKeySystem, false));
+          supports_persistent_license, encryption_modes_supported,
+          kWidevineKeySystem, false));
     }
 #endif  // defined(WIDEVINE_CDM_AVAILABLE_NOT_COMPONENT)
 
@@ -560,6 +571,7 @@ void ChromeContentClient::AddContentDecryptionModules(
           media::kClearKeyCdmDisplayName, media::kClearKeyCdmDifferentGuid,
           base::Version("0.1.0.0"), clear_key_cdm_path,
           media::kClearKeyCdmFileSystemId, {}, supports_persistent_license,
+          {media::EncryptionMode::kCenc, media::EncryptionMode::kCbcs},
           kExternalClearKeyDifferentGuidTestKeySystem, false));
 
       // Supported codecs are hard-coded in ExternalClearKeyProperties.
@@ -567,6 +579,7 @@ void ChromeContentClient::AddContentDecryptionModules(
           media::kClearKeyCdmDisplayName, media::kClearKeyCdmGuid,
           base::Version("0.1.0.0"), clear_key_cdm_path,
           media::kClearKeyCdmFileSystemId, {}, supports_persistent_license,
+          {media::EncryptionMode::kCenc, media::EncryptionMode::kCbcs},
           kExternalClearKeyKeySystem, true));
     }
 #endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
@@ -692,7 +705,7 @@ bool ChromeContentClient::AllowScriptExtensionForServiceWorker(
 #endif
 }
 
-content::OriginTrialPolicy* ChromeContentClient::GetOriginTrialPolicy() {
+blink::OriginTrialPolicy* ChromeContentClient::GetOriginTrialPolicy() {
   // Prevent initialization race (see crbug.com/721144). There may be a
   // race when the policy is needed for worker startup (which happens on a
   // separate worker thread).

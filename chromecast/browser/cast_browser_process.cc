@@ -8,17 +8,12 @@
 
 #include "base/logging.h"
 #include "build/build_config.h"
-#include "chromecast/base/metrics/cast_metrics_helper.h"
 #include "chromecast/browser/cast_browser_context.h"
 #include "chromecast/browser/devtools/remote_debugging_server.h"
 #include "chromecast/browser/metrics/cast_metrics_service_client.h"
 #include "chromecast/net/connectivity_checker.h"
 #include "chromecast/service/cast_service.h"
 #include "components/prefs/pref_service.h"
-
-#if defined(OS_ANDROID)
-#include "components/crash/content/browser/crash_dump_manager_android.h"
-#endif  // defined(OS_ANDROID)
 
 #if defined(USE_AURA)
 #include "chromecast/graphics/cast_screen.h"
@@ -76,12 +71,6 @@ void CastBrowserProcess::SetCastScreen(
   cast_screen_ = std::move(cast_screen);
 }
 #endif  // defined(USE_AURA)
-
-void CastBrowserProcess::SetMetricsHelper(
-    std::unique_ptr<metrics::CastMetricsHelper> metrics_helper) {
-  DCHECK(!metrics_helper_);
-  metrics_helper_.swap(metrics_helper);
-}
 
 void CastBrowserProcess::SetMetricsServiceClient(
     std::unique_ptr<metrics::CastMetricsServiceClient> metrics_service_client) {

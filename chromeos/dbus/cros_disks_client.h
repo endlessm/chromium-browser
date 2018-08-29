@@ -36,6 +36,7 @@ enum MountType {
   MOUNT_TYPE_INVALID,
   MOUNT_TYPE_DEVICE,
   MOUNT_TYPE_ARCHIVE,
+  MOUNT_TYPE_NETWORK_STORAGE,
 };
 
 // Type of device.
@@ -322,6 +323,7 @@ class CHROMEOS_EXPORT CrosDisksClient : public DBusClient {
   virtual void Mount(const std::string& source_path,
                      const std::string& source_format,
                      const std::string& mount_label,
+                     const std::vector<std::string>& mount_options,
                      MountAccessMode access_mode,
                      RemountOption remount,
                      VoidDBusMethodCallback callback) = 0;
@@ -379,6 +381,7 @@ class CHROMEOS_EXPORT CrosDisksClient : public DBusClient {
 
   // Composes a list of mount options.
   static std::vector<std::string> ComposeMountOptions(
+      const std::vector<std::string>& options,
       const std::string& mount_label,
       MountAccessMode access_mode,
       RemountOption remount);

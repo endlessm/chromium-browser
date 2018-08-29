@@ -21,8 +21,8 @@ import org.chromium.chrome.browser.contextual_suggestions.EnabledStateMonitor;
 import org.chromium.chrome.browser.net.spdyproxy.DataReductionProxySettings;
 import org.chromium.chrome.browser.partnercustomizations.HomepageManager;
 import org.chromium.chrome.browser.preferences.datareduction.DataReductionPreferences;
+import org.chromium.chrome.browser.search_engines.TemplateUrl;
 import org.chromium.chrome.browser.search_engines.TemplateUrlService;
-import org.chromium.chrome.browser.search_engines.TemplateUrlService.TemplateUrl;
 import org.chromium.chrome.browser.signin.SigninManager;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.ui.base.DeviceFormFactor;
@@ -173,6 +173,9 @@ public class MainPreferences extends PreferenceFragment
 
         if (HomepageManager.shouldShowHomepageSetting()) {
             Preference homepagePref = addPreferenceIfAbsent(PREF_HOMEPAGE);
+            if (FeatureUtilities.isNewTabPageButtonEnabled()) {
+                homepagePref.setTitle(R.string.options_startup_page_title);
+            }
             setOnOffSummary(homepagePref, HomepageManager.getInstance().getPrefHomepageEnabled());
         } else {
             removePreferenceIfPresent(PREF_HOMEPAGE);
@@ -288,7 +291,8 @@ public class MainPreferences extends PreferenceFragment
                 if (PREF_SEARCH_ENGINE.equals(preference.getKey())) {
                     return TemplateUrlService.getInstance().isDefaultSearchManaged();
                 }
-                return super.isPreferenceClickDisabledByPolicy(preference);
+                return isPreferenceControlledByPolicy(preference)
+                        || isPreferenceControlledByCustodian(preference);
             }
         };
     }

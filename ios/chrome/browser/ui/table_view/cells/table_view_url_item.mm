@@ -5,28 +5,25 @@
 #import "ios/chrome/browser/ui/table_view/cells/table_view_url_item.h"
 
 #include "base/mac/foundation_util.h"
+#include "base/strings/sys_string_conversions.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
+#include "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
 namespace {
-
-// The horizontal spacing between text labels.
-const CGFloat kHorizontalSpacing = 8.0;
-
-// THe vertical spacing between text labels.
-const CGFloat kVerticalSpacing = 2.0;
-
-// The display size of the favicon view.
-const CGFloat kFaviconViewSize = 56.0;
+// The width and height of the favicon ImageView.
+const CGFloat kFaviconWidth = 16;
+// The width and height of the favicon container view.
+const CGFloat kFaviconContainerWidth = 28;
 }
 
 @implementation TableViewURLItem
 
-@synthesize favicon = _favicon;
 @synthesize metadata = _metadata;
 @synthesize title = _title;
 @synthesize URL = _URL;
@@ -45,44 +42,59 @@ const CGFloat kFaviconViewSize = 56.0;
 
   TableViewURLCell* cell =
       base::mac::ObjCCastStrict<TableViewURLCell>(tableCell);
-  cell.faviconView.image = self.favicon;
-  cell.titleLabel.text = self.title;
-  cell.URLLabel.text = self.URL;
+  // Use the page's title for the label, or its URL if title is empty.
+  if (self.title) {
+    cell.titleLabel.text = self.title;
+    cell.URLLabel.text = base::SysUTF8ToNSString(self.URL.host());
+  } else {
+    cell.titleLabel.text = base::SysUTF8ToNSString(self.URL.host());
+  }
   cell.metadataLabel.text = self.metadata;
   cell.metadataLabel.hidden = ([self.metadata length] == 0);
 
+  cell.cellUniqueIdentifier = self.uniqueIdentifier;
   cell.faviconView.backgroundColor = styler.tableViewBackgroundColor;
+  cell.faviconContainerView.backgroundColor = styler.tableViewBackgroundColor;
   cell.titleLabel.backgroundColor = styler.tableViewBackgroundColor;
   cell.URLLabel.backgroundColor = styler.tableViewBackgroundColor;
   cell.metadataLabel.backgroundColor = styler.tableViewBackgroundColor;
+}
+
+- (NSString*)uniqueIdentifier {
+  return base::SysUTF8ToNSString(self.URL.host());
 }
 
 @end
 
 @implementation TableViewURLCell
 @synthesize faviconView = _faviconView;
+@synthesize faviconContainerView = _faviconContainerView;
 @synthesize metadataLabel = _metadataLabel;
 @synthesize titleLabel = _titleLabel;
 @synthesize URLLabel = _URLLabel;
+@synthesize cellUniqueIdentifier = _cellUniqueIdentifier;
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style
               reuseIdentifier:(NSString*)reuseIdentifier {
   self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
   if (self) {
+    _faviconContainerView = [[UIImageView alloc]
+        initWithImage:[UIImage
+                          imageNamed:@"table_view_cell_favicon_background"]];
     _faviconView = [[UIImageView alloc] init];
+    _faviconView.contentMode = UIViewContentModeScaleAspectFit;
+    _faviconView.clipsToBounds = YES;
+    [_faviconContainerView addSubview:_faviconView];
     _titleLabel = [[UILabel alloc] init];
     _URLLabel = [[UILabel alloc] init];
     _metadataLabel = [[UILabel alloc] init];
-
-    // The favicon image is smaller than its UIImageView's bounds, so center
-    // it.
-    _faviconView.contentMode = UIViewContentModeCenter;
 
     // Set font sizes using dynamic type.
     _titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
     _titleLabel.adjustsFontForContentSizeCategory = YES;
     _URLLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
     _URLLabel.adjustsFontForContentSizeCategory = YES;
+    _URLLabel.textColor = [UIColor lightGrayColor];
     _metadataLabel.font =
         [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
     _metadataLabel.adjustsFontForContentSizeCategory = YES;
@@ -91,8 +103,6 @@ const CGFloat kFaviconViewSize = 56.0;
     UIStackView* verticalStack = [[UIStackView alloc]
         initWithArrangedSubviews:@[ _titleLabel, _URLLabel ]];
     verticalStack.axis = UILayoutConstraintAxisVertical;
-
-    verticalStack.spacing = kVerticalSpacing;
     [_metadataLabel setContentHuggingPriority:UILayoutPriorityDefaultHigh
                                       forAxis:UILayoutConstraintAxisHorizontal];
     [_metadataLabel
@@ -100,49 +110,62 @@ const CGFloat kFaviconViewSize = 56.0;
                                         forAxis:
                                             UILayoutConstraintAxisHorizontal];
 
+    // Horizontal stack view holds vertical stack view and favicon.
     UIStackView* horizontalStack = [[UIStackView alloc]
         initWithArrangedSubviews:@[ verticalStack, _metadataLabel ]];
     horizontalStack.axis = UILayoutConstraintAxisHorizontal;
-    horizontalStack.spacing = kHorizontalSpacing;
+    horizontalStack.spacing = kTableViewSubViewHorizontalSpacing;
     horizontalStack.distribution = UIStackViewDistributionFill;
     horizontalStack.alignment = UIStackViewAlignmentFirstBaseline;
 
     UIView* contentView = self.contentView;
     _faviconView.translatesAutoresizingMaskIntoConstraints = NO;
+    _faviconContainerView.translatesAutoresizingMaskIntoConstraints = NO;
     horizontalStack.translatesAutoresizingMaskIntoConstraints = NO;
-    [contentView addSubview:_faviconView];
+    [contentView addSubview:_faviconContainerView];
     [contentView addSubview:horizontalStack];
 
     [NSLayoutConstraint activateConstraints:@[
       // The favicon view is a fixed size, is pinned to the leading edge of the
       // content view, and is centered vertically.
-      [_faviconView.heightAnchor constraintEqualToConstant:kFaviconViewSize],
-      [_faviconView.widthAnchor constraintEqualToConstant:kFaviconViewSize],
-      [_faviconView.leadingAnchor
-          constraintEqualToAnchor:self.contentView.leadingAnchor],
+      [_faviconView.heightAnchor constraintEqualToConstant:kFaviconWidth],
+      [_faviconView.widthAnchor constraintEqualToConstant:kFaviconWidth],
       [_faviconView.centerYAnchor
+          constraintEqualToAnchor:_faviconContainerView.centerYAnchor],
+      [_faviconView.centerXAnchor
+          constraintEqualToAnchor:_faviconContainerView.centerXAnchor],
+      [_faviconContainerView.heightAnchor
+          constraintEqualToConstant:kFaviconContainerWidth],
+      [_faviconContainerView.widthAnchor
+          constraintEqualToConstant:kFaviconContainerWidth],
+      [_faviconContainerView.leadingAnchor
+          constraintEqualToAnchor:self.contentView.leadingAnchor
+                         constant:kTableViewHorizontalSpacing],
+      [_faviconContainerView.centerYAnchor
           constraintEqualToAnchor:self.contentView.centerYAnchor],
 
       // The stack view fills the remaining space, has an intrinsic height, and
       // is centered vertically.
       [horizontalStack.leadingAnchor
-          constraintEqualToAnchor:_faviconView.trailingAnchor],
+          constraintEqualToAnchor:_faviconContainerView.trailingAnchor
+                         constant:kTableViewSubViewHorizontalSpacing],
       [horizontalStack.trailingAnchor
           constraintEqualToAnchor:self.contentView.trailingAnchor
-                         constant:-kHorizontalSpacing],
-      [horizontalStack.centerYAnchor
-          constraintEqualToAnchor:self.contentView.centerYAnchor],
-
-      // The content view's height is set by the larger of the favicon view or
-      // the stack view.  This maintains a minimum size but allows the cell to
-      // grow if Dynamic Type increases the font size.
-      [self.contentView.heightAnchor
-          constraintGreaterThanOrEqualToAnchor:_faviconView.heightAnchor],
-      [self.contentView.heightAnchor
-          constraintGreaterThanOrEqualToAnchor:horizontalStack.heightAnchor],
+                         constant:-kTableViewHorizontalSpacing],
+      [horizontalStack.topAnchor
+          constraintEqualToAnchor:self.contentView.topAnchor
+                         constant:kTableViewVerticalSpacing],
+      [horizontalStack.bottomAnchor
+          constraintEqualToAnchor:self.contentView.bottomAnchor
+                         constant:-kTableViewVerticalSpacing]
     ]];
   }
   return self;
+}
+
+- (void)prepareForReuse {
+  [super prepareForReuse];
+  self.faviconView.image = nil;
 }
 
 @end

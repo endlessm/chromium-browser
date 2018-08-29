@@ -15,7 +15,6 @@
 #include "NVPTXISelLowering.h"
 #include "MCTargetDesc/NVPTXBaseInfo.h"
 #include "NVPTX.h"
-#include "NVPTXSection.h"
 #include "NVPTXSubtarget.h"
 #include "NVPTXTargetMachine.h"
 #include "NVPTXTargetObjectFile.h"
@@ -30,6 +29,7 @@
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/CodeGen/TargetCallingConv.h"
 #include "llvm/CodeGen/TargetLowering.h"
+#include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/CallSite.h"
@@ -43,7 +43,6 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
-#include "llvm/IR/ValueTypes.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/CommandLine.h"
@@ -376,29 +375,18 @@ NVPTXTargetLowering::NVPTXTargetLowering(const NVPTXTargetMachine &TM,
   setOperationAction(ISD::FP_TO_SINT, MVT::f16, Legal);
   setOperationAction(ISD::BUILD_VECTOR, MVT::v2f16, Custom);
   setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v2f16, Custom);
+  setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v2f16, Expand);
 
   setFP16OperationAction(ISD::SETCC, MVT::f16, Legal, Promote);
   setFP16OperationAction(ISD::SETCC, MVT::v2f16, Legal, Expand);
 
   // Operations not directly supported by NVPTX.
-  setOperationAction(ISD::SELECT_CC, MVT::f16, Expand);
-  setOperationAction(ISD::SELECT_CC, MVT::v2f16, Expand);
-  setOperationAction(ISD::SELECT_CC, MVT::f32, Expand);
-  setOperationAction(ISD::SELECT_CC, MVT::f64, Expand);
-  setOperationAction(ISD::SELECT_CC, MVT::i1, Expand);
-  setOperationAction(ISD::SELECT_CC, MVT::i8, Expand);
-  setOperationAction(ISD::SELECT_CC, MVT::i16, Expand);
-  setOperationAction(ISD::SELECT_CC, MVT::i32, Expand);
-  setOperationAction(ISD::SELECT_CC, MVT::i64, Expand);
-  setOperationAction(ISD::BR_CC, MVT::f16, Expand);
-  setOperationAction(ISD::BR_CC, MVT::v2f16, Expand);
-  setOperationAction(ISD::BR_CC, MVT::f32, Expand);
-  setOperationAction(ISD::BR_CC, MVT::f64, Expand);
-  setOperationAction(ISD::BR_CC, MVT::i1, Expand);
-  setOperationAction(ISD::BR_CC, MVT::i8, Expand);
-  setOperationAction(ISD::BR_CC, MVT::i16, Expand);
-  setOperationAction(ISD::BR_CC, MVT::i32, Expand);
-  setOperationAction(ISD::BR_CC, MVT::i64, Expand);
+  for (MVT VT : {MVT::f16, MVT::v2f16, MVT::f32, MVT::f64, MVT::i1, MVT::i8,
+                 MVT::i16, MVT::i32, MVT::i64}) {
+    setOperationAction(ISD::SELECT_CC, VT, Expand);
+    setOperationAction(ISD::BR_CC, VT, Expand);
+  }
+
   // Some SIGN_EXTEND_INREG can be done using cvt instruction.
   // For others we will expand to a SHL/SRA pair.
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i64, Legal);
@@ -1244,9 +1232,9 @@ SDValue NVPTXTargetLowering::getSqrtEstimate(SDValue Operand, SelectionDAG &DAG,
 SDValue
 NVPTXTargetLowering::LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const {
   SDLoc dl(Op);
-  const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
-  auto PtrVT = getPointerTy(DAG.getDataLayout());
-  Op = DAG.getTargetGlobalAddress(GV, dl, PtrVT);
+  const GlobalAddressSDNode *GAN = cast<GlobalAddressSDNode>(Op);
+  auto PtrVT = getPointerTy(DAG.getDataLayout(), GAN->getAddressSpace());
+  Op = DAG.getTargetGlobalAddress(GAN->getGlobal(), dl, PtrVT);
   return DAG.getNode(NVPTXISD::Wrapper, dl, PtrVT, Op);
 }
 
@@ -3330,7 +3318,23 @@ bool NVPTXTargetLowering::getTgtMemIntrinsic(
   case Intrinsic::nvvm_wmma_m16n16k16_load_b_f16_col:
   case Intrinsic::nvvm_wmma_m16n16k16_load_b_f16_row:
   case Intrinsic::nvvm_wmma_m16n16k16_load_b_f16_col_stride:
-  case Intrinsic::nvvm_wmma_m16n16k16_load_b_f16_row_stride: {
+  case Intrinsic::nvvm_wmma_m16n16k16_load_b_f16_row_stride:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_a_f16_col:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_a_f16_row:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_a_f16_col_stride:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_a_f16_row_stride:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_b_f16_col:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_b_f16_row:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_b_f16_col_stride:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_b_f16_row_stride:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_a_f16_col:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_a_f16_row:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_a_f16_col_stride:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_a_f16_row_stride:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_b_f16_col:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_b_f16_row:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_b_f16_col_stride:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_b_f16_row_stride: {
     Info.opc = ISD::INTRINSIC_W_CHAIN;
     Info.memVT = MVT::v8f16;
     Info.ptrVal = I.getArgOperand(0);
@@ -3343,7 +3347,15 @@ bool NVPTXTargetLowering::getTgtMemIntrinsic(
   case Intrinsic::nvvm_wmma_m16n16k16_load_c_f16_col:
   case Intrinsic::nvvm_wmma_m16n16k16_load_c_f16_row:
   case Intrinsic::nvvm_wmma_m16n16k16_load_c_f16_col_stride:
-  case Intrinsic::nvvm_wmma_m16n16k16_load_c_f16_row_stride: {
+  case Intrinsic::nvvm_wmma_m16n16k16_load_c_f16_row_stride:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_c_f16_col:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_c_f16_row:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_c_f16_col_stride:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_c_f16_row_stride:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_c_f16_col:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_c_f16_row:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_c_f16_col_stride:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_c_f16_row_stride: {
     Info.opc = ISD::INTRINSIC_W_CHAIN;
     Info.memVT = MVT::v4f16;
     Info.ptrVal = I.getArgOperand(0);
@@ -3356,7 +3368,15 @@ bool NVPTXTargetLowering::getTgtMemIntrinsic(
   case Intrinsic::nvvm_wmma_m16n16k16_load_c_f32_col:
   case Intrinsic::nvvm_wmma_m16n16k16_load_c_f32_row:
   case Intrinsic::nvvm_wmma_m16n16k16_load_c_f32_col_stride:
-  case Intrinsic::nvvm_wmma_m16n16k16_load_c_f32_row_stride: {
+  case Intrinsic::nvvm_wmma_m16n16k16_load_c_f32_row_stride:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_c_f32_col:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_c_f32_row:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_c_f32_col_stride:
+  case Intrinsic::nvvm_wmma_m32n8k16_load_c_f32_row_stride:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_c_f32_col:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_c_f32_row:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_c_f32_col_stride:
+  case Intrinsic::nvvm_wmma_m8n32k16_load_c_f32_row_stride: {
     Info.opc = ISD::INTRINSIC_W_CHAIN;
     Info.memVT = MVT::v8f32;
     Info.ptrVal = I.getArgOperand(0);
@@ -3369,7 +3389,15 @@ bool NVPTXTargetLowering::getTgtMemIntrinsic(
   case Intrinsic::nvvm_wmma_m16n16k16_store_d_f16_col:
   case Intrinsic::nvvm_wmma_m16n16k16_store_d_f16_row:
   case Intrinsic::nvvm_wmma_m16n16k16_store_d_f16_col_stride:
-  case Intrinsic::nvvm_wmma_m16n16k16_store_d_f16_row_stride: {
+  case Intrinsic::nvvm_wmma_m16n16k16_store_d_f16_row_stride:
+  case Intrinsic::nvvm_wmma_m32n8k16_store_d_f16_col:
+  case Intrinsic::nvvm_wmma_m32n8k16_store_d_f16_row:
+  case Intrinsic::nvvm_wmma_m32n8k16_store_d_f16_col_stride:
+  case Intrinsic::nvvm_wmma_m32n8k16_store_d_f16_row_stride:
+  case Intrinsic::nvvm_wmma_m8n32k16_store_d_f16_col:
+  case Intrinsic::nvvm_wmma_m8n32k16_store_d_f16_row:
+  case Intrinsic::nvvm_wmma_m8n32k16_store_d_f16_col_stride:
+  case Intrinsic::nvvm_wmma_m8n32k16_store_d_f16_row_stride: {
     Info.opc = ISD::INTRINSIC_VOID;
     Info.memVT = MVT::v4f16;
     Info.ptrVal = I.getArgOperand(0);
@@ -3382,7 +3410,15 @@ bool NVPTXTargetLowering::getTgtMemIntrinsic(
   case Intrinsic::nvvm_wmma_m16n16k16_store_d_f32_col:
   case Intrinsic::nvvm_wmma_m16n16k16_store_d_f32_row:
   case Intrinsic::nvvm_wmma_m16n16k16_store_d_f32_col_stride:
-  case Intrinsic::nvvm_wmma_m16n16k16_store_d_f32_row_stride: {
+  case Intrinsic::nvvm_wmma_m16n16k16_store_d_f32_row_stride:
+  case Intrinsic::nvvm_wmma_m32n8k16_store_d_f32_col:
+  case Intrinsic::nvvm_wmma_m32n8k16_store_d_f32_row:
+  case Intrinsic::nvvm_wmma_m32n8k16_store_d_f32_col_stride:
+  case Intrinsic::nvvm_wmma_m32n8k16_store_d_f32_row_stride:
+  case Intrinsic::nvvm_wmma_m8n32k16_store_d_f32_col:
+  case Intrinsic::nvvm_wmma_m8n32k16_store_d_f32_row:
+  case Intrinsic::nvvm_wmma_m8n32k16_store_d_f32_col_stride:
+  case Intrinsic::nvvm_wmma_m8n32k16_store_d_f32_row_stride: {
     Info.opc = ISD::INTRINSIC_VOID;
     Info.memVT = MVT::v8f32;
     Info.ptrVal = I.getArgOperand(0);
@@ -4701,31 +4737,8 @@ void NVPTXTargetLowering::ReplaceNodeResults(
   }
 }
 
-// Pin NVPTXSection's and NVPTXTargetObjectFile's vtables to this file.
-void NVPTXSection::anchor() {}
-
-NVPTXTargetObjectFile::~NVPTXTargetObjectFile() {
-  delete static_cast<NVPTXSection *>(TextSection);
-  delete static_cast<NVPTXSection *>(DataSection);
-  delete static_cast<NVPTXSection *>(BSSSection);
-  delete static_cast<NVPTXSection *>(ReadOnlySection);
-
-  delete static_cast<NVPTXSection *>(StaticCtorSection);
-  delete static_cast<NVPTXSection *>(StaticDtorSection);
-  delete static_cast<NVPTXSection *>(LSDASection);
-  delete static_cast<NVPTXSection *>(EHFrameSection);
-  delete static_cast<NVPTXSection *>(DwarfAbbrevSection);
-  delete static_cast<NVPTXSection *>(DwarfInfoSection);
-  delete static_cast<NVPTXSection *>(DwarfLineSection);
-  delete static_cast<NVPTXSection *>(DwarfFrameSection);
-  delete static_cast<NVPTXSection *>(DwarfPubTypesSection);
-  delete static_cast<const NVPTXSection *>(DwarfDebugInlineSection);
-  delete static_cast<NVPTXSection *>(DwarfStrSection);
-  delete static_cast<NVPTXSection *>(DwarfLocSection);
-  delete static_cast<NVPTXSection *>(DwarfARangesSection);
-  delete static_cast<NVPTXSection *>(DwarfRangesSection);
-  delete static_cast<NVPTXSection *>(DwarfMacinfoSection);
-}
+// Pin NVPTXTargetObjectFile's vtables to this file.
+NVPTXTargetObjectFile::~NVPTXTargetObjectFile() {}
 
 MCSection *NVPTXTargetObjectFile::SelectSectionForGlobal(
     const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {

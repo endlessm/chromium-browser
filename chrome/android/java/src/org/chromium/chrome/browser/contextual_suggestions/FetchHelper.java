@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.contextual_suggestions;
 
 import android.os.SystemClock;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.webkit.URLUtil;
 
@@ -55,6 +56,7 @@ class FetchHelper {
     class TabFetchReadinessState {
         private long mFetchTimeBaselineMillis;
         private String mUrl;
+        private boolean mSuggestionsDismissed;
 
         TabFetchReadinessState(String url) {
             updateUrl(url);
@@ -68,6 +70,7 @@ class FetchHelper {
         void updateUrl(String url) {
             mUrl = URLUtil.isNetworkUrl(url) ? url : null;
             mFetchTimeBaselineMillis = 0;
+            setSuggestionsDismissed(false);
         }
 
         /** @return The current URL tracked by this tab state. */
@@ -75,9 +78,12 @@ class FetchHelper {
             return mUrl;
         }
 
-        /** @return Whether the tab state is tracking a tab with valid page loaded. */
+        /**
+         * @return Whether the tab state is tracking a tab with valid page loaded and valid status
+         *         for fetching.
+         */
         boolean isTrackingPage() {
-            return mUrl != null;
+            return mUrl != null && !mSuggestionsDismissed;
         }
 
         /**
@@ -103,6 +109,11 @@ class FetchHelper {
             return mFetchTimeBaselineMillis != 0;
         }
 
+        /** @param dismissed Whether the suggestions have been dismissed by the user. */
+        void setSuggestionsDismissed(boolean dismissed) {
+            mSuggestionsDismissed = dismissed;
+        }
+
         /**
          * Checks whether the provided url is the same (ignoring fragments) as the one tracked by
          * tab state.
@@ -114,16 +125,21 @@ class FetchHelper {
         }
     }
 
-    private final static long MINIMUM_FETCH_DELAY_MILLIS = 10 * 1000; // 10 seconds.
+    // TODO(fgorski): flip this to finch controlled setting.
+    private final static long MINIMUM_FETCH_DELAY_MILLIS = 2 * 1000; // 2 seconds.
     private final static String REQUIRE_CURRENT_PAGE_FROM_SRP = "require_current_page_from_SRP";
     private final static String REQUIRE_NAV_CHAIN_FROM_SRP = "require_nav_chain_from_SRP";
+    private static boolean sDisableDelayForTesting;
+    private static long sFetchTimeBaselineMillisForTesting;
 
     private final Delegate mDelegate;
-    private TabModelSelector mTabModelSelector;
+    private final TabModelSelector mTabModelSelector;
+    private final Map<Integer, TabFetchReadinessState> mObservedTabs = new HashMap<>();
+
     private TabModelSelectorTabModelObserver mTabModelObserver;
     private TabObserver mTabObserver;
-    private final Map<Integer, TabFetchReadinessState> mObservedTabs = new HashMap<>();
-    private boolean mFetchRequestedForCurrentTab = false;
+    private boolean mFetchRequestedForCurrentTab;
+    private boolean mIsInitialized;
 
     private boolean mRequireCurrentPageFromSRP;
     private boolean mRequireNavChainFromSRP;
@@ -138,15 +154,16 @@ class FetchHelper {
      */
     FetchHelper(Delegate delegate, TabModelSelector tabModelSelector) {
         mDelegate = delegate;
-        init(tabModelSelector);
+        mTabModelSelector = tabModelSelector;
     }
 
     /**
-     * Initializes the FetchHelper. Intended to encapsulate creating connections to native code,
-     * so that this can be easily stubbed out during tests.
+     * Initializes the FetchHelper to listen for notifications.
      */
-    protected void init(TabModelSelector tabModelSelector) {
-        mTabModelSelector = tabModelSelector;
+    protected void initialize() {
+        assert !mIsInitialized;
+        mIsInitialized = true;
+
         mTabObserver = new EmptyTabObserver() {
             @Override
             public void onUpdateUrl(Tab tab, String url) {
@@ -216,11 +233,12 @@ class FetchHelper {
 
             @Override
             public void tabRemoved(Tab tab) {
-                stopObservingTab(tab);
-                if (tab == mCurrentTab) {
-                    clearState();
-                    mCurrentTab = null;
-                }
+                tabGone(tab);
+            }
+
+            @Override
+            public void willCloseTab(Tab tab, boolean animate) {
+                tabGone(tab);
             }
         };
 
@@ -291,7 +309,7 @@ class FetchHelper {
         String url = tabFetchReadinessState.getUrl();
         long remainingFetchDelayMillis =
                 SystemClock.uptimeMillis() - tabFetchReadinessState.getFetchTimeBaselineMillis();
-        if (remainingFetchDelayMillis < MINIMUM_FETCH_DELAY_MILLIS) {
+        if (!sDisableDelayForTesting && remainingFetchDelayMillis < MINIMUM_FETCH_DELAY_MILLIS) {
             postDelayedFetch(
                     url, mCurrentTab, MINIMUM_FETCH_DELAY_MILLIS - remainingFetchDelayMillis);
             return;
@@ -354,6 +372,18 @@ class FetchHelper {
         }
     }
 
+    /**
+     * Performs necessary cleanup when a tab leaves the tab model we're associated with, whether by
+     * being moved to another model or closed.
+     */
+    private void tabGone(Tab tab) {
+        stopObservingTab(tab);
+        if (tab == mCurrentTab) {
+            clearState();
+            mCurrentTab = null;
+        }
+    }
+
     /** Whether the tab is currently observed. */
     @VisibleForTesting
     boolean isObservingTab(Tab tab) {
@@ -363,6 +393,24 @@ class FetchHelper {
     private TabFetchReadinessState getTabFetchReadinessState(Tab tab) {
         if (tab == null) return null;
         return mObservedTabs.get(tab.getId());
+    }
+
+    /**
+     * @param tab The specified {@link Tab}.
+     * @return The baseline fetch time for the specified tab.
+     */
+    long getFetchTimeBaselineMillis(@NonNull Tab tab) {
+        return sDisableDelayForTesting
+                ? sFetchTimeBaselineMillisForTesting
+                : mObservedTabs.get(tab.getId()).getFetchTimeBaselineMillis();
+    }
+
+    /**
+     * Called when suggestions were dismissed.
+     * @param tab The tab on which suggestions were dismissed.
+     */
+    void onSuggestionsDismissed(@NonNull Tab tab) {
+        mObservedTabs.get(tab.getId()).setSuggestionsDismissed(true);
     }
 
     private boolean isFromGoogleSearchRequired() {
@@ -425,5 +473,15 @@ class FetchHelper {
         }
 
         return false;
+    }
+
+    @VisibleForTesting
+    static void setDisableDelayForTesting(boolean disable) {
+        sDisableDelayForTesting = disable;
+    }
+
+    @VisibleForTesting
+    static void setFetchTimeBaselineMillisForTesting(long uptimeMillis) {
+        sFetchTimeBaselineMillisForTesting = uptimeMillis;
     }
 }

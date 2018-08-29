@@ -9,6 +9,7 @@
 
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "base/optional.h"
 #include "base/test/histogram_tester.h"
 #include "base/test/simple_test_clock.h"
 #include "chromeos/components/tether/ble_constants.h"
@@ -41,21 +42,25 @@ class TestObserver final : public ConnectTetheringOperation::Observer {
   TestObserver() = default;
   ~TestObserver() = default;
 
-  const cryptauth::RemoteDevice& remote_device() { return remote_device_; }
+  base::Optional<cryptauth::RemoteDeviceRef> remote_device() {
+    return remote_device_;
+  }
   const std::string& ssid() { return ssid_; }
   const std::string& password() { return password_; }
   bool has_received_failure() { return has_received_failure_; }
   bool has_sent_request() { return has_sent_request_; }
-  ConnectTetheringResponse_ResponseCode error_code() { return error_code_; }
+  ConnectTetheringOperation::HostResponseErrorCode error_code() {
+    return error_code_;
+  }
 
   // ConnectTetheringOperation::Observer:
   void OnConnectTetheringRequestSent(
-      const cryptauth::RemoteDevice& remote_device) override {
+      cryptauth::RemoteDeviceRef remote_device) override {
     has_sent_request_ = true;
   }
 
   void OnSuccessfulConnectTetheringResponse(
-      const cryptauth::RemoteDevice& remote_device,
+      cryptauth::RemoteDeviceRef remote_device,
       const std::string& ssid,
       const std::string& password) override {
     remote_device_ = remote_device;
@@ -64,20 +69,20 @@ class TestObserver final : public ConnectTetheringOperation::Observer {
   }
 
   void OnConnectTetheringFailure(
-      const cryptauth::RemoteDevice& remote_device,
-      ConnectTetheringResponse_ResponseCode error_code) override {
+      cryptauth::RemoteDeviceRef remote_device,
+      ConnectTetheringOperation::HostResponseErrorCode error_code) override {
     has_received_failure_ = true;
     remote_device_ = remote_device;
     error_code_ = error_code;
   }
 
  private:
-  cryptauth::RemoteDevice remote_device_;
+  base::Optional<cryptauth::RemoteDeviceRef> remote_device_;
   std::string ssid_;
   std::string password_;
   bool has_received_failure_ = false;
   bool has_sent_request_ = false;
-  ConnectTetheringResponse_ResponseCode error_code_;
+  ConnectTetheringOperation::HostResponseErrorCode error_code_;
 };
 
 std::string CreateConnectTetheringRequestString() {
@@ -112,7 +117,7 @@ class ConnectTetheringOperationTest : public testing::Test {
   ConnectTetheringOperationTest()
       : connect_tethering_request_string_(
             CreateConnectTetheringRequestString()),
-        test_device_(cryptauth::GenerateTestRemoteDevices(1)[0]) {}
+        test_device_(cryptauth::CreateRemoteDeviceRefListForTest(1)[0]) {}
 
   void SetUp() override {
     fake_ble_connection_manager_ = std::make_unique<FakeBleConnectionManager>();
@@ -154,6 +159,7 @@ class ConnectTetheringOperationTest : public testing::Test {
 
   void SimulateResponseReceivedAndVerifyObserverCallbackInvoked(
       ConnectTetheringResponse_ResponseCode response_code,
+      ConnectTetheringOperation::HostResponseErrorCode expected_error_code,
       bool use_proto_without_ssid_and_password) {
     test_clock_.Advance(kConnectTetheringResponseTime);
 
@@ -184,7 +190,7 @@ class ConnectTetheringOperationTest : public testing::Test {
       EXPECT_EQ(std::string(kTestPassword), test_observer_->password());
     } else {
       EXPECT_TRUE(test_observer_->has_received_failure());
-      EXPECT_EQ(expected_response_code, test_observer_->error_code());
+      EXPECT_EQ(expected_error_code, test_observer_->error_code());
     }
 
     histogram_tester_.ExpectTimeBucketCount(
@@ -204,7 +210,7 @@ class ConnectTetheringOperationTest : public testing::Test {
   }
 
   const std::string connect_tethering_request_string_;
-  const cryptauth::RemoteDevice test_device_;
+  const cryptauth::RemoteDeviceRef test_device_;
 
   std::unique_ptr<FakeBleConnectionManager> fake_ble_connection_manager_;
   std::unique_ptr<StrictMock<MockTetherHostResponseRecorder>>
@@ -228,6 +234,8 @@ TEST_F(ConnectTetheringOperationTest, TestOperation_SuccessButInvalidResponse) {
   SimulateResponseReceivedAndVerifyObserverCallbackInvoked(
       ConnectTetheringResponse_ResponseCode::
           ConnectTetheringResponse_ResponseCode_SUCCESS,
+      ConnectTetheringOperation::HostResponseErrorCode::
+          INVALID_HOTSPOT_CREDENTIALS,
       true /* use_proto_without_ssid_and_password */);
 }
 
@@ -239,6 +247,7 @@ TEST_F(ConnectTetheringOperationTest, TestOperation_SuccessWithValidResponse) {
   SimulateResponseReceivedAndVerifyObserverCallbackInvoked(
       ConnectTetheringResponse_ResponseCode::
           ConnectTetheringResponse_ResponseCode_SUCCESS,
+      ConnectTetheringOperation::HostResponseErrorCode::UNKNOWN_ERROR,
       false /* use_proto_without_ssid_and_password */);
 }
 
@@ -251,6 +260,7 @@ TEST_F(ConnectTetheringOperationTest, TestOperation_UnknownError) {
   SimulateResponseReceivedAndVerifyObserverCallbackInvoked(
       ConnectTetheringResponse_ResponseCode::
           ConnectTetheringResponse_ResponseCode_UNKNOWN_ERROR,
+      ConnectTetheringOperation::HostResponseErrorCode::UNKNOWN_ERROR,
       false /* use_proto_without_ssid_and_password */);
 }
 
@@ -263,6 +273,7 @@ TEST_F(ConnectTetheringOperationTest, TestOperation_ProvisioningFailed) {
   SimulateResponseReceivedAndVerifyObserverCallbackInvoked(
       ConnectTetheringResponse_ResponseCode::
           ConnectTetheringResponse_ResponseCode_PROVISIONING_FAILED,
+      ConnectTetheringOperation::HostResponseErrorCode::PROVISIONING_FAILED,
       false /* use_proto_without_ssid_and_password */);
 }
 
@@ -278,8 +289,7 @@ TEST_F(ConnectTetheringOperationTest, TestCannotConnect) {
 
   // The maximum number of connection failures has occurred.
   EXPECT_TRUE(test_observer_->has_received_failure());
-  EXPECT_EQ(ConnectTetheringResponse_ResponseCode::
-                ConnectTetheringResponse_ResponseCode_UNKNOWN_ERROR,
+  EXPECT_EQ(ConnectTetheringOperation::HostResponseErrorCode::NO_RESPONSE,
             test_observer_->error_code());
 
   histogram_tester_.ExpectTotalCount(

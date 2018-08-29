@@ -32,6 +32,7 @@ endobj
 endobj
 % JS program to exexute
 {{object 11 0}} <<
+  {{streamlen}}
 >>
 stream
 function TestOneFormat(str, d) {
@@ -129,8 +130,6 @@ TestOneFormat("mm/dd/yyyy HH:MM:ss", new Date(2014, 06, 04, 15, 59, -1));
 endstream
 endobj
 {{xref}}
-trailer <<
-  /Root 1 0 R
->>
+{{trailer}}
 {{startxref}}
 %%EOF

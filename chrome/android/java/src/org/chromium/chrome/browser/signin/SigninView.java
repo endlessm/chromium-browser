@@ -30,8 +30,9 @@ public class SigninView extends LinearLayout {
     private TextView mTitle;
     private View mAccountPicker;
     private ImageView mAccountImage;
-    private TextView mAccountName;
-    private TextView mAccountEmail;
+    private TextView mAccountTextPrimary;
+    private TextView mAccountTextSecondary;
+    private ImageView mAccountPickerEndImage;
     private TextView mSyncDescription;
     private TextView mPersonalizationDescription;
     private TextView mGoogleServicesDescription;
@@ -56,8 +57,9 @@ public class SigninView extends LinearLayout {
         mTitle = (TextView) findViewById(R.id.signin_title);
         mAccountPicker = findViewById(R.id.signin_account_picker);
         mAccountImage = (ImageView) findViewById(R.id.account_image);
-        mAccountName = (TextView) findViewById(R.id.account_name);
-        mAccountEmail = (TextView) findViewById(R.id.account_email);
+        mAccountTextPrimary = (TextView) findViewById(R.id.account_text_primary);
+        mAccountTextSecondary = (TextView) findViewById(R.id.account_text_secondary);
+        mAccountPickerEndImage = (ImageView) findViewById(R.id.account_picker_end_image);
         mSyncDescription = (TextView) findViewById(R.id.signin_sync_description);
         mPersonalizationDescription =
                 (TextView) findViewById(R.id.signin_personalization_description);
@@ -70,63 +72,67 @@ public class SigninView extends LinearLayout {
         mAcceptButtonEndPadding = findViewById(R.id.positive_button_end_padding);
     }
 
-    public SigninScrollView getScrollView() {
+    SigninScrollView getScrollView() {
         return mScrollView;
     }
 
-    public ImageView getHeaderImage() {
+    ImageView getHeaderImage() {
         return mHeaderImage;
     }
 
-    public TextView getTitleView() {
+    TextView getTitleView() {
         return mTitle;
     }
 
-    public View getAccountPickerView() {
+    View getAccountPickerView() {
         return mAccountPicker;
     }
 
-    public ImageView getAccountImageView() {
+    ImageView getAccountImageView() {
         return mAccountImage;
     }
 
-    public TextView getAccountNameView() {
-        return mAccountName;
+    TextView getAccountTextPrimary() {
+        return mAccountTextPrimary;
     }
 
-    public TextView getAccountEmailView() {
-        return mAccountEmail;
+    TextView getAccountTextSecondary() {
+        return mAccountTextSecondary;
     }
 
-    public TextView getSyncDescriptionView() {
+    ImageView getAccountPickerEndImageView() {
+        return mAccountPickerEndImage;
+    }
+
+    TextView getSyncDescriptionView() {
         return mSyncDescription;
     }
 
-    public TextView getPersonalizationDescriptionView() {
+    TextView getPersonalizationDescriptionView() {
         return mPersonalizationDescription;
     }
 
-    public TextView getGoogleServicesDescriptionView() {
+    TextView getGoogleServicesDescriptionView() {
         return mGoogleServicesDescription;
     }
 
-    public TextView getDetailsDescriptionView() {
+    TextView getDetailsDescriptionView() {
         return mDetailsDescription;
     }
 
-    public ButtonCompat getAcceptButton() {
+    ButtonCompat getAcceptButton() {
         return mAcceptButton;
     }
 
-    public Button getRefuseButton() {
+    Button getRefuseButton() {
         return mRefuseButton;
     }
 
-    public Button getMoreButton() {
+    Button getMoreButton() {
         return mMoreButton;
     }
 
-    public View getAcceptButtonEndPadding() {
+    View getAcceptButtonEndPadding() {
         return mAcceptButtonEndPadding;
     }
 

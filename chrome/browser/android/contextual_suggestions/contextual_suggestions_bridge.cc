@@ -17,6 +17,7 @@
 #include "components/ntp_snippets/category.h"
 #include "components/ntp_snippets/content_suggestions_service.h"
 #include "components/ntp_snippets/contextual/contextual_content_suggestions_service.h"
+#include "components/ntp_snippets/contextual/contextual_suggestions_features.h"
 #include "components/ntp_snippets/contextual/contextual_suggestions_metrics_reporter.h"
 #include "components/ukm/content/source_url_recorder.h"
 #include "content/public/browser/web_contents.h"
@@ -30,7 +31,6 @@ using base::android::ConvertUTF8ToJavaString;
 using base::android::JavaParamRef;
 using base::android::ScopedJavaGlobalRef;
 using base::android::ScopedJavaLocalRef;
-using Cluster = ntp_snippets::Cluster;
 
 namespace contextual_suggestions {
 
@@ -39,9 +39,8 @@ static jlong JNI_ContextualSuggestionsBridge_Init(
     const JavaParamRef<jobject>& obj,
     const JavaParamRef<jobject>& j_profile) {
   Profile* profile = ProfileAndroid::FromProfileAndroid(j_profile);
-  ntp_snippets::ContextualContentSuggestionsService*
-      contextual_suggestions_service =
-          ContextualContentSuggestionsServiceFactory::GetForProfile(profile);
+  ContextualContentSuggestionsService* contextual_suggestions_service =
+      ContextualContentSuggestionsServiceFactory::GetForProfile(profile);
 
   std::unique_ptr<ContextualContentSuggestionsServiceProxy> service_proxy =
       contextual_suggestions_service->CreateProxy();
@@ -56,7 +55,8 @@ static jboolean JNI_ContextualSuggestionsBridge_IsEnterprisePolicyManaged(
     const JavaParamRef<jclass>& clazz) {
   // Bypass policy check, if corresponding feature is enabled.
   if (base::FeatureList::IsEnabled(
-          chrome::android::kContextualSuggestionsEnterprisePolicyBypass)) {
+          contextual_suggestions::
+              kContextualSuggestionsEnterprisePolicyBypass)) {
     return false;
   }
 
@@ -145,26 +145,32 @@ void ContextualSuggestionsBridge::ReportEvent(
       static_cast<contextual_suggestions::ContextualSuggestionsEvent>(
           j_event_id);
 
-  service_proxy_->ReportEvent(ukm_source_id, event);
+  service_proxy_->ReportEvent(
+      ukm_source_id, web_contents->GetLastCommittedURL().spec(), event);
 }
 
 void ContextualSuggestionsBridge::OnSuggestionsAvailable(
     ScopedJavaGlobalRef<jobject> j_callback,
-    std::string peek_text,
-    std::vector<Cluster> clusters) {
+    ContextualSuggestionsResult result) {
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> j_result =
       Java_ContextualSuggestionsBridge_createContextualSuggestionsResult(
-          env, ConvertUTF8ToJavaString(env, peek_text));
-  for (auto& cluster : clusters) {
+          env, ConvertUTF8ToJavaString(env, result.peek_text));
+  Java_ContextualSuggestionsBridge_setPeekConditionsOnResult(
+      env, j_result, result.peek_conditions.page_scroll_percentage,
+      result.peek_conditions.minimum_seconds_on_page,
+      result.peek_conditions.maximum_number_of_peeks);
+  for (auto& cluster : result.clusters) {
     Java_ContextualSuggestionsBridge_addNewClusterToResult(
         env, j_result, ConvertUTF8ToJavaString(env, cluster.title));
     for (auto& suggestion : cluster.suggestions) {
       Java_ContextualSuggestionsBridge_addSuggestionToLastCluster(
           env, j_result, ConvertUTF8ToJavaString(env, suggestion.id),
           ConvertUTF8ToJavaString(env, suggestion.title),
+          ConvertUTF8ToJavaString(env, suggestion.snippet),
           ConvertUTF8ToJavaString(env, suggestion.publisher_name),
-          ConvertUTF8ToJavaString(env, suggestion.url.spec()));
+          ConvertUTF8ToJavaString(env, suggestion.url.spec()),
+          !suggestion.image_id.empty());
     }
   }
   RunCallbackAndroid(j_callback, j_result);

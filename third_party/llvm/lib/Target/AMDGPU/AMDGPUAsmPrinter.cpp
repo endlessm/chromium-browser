@@ -197,8 +197,6 @@ void AMDGPUAsmPrinter::EmitFunctionBodyStart() {
   amd_kernel_code_t KernelCode;
   if (STM.isAmdCodeObjectV2(*MF)) {
     getAmdKernelCode(KernelCode, CurrentProgramInfo, *MF);
-
-    OutStreamer->SwitchSection(getObjFileLowering().getTextSection());
     getTargetStreamer()->EmitAMDKernelCodeT(KernelCode);
   }
 
@@ -511,7 +509,7 @@ uint64_t AMDGPUAsmPrinter::getFunctionCodeSize(const MachineFunction &MF) const 
       // TODO: CodeSize should account for multiple functions.
 
       // TODO: Should we count size of debug info?
-      if (MI.isDebugValue())
+      if (MI.isDebugInstr())
         continue;
 
       CodeSize += TII->getInstSizeInBytes(MI);
@@ -587,6 +585,8 @@ AMDGPUAsmPrinter::SIFunctionResourceInfo AMDGPUAsmPrinter::analyzeResourceUsage(
 
   Info.HasDynamicallySizedStack = FrameInfo.hasVarSizedObjects();
   Info.PrivateSegmentSize = FrameInfo.getStackSize();
+  if (MFI->isStackRealigned())
+    Info.PrivateSegmentSize += FrameInfo.getMaxAlignment();
 
 
   Info.UsesVCC = MRI.isPhysRegUsed(AMDGPU::VCC_LO) ||
@@ -650,7 +650,7 @@ AMDGPUAsmPrinter::SIFunctionResourceInfo AMDGPUAsmPrinter::analyzeResourceUsage(
           continue;
 
         case AMDGPU::NoRegister:
-          assert(MI.isDebugValue());
+          assert(MI.isDebugInstr());
           continue;
 
         case AMDGPU::VCC:
@@ -834,6 +834,19 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
   // Account for extra SGPRs and VGPRs reserved for debugger use.
   ProgInfo.NumSGPR += ExtraSGPRs;
   ProgInfo.NumVGPR += ExtraVGPRs;
+
+  // Ensure there are enough SGPRs and VGPRs for wave dispatch, where wave
+  // dispatch registers are function args.
+  unsigned WaveDispatchNumSGPR = 0, WaveDispatchNumVGPR = 0;
+  for (auto &Arg : MF.getFunction().args()) {
+    unsigned NumRegs = (Arg.getType()->getPrimitiveSizeInBits() + 31) / 32;
+    if (Arg.hasAttribute(Attribute::InReg))
+      WaveDispatchNumSGPR += NumRegs;
+    else
+      WaveDispatchNumVGPR += NumRegs;
+  }
+  ProgInfo.NumSGPR = std::max(ProgInfo.NumSGPR, WaveDispatchNumSGPR);
+  ProgInfo.NumVGPR = std::max(ProgInfo.NumVGPR, WaveDispatchNumVGPR);
 
   // Adjust number of registers used to meet default/requested minimum/maximum
   // number of waves per execution unit request.

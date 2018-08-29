@@ -40,7 +40,7 @@
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_CHROMEOS)
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 #include "components/user_manager/user_manager.h"
 #else
 #include "chrome/browser/signin/signin_manager_factory.h"
@@ -54,12 +54,6 @@ using AuthError = GoogleServiceAuthError;
 namespace sync_ui_util {
 
 namespace {
-
-bool IsChromeDashboardEnabled() {
-  const std::string group_name =
-      base::FieldTrialList::FindFullName("ChromeDashboard");
-  return group_name == "Enabled";
-}
 
 // Returns the message that should be displayed when the user is authenticated
 // and can connect to the sync server. If the user hasn't yet authenticated, an
@@ -86,11 +80,6 @@ base::string16 GetSyncedStateStatusLabel(ProfileSyncService* service,
           sync_everything ? IDS_SYNC_ACCOUNT_SYNCING
                           : IDS_SYNC_ACCOUNT_SYNCING_CUSTOM_DATA_TYPES);
     case WITH_HTML:
-      if (IsChromeDashboardEnabled()) {
-        return l10n_util::GetStringFUTF16(
-            IDS_SYNC_ACCOUNT_SYNCING_WITH_MANAGE_LINK_NEW,
-            base::ASCIIToUTF16(chrome::kSyncGoogleDashboardURL));
-      }
       return l10n_util::GetStringFUTF16(
           IDS_SYNC_ACCOUNT_SYNCING_WITH_MANAGE_LINK,
           base::ASCIIToUTF16(chrome::kSyncGoogleDashboardURL));
@@ -131,7 +120,7 @@ void GetStatusForUnrecoverableError(Profile* profile,
   // Unrecoverable error is sometimes accompanied by actionable error.
   // If status message is set display that message, otherwise show generic
   // unrecoverable error message.
-  ProfileSyncService::Status status;
+  syncer::SyncStatus status;
   service->QueryDetailedSyncStatus(&status);
   GetStatusForActionableError(status.sync_protocol_error, status_label,
                               link_label, action_type);
@@ -249,7 +238,7 @@ MessageType GetStatusInfo(Profile* profile,
       }
 
       // We don't have an auth error. Check for an actionable error.
-      ProfileSyncService::Status status;
+      syncer::SyncStatus status;
       service->QueryDetailedSyncStatus(&status);
       if (status_label && link_label) {
         GetStatusForActionableError(status.sync_protocol_error, status_label,
@@ -295,7 +284,7 @@ MessageType GetStatusInfo(Profile* profile,
     // or provide a link to continue with setup.
     if (service->IsFirstSetupInProgress()) {
       result_type = PRE_SYNCED;
-      ProfileSyncService::Status status;
+      syncer::SyncStatus status;
       service->QueryDetailedSyncStatus(&status);
       AuthError auth_error =
           SigninErrorControllerFactory::GetForProfile(profile)->auth_error();
@@ -375,7 +364,7 @@ AvatarSyncErrorType GetMessagesForAvatarSyncError(
     // An unrecoverable error is sometimes accompanied by an actionable error.
     // If an actionable error is not set to be UPGRADE_CLIENT, then show a
     // generic unrecoverable error message.
-    ProfileSyncService::Status status;
+    syncer::SyncStatus status;
     service->QueryDetailedSyncStatus(&status);
     if (status.sync_protocol_error.action != syncer::UPGRADE_CLIENT) {
       // Display different messages and buttons for managed accounts.
@@ -415,7 +404,7 @@ AvatarSyncErrorType GetMessagesForAvatarSyncError(
   // Check for sync errors if the sync service is enabled.
   if (service) {
     // Check for an actionable UPGRADE_CLIENT error.
-    ProfileSyncService::Status status;
+    syncer::SyncStatus status;
     service->QueryDetailedSyncStatus(&status);
     if (status.sync_protocol_error.action == syncer::UPGRADE_CLIENT) {
       *content_string_id = IDS_SYNC_ERROR_USER_MENU_UPGRADE_MESSAGE;

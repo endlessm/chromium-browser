@@ -22,7 +22,6 @@
 #include "chrome/test/chromedriver/chrome/devtools_http_client.h"
 #include "chrome/test/chromedriver/chrome/status.h"
 #include "chrome/test/chromedriver/chrome/web_view_impl.h"
-#include "chrome/test/chromedriver/net/port_server.h"
 #include "chrome/test/chromedriver/net/timeout.h"
 
 #if defined(OS_POSIX)
@@ -76,7 +75,6 @@ ChromeDesktopImpl::ChromeDesktopImpl(
     std::unique_ptr<DevToolsClient> websocket_client,
     std::vector<std::unique_ptr<DevToolsEventListener>>
         devtools_event_listeners,
-    std::unique_ptr<PortReservation> port_reservation,
     std::string page_load_strategy,
     base::Process process,
     const base::CommandLine& command,
@@ -86,7 +84,6 @@ ChromeDesktopImpl::ChromeDesktopImpl(
     : ChromeImpl(std::move(http_client),
                  std::move(websocket_client),
                  std::move(devtools_event_listeners),
-                 std::move(port_reservation),
                  page_load_strategy),
       process_(std::move(process)),
       command_(command),
@@ -207,6 +204,15 @@ bool ChromeDesktopImpl::IsNetworkConnectionEnabled() const {
 }
 
 Status ChromeDesktopImpl::QuitImpl() {
+  Status status = devtools_websocket_client_->ConnectIfNecessary();
+  if (status.IsOk()) {
+    status = devtools_websocket_client_->SendCommandAndIgnoreResponse(
+        "Browser.close", base::DictionaryValue());
+    if (status.IsOk() && process_.WaitForExitWithTimeout(
+                             base::TimeDelta::FromSeconds(10), nullptr))
+      return status;
+  }
+
   // If the Chrome session uses a custom user data directory, try sending a
   // SIGTERM signal before SIGKILL, so that Chrome has a chance to write
   // everything back out to the user data directory and exit cleanly. If we're

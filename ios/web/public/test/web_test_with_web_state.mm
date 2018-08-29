@@ -4,6 +4,7 @@
 
 #import "ios/web/public/test/web_test_with_web_state.h"
 
+#include "base/message_loop/message_loop_current.h"
 #include "base/run_loop.h"
 #include "base/scoped_observer.h"
 #include "base/strings/sys_string_conversions.h"
@@ -62,7 +63,7 @@ void WebTestWithWebState::AddPendingItem(const GURL& url,
   GetWebController(web_state())
       .webStateImpl->GetNavigationManagerImpl()
       .AddPendingItem(url, Referrer(), transition,
-                      web::NavigationInitiationType::USER_INITIATED,
+                      web::NavigationInitiationType::BROWSER_INITIATED,
                       web::NavigationManager::UserAgentOverrideOption::INHERIT);
 }
 
@@ -148,7 +149,7 @@ void WebTestWithWebState::WaitForBackgroundTasks() {
   // Because tasks can add new tasks to either queue, the loop continues until
   // the first pass where no activity is seen from either queue.
   bool activitySeen = false;
-  base::MessageLoop* messageLoop = base::MessageLoop::current();
+  base::MessageLoopCurrent messageLoop = base::MessageLoopCurrent::Get();
   messageLoop->AddTaskObserver(this);
   do {
     activitySeen = false;

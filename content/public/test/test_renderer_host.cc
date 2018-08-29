@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/message_loop/message_loop_current.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -138,7 +139,7 @@ RenderViewHostTestEnabler::RenderViewHostTestEnabler()
   // tests have their own, so this only creates one when none exists. This
   // means tests must ensure any MessageLoop they make is created before
   // the RenderViewHostTestEnabler.
-  if (!base::MessageLoop::current())
+  if (!base::MessageLoopCurrent::Get())
     message_loop_ = std::make_unique<base::MessageLoop>();
 #if !defined(OS_ANDROID)
   ImageTransportFactory::SetFactory(
@@ -216,15 +217,17 @@ MockRenderProcessHost* RenderViewHostTestHarness::process() {
 }
 
 void RenderViewHostTestHarness::DeleteContents() {
-  SetContents(nullptr);
+  contents_.reset();
 }
 
-void RenderViewHostTestHarness::SetContents(WebContents* contents) {
-  contents_.reset(contents);
+void RenderViewHostTestHarness::SetContents(
+    std::unique_ptr<WebContents> contents) {
+  contents_ = std::move(contents);
 }
 
-WebContents* RenderViewHostTestHarness::CreateTestWebContents() {
-  // Make sure we ran SetUp() already.
+std::unique_ptr<WebContents>
+RenderViewHostTestHarness::CreateTestWebContents() {
+// Make sure we ran SetUp() already.
 #if defined(OS_WIN)
   DCHECK(ole_initializer_ != NULL);
 #endif
@@ -282,7 +285,7 @@ void RenderViewHostTestHarness::TearDown() {
   if (IsBrowserSideNavigationEnabled())
     BrowserSideNavigationTearDown();
 
-  SetContents(nullptr);
+  DeleteContents();
 #if defined(USE_AURA)
   aura_test_helper_->TearDown();
   ui::TerminateContextFactoryForTests();

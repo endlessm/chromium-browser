@@ -33,6 +33,7 @@ import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.CollectionUtil;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
+import org.chromium.base.StrictModeContext;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
@@ -92,7 +93,7 @@ public class ShortcutHelper {
     // be correctly populated into the WebappRegistry/WebappDataStorage.
     public static final int WEBAPP_SHORTCUT_VERSION = 2;
 
-    // This value is equal to kInvalidOrMissingColor in the C++ content::Manifest struct.
+    // This value is equal to kInvalidOrMissingColor in the C++ blink::Manifest struct.
     public static final long MANIFEST_COLOR_INVALID_OR_MISSING = ((long) Integer.MAX_VALUE) + 1;
 
     private static final String TAG = "ShortcutHelper";
@@ -608,24 +609,20 @@ public class ShortcutHelper {
         // - Clearing the URL's query and fragment.
 
         Uri uri = Uri.parse(url);
-        List<String> path = uri.getPathSegments();
-        int endIndex = path.size();
+        String path = uri.getEncodedPath();
 
         // Remove the last path element if there is at least one path element, *and* the path does
         // not end with a slash. This means that URLs to specific files have the file component
         // removed, but URLs to directories retain the directory.
-        if (endIndex > 0 && !uri.getPath().endsWith("/")) {
-            endIndex -= 1;
+        int lastSlashIndex = (path == null) ? -1 : path.lastIndexOf("/");
+        if (lastSlashIndex < 0) {
+            path = "/";
+        } else if (lastSlashIndex < path.length() - 1) {
+            path = path.substring(0, lastSlashIndex + 1);
         }
 
-        // Make sure the path starts and ends with a slash (or is only a slash if there is no path).
         Uri.Builder builder = uri.buildUpon();
-        String scope_path = "/" + TextUtils.join("/", path.subList(0, endIndex));
-        if (scope_path.length() > 1) {
-            scope_path += "/";
-        }
-        builder.path(scope_path);
-
+        builder.encodedPath(path);
         builder.fragment("");
         builder.query("");
         return builder.build().toString();
@@ -683,7 +680,9 @@ public class ShortcutHelper {
     private static void checkIfRequestPinShortcutSupported() {
         sShortcutManager =
                 ContextUtils.getApplicationContext().getSystemService(ShortcutManager.class);
-        sIsRequestPinShortcutSupported = sShortcutManager.isRequestPinShortcutSupported();
+        try (StrictModeContext unused = StrictModeContext.allowDiskReads()) {
+            sIsRequestPinShortcutSupported = sShortcutManager.isRequestPinShortcutSupported();
+        }
     }
 
     private static int getSizeFromResourceInPx(Context context, int resource) {

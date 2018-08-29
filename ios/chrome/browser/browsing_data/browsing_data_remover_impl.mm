@@ -18,6 +18,7 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
+#include "base/sequenced_task_runner.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
@@ -111,16 +112,14 @@ void DeleteCallbackAdapter(base::OnceClosure callback, uint32_t) {
 // Clears cookies.
 void ClearCookies(
     scoped_refptr<net::URLRequestContextGetter> request_context_getter,
-    base::Time delete_begin,
-    base::Time delete_end,
+    const net::CookieDeletionInfo::TimeRange& creation_range,
     base::OnceClosure callback) {
   DCHECK_CURRENTLY_ON(web::WebThread::IO);
   net::CookieStore* cookie_store =
       request_context_getter->GetURLRequestContext()->cookie_store();
-  cookie_store->DeleteAllCreatedBetweenAsync(
-      delete_begin, delete_end,
-      AdaptCallbackForRepeating(
-          base::BindOnce(&DeleteCallbackAdapter, std::move(callback))));
+  cookie_store->DeleteAllCreatedInTimeRangeAsync(
+      creation_range, AdaptCallbackForRepeating(base::BindOnce(
+                          &DeleteCallbackAdapter, std::move(callback))));
 }
 
 // Clears SSL connection pool and then invoke callback.
@@ -315,7 +314,8 @@ void BrowsingDataRemoverImpl::RemoveImpl(base::Time delete_begin,
     web::WebThread::PostTask(
         web::WebThread::IO, FROM_HERE,
         base::BindOnce(
-            &ClearCookies, context_getter_, delete_begin, delete_end,
+            &ClearCookies, context_getter_,
+            net::CookieDeletionInfo::TimeRange(delete_begin, delete_end),
             base::BindOnce(base::IgnoreResult(&base::TaskRunner::PostTask),
                            current_task_runner, FROM_HERE,
                            CreatePendingTaskCompletionClosure())));
@@ -601,18 +601,16 @@ void BrowsingDataRemoverImpl::RemoveDataFromWKWebsiteDataStore(
     return;
   }
 
-  // Blocks don't play well with move-only objects, so wrap the closure as
-  // a repeating closure (this is better than recreating the same API with
-  // blocks).
-  base::RepeatingClosure closure =
-      AdaptCallbackForRepeating(CreatePendingTaskCompletionClosure());
+  base::WeakPtr<BrowsingDataRemoverImpl> weak_ptr = GetWeakPtr();
+  __block base::OnceClosure closure = CreatePendingTaskCompletionClosure();
   ProceduralBlock completion_block = ^{
-    closure.Run();
+    if (BrowsingDataRemoverImpl* strong_ptr = weak_ptr.get())
+      strong_ptr->dummy_web_view_ = nil;
+    std::move(closure).Run();
   };
 
   if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_VISITED_LINKS)) {
     ProceduralBlock previous_completion_block = completion_block;
-    base::WeakPtr<BrowsingDataRemoverImpl> weak_ptr = GetWeakPtr();
 
     // TODO(crbug.com/557963): Purging the WKProcessPool is a workaround for
     // the fact that there is no public API to clear visited links in
@@ -631,31 +629,21 @@ void BrowsingDataRemoverImpl::RemoveDataFromWKWebsiteDataStore(
     };
   }
 
-  ProceduralBlock remove_from_wk_website_data_store = ^{
-    NSDate* delete_begin_date =
-        [NSDate dateWithTimeIntervalSince1970:delete_begin.ToDoubleT()];
-    [[WKWebsiteDataStore defaultDataStore]
-        removeDataOfTypes:data_types_to_remove
-            modifiedSince:delete_begin_date
-        completionHandler:completion_block];
-  };
-
-  // TODO(crbug.com/661630): creating a WKWebView and executing javascript
-  // enables the WKWebView to connect to the Networking process. This allow
-  // the -[WKWebsiteDataStore removeDataOfTypes:] API to send an IPC message
-  // to the Networking process to clear cookies. This is a workaround for
-  // https://bugs.webkit.org/show_bug.cgi?id=149078 and has been reverse-
-  // engineered by code inspection on the WebKit2 source code. Remove this
-  // workaround when bug is fixed.
+  // TODO(crbug.com/661630): |dummy_web_view_| is created to allow
+  // the -[WKWebsiteDataStore removeDataOfTypes:] API to access the cookiestore
+  // and clear cookies. This is a workaround for
+  // https://bugs.webkit.org/show_bug.cgi?id=149078. Remove this
+  // workaround when it's not needed anymore.
   if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_COOKIES)) {
-    [web::BuildWKWebView(CGRectZero, browser_state_)
-        evaluateJavaScript:@""
-         completionHandler:^(id, NSError*) {
-           remove_from_wk_website_data_store();
-         }];
-  } else {
-    remove_from_wk_website_data_store();
+    if (!dummy_web_view_)
+      dummy_web_view_ = [[WKWebView alloc] initWithFrame:CGRectZero];
   }
+
+  NSDate* delete_begin_date =
+      [NSDate dateWithTimeIntervalSince1970:delete_begin.ToDoubleT()];
+  [[WKWebsiteDataStore defaultDataStore] removeDataOfTypes:data_types_to_remove
+                                             modifiedSince:delete_begin_date
+                                         completionHandler:completion_block];
 }
 
 void BrowsingDataRemoverImpl::OnKeywordsLoaded(base::Time delete_begin,

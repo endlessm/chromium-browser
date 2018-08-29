@@ -82,7 +82,7 @@ public class TestFramework {
      */
     public TestFramework(ChromeActivityTestRule rule) {
         mRule = rule;
-        mFirstTabWebContents = mRule.getActivity().getActivityTab().getWebContents();
+        mFirstTabWebContents = mRule.getWebContents();
         mFirstTabCvc = mRule.getActivity().getActivityTab().getContentViewCore();
         mFirstTabContentView = mRule.getActivity().getActivityTab().getContentView();
         Assert.assertFalse("Test did not start in VR", VrShellDelegate.isInVr());
@@ -90,10 +90,6 @@ public class TestFramework {
 
     public WebContents getFirstTabWebContents() {
         return mFirstTabWebContents;
-    }
-
-    public ContentViewCore getFirstTabCvc() {
-        return mFirstTabCvc;
     }
 
     public View getFirstTabContentView() {
@@ -121,9 +117,18 @@ public class TestFramework {
      * @param testName The name of the test whose file will be retrieved.
      * @return The file:// URL to the specified test file.
      */
-    public static String getHtmlTestFile(String testName) {
+    public static String getFileUrlForHtmlTestFile(String testName) {
         return "file://" + UrlUtils.getIsolatedTestFilePath(TEST_DIR) + "/html/" + testName
                 + ".html";
+    }
+
+    /**
+     * Gets the path to pass to an EmbeddedTestServer.getURL to load the given HTML test file.
+     * @param testName The name of the test whose file will be retrieved.
+     * @param A path that can be passed to EmbeddedTestServer.getURL to load the test file.
+     */
+    public static String getEmbeddedServerPathForHtmlTestFile(String testName) {
+        return "/" + TEST_DIR + "/html/" + testName + ".html";
     }
 
     /**
@@ -138,7 +143,7 @@ public class TestFramework {
         int result = mRule.loadUrl(url, timeoutSec);
         Assert.assertTrue("JavaScript initialization successful",
                 pollJavaScriptBoolean("isInitializationComplete()", POLL_TIMEOUT_LONG_MS,
-                        mRule.getActivity().getActivityTab().getWebContents()));
+                        mRule.getWebContents()));
         return result;
     }
 

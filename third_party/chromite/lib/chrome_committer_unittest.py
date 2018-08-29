@@ -9,14 +9,13 @@ from __future__ import print_function
 
 import os
 
-from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
 from chromite.lib import osutils
 from chromite.lib import chrome_committer
 from chromite.lib import tree_status
 
 
-class ChromeCommitterTester(cros_build_lib_unittest.RunCommandTestCase,
+class ChromeCommitterTester(cros_test_lib.RunCommandTestCase,
                             cros_test_lib.MockTempDirTestCase):
   """Test cros_chromeos_lkgm.Committer."""
 
@@ -54,7 +53,7 @@ class ChromeCommitterTester(cros_build_lib_unittest.RunCommandTestCase,
     self._assertCommand('git checkout -B auto-commit-branch origin/master')
     self.assertEquals(osutils.ReadFile(
         os.path.join(self.tempdir, '.git', 'info', 'sparse-checkout')),
-                      'OWNERS\ncodereview.settings')
+                      'OWNERS\ncodereview.settings\nWATCHLISTS')
 
   def testCommit(self):
     """Tests that we can commit a file."""

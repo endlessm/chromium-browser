@@ -32,6 +32,7 @@ class UserEventSyncBridge : public ModelTypeSyncBridge {
   ~UserEventSyncBridge() override;
 
   // ModelTypeSyncBridge implementation.
+  void OnSyncStarting() override;
   std::unique_ptr<MetadataChangeList> CreateMetadataChangeList() override;
   base::Optional<ModelError> MergeSyncData(
       std::unique_ptr<MetadataChangeList> metadata_change_list,
@@ -43,10 +44,7 @@ class UserEventSyncBridge : public ModelTypeSyncBridge {
   void GetAllData(DataCallback callback) override;
   std::string GetClientTag(const EntityData& entity_data) override;
   std::string GetStorageKey(const EntityData& entity_data) override;
-  void OnSyncStarting(
-      const ModelErrorHandler& error_handler,
-      const ModelTypeChangeProcessor::StartCallback& callback) override;
-  void ApplyDisableSyncChanges(
+  DisableSyncResponse ApplyDisableSyncChanges(
       std::unique_ptr<MetadataChangeList> delete_metadata_change_list) override;
 
   void RecordUserEvent(std::unique_ptr<sync_pb::UserEventSpecifics> specifics);

@@ -57,6 +57,8 @@ namespace aura {
 class Window;
 }
 
+namespace extensions {
+
 class WindowOpenApiTest : public ExtensionApiTest {
   void SetUpOnMainThread() override {
     ExtensionApiTest::SetUpOnMainThread();
@@ -140,7 +142,7 @@ IN_PROC_BROWSER_TEST_F(WindowOpenApiTest, WindowOpenPopupDefault) {
 
 IN_PROC_BROWSER_TEST_F(WindowOpenApiTest, WindowOpenPopupIframe) {
   base::FilePath test_data_dir;
-  PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
+  base::PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
   embedded_test_server()->ServeFilesFromDirectory(test_data_dir);
   ASSERT_TRUE(StartEmbeddedTestServer());
   ASSERT_TRUE(LoadExtension(
@@ -524,3 +526,5 @@ IN_PROC_BROWSER_TEST_F(WindowOpenApiTest,
             extension->install_warnings().front().message);
 }
 #endif
+
+}  // namespace extensions

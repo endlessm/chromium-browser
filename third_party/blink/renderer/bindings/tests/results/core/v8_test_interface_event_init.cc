@@ -8,12 +8,12 @@
 // DO NOT MODIFY!
 
 // clang-format off
-#include "v8_test_interface_event_init.h"
+#include "third_party/blink/renderer/bindings/tests/results/core/v8_test_interface_event_init.h"
 
-#include "bindings/core/v8/exception_state.h"
-#include "bindings/core/v8/idl_types.h"
-#include "bindings/core/v8/native_value_traits_impl.h"
-#include "bindings/core/v8/v8_event_init.h"
+#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
+#include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_event_init.h"
 
 namespace blink {
 
@@ -22,7 +22,7 @@ static const v8::Eternal<v8::Name>* eternalV8TestInterfaceEventInitKeys(v8::Isol
     "stringMember",
   };
   return V8PerIsolateData::From(isolate)->FindOrCreateEternalNameCache(
-      kKeys, kKeys, WTF_ARRAY_LENGTH(kKeys));
+      kKeys, kKeys, arraysize(kKeys));
 }
 
 void V8TestInterfaceEventInit::ToImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, TestInterfaceEventInit& impl, ExceptionState& exceptionState) {

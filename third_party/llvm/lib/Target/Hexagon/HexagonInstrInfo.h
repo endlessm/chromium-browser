@@ -19,7 +19,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
-#include "llvm/IR/ValueTypes.h"
+#include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/Support/MachineValueType.h"
 #include <cstdint>
 #include <vector>
@@ -215,7 +215,7 @@ public:
   /// anything was changed.
   bool expandPostRAPseudo(MachineInstr &MI) const override;
 
-  /// \brief Get the base register and byte offset of a load/store instr.
+  /// Get the base register and byte offset of a load/store instr.
   bool getMemOpBaseRegImmOfs(MachineInstr &LdSt, unsigned &BaseReg,
                              int64_t &Offset,
                              const TargetRegisterInfo *TRI) const override;

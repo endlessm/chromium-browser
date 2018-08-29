@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 //
 /// \file
-/// \brief Add implicit use of exec to vector register copies.
+/// Add implicit use of exec to vector register copies.
 ///
 //===----------------------------------------------------------------------===//
 
@@ -58,7 +58,7 @@ bool SIFixVGPRCopies::runOnMachineFunction(MachineFunction &MF) {
         if (TII->isVGPRCopy(MI) && !MI.readsRegister(AMDGPU::EXEC, TRI)) {
           MI.addOperand(MF,
                         MachineOperand::CreateReg(AMDGPU::EXEC, false, true));
-          DEBUG(dbgs() << "Add exec use to " << MI);
+          LLVM_DEBUG(dbgs() << "Add exec use to " << MI);
           Changed = true;
         }
         break;

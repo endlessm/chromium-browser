@@ -25,7 +25,6 @@ import org.chromium.base.ResourceExtractor;
 import org.chromium.base.SysUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.VisibleForTesting;
-import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.MainDex;
 import org.chromium.base.metrics.RecordHistogram;
@@ -48,6 +47,7 @@ import javax.annotation.Nullable;
  * See also base/android/library_loader/library_loader_hooks.cc, which contains
  * the native counterpart to this class.
  */
+@MainDex
 @JNINamespace("base::android")
 public class LibraryLoader {
     private static final String TAG = "LibraryLoader";
@@ -66,7 +66,7 @@ public class LibraryLoader {
     private static boolean sLibraryPreloaderCalled;
 
     // The singleton instance of LibraryLoader.
-    private static volatile LibraryLoader sInstance;
+    private static LibraryLoader sInstance = new LibraryLoader();
 
     private static final EnumeratedHistogramSample sRelinkerCountHistogram =
             new EnumeratedHistogramSample("ChromiumAndroidLinker.RelinkerFallbackCount", 2);
@@ -95,13 +95,11 @@ public class LibraryLoader {
     private boolean mLibraryWasLoadedFromApk;
 
     // The type of process the shared library is loaded in.
-    // This member can be accessed from multiple threads simultaneously, so it have to be
-    // final (like now) or be protected in some way (volatile of synchronized).
-    private final int mLibraryProcessType;
+    private @LibraryProcessType int mLibraryProcessType;
 
     // One-way switch that becomes true once
     // {@link asyncPrefetchLibrariesToMemory} has been called.
-    private final AtomicBoolean mPrefetchLibraryHasBeenCalled;
+    private final AtomicBoolean mPrefetchLibraryHasBeenCalled = new AtomicBoolean();
 
     // The number of milliseconds it took to load all the native libraries, which
     // will be reported via UMA. Set once when the libraries are done loading.
@@ -121,44 +119,30 @@ public class LibraryLoader {
      */
     public static void setNativeLibraryPreloader(NativeLibraryPreloader loader) {
         synchronized (sLock) {
-            assert sLibraryPreloader == null && (sInstance == null || !sInstance.mLoaded);
+            assert sLibraryPreloader == null && !sInstance.mLoaded;
             sLibraryPreloader = loader;
         }
     }
 
-    /**
-     * @param libraryProcessType the process the shared library is loaded in. refer to
-     *                           LibraryProcessType for possible values.
-     * @return LibraryLoader if existing, otherwise create a new one.
-     */
-    public static LibraryLoader get(int libraryProcessType) throws ProcessInitException {
-        synchronized (sLock) {
-            if (sInstance != null) {
-                if (sInstance.mLibraryProcessType == libraryProcessType) return sInstance;
-                throw new ProcessInitException(
-                        LoaderErrors.LOADER_ERROR_NATIVE_LIBRARY_LOAD_FAILED);
-            }
-            sInstance = new LibraryLoader(libraryProcessType);
-            return sInstance;
-        }
+    public static LibraryLoader getInstance() {
+        return sInstance;
     }
 
-    private LibraryLoader(int libraryProcessType) {
-        mLibraryProcessType = libraryProcessType;
-        mPrefetchLibraryHasBeenCalled = new AtomicBoolean();
-    }
+    private LibraryLoader() {}
 
     /**
      *  This method blocks until the library is fully loaded and initialized.
+     *
+     * @param processType the process the shared library is loaded in.
      */
-    public void ensureInitialized() throws ProcessInitException {
+    public void ensureInitialized(@LibraryProcessType int processType) throws ProcessInitException {
         synchronized (sLock) {
             if (mInitialized) {
                 // Already initialized, nothing to do.
                 return;
             }
             loadAlreadyLocked(ContextUtils.getApplicationContext());
-            initializeAlreadyLocked();
+            initializeAlreadyLocked(processType);
         }
     }
 
@@ -232,13 +216,15 @@ public class LibraryLoader {
     }
 
     /**
-     * initializes the library here and now: must be called on the thread that the
+     * Initializes the library here and now: must be called on the thread that the
      * native will call its "main" thread. The library must have previously been
      * loaded with loadNow.
+     *
+     * @param processType the process the shared library is loaded in.
      */
-    public void initialize() throws ProcessInitException {
+    public void initialize(@LibraryProcessType int processType) throws ProcessInitException {
         synchronized (sLock) {
-            initializeAlreadyLocked();
+            initializeAlreadyLocked(processType);
         }
     }
 
@@ -312,18 +298,11 @@ public class LibraryLoader {
         protected Void doInBackground(Void... params) {
             try (TraceEvent e = TraceEvent.scoped("LibraryLoader.asyncPrefetchLibrariesToMemory")) {
                 int percentage = nativePercentageOfResidentNativeLibraryCode();
-                boolean success = false;
                 // Arbitrary percentage threshold. If most of the native library is already
                 // resident (likely with monochrome), don't bother creating a prefetch process.
                 boolean prefetch = mColdStart && percentage < 90;
                 if (prefetch) {
-                    success = nativeForkAndPrefetchNativeLibrary();
-                    if (!success) {
-                        Log.w(TAG, "Forking a process to prefetch the native library failed.");
-                    }
-                }
-                if (prefetch) {
-                    RecordHistogram.recordBooleanHistogram("LibraryLoader.PrefetchStatus", success);
+                    nativeForkAndPrefetchNativeLibrary();
                 }
                 if (percentage != -1) {
                     String histogram = "LibraryLoader.PercentageOfResidentCodeBeforePrefetch"
@@ -548,14 +527,20 @@ public class LibraryLoader {
     }
 
     // Invoke base::android::LibraryLoaded in library_loader_hooks.cc
-    private void initializeAlreadyLocked() throws ProcessInitException {
+    private void initializeAlreadyLocked(@LibraryProcessType int processType)
+            throws ProcessInitException {
         if (mInitialized) {
+            if (mLibraryProcessType != processType) {
+                throw new ProcessInitException(
+                        LoaderErrors.LOADER_ERROR_NATIVE_LIBRARY_LOAD_FAILED);
+            }
             return;
         }
+        mLibraryProcessType = processType;
 
         ensureCommandLineSwitchedAlreadyLocked();
 
-        if (!nativeLibraryLoaded()) {
+        if (!nativeLibraryLoaded(mLibraryProcessType)) {
             Log.e(TAG, "error calling nativeLibraryLoaded");
             throw new ProcessInitException(LoaderErrors.LOADER_ERROR_FAILED_TO_REGISTER_JNI);
         }
@@ -629,17 +614,6 @@ public class LibraryLoader {
     }
 
     /**
-     * @return the process the shared library is loaded in, see the LibraryProcessType
-     *         for possible values.
-     */
-    @CalledByNative
-    @MainDex
-    public static int getLibraryProcessType() {
-        if (sInstance == null) return LibraryProcessType.PROCESS_UNINITIALIZED;
-        return sInstance.mLibraryProcessType;
-    }
-
-    /**
      * Override the library loader (normally with a mock) for testing.
      * @param loader the mock library loader.
      */
@@ -675,7 +649,7 @@ public class LibraryLoader {
     // definition in base/android/library_loader/library_loader_hooks.cc.
     //
     // Return true on success and false on failure.
-    private native boolean nativeLibraryLoaded();
+    private native boolean nativeLibraryLoaded(@LibraryProcessType int processType);
 
     // Method called to record statistics about the Chromium linker operation for the main
     // browser process. Indicates whether the linker attempted relro sharing for the browser,
@@ -712,7 +686,7 @@ public class LibraryLoader {
     // Finds the ranges corresponding to the native library pages, forks a new
     // process to prefetch these pages and waits for it. The new process then
     // terminates. This is blocking.
-    private static native boolean nativeForkAndPrefetchNativeLibrary();
+    private static native void nativeForkAndPrefetchNativeLibrary();
 
     // Returns the percentage of the native library code page that are currently reseident in
     // memory.

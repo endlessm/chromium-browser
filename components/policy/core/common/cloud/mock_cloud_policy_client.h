@@ -18,7 +18,7 @@ namespace policy {
 class MockCloudPolicyClient : public CloudPolicyClient {
  public:
   MockCloudPolicyClient();
-  virtual ~MockCloudPolicyClient();
+  ~MockCloudPolicyClient() override;
 
   MOCK_METHOD3(SetupRegistration,
                void(const std::string&,
@@ -39,6 +39,8 @@ class MockCloudPolicyClient : public CloudPolicyClient {
   MOCK_METHOD2(UploadEnterpriseMachineCertificate,
                void(const std::string&, const StatusCallback&));
   MOCK_METHOD2(UploadEnterpriseEnrollmentCertificate,
+               void(const std::string&, const StatusCallback&));
+  MOCK_METHOD2(UploadEnterpriseEnrollmentId,
                void(const std::string&, const StatusCallback&));
   MOCK_METHOD3(UploadDeviceStatus,
                void(const enterprise_management::DeviceStatusReportRequest*,
@@ -87,7 +89,7 @@ class MockCloudPolicyClient : public CloudPolicyClient {
 class MockCloudPolicyClientObserver : public CloudPolicyClient::Observer {
  public:
   MockCloudPolicyClientObserver();
-  virtual ~MockCloudPolicyClientObserver();
+  ~MockCloudPolicyClientObserver() override;
 
   MOCK_METHOD1(OnPolicyFetched, void(CloudPolicyClient*));
   MOCK_METHOD1(OnRegistrationStateChanged, void(CloudPolicyClient*));

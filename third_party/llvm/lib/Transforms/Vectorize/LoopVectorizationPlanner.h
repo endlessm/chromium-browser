@@ -48,7 +48,7 @@ private:
 public:
   VPBuilder() {}
 
-  /// \brief This specifies that created VPInstructions should be appended to
+  /// This specifies that created VPInstructions should be appended to
   /// the end of the specified block.
   void setInsertPoint(VPBasicBlock *TheBB) {
     assert(TheBB && "Attempting to set a null insert point");
@@ -143,6 +143,10 @@ public:
 
   /// Plan how to best vectorize, return the best VF and its cost.
   VectorizationFactor plan(bool OptForSize, unsigned UserVF);
+
+  /// Use the VPlan-native path to plan how to best vectorize, return the best
+  /// VF and its cost.
+  VectorizationFactor planInVPlanNativePath(bool OptForSize, unsigned UserVF);
 
   /// Finalize the best decision and dispose of all other VPlans.
   void setBestPlan(unsigned VF, unsigned UF);

@@ -36,6 +36,7 @@
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/CodeGen/TargetCallingConv.h"
+#include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/CallingConv.h"
@@ -47,7 +48,6 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Type.h"
-#include "llvm/IR/ValueTypes.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Support/Casting.h"
@@ -223,7 +223,7 @@ public:
   virtual ~TargetLoweringBase() = default;
 
 protected:
-  /// \brief Initialize all of the actions to default values.
+  /// Initialize all of the actions to default values.
   void initActions();
 
 public:
@@ -423,17 +423,17 @@ public:
     return true;
   }
 
-  /// \brief Return true if it is cheap to speculate a call to intrinsic cttz.
+  /// Return true if it is cheap to speculate a call to intrinsic cttz.
   virtual bool isCheapToSpeculateCttz() const {
     return false;
   }
 
-  /// \brief Return true if it is cheap to speculate a call to intrinsic ctlz.
+  /// Return true if it is cheap to speculate a call to intrinsic ctlz.
   virtual bool isCheapToSpeculateCtlz() const {
     return false;
   }
 
-  /// \brief Return true if ctlz instruction is fast.
+  /// Return true if ctlz instruction is fast.
   virtual bool isCtlzFast() const {
     return false;
   }
@@ -446,13 +446,13 @@ public:
     return false;
   }
 
-  /// \brief Return true if it is cheaper to split the store of a merged int val
+  /// Return true if it is cheaper to split the store of a merged int val
   /// from a pair of smaller values into multiple stores.
   virtual bool isMultiStoresCheaperThanBitsMerge(EVT LTy, EVT HTy) const {
     return false;
   }
 
-  /// \brief Return if the target supports combining a
+  /// Return if the target supports combining a
   /// chain like:
   /// \code
   ///   %andResult = and %val1, #mask
@@ -509,7 +509,7 @@ public:
     return hasAndNotCompare(X);
   }
 
-  /// \brief Return true if the target wants to use the optimization that
+  /// Return true if the target wants to use the optimization that
   /// turns ext(promotableInst1(...(promotableInstN(load)))) into
   /// promotedInst1(...(promotedInstN(ext(load)))).
   bool enableExtLdPromotion() const { return EnableExtLdPromotion; }
@@ -1179,7 +1179,7 @@ public:
     return getPointerTy(DL).getSizeInBits();
   }
 
-  /// \brief Get maximum # of store operations permitted for llvm.memset
+  /// Get maximum # of store operations permitted for llvm.memset
   ///
   /// This function returns the maximum number of store operations permitted
   /// to replace a call to llvm.memset. The value is set by the target at the
@@ -1189,7 +1189,7 @@ public:
     return OptSize ? MaxStoresPerMemsetOptSize : MaxStoresPerMemset;
   }
 
-  /// \brief Get maximum # of store operations permitted for llvm.memcpy
+  /// Get maximum # of store operations permitted for llvm.memcpy
   ///
   /// This function returns the maximum number of store operations permitted
   /// to replace a call to llvm.memcpy. The value is set by the target at the
@@ -1197,6 +1197,15 @@ public:
   /// return the limit for functions that have OptSize attribute.
   unsigned getMaxStoresPerMemcpy(bool OptSize) const {
     return OptSize ? MaxStoresPerMemcpyOptSize : MaxStoresPerMemcpy;
+  }
+
+  /// \brief Get maximum # of store operations to be glued together
+  ///
+  /// This function returns the maximum number of store operations permitted
+  /// to glue together during lowering of llvm.memcpy. The value is set by
+  //  the target at the performance threshold for such a replacement.
+  virtual unsigned getMaxGluedStoresPerMemcpy() const {
+    return MaxGluedStoresPerMemcpy;
   }
 
   /// Get maximum # of load operations permitted for memcmp
@@ -1221,7 +1230,7 @@ public:
     return 1;
   }
 
-  /// \brief Get maximum # of store operations permitted for llvm.memmove
+  /// Get maximum # of store operations permitted for llvm.memmove
   ///
   /// This function returns the maximum number of store operations permitted
   /// to replace a call to llvm.memmove. The value is set by the target at the
@@ -1231,7 +1240,7 @@ public:
     return OptSize ? MaxStoresPerMemmoveOptSize : MaxStoresPerMemmove;
   }
 
-  /// \brief Determine if the target supports unaligned memory accesses.
+  /// Determine if the target supports unaligned memory accesses.
   ///
   /// This function returns true if the target allows unaligned memory accesses
   /// of the specified type in the given address space. If true, it also returns
@@ -1369,7 +1378,7 @@ public:
   /// If the target has a standard location for the stack protector guard,
   /// returns the address of that location. Otherwise, returns nullptr.
   /// DEPRECATED: please override useLoadStackGuardNode and customize
-  ///             LOAD_STACK_GUARD, or customize @llvm.stackguard().
+  ///             LOAD_STACK_GUARD, or customize \@llvm.stackguard().
   virtual Value *getIRStackGuard(IRBuilder<> &IRB) const;
 
   /// Inserts necessary declarations for SSP (stack protection) purpose.
@@ -1924,7 +1933,7 @@ public:
                                      Type *Ty, unsigned AddrSpace,
                                      Instruction *I = nullptr) const;
 
-  /// \brief Return the cost of the scaling factor used in the addressing mode
+  /// Return the cost of the scaling factor used in the addressing mode
   /// represented by AM for this target, for a load/store of the specified type.
   ///
   /// If the AM is supported, the return value must be >= 0.
@@ -2120,11 +2129,11 @@ public:
   /// Return true if the target has a vector blend instruction.
   virtual bool hasVectorBlend() const { return false; }
 
-  /// \brief Get the maximum supported factor for interleaved memory accesses.
+  /// Get the maximum supported factor for interleaved memory accesses.
   /// Default to be the minimum interleave factor: 2.
   virtual unsigned getMaxSupportedInterleaveFactor() const { return 2; }
 
-  /// \brief Lower an interleaved load to target specific intrinsics. Return
+  /// Lower an interleaved load to target specific intrinsics. Return
   /// true on success.
   ///
   /// \p LI is the vector load instruction.
@@ -2138,7 +2147,7 @@ public:
     return false;
   }
 
-  /// \brief Lower an interleaved store to target specific intrinsics. Return
+  /// Lower an interleaved store to target specific intrinsics. Return
   /// true on success.
   ///
   /// \p SI is the vector store instruction.
@@ -2211,7 +2220,7 @@ public:
     return false;
   }
 
-  /// \brief Return true if it is beneficial to convert a load of a constant to
+  /// Return true if it is beneficial to convert a load of a constant to
   /// just the constant itself.
   /// On some targets it might be more efficient to use a combination of
   /// arithmetic instructions to materialize the constant instead of loading it
@@ -2235,6 +2244,11 @@ public:
   virtual bool aggressivelyPreferBuildVectorSources(EVT VecVT) const {
     return false;
   }
+
+  // Return true if CodeGenPrepare should consider splitting large offset of a
+  // GEP to make the GEP fit into the addressing mode and can be sunk into the
+  // same blocks of its users.
+  virtual bool shouldConsiderGEPOffsetSplit() const { return false; }
 
   //===--------------------------------------------------------------------===//
   // Runtime Library hooks
@@ -2475,7 +2489,7 @@ protected:
   /// expected to be merged.
   unsigned GatherAllAliasesMaxDepth;
 
-  /// \brief Specify maximum number of store instructions per memset call.
+  /// Specify maximum number of store instructions per memset call.
   ///
   /// When lowering \@llvm.memset this field specifies the maximum number of
   /// store operations that may be substituted for the call to memset. Targets
@@ -2491,7 +2505,7 @@ protected:
   /// to memset, used for functions with OptSize attribute.
   unsigned MaxStoresPerMemsetOptSize;
 
-  /// \brief Specify maximum bytes of store instructions per memcpy call.
+  /// Specify maximum bytes of store instructions per memcpy call.
   ///
   /// When lowering \@llvm.memcpy this field specifies the maximum number of
   /// store operations that may be substituted for a call to memcpy. Targets
@@ -2504,13 +2518,21 @@ protected:
   /// constant size.
   unsigned MaxStoresPerMemcpy;
 
+
+  /// \brief Specify max number of store instructions to glue in inlined memcpy.
+  ///
+  /// When memcpy is inlined based on MaxStoresPerMemcpy, specify maximum number
+  /// of store instructions to keep together. This helps in pairing and
+  //  vectorization later on.
+  unsigned MaxGluedStoresPerMemcpy = 0;
+
   /// Maximum number of store operations that may be substituted for a call to
   /// memcpy, used for functions with OptSize attribute.
   unsigned MaxStoresPerMemcpyOptSize;
   unsigned MaxLoadsPerMemcmp;
   unsigned MaxLoadsPerMemcmpOptSize;
 
-  /// \brief Specify maximum bytes of store instructions per memmove call.
+  /// Specify maximum bytes of store instructions per memmove call.
   ///
   /// When lowering \@llvm.memmove this field specifies the maximum number of
   /// store instructions that may be substituted for a call to memmove. Targets
@@ -2547,6 +2569,11 @@ protected:
   /// details.
   MachineBasicBlock *emitXRayCustomEvent(MachineInstr &MI,
                                          MachineBasicBlock *MBB) const;
+
+  /// Replace/modify the XRay typed event operands with target-dependent
+  /// details.
+  MachineBasicBlock *emitXRayTypedEvent(MachineInstr &MI,
+                                        MachineBasicBlock *MBB) const;
 };
 
 /// This class defines information used to lower LLVM code to legal SelectionDAG

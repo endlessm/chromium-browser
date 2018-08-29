@@ -21,6 +21,7 @@
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_service.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
+#include "chrome/browser/chromeos/login/lock_screen_utils.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_factory.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_storage.h"
 #include "chrome/browser/chromeos/login/reauth_stats.h"
@@ -31,6 +32,7 @@
 #include "chrome/browser/chromeos/login/users/multi_profile_user_controller.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/ui/ash/login_screen_client.h"
 #include "chrome/browser/ui/webui/chromeos/login/l10n_util.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
 #include "chrome/grit/generated_resources.h"
@@ -39,9 +41,9 @@
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "components/account_id/account_id.h"
 #include "components/arc/arc_util.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
@@ -457,6 +459,40 @@ bool UserSelectionScreen::ShouldForceOnlineSignIn(
 }
 
 // static
+ash::mojom::UserAvatarPtr UserSelectionScreen::BuildMojoUserAvatarForUser(
+    const user_manager::User* user) {
+  auto avatar = ash::mojom::UserAvatar::New();
+  if (!user->GetImage().isNull()) {
+    avatar->image = user->GetImage();
+  } else {
+    avatar->image = *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
+        IDR_LOGIN_DEFAULT_USER);
+  }
+
+  // TODO(jdufault): Unify image handling between this code and
+  // user_image_source::GetUserImageInternal.
+  auto load_image_from_resource = [&](int resource_id) {
+    auto& rb = ui::ResourceBundle::GetSharedInstance();
+    base::StringPiece avatar_data =
+        rb.GetRawDataResourceForScale(resource_id, rb.GetMaxScaleFactor());
+    avatar->bytes.assign(avatar_data.begin(), avatar_data.end());
+  };
+  if (user->has_image_bytes()) {
+    avatar->bytes.assign(
+        user->image_bytes()->front(),
+        user->image_bytes()->front() + user->image_bytes()->size());
+  } else if (user->HasDefaultImage()) {
+    int resource_id = chromeos::default_user_image::kDefaultImageResourceIDs
+        [user->image_index()];
+    load_image_from_resource(resource_id);
+  } else if (user->image_is_stub()) {
+    load_image_from_resource(IDR_LOGIN_DEFAULT_USER);
+  }
+
+  return avatar;
+}
+
+// static
 void UserSelectionScreen::FillUserMojoStruct(
     const user_manager::User* user,
     bool is_owner,
@@ -470,36 +506,7 @@ void UserSelectionScreen::FillUserMojoStruct(
   user_info->basic_user_info->display_name =
       base::UTF16ToUTF8(user->GetDisplayName());
   user_info->basic_user_info->display_email = user->display_email();
-
-  if (!user->GetImage().isNull()) {
-    user_info->basic_user_info->avatar = user->GetImage();
-  } else {
-    user_info->basic_user_info->avatar =
-        *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
-            IDR_LOGIN_DEFAULT_USER);
-  }
-
-  // TODO(jdufault): Unify image handling between this code and
-  // user_image_source::GetUserImageInternal.
-  auto load_image_from_resource = [&](int resource_id) {
-    auto& rb = ui::ResourceBundle::GetSharedInstance();
-    base::StringPiece avatar =
-        rb.GetRawDataResourceForScale(resource_id, rb.GetMaxScaleFactor());
-    user_info->basic_user_info->avatar_bytes.assign(avatar.begin(),
-                                                    avatar.end());
-  };
-  if (user->has_image_bytes()) {
-    user_info->basic_user_info->avatar_bytes.assign(
-        user->image_bytes()->front(),
-        user->image_bytes()->front() + user->image_bytes()->size());
-  } else if (user->HasDefaultImage()) {
-    int resource_id = chromeos::default_user_image::kDefaultImageResourceIDs
-        [user->image_index()];
-    load_image_from_resource(resource_id);
-  } else if (user->image_is_stub()) {
-    load_image_from_resource(IDR_LOGIN_DEFAULT_USER);
-  }
-
+  user_info->basic_user_info->avatar = BuildMojoUserAvatarForUser(user);
   user_info->auth_type = auth_type;
   user_info->is_signed_in = user->is_logged_in();
   user_info->is_device_owner = is_owner;
@@ -526,8 +533,10 @@ void UserSelectionScreen::FillUserMojoStruct(
     std::unique_ptr<base::ListValue> available_locales =
         GetPublicSessionLocales(public_session_recommended_locales,
                                 &selected_locale, &has_multiple_locales);
+    DCHECK(available_locales);
     user_info->public_account_info->available_locales =
-        std::move(available_locales);
+        lock_screen_utils::FromListValueToLocaleItem(
+            std::move(available_locales));
     user_info->public_account_info->default_locale = selected_locale;
     user_info->public_account_info->show_advanced_view = has_multiple_locales;
   }
@@ -742,7 +751,10 @@ void UserSelectionScreen::AttemptEasySignin(const AccountId& account_id,
                                             const std::string& key_label) {
   DCHECK_EQ(GetScreenType(), SIGNIN_SCREEN);
 
-  UserContext user_context(account_id);
+  const user_manager::User* const user =
+      user_manager::UserManager::Get()->FindUser(account_id);
+  DCHECK(user);
+  UserContext user_context(*user);
   user_context.SetAuthFlow(UserContext::AUTH_FLOW_EASY_UNLOCK);
   user_context.SetKey(Key(secret));
   user_context.GetKey()->SetLabel(key_label);
@@ -858,6 +870,13 @@ UserSelectionScreen::UpdateAndReturnUserListForMojo() {
                        public_session_recommended_locales,
                        login_user_info.get());
     login_user_info->can_remove = CanRemoveUser(*it);
+
+    // Send a request to get keyboard layouts for default locale.
+    if (is_public_account && LoginScreenClient::HasInstance()) {
+      LoginScreenClient::Get()->RequestPublicSessionKeyboardLayouts(
+          account_id, login_user_info->public_account_info->default_locale);
+    }
+
     user_info_list.push_back(std::move(login_user_info));
   }
 

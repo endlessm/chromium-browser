@@ -30,9 +30,6 @@ chrome.fileManagerPrivate = {
     timezone: 'Australia/Sydney',
     use24hourClock: false,
   },
-  listeners_: {
-    'onDirectoryChanged': [],
-  },
   profiles_: [{
     displayName: 'Test User',
     isCurrentProfile: true,
@@ -118,11 +115,28 @@ chrome.fileManagerPrivate = {
   grantAccess: (entryUrls, callback) => {
     setTimeout(callback, 0);
   },
+  crostiniEnabled_: true,
+  isCrostiniEnabled: function(callback) {
+    setTimeout(callback, 0, this.crostiniEnabled_);
+  },
   isUMAEnabled: (callback) => {
     setTimeout(callback, 0, false);
   },
+  mountCrostiniContainer: (callback) => {
+    // Simulate startup of vm and container by taking 3s.
+    setTimeout(callback, 3000);
+  },
   onAppsUpdated: {
     addListener: () => {},
+  },
+  onCopyProgress: {
+    listeners_: [],
+    addListener: function(l) {
+      this.listeners_.push(l);
+    },
+    removeListener: function(l) {
+      this.listeners_ = this.listeners_.filter(e => e !== l);
+    },
   },
   onDeviceChanged: {
     addListener: () => {},
@@ -131,6 +145,9 @@ chrome.fileManagerPrivate = {
     listeners_: [],
     addListener: function(l) {
       this.listeners_.push(l);
+    },
+    removeListener: function(l) {
+      this.listeners_.splice(this.listeners_.indexOf(l), 1);
     },
   },
   onDriveConnectionStatusChanged: {
@@ -143,7 +160,10 @@ chrome.fileManagerPrivate = {
     addListener: () => {},
   },
   onMountCompleted: {
-    addListener: () => {},
+    listeners_: [],
+    addListener: function(l) {
+      this.listeners_.push(l);
+    },
   },
   onPreferencesChanged: {
     addListener: () => {},
@@ -152,6 +172,15 @@ chrome.fileManagerPrivate = {
   openSettingsSubpage: (sub_page) => {},
   removeFileWatch: (entry, callback) => {
     setTimeout(callback, 0, true);
+  },
+  removeMount(volumeId) {
+    chrome.fileManagerPrivate.dispatchEvent_('onMountCompleted', {
+      status: 'success',
+      eventType: 'unmount',
+      volumeMetadata: {
+        volumeId: volumeId,
+      },
+    });
   },
   requestWebStoreAccessToken: (callback) => {
     setTimeout(callback, 0, chrome.fileManagerPrivate.token_);
@@ -163,6 +192,40 @@ chrome.fileManagerPrivate = {
     // Returns SearchResult[].
     // SearchResult { entry: Entry, highlightedBaseName: string }
     setTimeout(callback, 0, []);
+  },
+  nextCopyId_: 0,
+  startCopy: (entry, parentEntry, newName, callback) => {
+    // Returns copyId immediately.
+    var copyId = chrome.fileManagerPrivate.nextCopyId_++;
+    callback(copyId);
+    chrome.fileManagerPrivate.onCopyProgress.listeners_.forEach(l => {
+      l(copyId, {type: 'begin_copy_entry', sourceUrl: entry.toURL()});
+    });
+    entry.copyTo(
+        parentEntry, newName,
+        // Success.
+        (copied) => {
+          chrome.fileManagerPrivate.onCopyProgress.listeners_.forEach(l => {
+            l(copyId, {
+              type: 'end_copy_entry',
+              sourceUrl: entry.toURL(),
+              destinationUrl: copied.toURL()
+            });
+          });
+          chrome.fileManagerPrivate.onCopyProgress.listeners_.forEach(l => {
+            l(copyId, {
+              type: 'success',
+              sourceUrl: entry.toURL(),
+              destinationUrl: copied.toURL()
+            });
+          });
+        },
+        // Error.
+        (error) => {
+          chrome.fileManagerPrivate.onCopyProgress.listeners_.forEach(l => {
+            l(copyId, {type: 'error', error: error});
+          });
+        });
   },
   validatePathNameLength: (parentEntry, name, callback) => {
     setTimeout(callback, 0, true);

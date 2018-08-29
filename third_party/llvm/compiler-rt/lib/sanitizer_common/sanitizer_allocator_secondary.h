@@ -34,7 +34,7 @@ class LargeMmapAllocatorPtrArrayDynamic {
  public:
   INLINE void *Init() {
     uptr p = address_range_.Init(kMaxNumChunks * sizeof(uptr),
-                                 "sanitizer_large_allocator");
+                                 SecondaryAllocatorName);
     CHECK(p);
     return reinterpret_cast<void*>(p);
   }
@@ -94,7 +94,7 @@ class LargeMmapAllocator {
       return nullptr;
     }
     uptr map_beg = reinterpret_cast<uptr>(
-        MmapOrDieOnFatalError(map_size, "LargeMmapAllocator"));
+        MmapOrDieOnFatalError(map_size, SecondaryAllocatorName));
     if (!map_beg)
       return nullptr;
     CHECK(IsAligned(map_beg, page_size_));
@@ -202,7 +202,7 @@ class LargeMmapAllocator {
 
   void EnsureSortedChunks() {
     if (chunks_sorted_) return;
-    SortArray(reinterpret_cast<uptr*>(chunks_), n_chunks_);
+    Sort(reinterpret_cast<uptr *>(chunks_), n_chunks_);
     for (uptr i = 0; i < n_chunks_; i++)
       chunks_[i]->chunk_idx = i;
     chunks_sorted_ = true;

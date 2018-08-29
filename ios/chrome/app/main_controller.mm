@@ -16,7 +16,6 @@
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/ios/block_types.h"
-#include "base/ios/callback_counter.h"
 #import "base/mac/bind_objc_block.h"
 #include "base/mac/bundle_locations.h"
 #include "base/mac/foundation_util.h"
@@ -34,7 +33,9 @@
 #include "components/metrics/metrics_service.h"
 #include "components/ntp_snippets/content_suggestions_service.h"
 #include "components/password_manager/core/common/password_manager_features.h"
+#include "components/password_manager/core/common/passwords_directory_util_ios.h"
 #include "components/payments/core/features.h"
+#include "components/prefs/ios/pref_observer_bridge.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/url_formatter/url_formatter.h"
@@ -87,12 +88,10 @@
 #import "ios/chrome/browser/metrics/previous_session_info.h"
 #import "ios/chrome/browser/net/cookie_util.h"
 #include "ios/chrome/browser/ntp_snippets/ios_chrome_content_suggestions_service_factory.h"
-#import "ios/chrome/browser/passwords/passwords_directory_util.h"
 #include "ios/chrome/browser/payments/ios_payment_instrument_launcher.h"
 #include "ios/chrome/browser/payments/ios_payment_instrument_launcher_factory.h"
 #import "ios/chrome/browser/payments/payment_request_constants.h"
 #include "ios/chrome/browser/pref_names.h"
-#include "ios/chrome/browser/prefs/pref_observer_bridge.h"
 #import "ios/chrome/browser/reading_list/reading_list_download_service.h"
 #import "ios/chrome/browser/reading_list/reading_list_download_service_factory.h"
 #include "ios/chrome/browser/search_engines/search_engines_util.h"
@@ -230,7 +229,7 @@ void RegisterComponentsForUpdate() {
       GetApplicationContext()->GetComponentUpdateService();
   DCHECK(cus);
   base::FilePath path;
-  const bool success = PathService::Get(ios::DIR_USER_DATA, &path);
+  const bool success = base::PathService::Get(ios::DIR_USER_DATA, &path);
   DCHECK(success);
   // Clean up any legacy CRLSet on the local disk - CRLSet used to be shipped
   // as a component on iOS but is not anymore.
@@ -850,15 +849,17 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   BOOL otrBVCIsCurrent = (self.currentBVC == self.otrBVC);
   TabSwitcherMode mode = GetTabSwitcherMode();
 
-  // If the stack view is in use,and the current BVC is the otr BVC, then the
+  // If the stack view is in use, and the current BVC is the otr BVC, then the
   // user should be in the tab switcher (the stack view).
   DCHECK(mode != TabSwitcherMode::STACK ||
          (!otrBVCIsCurrent || _tabSwitcherIsActive));
 
-  // Always clear the OTR tab model for the tablet switcher.
+  // Always clear the OTR tab model for the tablet and grid switchers.
   // Notify the _tabSwitcher that its otrBVC will be destroyed.
-  if (mode == TabSwitcherMode::TABLET_SWITCHER || _tabSwitcherIsActive)
+  if (mode == TabSwitcherMode::TABLET_SWITCHER ||
+      mode == TabSwitcherMode::GRID || _tabSwitcherIsActive) {
     [_tabSwitcher setOtrTabModel:nil];
+  }
 
   [_browserViewWrangler deleteIncognitoTabModelState];
 
@@ -866,10 +867,12 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
     [self activateBVCAndMakeCurrentBVCPrimary];
   }
 
-  // Always set the new otr tab model for the tablet switcher.
+  // Always set the new otr tab model for the tablet or grid switcher.
   // Notify the _tabSwitcher with the new otrBVC.
-  if (mode == TabSwitcherMode::TABLET_SWITCHER || _tabSwitcherIsActive)
+  if (mode == TabSwitcherMode::TABLET_SWITCHER ||
+      mode == TabSwitcherMode::GRID || _tabSwitcherIsActive) {
     [_tabSwitcher setOtrTabModel:self.otrTabModel];
+  }
 }
 
 - (void)activateBVCAndMakeCurrentBVCPrimary {
@@ -958,6 +961,10 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 }
 
 #pragma mark - BrowserViewInformation implementation.
+
+- (void)haltAllTabs {
+  [_browserViewWrangler haltAllTabs];
+}
 
 - (void)cleanDeviceSharingManager {
   [_browserViewWrangler cleanDeviceSharingManager];
@@ -1123,24 +1130,19 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 
 - (void)initializeMailtoHandling {
   if (base::FeatureList::IsEnabled(kMailtoHandledWithGoogleUI)) {
+    __weak __typeof(self) weakSelf = self;
     [[DeferredInitializationRunner sharedInstance]
         enqueueBlockNamed:kMailtoHandlingInitialization
                     block:^{
+                      __strong __typeof(weakSelf) strongSelf = weakSelf;
+                      if (!strongSelf) {
+                        return;
+                      }
                       MailtoHandlerProvider* provider =
                           ios::GetChromeBrowserProvider()
                               ->GetMailtoHandlerProvider();
-                      ios::ChromeIdentityService* identityService =
-                          ios::GetChromeBrowserProvider()
-                              ->GetChromeIdentityService();
                       provider->PrepareMailtoHandling(
-                          ^ChromeIdentity* {
-                            // TODO:(crbug.com/810904) Replace with currently
-                            // signed-in user.
-                            return nil;
-                          },
-                          ^NSArray<ChromeIdentity*>* {
-                            return identityService->GetAllIdentities();
-                          });
+                          strongSelf->_mainBrowserState);
                     }];
   }
 }
@@ -1199,7 +1201,7 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   [[DeferredInitializationRunner sharedInstance]
       enqueueBlockNamed:kDeleteTempPasswords
                   block:^{
-                    DeletePasswordsDirectory();
+                    password_manager::DeletePasswordsDirectory();
                   }];
 }
 
@@ -1264,6 +1266,15 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 
   // Lazy init of mainCoordinator.
   [self.mainCoordinator start];
+  if (GetTabSwitcherMode() == TabSwitcherMode::GRID) {
+    TabGridCoordinator* tabGridCoordinator =
+        base::mac::ObjCCastStrict<TabGridCoordinator>(self.mainCoordinator);
+    _tabSwitcher = tabGridCoordinator.tabSwitcher;
+    // Call -restoreInternalState so that the grid shows the correct panel.
+    [_tabSwitcher restoreInternalStateWithMainTabModel:self.mainTabModel
+                                           otrTabModel:self.otrTabModel
+                                        activeTabModel:self.currentTabModel];
+  }
 
   // Decide if the First Run UI needs to run.
   BOOL firstRun = (FirstRun::IsChromeFirstRun() ||
@@ -1425,7 +1436,7 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 }
 
 - (void)showHistory {
-  if (experimental_flags::IsCollectionsUIRebootEnabled()) {
+  if (IsUIRefreshPhase1Enabled()) {
     // New History UIReboot coordinator.
     _historyCoordinator = [[HistoryCoordinator alloc]
         initWithBaseViewController:self.currentBVC
@@ -2535,18 +2546,10 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 // Creates and returns a tab switcher object according to the tab switcher stye.
 - (id<TabSwitcher>)newTabSwitcher {
   switch (GetTabSwitcherMode()) {
-    case TabSwitcherMode::GRID: {
-      DCHECK(_mainCoordinator)
-          << " Main coordinator not created when tab switcher needed.";
-      TabGridCoordinator* tabGridCoordinator =
-          base::mac::ObjCCastStrict<TabGridCoordinator>(self.mainCoordinator);
-      // Call -restoreInternalState so that the grid shows the correct panel.
-      [tabGridCoordinator.tabSwitcher
-          restoreInternalStateWithMainTabModel:self.mainTabModel
-                                   otrTabModel:self.otrTabModel
-                                activeTabModel:self.currentTabModel];
-      return tabGridCoordinator.tabSwitcher;
-    }
+    case TabSwitcherMode::GRID:
+      NOTREACHED() << "When the tab grid is enabled, the tab switcher should"
+                   << " have been assigned during app startup.";
+      return nil;
     case TabSwitcherMode::TABLET_SWITCHER:
       return [[TabSwitcherController alloc]
                 initWithBrowserState:_mainBrowserState
@@ -2603,7 +2606,8 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
                      fromSourceApplication:sourceApplication];
 }
 
-- (void)setUpAsForegrounded {
+- (void)setUpAsForegroundedWithBrowserState:
+    (ios::ChromeBrowserState*)browserState {
   _isColdStart = NO;
   _browserInitializationStage = INITIALIZATION_STAGE_FOREGROUND;
   // Create a BrowserViewWrangler with a null browser state. This will trigger
@@ -2611,7 +2615,7 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   // tabModel objects, but it will accept assignments to them.
   [_browserViewWrangler shutdown];
   _browserViewWrangler =
-      [[BrowserViewWrangler alloc] initWithBrowserState:nullptr
+      [[BrowserViewWrangler alloc] initWithBrowserState:browserState
                                        tabModelObserver:self
                              applicationCommandEndpoint:self];
   // This is a test utility method that bypasses the ususal setup steps, so

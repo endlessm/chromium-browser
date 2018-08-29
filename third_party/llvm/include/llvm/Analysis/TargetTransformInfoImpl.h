@@ -27,7 +27,7 @@
 
 namespace llvm {
 
-/// \brief Base class for use as a mix-in that aids implementing
+/// Base class for use as a mix-in that aids implementing
 /// a TargetTransformInfo-compatible class.
 class TargetTransformInfoImplBase {
 protected:
@@ -155,6 +155,7 @@ public:
     case Intrinsic::sideeffect:
     case Intrinsic::dbg_declare:
     case Intrinsic::dbg_value:
+    case Intrinsic::dbg_label:
     case Intrinsic::invariant_start:
     case Intrinsic::invariant_end:
     case Intrinsic::lifetime_start:
@@ -279,6 +280,8 @@ public:
 
   bool isProfitableToHoist(Instruction *I) { return true; }
 
+  bool useAA() { return false; }
+
   bool isTypeLegal(Type *Ty) { return false; }
 
   unsigned getJumpBufAlignment() { return 0; }
@@ -350,6 +353,8 @@ public:
   unsigned getMinVectorRegisterBitWidth() { return 128; }
 
   bool shouldMaximizeVectorBandwidth(bool OptSize) const { return false; }
+
+  unsigned getMinimumVF(unsigned ElemWidth) const { return 0; }
 
   bool
   shouldConsiderAddressTypePromotion(const Instruction &I,
@@ -647,7 +652,7 @@ protected:
   }
 };
 
-/// \brief CRTP base class for use as a mix-in that aids implementing
+/// CRTP base class for use as a mix-in that aids implementing
 /// a TargetTransformInfo-compatible class.
 template <typename T>
 class TargetTransformInfoImplCRTPBase : public TargetTransformInfoImplBase {

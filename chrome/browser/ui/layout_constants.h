@@ -68,9 +68,6 @@ enum LayoutConstant {
   // of the icon view (e.g. does not highlight on hover).
   LOCATION_BAR_ICON_INTERIOR_PADDING,
 
-  // The amount of spacing between the last tab and the new tab button.
-  TABSTRIP_NEW_TAB_BUTTON_SPACING,
-
   // Padding after the tab title.
   TAB_AFTER_TITLE_PADDING,
 
@@ -106,7 +103,6 @@ enum LayoutConstant {
 
   // The horizontal space between most items in the toolbar.
   TOOLBAR_STANDARD_SPACING,
-
 };
 
 enum LayoutInset {
@@ -129,6 +125,13 @@ enum LayoutSize {
 };
 
 int GetLayoutConstant(LayoutConstant constant);
+#if defined(OS_MACOSX)
+// Use this function instead of GetLayoutConstant() for Cocoa browser.
+// This will handle Cocoa specific layout constants. For non Cocoa specific
+// constants, it will call GetLayoutConstant() anyway.
+int GetCocoaLayoutConstant(LayoutConstant constant);
+#endif
+
 gfx::Insets GetLayoutInsets(LayoutInset inset);
 gfx::Size GetLayoutSize(LayoutSize size, bool is_incognito);
 

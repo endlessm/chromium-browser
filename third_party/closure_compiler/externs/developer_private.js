@@ -476,6 +476,8 @@ chrome.developerPrivate.EventType = {
   ERRORS_REMOVED: 'ERRORS_REMOVED',
   PREFS_CHANGED: 'PREFS_CHANGED',
   WARNINGS_CHANGED: 'WARNINGS_CHANGED',
+  COMMAND_ADDED: 'COMMAND_ADDED',
+  COMMAND_REMOVED: 'COMMAND_REMOVED',
 };
 
 /**
@@ -800,6 +802,26 @@ chrome.developerPrivate.setShortcutHandlingSuspended = function(isSuspended, cal
  * @see https://developer.chrome.com/extensions/developerPrivate#method-updateExtensionCommand
  */
 chrome.developerPrivate.updateExtensionCommand = function(update, callback) {};
+
+/**
+ * Adds a new host permission to the extension. The extension will only have
+ * access to the host if it is within the requested permissions.
+ * @param {string} extensionId The id of the extension to modify.
+ * @param {string} host The host to add.
+ * @param {function():void=} callback
+ * @see https://developer.chrome.com/extensions/developerPrivate#method-addHostPermission
+ */
+chrome.developerPrivate.addHostPermission = function(extensionId, host, callback) {};
+
+/**
+ * Removes a host permission from the extension. This should only be called with
+ * a host that the extension has access to.
+ * @param {string} extensionId The id of the extension to modify.
+ * @param {string} host The host to remove.
+ * @param {function():void=} callback
+ * @see https://developer.chrome.com/extensions/developerPrivate#method-removeHostPermission
+ */
+chrome.developerPrivate.removeHostPermission = function(extensionId, host, callback) {};
 
 /**
  * @param {string} id

@@ -84,6 +84,17 @@ class ScopedLockedGlobals {
   Globals* globals_;
 };
 
+// Convenience class used to operate on a mutex used to synchronize access to
+// the global _r_debug link map, at least from threads using the crazy linker.
+class ScopedLinkMapLocker {
+ public:
+  ScopedLinkMapLocker() { pthread_mutex_lock(&s_lock_); }
+  ~ScopedLinkMapLocker() { pthread_mutex_unlock(&s_lock_); }
+
+ private:
+  static pthread_mutex_t s_lock_;
+};
+
 }  // namespace crazy
 
 #endif  // CRAZY_LINKER_GLOBALS_H

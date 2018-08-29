@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -108,7 +110,7 @@ class FakeSelectFileDialog : public ui::SelectFileDialog {
   bool HasMultipleFileTypeChoicesImpl() override { return false; }
 
  private:
-  ~FakeSelectFileDialog() override {}
+  ~FakeSelectFileDialog() override = default;
 };
 
 class FakeSelectFileDialogFactory : public ui::SelectFileDialogFactory {
@@ -271,7 +273,7 @@ class BackgroundObserver {
 };
 
 // Base class for FileSystemExtensionApi tests.
-class FileSystemExtensionApiTestBase : public ExtensionApiTest {
+class FileSystemExtensionApiTestBase : public extensions::ExtensionApiTest {
  public:
   enum Flags {
     FLAGS_NONE = 0,
@@ -279,12 +281,12 @@ class FileSystemExtensionApiTestBase : public ExtensionApiTest {
     FLAGS_LAZY_FILE_HANDLER = 1 << 2
   };
 
-  FileSystemExtensionApiTestBase() {}
-  ~FileSystemExtensionApiTestBase() override {}
+  FileSystemExtensionApiTestBase() = default;
+  ~FileSystemExtensionApiTestBase() override = default;
 
   void SetUp() override {
     InitTestFileSystem();
-    ExtensionApiTest::SetUp();
+    extensions::ExtensionApiTest::SetUp();
   }
 
   void SetUpOnMainThread() override {
@@ -297,12 +299,12 @@ class FileSystemExtensionApiTestBase : public ExtensionApiTest {
         .WillByDefault(testing::Return(true));
     CastConfigClientMediaRouter::SetMediaRouterForTest(&media_router_);
 
-    ExtensionApiTest::SetUpOnMainThread();
+    extensions::ExtensionApiTest::SetUpOnMainThread();
   }
 
   void TearDownOnMainThread() override {
     CastConfigClientMediaRouter::SetMediaRouterForTest(nullptr);
-    ExtensionApiTest::TearDownOnMainThread();
+    extensions::ExtensionApiTest::TearDownOnMainThread();
   }
 
   // Runs a file system extension API test.
@@ -377,8 +379,8 @@ class FileSystemExtensionApiTestBase : public ExtensionApiTest {
 // Tests for a native local file system.
 class LocalFileSystemExtensionApiTest : public FileSystemExtensionApiTestBase {
  public:
-  LocalFileSystemExtensionApiTest() {}
-  ~LocalFileSystemExtensionApiTest() override {}
+  LocalFileSystemExtensionApiTest() = default;
+  ~LocalFileSystemExtensionApiTest() override = default;
 
   // FileSystemExtensionApiTestBase override.
   void InitTestFileSystem() override {
@@ -409,8 +411,8 @@ class LocalFileSystemExtensionApiTest : public FileSystemExtensionApiTestBase {
 class RestrictedFileSystemExtensionApiTest
     : public FileSystemExtensionApiTestBase {
  public:
-  RestrictedFileSystemExtensionApiTest() {}
-  ~RestrictedFileSystemExtensionApiTest() override {}
+  RestrictedFileSystemExtensionApiTest() = default;
+  ~RestrictedFileSystemExtensionApiTest() override = default;
 
   // FileSystemExtensionApiTestBase override.
   void InitTestFileSystem() override {
@@ -441,8 +443,8 @@ class RestrictedFileSystemExtensionApiTest
 // Tests for a drive file system.
 class DriveFileSystemExtensionApiTest : public FileSystemExtensionApiTestBase {
  public:
-  DriveFileSystemExtensionApiTest() {}
-  ~DriveFileSystemExtensionApiTest() override {}
+  DriveFileSystemExtensionApiTest() = default;
+  ~DriveFileSystemExtensionApiTest() override = default;
 
   // FileSystemExtensionApiTestBase override.
   void InitTestFileSystem() override {
@@ -455,9 +457,10 @@ class DriveFileSystemExtensionApiTest : public FileSystemExtensionApiTestBase {
     create_drive_integration_service_ = base::Bind(
         &DriveFileSystemExtensionApiTest::CreateDriveIntegrationService,
         base::Unretained(this));
-    service_factory_for_test_.reset(
-        new DriveIntegrationServiceFactory::ScopedFactoryForTest(
-            &create_drive_integration_service_));
+    service_factory_for_test_ =
+        std::make_unique<DriveIntegrationServiceFactory::ScopedFactoryForTest>(
+
+            &create_drive_integration_service_);
   }
 
   // FileSystemExtensionApiTestBase override.
@@ -503,7 +506,7 @@ class DriveFileSystemExtensionApiTest : public FileSystemExtensionApiTestBase {
 class MultiProfileDriveFileSystemExtensionApiTest :
     public FileSystemExtensionApiTestBase {
  public:
-  MultiProfileDriveFileSystemExtensionApiTest() {}
+  MultiProfileDriveFileSystemExtensionApiTest() = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     FileSystemExtensionApiTestBase::SetUpCommandLine(command_line);
@@ -516,7 +519,7 @@ class MultiProfileDriveFileSystemExtensionApiTest :
 
   void SetUpOnMainThread() override {
     base::FilePath user_data_directory;
-    PathService::Get(chrome::DIR_USER_DATA, &user_data_directory);
+    base::PathService::Get(chrome::DIR_USER_DATA, &user_data_directory);
     session_manager::SessionManager::Get()->CreateSession(
         AccountId::FromUserEmailGaiaId(kSecondProfileAccount,
                                        kSecondProfileGiaId),
@@ -540,9 +543,10 @@ class MultiProfileDriveFileSystemExtensionApiTest :
         &MultiProfileDriveFileSystemExtensionApiTest::
             CreateDriveIntegrationService,
         base::Unretained(this));
-    service_factory_for_test_.reset(
-        new DriveIntegrationServiceFactory::ScopedFactoryForTest(
-            &create_drive_integration_service_));
+    service_factory_for_test_ =
+        std::make_unique<DriveIntegrationServiceFactory::ScopedFactoryForTest>(
+
+            &create_drive_integration_service_);
   }
 
   void AddTestMountPoint() override {
@@ -595,8 +599,8 @@ class MultiProfileDriveFileSystemExtensionApiTest :
 class LocalAndDriveFileSystemExtensionApiTest
     : public FileSystemExtensionApiTestBase {
  public:
-  LocalAndDriveFileSystemExtensionApiTest() {}
-  ~LocalAndDriveFileSystemExtensionApiTest() override {}
+  LocalAndDriveFileSystemExtensionApiTest() = default;
+  ~LocalAndDriveFileSystemExtensionApiTest() override = default;
 
   // FileSystemExtensionApiTestBase override.
   void InitTestFileSystem() override {
@@ -613,9 +617,10 @@ class LocalAndDriveFileSystemExtensionApiTest
     create_drive_integration_service_ = base::Bind(
         &LocalAndDriveFileSystemExtensionApiTest::CreateDriveIntegrationService,
         base::Unretained(this));
-    service_factory_for_test_.reset(
-        new DriveIntegrationServiceFactory::ScopedFactoryForTest(
-            &create_drive_integration_service_));
+    service_factory_for_test_ =
+        std::make_unique<DriveIntegrationServiceFactory::ScopedFactoryForTest>(
+
+            &create_drive_integration_service_);
   }
 
   // FileSystemExtensionApiTestBase override.

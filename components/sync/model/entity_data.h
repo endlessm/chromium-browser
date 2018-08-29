@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_SYNC_MODEL_ENTITY_DATA_H_
 #define COMPONENTS_SYNC_MODEL_ENTITY_DATA_H_
 
+#include <iosfwd>
 #include <map>
 #include <memory>
 #include <string>
@@ -36,7 +37,10 @@ using EntityDataList = std::vector<EntityDataPtr>;
 struct EntityData {
  public:
   EntityData();
+  EntityData(EntityData&&);
   ~EntityData();
+
+  EntityData& operator=(EntityData&&);
 
   // Typically this is a server assigned sync ID, although for a local change
   // that represents a new entity this field might be either empty or contain
@@ -44,9 +48,16 @@ struct EntityData {
   std::string id;
 
   // A hash based on the client tag and model type.
-  // Used for various map lookups. Should always be available.
-  // Sent to the server as SyncEntity::client_defined_unique_tag.
+  // Used for various map lookups. Should always be available for all data types
+  // except bookmarks. Sent to the server as
+  // SyncEntity::client_defined_unique_tag.
   std::string client_tag_hash;
+
+  // This tag identifies this item as being a uniquely instanced item.  An item
+  // can't have both a client_defined_unique_tag and a
+  // server_defined_unique_tag. Sent to the server as
+  // SyncEntity::server_defined_unique_tag.
+  std::string server_defined_unique_tag;
 
   // Entity name, used mostly for Debug purposes.
   std::string non_unique_name;
@@ -96,16 +107,15 @@ struct EntityData {
   size_t EstimateMemoryUsage() const;
 
  private:
-  friend struct EntityDataTraits;
-  // Used to transfer the data without copying.
-  void Swap(EntityData* other);
-
   // Allow copy ctor so that UpdateId and UpdateSpecifics can make a copy of
   // this EntityData.
   EntityData(const EntityData& src);
 
   DISALLOW_ASSIGN(EntityData);
 };
+
+// gMock printer helper.
+void PrintTo(const EntityData& entity_data, std::ostream* os);
 
 }  // namespace syncer
 

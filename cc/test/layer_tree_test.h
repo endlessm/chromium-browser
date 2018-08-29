@@ -82,6 +82,7 @@ class LayerTreeTest : public testing::Test, public TestHooks {
       SingleKeyframeEffectAnimation* animation_to_receive_animation);
   void PostSetLocalSurfaceIdToMainThread(
       const viz::LocalSurfaceId& local_surface_id);
+  void PostRequestNewLocalSurfaceIdToMainThread();
   void PostSetDeferCommitsToMainThread(bool defer_commits);
   void PostSetNeedsCommitToMainThread();
   void PostSetNeedsUpdateLayersToMainThread();
@@ -130,12 +131,12 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   TaskGraphRunner* task_graph_runner() const {
     return task_graph_runner_.get();
   }
-  bool TestEnded() const { return ended_; }
+  bool TestEnded() const {
+    base::AutoLock hold(test_ended_lock_);
+    return ended_;
+  }
 
   LayerTreeHost* layer_tree_host();
-  viz::SharedBitmapManager* shared_bitmap_manager() const {
-    return shared_bitmap_manager_.get();
-  }
   gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager() {
     return gpu_memory_buffer_manager_.get();
   }
@@ -180,6 +181,7 @@ class LayerTreeTest : public testing::Test, public TestHooks {
       SingleKeyframeEffectAnimation* animation_to_receive_animation,
       double animation_duration);
   void DispatchSetLocalSurfaceId(const viz::LocalSurfaceId& local_surface_id);
+  void DispatchRequestNewLocalSurfaceId();
   void DispatchSetDeferCommits(bool defer_commits);
   void DispatchSetNeedsCommit();
   void DispatchSetNeedsUpdateLayers();
@@ -205,6 +207,8 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   bool timed_out_ = false;
   bool scheduled_ = false;
   bool started_ = false;
+
+  mutable base::Lock test_ended_lock_;
   bool ended_ = false;
 
   int timeout_seconds_ = false;
@@ -217,7 +221,6 @@ class LayerTreeTest : public testing::Test, public TestHooks {
   scoped_refptr<base::SingleThreadTaskRunner> impl_task_runner_;
   std::unique_ptr<base::Thread> impl_thread_;
   std::unique_ptr<base::Thread> image_worker_;
-  std::unique_ptr<viz::SharedBitmapManager> shared_bitmap_manager_;
   std::unique_ptr<viz::TestGpuMemoryBufferManager> gpu_memory_buffer_manager_;
   std::unique_ptr<TestTaskGraphRunner> task_graph_runner_;
   base::CancelableClosure timeout_;

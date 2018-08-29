@@ -7,11 +7,12 @@
 #include <algorithm>
 #include <memory>
 
-#include "ash/ash_constants.h"
 #include "ash/drag_drop/drag_image_view.h"
 #include "ash/metrics/user_metrics_recorder.h"
+#include "ash/public/cpp/ash_constants.h"
 #include "ash/public/cpp/shelf_item_delegate.h"
 #include "ash/public/cpp/shelf_model.h"
+#include "ash/public/cpp/window_properties.h"
 #include "ash/scoped_root_window_for_new_windows.h"
 #include "ash/screen_util.h"
 #include "ash/shelf/app_list_button.h"
@@ -30,6 +31,7 @@
 #include "ash/shell_delegate.h"
 #include "ash/shell_port.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/root_window_finder.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/auto_reset.h"
@@ -126,12 +128,14 @@ class ShelfFocusSearch : public views::FocusSearch {
   ~ShelfFocusSearch() override = default;
 
   // views::FocusSearch:
-  View* FindNextFocusableView(View* starting_view,
-                              bool reverse,
-                              Direction direction,
-                              bool check_starting_view,
-                              views::FocusTraversable** focus_traversable,
-                              View** focus_traversable_view) override {
+  View* FindNextFocusableView(
+      View* starting_view,
+      FocusSearch::SearchDirection search_direction,
+      FocusSearch::TraversalDirection traversal_direction,
+      FocusSearch::StartingViewPolicy check_starting_view,
+      FocusSearch::AnchoredDialogPolicy can_go_into_anchored_dialog,
+      views::FocusTraversable** focus_traversable,
+      View** focus_traversable_view) override {
     int index = view_model_->GetIndexOfView(starting_view);
     // The back button (item with index 0 on the model) only exists in tablet
     // mode, so punt focus to the app list button (item with index 1 on the
@@ -143,7 +147,7 @@ class ShelfFocusSearch : public views::FocusSearch {
     // Increment or decrement index based on the cycle, unless we are at either
     // edge, then we loop to the back or front. Skip the back button (item with
     // index 0) when not in tablet mode.
-    if (reverse) {
+    if (search_direction == FocusSearch::SearchDirection::kBackwards) {
       --index;
       if (index < 0 || (index == 0 && !tablet_mode))
         index = view_model_->view_size() - 1;
@@ -626,6 +630,24 @@ void ShelfView::UpdateDragIconProxyByLocation(
 
 bool ShelfView::IsDraggedView(const ShelfButton* view) const {
   return drag_view_ == view;
+}
+
+const std::vector<aura::Window*> ShelfView::GetOpenWindowsForShelfView(
+    views::View* view) {
+  std::vector<aura::Window*> window_list =
+      Shell::Get()->mru_window_tracker()->BuildWindowForCycleList();
+  std::vector<aura::Window*> open_windows;
+  const std::string shelf_item_app_id = ShelfItemForView(view)->id.app_id;
+  for (auto* window : window_list) {
+    const std::string window_app_id =
+        ShelfID::Deserialize(window->GetProperty(kShelfIDKey)).app_id;
+    if (window_app_id == shelf_item_app_id) {
+      // TODO: In the very first version we only show one window. Add the proper
+      // UI to show all windows for a given open app.
+      open_windows.push_back(window);
+    }
+  }
+  return open_windows;
 }
 
 void ShelfView::DestroyDragIconProxy() {
@@ -1521,15 +1543,6 @@ gfx::Rect ShelfView::GetTouchMenuAnchorRect(const views::View* source,
                      use_touchable_menu_alignment ? source_bounds_in_screen.y()
                                                   : location.y());
       break;
-  }
-  if (use_touchable_menu_alignment) {
-    // When showing a context menu with long press, the icon enlarges by 20%
-    // from the center point. After the context menu is shown and the long
-    // press is released the icon will scale back down and the context menu
-    // is left 5px off.
-    origin.Offset(
-        shelf_->IsHorizontalAlignment() ? kScaledIconContextMenuOffset : 0,
-        shelf_->IsHorizontalAlignment() ? 0 : kScaledIconContextMenuOffset);
   }
   return gfx::Rect(origin,
                    for_item ? source_bounds_in_screen.size() : gfx::Size());

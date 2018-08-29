@@ -22,9 +22,11 @@
 #include "chromeos/accelerometer/accelerometer_types.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_power_manager_client.h"
+#include "services/ui/public/cpp/input_devices/input_device_client_test_api.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
 #include "ui/display/test/display_manager_test_api.h"
+#include "ui/events/devices/input_device.h"
 #include "ui/events/event_handler.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/geometry/vector3d_f.h"
@@ -252,6 +254,27 @@ TEST_F(TabletModeControllerTest, OpenLidUnstableLidAngle) {
   EXPECT_FALSE(IsTabletModeStarted());
 }
 
+// Verify that suppressing unstable lid angle while opening the lid does not
+// override tablet mode switch on value - if tablet mode switch is on, device
+// should remain in tablet mode.
+TEST_F(TabletModeControllerTest, TabletModeSwitchOnWithOpenUnstableLidAngle) {
+  AttachTickClockForTest();
+
+  SetTabletMode(true /*on*/);
+  EXPECT_TRUE(IsTabletModeStarted());
+
+  OpenLid();
+  EXPECT_TRUE(IsTabletModeStarted());
+
+  // Simulate the correct accelerometer readings.
+  OpenLidToAngle(355.0f);
+  EXPECT_TRUE(IsTabletModeStarted());
+
+  // Simulate the erroneous accelerometer readings.
+  OpenLidToAngle(5.0f);
+  EXPECT_TRUE(IsTabletModeStarted());
+}
+
 // Verify the unstable lid angle is suppressed during closing the lid.
 TEST_F(TabletModeControllerTest, CloseLidUnstableLidAngle) {
   AttachTickClockForTest();
@@ -270,6 +293,24 @@ TEST_F(TabletModeControllerTest, CloseLidUnstableLidAngle) {
   EXPECT_FALSE(IsTabletModeStarted());
 
   CloseLid();
+  EXPECT_FALSE(IsTabletModeStarted());
+}
+
+// Verify that suppressing unstable lid angle when the lid is closed does not
+// override tablet mode switch on value - if tablet mode switch is on, device
+// should remain in tablet mode.
+TEST_F(TabletModeControllerTest, TabletModeSwitchOnWithCloseUnstableLidAngle) {
+  AttachTickClockForTest();
+
+  OpenLid();
+
+  SetTabletMode(true /*on*/);
+  EXPECT_TRUE(IsTabletModeStarted());
+
+  CloseLid();
+  EXPECT_TRUE(IsTabletModeStarted());
+
+  SetTabletMode(false /*on*/);
   EXPECT_FALSE(IsTabletModeStarted());
 }
 
@@ -500,17 +541,22 @@ TEST_F(TabletModeControllerTest, VerticalHingeTest) {
 
 // Test if this case does not crash. See http://crbug.com/462806
 TEST_F(TabletModeControllerTest, DisplayDisconnectionDuringOverview) {
+  // Do not animate wallpaper on entering overview.
+  WindowSelectorController::SetDoNotChangeWallpaperBlurForTests();
+
   UpdateDisplay("800x600,800x600");
   std::unique_ptr<aura::Window> w1(
       CreateTestWindowInShellWithBounds(gfx::Rect(0, 0, 100, 100)));
   std::unique_ptr<aura::Window> w2(
       CreateTestWindowInShellWithBounds(gfx::Rect(800, 0, 100, 100)));
   ASSERT_NE(w1->GetRootWindow(), w2->GetRootWindow());
+  ASSERT_FALSE(IsTabletModeStarted());
 
   tablet_mode_controller()->EnableTabletModeWindowManager(true);
   EXPECT_TRUE(Shell::Get()->window_selector_controller()->ToggleOverview());
 
   UpdateDisplay("800x600");
+  base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(Shell::Get()->window_selector_controller()->IsSelecting());
   EXPECT_EQ(w1->GetRootWindow(), w2->GetRootWindow());
 }
@@ -524,14 +570,18 @@ TEST_F(TabletModeControllerTest, NoTabletModeWithDisabledInternalDisplay) {
           .SetFirstDisplayAsInternalDisplay();
   ASSERT_FALSE(IsTabletModeStarted());
 
+  // Set up a mode with the internal display deactivated before switching to
+  // tablet mode (which will enable mirror mode with only one display).
+  std::vector<display::ManagedDisplayInfo> secondary_only;
+  secondary_only.push_back(display_manager()->GetDisplayInfo(
+      display_manager()->GetDisplayAt(1).id()));
+
+  // Opening the lid to 270 degrees should start tablet mode.
   OpenLidToAngle(270.0f);
   EXPECT_TRUE(IsTabletModeStarted());
   EXPECT_TRUE(AreEventsBlocked());
 
-  // Deactivate internal display to simulate Docked Mode.
-  std::vector<display::ManagedDisplayInfo> secondary_only;
-  secondary_only.push_back(display_manager()->GetDisplayInfo(
-      display_manager()->GetDisplayAt(1).id()));
+  // Deactivate the internal display to simulate Docked Mode.
   display_manager()->OnNativeDisplaysChanged(secondary_only);
   ASSERT_FALSE(display_manager()->IsActiveDisplayId(internal_display_id));
   EXPECT_FALSE(IsTabletModeStarted());
@@ -628,24 +678,6 @@ TEST_F(TabletModeControllerTest, InitializedWhileTabletModeSwitchOn) {
   EXPECT_TRUE(controller.IsTabletModeWindowManagerEnabled());
 }
 
-// Verify when the force clamshell mode flag is turned on, opening the lid past
-// 180 degrees or setting tablet mode to true will no turn on tablet mode.
-TEST_F(TabletModeControllerTest, ForceClamshellModeTest) {
-  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      switches::kAshUiMode, switches::kAshUiModeClamshell);
-  tablet_mode_controller()->OnShellInitialized();
-  EXPECT_EQ(TabletModeController::UiMode::CLAMSHELL, forced_ui_mode());
-  EXPECT_FALSE(IsTabletModeStarted());
-
-  OpenLidToAngle(300.0f);
-  EXPECT_FALSE(IsTabletModeStarted());
-  EXPECT_FALSE(AreEventsBlocked());
-
-  SetTabletMode(true);
-  EXPECT_FALSE(IsTabletModeStarted());
-  EXPECT_FALSE(AreEventsBlocked());
-}
-
 // Verify when the force touch view mode flag is turned on, tablet mode is on
 // initially, and opening the lid to less than 180 degress or setting tablet
 // mode to off will not turn off tablet mode.
@@ -720,6 +752,57 @@ TEST_F(TabletModeControllerTest, RecordLidAngle) {
   ASSERT_TRUE(tablet_mode_controller()->TriggerRecordLidAngleTimerForTesting());
   histogram_tester.ExpectBucketCount(
       TabletModeController::kLidAngleHistogramName, 180, 1);
+}
+
+// Tests that when an external mouse is connected, flipping the
+// lid of the chromebook will not enter tablet mode.
+TEST_F(TabletModeControllerTest, CannotEnterTabletModeWithExternalMouse) {
+  // Set the current list of devices to empty so that they don't interfere
+  // with the test.
+  base::RunLoop().RunUntilIdle();
+  ui::InputDeviceClientTestApi().SetMouseDevices({});
+  base::RunLoop().RunUntilIdle();
+
+  OpenLidToAngle(300.0f);
+  EXPECT_TRUE(IsTabletModeStarted());
+
+  OpenLidToAngle(30.0f);
+  EXPECT_FALSE(IsTabletModeStarted());
+
+  // Attach a external mouse.
+  ui::InputDeviceClientTestApi().SetMouseDevices({ui::InputDevice(
+      3, ui::InputDeviceType::INPUT_DEVICE_EXTERNAL, "mouse")});
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(IsTabletModeStarted());
+
+  // Open lid to tent mode. Verify that tablet mode is not started.
+  OpenLidToAngle(300.0f);
+  EXPECT_FALSE(IsTabletModeStarted());
+}
+
+// Tests that when we plug in a external mouse the device will
+// leave tablet mode.
+TEST_F(TabletModeControllerTest, LeaveTabletModeWhenExternalMouseConnected) {
+  // Set the current list of devices to empty so that they don't interfere
+  // with the test.
+  base::RunLoop().RunUntilIdle();
+  ui::InputDeviceClientTestApi().SetMouseDevices({});
+  base::RunLoop().RunUntilIdle();
+
+  // Start in tablet mode.
+  OpenLidToAngle(300.0f);
+  EXPECT_TRUE(IsTabletModeStarted());
+
+  // Attach external mouse and keyboard. Verify that tablet mode has ended.
+  ui::InputDeviceClientTestApi().SetMouseDevices({ui::InputDevice(
+      3, ui::InputDeviceType::INPUT_DEVICE_EXTERNAL, "mouse")});
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(IsTabletModeStarted());
+
+  // Verify that after unplugging the mouse, tablet mode will resume.
+  ui::InputDeviceClientTestApi().SetMouseDevices({});
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(IsTabletModeStarted());
 }
 
 }  // namespace ash

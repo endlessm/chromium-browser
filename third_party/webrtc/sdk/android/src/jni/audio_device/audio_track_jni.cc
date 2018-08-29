@@ -17,12 +17,12 @@
 #include "rtc_base/format_macros.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/platform_thread.h"
-#include "sdk/android/generated_java_audio_device_jni/jni/WebRtcAudioTrack_jni.h"
+#include "sdk/android/generated_java_audio_device_module_native_jni/jni/WebRtcAudioTrack_jni.h"
 #include "sdk/android/src/jni/jni_helpers.h"
 
 namespace webrtc {
 
-namespace android_adm {
+namespace jni {
 
 ScopedJavaLocalRef<jobject> AudioTrackJni::CreateJavaWebRtcAudioTrack(
     JNIEnv* env,
@@ -77,9 +77,9 @@ int32_t AudioTrackJni::InitPlayout() {
   RTC_DCHECK(thread_checker_.CalledOnValidThread());
   RTC_DCHECK(!initialized_);
   RTC_DCHECK(!playing_);
-  if (!Java_WebRtcAudioTrack_initPlayout(env_, j_audio_track_,
-                                         audio_parameters_.sample_rate(),
-                                         audio_parameters_.channels())) {
+  if (!Java_WebRtcAudioTrack_initPlayout(
+          env_, j_audio_track_, audio_parameters_.sample_rate(),
+          static_cast<int>(audio_parameters_.channels()))) {
     RTC_LOG(LS_ERROR) << "InitPlayout failed";
     return -1;
   }
@@ -118,9 +118,8 @@ int32_t AudioTrackJni::StopPlayout() {
     RTC_LOG(LS_ERROR) << "StopPlayout failed";
     return -1;
   }
-  // If we don't detach here, we will hit a RTC_DCHECK in OnDataIsRecorded()
-  // next time StartRecording() is called since it will create a new Java
-  // thread.
+  // If we don't detach here, we will hit a RTC_DCHECK next time StartPlayout()
+  // is called since it will create a new Java thread.
   thread_checker_java_.DetachFromThread();
   initialized_ = false;
   playing_ = false;
@@ -139,7 +138,8 @@ bool AudioTrackJni::SpeakerVolumeIsAvailable() {
 int AudioTrackJni::SetSpeakerVolume(uint32_t volume) {
   RTC_LOG(INFO) << "SetSpeakerVolume(" << volume << ")";
   RTC_DCHECK(thread_checker_.CalledOnValidThread());
-  return Java_WebRtcAudioTrack_setStreamVolume(env_, j_audio_track_, volume)
+  return Java_WebRtcAudioTrack_setStreamVolume(env_, j_audio_track_,
+                                               static_cast<int>(volume))
              ? 0
              : -1;
 }
@@ -216,6 +216,6 @@ void AudioTrackJni::GetPlayoutData(JNIEnv* env,
   RTC_DCHECK_EQ(length, bytes_per_frame * samples);
 }
 
-}  // namespace android_adm
+}  // namespace jni
 
 }  // namespace webrtc

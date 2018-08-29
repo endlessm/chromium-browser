@@ -4,11 +4,13 @@
 
 #include <string>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/guid.h"
+#include "base/location.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -16,10 +18,12 @@
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/net/default_network_context_params.h"
 #include "chrome/browser/net/profile_network_context_service.h"
 #include "chrome/browser/net/profile_network_context_service_factory.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_switches.h"
@@ -30,6 +34,7 @@
 #include "components/proxy_config/proxy_config_dictionary.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
@@ -38,10 +43,15 @@
 #include "mojo/public/cpp/system/data_pipe_utils.h"
 #include "net/base/filename_util.h"
 #include "net/base/host_port_pair.h"
+#include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
+#include "net/dns/mock_host_resolver.h"
 #include "net/http/http_response_headers.h"
+#include "net/ssl/ssl_config.h"
+#include "net/ssl/ssl_server_config.h"
 #include "net/test/embedded_test_server/controllable_http_response.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "net/test/embedded_test_server/embedded_test_server_connection_listener.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "net/test/spawned_test_server/spawned_test_server.h"
@@ -73,6 +83,7 @@ enum class NetworkServiceState {
 
 enum class NetworkContextType {
   kSystem,
+  kSafeBrowsing,
   kProfile,
   kIncognitoProfile,
 };
@@ -124,6 +135,9 @@ class NetworkContextConfigurationBrowserTest
   }
 
   void SetUpOnMainThread() override {
+    // Used in a bunch of proxy tests. Should not resolve.
+    host_resolver()->AddSimulatedFailure("does.not.resolve.test");
+
     controllable_http_response_ =
         std::make_unique<net::test_server::ControllableHttpResponse>(
             embedded_test_server(), kControllablePath);
@@ -150,7 +164,7 @@ class NetworkContextConfigurationBrowserTest
   // a proxy.
   std::string GetPacScript() const {
     return base::StringPrintf(
-        "function FindProxyForURL(url, host){ return 'PROXY %s;'; }",
+        "function FindProxyForURL(url, host){ return 'PROXY %s;' }",
         net::HostPortPair::FromURL(embedded_test_server()->base_url())
             .ToString()
             .c_str());
@@ -161,6 +175,10 @@ class NetworkContextConfigurationBrowserTest
       case NetworkContextType::kSystem:
         return g_browser_process->system_network_context_manager()
             ->GetURLLoaderFactory();
+      case NetworkContextType::kSafeBrowsing:
+        return g_browser_process->safe_browsing_service()
+            ->GetURLLoaderFactory()
+            .get();
       case NetworkContextType::kProfile:
         return content::BrowserContext::GetDefaultStoragePartition(
                    browser()->profile())
@@ -182,6 +200,8 @@ class NetworkContextConfigurationBrowserTest
       case NetworkContextType::kSystem:
         return g_browser_process->system_network_context_manager()
             ->GetContext();
+      case NetworkContextType::kSafeBrowsing:
+        return g_browser_process->safe_browsing_service()->GetNetworkContext();
       case NetworkContextType::kProfile:
         return content::BrowserContext::GetDefaultStoragePartition(
                    browser()->profile())
@@ -199,6 +219,7 @@ class NetworkContextConfigurationBrowserTest
   StorageType GetHttpCacheType() const {
     switch (GetParam().network_context_type) {
       case NetworkContextType::kSystem:
+      case NetworkContextType::kSafeBrowsing:
         return StorageType::kNone;
       case NetworkContextType::kProfile:
         return StorageType::kDisk;
@@ -216,6 +237,7 @@ class NetworkContextConfigurationBrowserTest
     PrefService* pref_service = nullptr;
     switch (GetParam().network_context_type) {
       case NetworkContextType::kSystem:
+      case NetworkContextType::kSafeBrowsing:
         pref_service = g_browser_process->local_state();
         break;
       case NetworkContextType::kProfile:
@@ -237,6 +259,7 @@ class NetworkContextConfigurationBrowserTest
     // requests are sent on a separate pipe from ProxyConfigs.
     switch (GetParam().network_context_type) {
       case NetworkContextType::kSystem:
+      case NetworkContextType::kSafeBrowsing:
         g_browser_process->system_network_context_manager()
             ->FlushProxyConfigMonitorForTesting();
         break;
@@ -254,11 +277,11 @@ class NetworkContextConfigurationBrowserTest
 
   // Sends a request and expects it to be handled by embedded_test_server()
   // acting as a proxy;
-  void TestProxyConfigured() {
+  void TestProxyConfigured(bool expect_success) {
     std::unique_ptr<network::ResourceRequest> request =
         std::make_unique<network::ResourceRequest>();
     // This URL should be directed to the test server because of the proxy.
-    request->url = GURL("http://jabberwocky.test:1872/echo");
+    request->url = GURL("http://does.not.resolve.test:1872/echo");
 
     content::SimpleURLLoaderTestHelper simple_loader_helper;
     std::unique_ptr<network::SimpleURLLoader> simple_loader =
@@ -269,9 +292,16 @@ class NetworkContextConfigurationBrowserTest
         loader_factory(), simple_loader_helper.GetCallback());
     simple_loader_helper.WaitForCallback();
 
-    EXPECT_EQ(net::OK, simple_loader->NetError());
-    ASSERT_TRUE(simple_loader_helper.response_body());
-    EXPECT_EQ(*simple_loader_helper.response_body(), "Echo");
+    if (expect_success) {
+      EXPECT_EQ(net::OK, simple_loader->NetError());
+      ASSERT_TRUE(simple_loader_helper.response_body());
+      EXPECT_EQ(*simple_loader_helper.response_body(), "Echo");
+    } else {
+      // TestHostResolver returns net::ERR_NOT_IMPLEMENTED for non-local host
+      // URLs.
+      EXPECT_EQ(net::ERR_NOT_IMPLEMENTED, simple_loader->NetError());
+      ASSERT_FALSE(simple_loader_helper.response_body());
+    }
   }
 
   // Makes a request that hangs, and will live until browser shutdown.
@@ -322,6 +352,10 @@ class NetworkContextConfigurationBrowserTest
     switch (GetParam().network_context_type) {
       case NetworkContextType::kSystem:
         g_browser_process->system_network_context_manager()
+            ->FlushNetworkInterfaceForTesting();
+        break;
+      case NetworkContextType::kSafeBrowsing:
+        g_browser_process->safe_browsing_service()
             ->FlushNetworkInterfaceForTesting();
         break;
       case NetworkContextType::kProfile:
@@ -555,6 +589,7 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, DiskCache) {
       std::make_unique<network::ResourceRequest>();
   request->url = test_url;
   content::SimpleURLLoaderTestHelper simple_loader_helper;
+  request->load_flags = net::LOAD_ONLY_FROM_CACHE;
   std::unique_ptr<network::SimpleURLLoader> simple_loader =
       network::SimpleURLLoader::Create(std::move(request),
                                        TRAFFIC_ANNOTATION_FOR_TESTS);
@@ -562,22 +597,236 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, DiskCache) {
       loader_factory(), simple_loader_helper.GetCallback());
   simple_loader_helper.WaitForCallback();
 
-  std::string response_body = simple_loader_helper.response_body()
-                                  ? *simple_loader_helper.response_body()
-                                  : "";
-
-  // The response body from the above test should only appear in the response
-  // if there is an on-disk cache.
+  // The request should only succeed if there is an on-disk cache.
   if (GetHttpCacheType() != StorageType::kDisk) {
-    EXPECT_NE(original_response, response_body);
+    EXPECT_FALSE(simple_loader_helper.response_body());
+  } else if (GetParam().network_service_state !=
+             NetworkServiceState::kRestarted) {
+    ASSERT_TRUE(simple_loader_helper.response_body());
+    EXPECT_EQ(original_response, *simple_loader_helper.response_body());
   } else {
-    EXPECT_EQ(original_response, response_body);
+    // The network service restarted, and may or may not have recovered the
+    // cache entry. If the request succeded, though, it must return the correct
+    // result.
+    // TODO(mmenke): Is there any way to ensure the item in the cache can be
+    // recovered / the cache can be loaded in this test?
+    if (simple_loader_helper.response_body())
+      EXPECT_EQ(original_response, *simple_loader_helper.response_body());
   }
+}
+
+// Test certs cannot currently be installed on OSX with the network service
+// enabled.
+// TODO(mmenke): Once that is fixed, enable this test on OSX.
+// See https://crbug.com/757088
+#if !defined(OS_MACOSX)
+
+// Visits a URL with an HSTS header, and makes sure it is respected.
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, PRE_Hsts) {
+  net::test_server::EmbeddedTestServer ssl_server(
+      net::test_server::EmbeddedTestServer::TYPE_HTTPS);
+  ssl_server.SetSSLConfig(
+      net::test_server::EmbeddedTestServer::CERT_COMMON_NAME_IS_DOMAIN);
+  ssl_server.AddDefaultHandlers(
+      base::FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  ASSERT_TRUE(ssl_server.Start());
+
+  // Make a request whose response has an STS header.
+  std::unique_ptr<network::ResourceRequest> request =
+      std::make_unique<network::ResourceRequest>();
+  request->url = ssl_server.GetURL(
+      "/set-header?Strict-Transport-Security: max-age%3D600000");
+
+  content::SimpleURLLoaderTestHelper simple_loader_helper;
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
+                                       TRAFFIC_ANNOTATION_FOR_TESTS);
+  simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      loader_factory(), simple_loader_helper.GetCallback());
+  simple_loader_helper.WaitForCallback();
+
+  EXPECT_EQ(net::OK, simple_loader->NetError());
+  ASSERT_TRUE(simple_loader->ResponseInfo()->headers);
+  EXPECT_TRUE(simple_loader->ResponseInfo()->headers->HasHeaderValue(
+      "Strict-Transport-Security", "max-age=600000"));
+
+  // Make a cache-only request to make sure the HSTS entry is respected. Using a
+  // cache-only request both prevents the result from being cached, and makes
+  // the check identical to the one in the next test, which is run after the
+  // test server has been shut down.
+  GURL exected_ssl_url = ssl_server.base_url();
+  GURL::Replacements replacements;
+  replacements.SetSchemeStr("http");
+  GURL start_url = exected_ssl_url.ReplaceComponents(replacements);
+
+  request = std::make_unique<network::ResourceRequest>();
+  request->url = start_url;
+  request->load_flags = net::LOAD_ONLY_FROM_CACHE;
+
+  content::SimpleURLLoaderTestHelper simple_loader_helper2;
+  simple_loader = network::SimpleURLLoader::Create(
+      std::move(request), TRAFFIC_ANNOTATION_FOR_TESTS);
+  simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      loader_factory(), simple_loader_helper2.GetCallback());
+  simple_loader_helper2.WaitForCallback();
+  EXPECT_FALSE(simple_loader_helper2.response_body());
+  EXPECT_EQ(exected_ssl_url, simple_loader->GetFinalURL());
+
+  // Write the URL with HSTS information to a file, so it can be loaded in the
+  // next test. Have to use a file for this, since the server's port is random.
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  base::FilePath save_url_file_path = browser()->profile()->GetPath().Append(
+      FILE_PATH_LITERAL("url_for_test.txt"));
+  std::string file_data = start_url.spec();
+  ASSERT_EQ(
+      static_cast<int>(file_data.length()),
+      base::WriteFile(save_url_file_path, file_data.data(), file_data.size()));
+}
+
+// Checks if the HSTS information from the last test is still available after a
+// restart.
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, Hsts) {
+  // The network service must be cleanly shut down to guarantee HSTS information
+  // is flushed to disk, but that currently generally doesn't happen. See
+  // https://crbug.com/820996.
+  if (GetParam().network_service_state != NetworkServiceState::kDisabled &&
+      GetHttpCacheType() == StorageType::kDisk) {
+    return;
+  }
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  base::FilePath save_url_file_path = browser()->profile()->GetPath().Append(
+      FILE_PATH_LITERAL("url_for_test.txt"));
+  std::string file_data;
+  ASSERT_TRUE(ReadFileToString(save_url_file_path, &file_data));
+  GURL start_url = GURL(file_data);
+
+  // Unfortunately, loading HSTS information is loaded asynchronously from
+  // disk, so there's no way to guarantee it has loaded by the time a
+  // request is made. As a result, may have to try multiple times to verify that
+  // cached HSTS information has been loaded, when it's stored on disk.
+  while (true) {
+    std::unique_ptr<network::ResourceRequest> request =
+        std::make_unique<network::ResourceRequest>();
+    request->url = start_url;
+    request->load_flags = net::LOAD_ONLY_FROM_CACHE;
+
+    content::SimpleURLLoaderTestHelper simple_loader_helper;
+    std::unique_ptr<network::SimpleURLLoader> simple_loader =
+        network::SimpleURLLoader::Create(std::move(request),
+                                         TRAFFIC_ANNOTATION_FOR_TESTS);
+    simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+        loader_factory(), simple_loader_helper.GetCallback());
+    simple_loader_helper.WaitForCallback();
+    EXPECT_FALSE(simple_loader_helper.response_body());
+
+    // HSTS information is currently stored on disk if-and-only-if there's an
+    // on-disk HTTP cache.
+    if (GetHttpCacheType() == StorageType::kDisk) {
+      GURL::Replacements replacements;
+      replacements.SetSchemeStr("https");
+      GURL expected_https_url = start_url.ReplaceComponents(replacements);
+      // The file may not have been loaded yet, so if the cached HSTS
+      // information was not respected, try again.
+      if (expected_https_url != simple_loader->GetFinalURL())
+        continue;
+      EXPECT_EQ(expected_https_url, simple_loader->GetFinalURL());
+      break;
+    } else {
+      EXPECT_EQ(start_url, simple_loader->GetFinalURL());
+      break;
+    }
+  }
+}
+
+#endif  // !defined(OS_MACOSX)
+
+// Check that the SSLConfig is hooked up. PRE_SSLConfig checks that changing
+// local_state() after start modifies the SSLConfig, SSLConfig makes sure the
+// (now modified) initial value of local_state() is respected.
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, PRE_SSLConfig) {
+  // Start a TLS 1.0 server.
+  net::EmbeddedTestServer ssl_server(net::EmbeddedTestServer::TYPE_HTTPS);
+  net::SSLServerConfig ssl_config;
+  ssl_config.version_min = net::SSL_PROTOCOL_VERSION_TLS1;
+  ssl_config.version_max = net::SSL_PROTOCOL_VERSION_TLS1;
+  ssl_server.SetSSLConfig(net::EmbeddedTestServer::CERT_OK, ssl_config);
+  ssl_server.AddDefaultHandlers(
+      base::FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  ASSERT_TRUE(ssl_server.Start());
+
+  std::unique_ptr<network::ResourceRequest> request =
+      std::make_unique<network::ResourceRequest>();
+  request->url = ssl_server.GetURL("/echo");
+  content::SimpleURLLoaderTestHelper simple_loader_helper;
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
+                                       TRAFFIC_ANNOTATION_FOR_TESTS);
+  simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      loader_factory(), simple_loader_helper.GetCallback());
+  simple_loader_helper.WaitForCallback();
+#if defined(OS_MACOSX)
+  // TODO(https://crbug.com/757088):  Test certs don't work on OSX, with the
+  // network service.
+  if (GetParam().network_service_state != NetworkServiceState::kDisabled) {
+    EXPECT_FALSE(simple_loader_helper.response_body());
+  } else {
+    ASSERT_TRUE(simple_loader_helper.response_body());
+    EXPECT_EQ(*simple_loader_helper.response_body(), "Echo");
+  }
+#else
+  ASSERT_TRUE(simple_loader_helper.response_body());
+  EXPECT_EQ(*simple_loader_helper.response_body(), "Echo");
+#endif
+
+  // Disallow TLS 1.0 via prefs.
+  g_browser_process->local_state()->SetString(prefs::kSSLVersionMin,
+                                              switches::kSSLVersionTLSv11);
+  // Flush the changes to the network process, to avoid a race between updating
+  // the config and the next request.
+  g_browser_process->system_network_context_manager()
+      ->FlushSSLConfigManagerForTesting();
+
+  // With the new prefs, requests to the server should be blocked.
+  request = std::make_unique<network::ResourceRequest>();
+  request->url = ssl_server.GetURL("/echo");
+  content::SimpleURLLoaderTestHelper simple_loader_helper2;
+  simple_loader = network::SimpleURLLoader::Create(
+      std::move(request), TRAFFIC_ANNOTATION_FOR_TESTS);
+  simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      loader_factory(), simple_loader_helper2.GetCallback());
+  simple_loader_helper2.WaitForCallback();
+  EXPECT_FALSE(simple_loader_helper2.response_body());
+  EXPECT_EQ(net::ERR_SSL_VERSION_OR_CIPHER_MISMATCH, simple_loader->NetError());
+}
+
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, SSLConfig) {
+  // Start a TLS 1.0 server.
+  net::EmbeddedTestServer ssl_server(net::EmbeddedTestServer::TYPE_HTTPS);
+  net::SSLServerConfig ssl_config;
+  ssl_config.version_min = net::SSL_PROTOCOL_VERSION_TLS1;
+  ssl_config.version_max = net::SSL_PROTOCOL_VERSION_TLS1;
+  ssl_server.SetSSLConfig(net::EmbeddedTestServer::CERT_OK, ssl_config);
+  ASSERT_TRUE(ssl_server.Start());
+
+  // Making a request should fail, since PRE_SSLConfig saved a pref to disallow
+  // TLS 1.0.
+  std::unique_ptr<network::ResourceRequest> request =
+      std::make_unique<network::ResourceRequest>();
+  request->url = ssl_server.GetURL("/echo");
+  content::SimpleURLLoaderTestHelper simple_loader_helper;
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
+                                       TRAFFIC_ANNOTATION_FOR_TESTS);
+  simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      loader_factory(), simple_loader_helper.GetCallback());
+  simple_loader_helper.WaitForCallback();
+  EXPECT_FALSE(simple_loader_helper.response_body());
+  EXPECT_EQ(net::ERR_SSL_VERSION_OR_CIPHER_MISMATCH, simple_loader->NetError());
 }
 
 IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest, ProxyConfig) {
   SetProxyPref(embedded_test_server()->host_port_pair());
-  TestProxyConfigured();
+  TestProxyConfigured(/*expect_success=*/true);
 }
 
 // This test should not end in an AssertNoURLLRequests CHECK.
@@ -588,17 +837,19 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest,
 
 IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest,
                        UserAgentAndLanguagePrefs) {
-  // System network context isn't associated with any profile, so changing the
-  // language settings in the default one doesn't affect what it sends.
+  // The system and SafeBrowsing network contexts aren't associated with any
+  // profile, so changing the language settings for the profile's main network
+  // context won't affect what they send.
   bool system =
-      (GetParam().network_context_type == NetworkContextType::kSystem);
-  const char kDefaultAcceptLanguage[] = "en-us,en";
+      (GetParam().network_context_type == NetworkContextType::kSystem ||
+       GetParam().network_context_type == NetworkContextType::kSafeBrowsing);
+  // echoheader returns "None" when the header isn't there in the first place.
+  const char kNoAcceptLanguage[] = "None";
 
   std::string accept_language, user_agent;
   // Check default.
   ASSERT_TRUE(FetchHeaderEcho("accept-language", &accept_language));
-  EXPECT_EQ(system ? kDefaultAcceptLanguage : "en-US,en;q=0.9",
-            accept_language);
+  EXPECT_EQ(system ? kNoAcceptLanguage : "en-US,en;q=0.9", accept_language);
   ASSERT_TRUE(FetchHeaderEcho("user-agent", &user_agent));
   EXPECT_EQ(::GetUserAgent(), user_agent);
 
@@ -608,7 +859,7 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest,
   FlushNetworkInterface();
   std::string accept_language2, user_agent2;
   ASSERT_TRUE(FetchHeaderEcho("accept-language", &accept_language2));
-  EXPECT_EQ(system ? kDefaultAcceptLanguage : "uk", accept_language2);
+  EXPECT_EQ(system ? kNoAcceptLanguage : "uk", accept_language2);
   ASSERT_TRUE(FetchHeaderEcho("user-agent", &user_agent2));
   EXPECT_EQ(::GetUserAgent(), user_agent2);
 
@@ -618,8 +869,7 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationBrowserTest,
   FlushNetworkInterface();
   std::string accept_language3, user_agent3;
   ASSERT_TRUE(FetchHeaderEcho("accept-language", &accept_language3));
-  EXPECT_EQ(system ? kDefaultAcceptLanguage : "uk,en_US;q=0.9",
-            accept_language3);
+  EXPECT_EQ(system ? kNoAcceptLanguage : "uk,en_US;q=0.9", accept_language3);
   ASSERT_TRUE(FetchHeaderEcho("user-agent", &user_agent3));
   EXPECT_EQ(::GetUserAgent(), user_agent3);
 }
@@ -682,7 +932,7 @@ class NetworkContextConfigurationProxyOnStartBrowserTest
 // use that configuration.
 IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationProxyOnStartBrowserTest,
                        TestInitialProxyConfig) {
-  TestProxyConfigured();
+  TestProxyConfigured(/*expect_success=*/true);
 }
 
 // Make sure the system URLRequestContext can handle fetching PAC scripts from
@@ -721,7 +971,7 @@ class NetworkContextConfigurationHttpPacBrowserTest
 };
 
 IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationHttpPacBrowserTest, HttpPac) {
-  TestProxyConfigured();
+  TestProxyConfigured(/*expect_success=*/true);
 }
 
 // Make sure the system URLRequestContext can handle fetching PAC scripts from
@@ -756,7 +1006,19 @@ class NetworkContextConfigurationFilePacBrowserTest
 };
 
 IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationFilePacBrowserTest, FilePac) {
-  TestProxyConfigured();
+  bool network_service_disabled =
+      !base::FeatureList::IsEnabled(network::features::kNetworkService);
+#if defined(OS_MACOSX)
+  // https://crbug.com/843324: the NetworkServiceTestHelper does not work on Mac
+  // so the TestHostResolver is not used to resolve the host name when the
+  // network service is enabled. The system host resolver is used instead
+  // and goed to the network, which we don't want in tests. (and it does not
+  // return the expected net::ERR_NOT_IMPLEMENTED).
+  if (!network_service_disabled)
+    return;
+#endif
+  // PAC file URLs are not supported with the network service
+  TestProxyConfigured(/*expect_success=*/network_service_disabled);
 }
 
 // Make sure the system URLRequestContext can handle fetching PAC scripts from
@@ -779,7 +1041,7 @@ class NetworkContextConfigurationDataPacBrowserTest
 };
 
 IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationDataPacBrowserTest, DataPac) {
-  TestProxyConfigured();
+  TestProxyConfigured(/*expect_success=*/true);
 }
 
 // Make sure the system URLRequestContext can handle fetching PAC scripts from
@@ -813,7 +1075,7 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationFtpPacBrowserTest, FtpPac) {
   std::unique_ptr<network::ResourceRequest> request =
       std::make_unique<network::ResourceRequest>();
   // This URL should be directed to the test server because of the proxy.
-  request->url = GURL("http://jabberwocky.test:1872/echo");
+  request->url = GURL("http://does.not.resolve.test:1872/echo");
 
   content::SimpleURLLoaderTestHelper simple_loader_helper;
   std::unique_ptr<network::SimpleURLLoader> simple_loader =
@@ -827,9 +1089,117 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationFtpPacBrowserTest, FtpPac) {
   EXPECT_EQ(net::ERR_PROXY_CONNECTION_FAILED, simple_loader->NetError());
 }
 
+// Used to test that PAC HTTPS URL stripping works. A different test server is
+// used as the "proxy" based on whether the PAC script sees the full path or
+// not. The servers aren't correctly set up to mimic HTTP proxies that tunnel
+// to an HTTPS test server, so the test fixture just watches for any incoming
+// connection.
+class NetworkContextConfigurationHttpsStrippingPacBrowserTest
+    : public NetworkContextConfigurationBrowserTest {
+ public:
+  NetworkContextConfigurationHttpsStrippingPacBrowserTest() {}
+
+  ~NetworkContextConfigurationHttpsStrippingPacBrowserTest() override {}
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    // Test server HostPortPair, as a string.
+    std::string test_server_host_port_pair =
+        net::HostPortPair::FromURL(embedded_test_server()->base_url())
+            .ToString();
+    // Set up a PAC file that directs to different servers based on the URL it
+    // sees.
+    std::string pac_script = base::StringPrintf(
+        "function FindProxyForURL(url, host) {"
+        // With the test URL stripped of the path, try to use the embedded test
+        // server to establish a an SSL tunnel over an HTTP proxy. The request
+        // will fail with ERR_TUNNEL_CONNECTION_FAILED.
+        "  if (url == 'https://does.not.resolve.test:1872/')"
+        "    return 'PROXY %s';"
+        // With the full test URL, try to use a domain that does not resolve as
+        // a proxy. Errors connecting to the proxy result in
+        // ERR_PROXY_CONNECTION_FAILED.
+        "  if (url == 'https://does.not.resolve.test:1872/foo')"
+        "    return 'PROXY does.not.resolve.test';"
+        // Otherwise, use direct. If a connection to "does.not.resolve.test"
+        // tries to use a direction connection, it will fail with
+        // ERR_NAME_NOT_RESOLVED. This path will also
+        // be used by the initial request in NetworkServiceState::kRestarted
+        // tests to make sure the network service process is fully started
+        // before it's crashed and restarted. Using direct in this case avoids
+        // that request failing with an unexpeced error when being directed to a
+        // bogus proxy.
+        "  return 'DIRECT';"
+        "}",
+        test_server_host_port_pair.c_str());
+
+    command_line->AppendSwitchASCII(switches::kProxyPacUrl,
+                                    "data:," + pac_script);
+  }
+};
+
+// Start Chrome and check that PAC HTTPS path stripping is enabled.
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationHttpsStrippingPacBrowserTest,
+                       PRE_PacHttpsUrlStripping) {
+  ASSERT_FALSE(CreateDefaultNetworkContextParams()
+                   ->dangerously_allow_pac_access_to_secure_urls);
+
+  std::unique_ptr<network::ResourceRequest> request =
+      std::make_unique<network::ResourceRequest>();
+  // This URL should be directed to the proxy that fails with
+  // ERR_TUNNEL_CONNECTION_FAILED.
+  request->url = GURL("https://does.not.resolve.test:1872/foo");
+
+  content::SimpleURLLoaderTestHelper simple_loader_helper;
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
+                                       TRAFFIC_ANNOTATION_FOR_TESTS);
+
+  simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      loader_factory(), simple_loader_helper.GetCallback());
+  simple_loader_helper.WaitForCallback();
+  EXPECT_FALSE(simple_loader_helper.response_body());
+  EXPECT_EQ(net::ERR_TUNNEL_CONNECTION_FAILED, simple_loader->NetError());
+
+  // Disable stripping paths from HTTPS PAC URLs for the next test.
+  g_browser_process->local_state()->SetBoolean(
+      prefs::kPacHttpsUrlStrippingEnabled, false);
+  // Check that the changed setting is reflected in the network context params.
+  // The changes aren't applied to existing URLRequestContexts, however, so have
+  // to restart to see the setting change respected.
+  EXPECT_TRUE(CreateDefaultNetworkContextParams()
+                  ->dangerously_allow_pac_access_to_secure_urls);
+}
+
+// Restart Chrome and check the case where PAC HTTPS path stripping is disabled.
+// Have to restart Chrome because the setting is only checked on NetworkContext
+// creation.
+IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationHttpsStrippingPacBrowserTest,
+                       PacHttpsUrlStripping) {
+  ASSERT_TRUE(CreateDefaultNetworkContextParams()
+                  ->dangerously_allow_pac_access_to_secure_urls);
+
+  std::unique_ptr<network::ResourceRequest> request =
+      std::make_unique<network::ResourceRequest>();
+  // This URL should be directed to the proxy that fails with
+  // ERR_PROXY_CONNECTION_FAILED.
+  request->url = GURL("https://does.not.resolve.test:1872/foo");
+
+  content::SimpleURLLoaderTestHelper simple_loader_helper;
+  std::unique_ptr<network::SimpleURLLoader> simple_loader =
+      network::SimpleURLLoader::Create(std::move(request),
+                                       TRAFFIC_ANNOTATION_FOR_TESTS);
+
+  simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      loader_factory(), simple_loader_helper.GetCallback());
+  simple_loader_helper.WaitForCallback();
+  EXPECT_FALSE(simple_loader_helper.response_body());
+  EXPECT_EQ(net::ERR_PROXY_CONNECTION_FAILED, simple_loader->NetError());
+}
+
 // |NetworkServiceTestHelper| doesn't work on browser_tests on OSX.
+// See https://crbug.com/757088
 #if defined(OS_MACOSX)
-// Instiates tests with a prefix indicating which NetworkContext is being
+// Instantiates tests with a prefix indicating which NetworkContext is being
 // tested, and a suffix of "/0" if the network service is disabled and "/1" if
 // it's enabled.
 #define INSTANTIATE_TEST_CASES_FOR_TEST_FIXTURE(TestFixture)               \
@@ -837,6 +1207,13 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationFtpPacBrowserTest, FtpPac) {
       SystemNetworkContext, TestFixture,                                   \
       ::testing::Values(TestCase({NetworkServiceState::kDisabled,          \
                                   NetworkContextType::kSystem}),           \
+                        TestCase({NetworkServiceState::kEnabled,           \
+                                  NetworkContextType::kSystem})));         \
+                                                                           \
+  INSTANTIATE_TEST_CASE_P(                                                 \
+      SafeBrowsingNetworkContext, TestFixture,                             \
+      ::testing::Values(TestCase({NetworkServiceState::kDisabled,          \
+                                  NetworkContextType::kSafeBrowsing}),     \
                         TestCase({NetworkServiceState::kEnabled,           \
                                   NetworkContextType::kSystem})));         \
                                                                            \
@@ -858,6 +1235,9 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationFtpPacBrowserTest, FtpPac) {
 // Instiates tests with a prefix indicating which NetworkContext is being
 // tested, and a suffix of "/0" if the network service is disabled, "/1" if it's
 // enabled, and "/2" if it's enabled and restarted.
+//
+// TODO(mmenke): Enabled tests for the SafeBrowsing NetworkContext, once it
+// works with the network service enabled.
 #define INSTANTIATE_TEST_CASES_FOR_TEST_FIXTURE(TestFixture)               \
   INSTANTIATE_TEST_CASE_P(                                                 \
       SystemNetworkContext, TestFixture,                                   \
@@ -867,6 +1247,15 @@ IN_PROC_BROWSER_TEST_P(NetworkContextConfigurationFtpPacBrowserTest, FtpPac) {
                                   NetworkContextType::kSystem}),           \
                         TestCase({NetworkServiceState::kRestarted,         \
                                   NetworkContextType::kSystem})));         \
+                                                                           \
+  INSTANTIATE_TEST_CASE_P(                                                 \
+      SafeBrowsingNetworkContext, TestFixture,                             \
+      ::testing::Values(TestCase({NetworkServiceState::kDisabled,          \
+                                  NetworkContextType::kSafeBrowsing}),     \
+                        TestCase({NetworkServiceState::kEnabled,           \
+                                  NetworkContextType::kSafeBrowsing}),     \
+                        TestCase({NetworkServiceState::kRestarted,         \
+                                  NetworkContextType::kSafeBrowsing})));   \
                                                                            \
   INSTANTIATE_TEST_CASE_P(                                                 \
       ProfileMainNetworkContext, TestFixture,                              \
@@ -900,5 +1289,7 @@ INSTANTIATE_TEST_CASES_FOR_TEST_FIXTURE(
     NetworkContextConfigurationDataPacBrowserTest);
 INSTANTIATE_TEST_CASES_FOR_TEST_FIXTURE(
     NetworkContextConfigurationFtpPacBrowserTest);
+INSTANTIATE_TEST_CASES_FOR_TEST_FIXTURE(
+    NetworkContextConfigurationHttpsStrippingPacBrowserTest);
 
 }  // namespace

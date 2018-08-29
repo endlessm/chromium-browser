@@ -8,27 +8,27 @@
 // DO NOT MODIFY!
 
 // clang-format off
-#include "v8_test_dictionary.h"
+#include "third_party/blink/renderer/bindings/tests/results/core/v8_test_dictionary.h"
 
-#include "bindings/core/v8/dictionary.h"
-#include "bindings/core/v8/exception_state.h"
-#include "bindings/core/v8/idl_types.h"
-#include "bindings/core/v8/native_value_traits_impl.h"
-#include "bindings/core/v8/script_value.h"
-#include "bindings/core/v8/v8_array_buffer_view.h"
-#include "bindings/core/v8/v8_element.h"
-#include "bindings/core/v8/v8_event_target.h"
-#include "bindings/core/v8/v8_internal_dictionary.h"
-#include "bindings/core/v8/v8_test_interface.h"
-#include "bindings/core/v8/v8_test_interface_2.h"
-#include "bindings/core/v8/v8_test_interface_garbage_collected.h"
-#include "bindings/core/v8/v8_test_object.h"
-#include "bindings/core/v8/v8_uint8_array.h"
-#include "core/frame/deprecation.h"
-#include "core/origin_trials/origin_trials.h"
-#include "core/typed_arrays/array_buffer_view_helpers.h"
-#include "core/typed_arrays/flexible_array_buffer_view.h"
-#include "platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/bindings/core/v8/dictionary.h"
+#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
+#include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_value.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_array_buffer_view.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_element.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_event_target.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_internal_dictionary.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_interface.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_interface_2.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_interface_garbage_collected.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_object.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_uint8_array.h"
+#include "third_party/blink/renderer/core/frame/deprecation.h"
+#include "third_party/blink/renderer/core/origin_trials/origin_trials.h"
+#include "third_party/blink/renderer/core/typed_arrays/array_buffer_view_helpers.h"
+#include "third_party/blink/renderer/core/typed_arrays/flexible_array_buffer_view.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 
@@ -96,7 +96,7 @@ static const v8::Eternal<v8::Name>* eternalV8TestDictionaryKeys(v8::Isolate* iso
     "usvStringOrNullMember",
   };
   return V8PerIsolateData::From(isolate)->FindOrCreateEternalNameCache(
-      kKeys, kKeys, WTF_ARRAY_LENGTH(kKeys));
+      kKeys, kKeys, arraysize(kKeys));
 }
 
 void V8TestDictionary::ToImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value, TestDictionary& impl, ExceptionState& exceptionState) {
@@ -283,7 +283,7 @@ void V8TestDictionary::ToImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value
   if (doubleOrNullRecordMemberValue.IsEmpty() || doubleOrNullRecordMemberValue->IsUndefined()) {
     // Do nothing.
   } else {
-    Vector<std::pair<String, Optional<double>>> doubleOrNullRecordMemberCppValue = NativeValueTraits<IDLRecord<IDLString, IDLNullable<IDLDouble>>>::NativeValue(isolate, doubleOrNullRecordMemberValue, exceptionState);
+    Vector<std::pair<String, base::Optional<double>>> doubleOrNullRecordMemberCppValue = NativeValueTraits<IDLRecord<IDLString, IDLNullable<IDLDouble>>>::NativeValue(isolate, doubleOrNullRecordMemberValue, exceptionState);
     if (exceptionState.HadException())
       return;
     impl.setDoubleOrNullRecordMember(doubleOrNullRecordMemberCppValue);
@@ -297,7 +297,7 @@ void V8TestDictionary::ToImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value
   if (doubleOrNullSequenceMemberValue.IsEmpty() || doubleOrNullSequenceMemberValue->IsUndefined()) {
     // Do nothing.
   } else {
-    Vector<Optional<double>> doubleOrNullSequenceMemberCppValue = NativeValueTraits<IDLSequence<IDLNullable<IDLDouble>>>::NativeValue(isolate, doubleOrNullSequenceMemberValue, exceptionState);
+    Vector<base::Optional<double>> doubleOrNullSequenceMemberCppValue = NativeValueTraits<IDLSequence<IDLNullable<IDLDouble>>>::NativeValue(isolate, doubleOrNullSequenceMemberValue, exceptionState);
     if (exceptionState.HadException())
       return;
     impl.setDoubleOrNullSequenceMember(doubleOrNullSequenceMemberCppValue);
@@ -395,7 +395,7 @@ void V8TestDictionary::ToImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value
         "EnumValue2",
         "EnumValue3",
     };
-    if (!IsValidEnum(enumMemberCppValue, validValues, WTF_ARRAY_LENGTH(validValues), "TestEnum", exceptionState))
+    if (!IsValidEnum(enumMemberCppValue, validValues, arraysize(validValues), "TestEnum", exceptionState))
       return;
     impl.setEnumMember(enumMemberCppValue);
   }
@@ -418,7 +418,7 @@ void V8TestDictionary::ToImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value
         "EnumValue2",
         "EnumValue3",
     };
-    if (!IsValidEnum(enumOrNullMemberCppValue, validValues, WTF_ARRAY_LENGTH(validValues), "TestEnum", exceptionState))
+    if (!IsValidEnum(enumOrNullMemberCppValue, validValues, arraysize(validValues), "TestEnum", exceptionState))
       return;
     impl.setEnumOrNullMember(enumOrNullMemberCppValue);
   }
@@ -440,7 +440,7 @@ void V8TestDictionary::ToImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Value
         "EnumValue2",
         "EnumValue3",
     };
-    if (!IsValidEnum(enumSequenceMemberCppValue, validValues, WTF_ARRAY_LENGTH(validValues), "TestEnum", exceptionState))
+    if (!IsValidEnum(enumSequenceMemberCppValue, validValues, arraysize(validValues), "TestEnum", exceptionState))
       return;
     impl.setEnumSequenceMember(enumSequenceMemberCppValue);
   }

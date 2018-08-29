@@ -72,12 +72,11 @@ public final class AwBrowserProcess {
         }
         StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
         try {
-            LibraryLoader libraryLoader = LibraryLoader.get(LibraryProcessType.PROCESS_WEBVIEW);
-            libraryLoader.loadNow();
+            LibraryLoader.getInstance().loadNow();
             // Switch the command line implementation from Java to native.
             // It's okay for the WebView to do this before initialization because we have
             // setup the JNI bindings by this point.
-            libraryLoader.switchCommandLineForWebView();
+            LibraryLoader.getInstance().switchCommandLineForWebView();
         } catch (ProcessInitException e) {
             throw new RuntimeException("Cannot load WebView", e);
         } finally {
@@ -104,78 +103,88 @@ public final class AwBrowserProcess {
      * Note: it is up to the caller to ensure this is only called once.
      */
     public static void start() {
-        final Context appContext = ContextUtils.getApplicationContext();
-        tryObtainingDataDirLock();
-        // We must post to the UI thread to cover the case that the user
-        // has invoked Chromium startup by using the (thread-safe)
-        // CookieManager rather than creating a WebView.
-        ThreadUtils.runOnUiThreadBlocking(() -> {
-            boolean multiProcess = CommandLine.getInstance().hasSwitch(
-                    AwSwitches.WEBVIEW_SANDBOXED_RENDERER);
-            if (multiProcess) {
-                ChildProcessLauncherHelper.warmUp(appContext);
-            }
-            // The policies are used by browser startup, so we need to register the policy
-            // providers before starting the browser process. This only registers java objects
-            // and doesn't need the native library.
-            CombinedPolicyProvider.get().registerProvider(new AwPolicyProvider(appContext));
+        try (ScopedSysTraceEvent e1 = ScopedSysTraceEvent.scoped("AwBrowserProcess.start")) {
+            final Context appContext = ContextUtils.getApplicationContext();
+            tryObtainingDataDirLock();
+            // We must post to the UI thread to cover the case that the user
+            // has invoked Chromium startup by using the (thread-safe)
+            // CookieManager rather than creating a WebView.
+            ThreadUtils.runOnUiThreadBlocking(() -> {
+                boolean multiProcess =
+                        CommandLine.getInstance().hasSwitch(AwSwitches.WEBVIEW_SANDBOXED_RENDERER);
+                if (multiProcess) {
+                    ChildProcessLauncherHelper.warmUp(appContext);
+                }
+                // The policies are used by browser startup, so we need to register the policy
+                // providers before starting the browser process. This only registers java objects
+                // and doesn't need the native library.
+                CombinedPolicyProvider.get().registerProvider(new AwPolicyProvider(appContext));
 
-            // Check android settings but only when safebrowsing is enabled.
-            AwSafeBrowsingConfigHelper.maybeEnableSafeBrowsingFromManifest(appContext);
+                // Check android settings but only when safebrowsing is enabled.
+                try (ScopedSysTraceEvent e2 =
+                                ScopedSysTraceEvent.scoped("AwBrowserProcess.maybeEnable")) {
+                    AwSafeBrowsingConfigHelper.maybeEnableSafeBrowsingFromManifest(appContext);
+                }
 
-            try {
-                BrowserStartupController.get(LibraryProcessType.PROCESS_WEBVIEW)
-                        .startBrowserProcessesSync(!multiProcess);
-            } catch (ProcessInitException e) {
-                throw new RuntimeException("Cannot initialize WebView", e);
-            }
-        });
-
-        // Only run cleanup task on N+ since on earlier versions there are no extra pak files.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            // Cleanup task to remove unnecessary extra pak files (crbug.com/752510).
-            // TODO(zpeng): Remove cleanup code after at least M64 (crbug.com/756580).
-            AsyncTask.THREAD_POOL_EXECUTOR.execute(() -> {
-                File extraPaksDir = new File(PathUtils.getDataDirectory(), "paks");
-                if (extraPaksDir.exists()) {
-                    for (File pakFile: extraPaksDir.listFiles()) {
-                        pakFile.delete();
-                    }
-                    extraPaksDir.delete();
+                try (ScopedSysTraceEvent e2 = ScopedSysTraceEvent.scoped(
+                             "AwBrowserProcess.startBrowserProcessesSync")) {
+                    BrowserStartupController.get(LibraryProcessType.PROCESS_WEBVIEW)
+                            .startBrowserProcessesSync(!multiProcess);
+                } catch (ProcessInitException e) {
+                    throw new RuntimeException("Cannot initialize WebView", e);
                 }
             });
+
+            // Only run cleanup task on N+ since on earlier versions there are no extra pak files.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                // Cleanup task to remove unnecessary extra pak files (crbug.com/752510).
+                // TODO(zpeng): Remove cleanup code after at least M64 (crbug.com/756580).
+                AsyncTask.THREAD_POOL_EXECUTOR.execute(() -> {
+                    File extraPaksDir = new File(PathUtils.getDataDirectory(), "paks");
+                    if (extraPaksDir.exists()) {
+                        for (File pakFile : extraPaksDir.listFiles()) {
+                            pakFile.delete();
+                        }
+                        extraPaksDir.delete();
+                    }
+                });
+            }
         }
     }
 
     private static void tryObtainingDataDirLock() {
-        // Many existing apps rely on this even though it's known to be unsafe.
-        // Make it fatal when on P for apps that target P or higher
-        boolean dieOnFailure = BuildInfo.isAtLeastP() && BuildInfo.targetsAtLeastP();
+        try (ScopedSysTraceEvent e1 =
+                        ScopedSysTraceEvent.scoped("AwBrowserProcess.tryObtainingDataDirLock")) {
+            // Many existing apps rely on this even though it's known to be unsafe.
+            // Make it fatal when on P for apps that target P or higher
+            boolean dieOnFailure = BuildInfo.isAtLeastP() && BuildInfo.targetsAtLeastP();
 
-        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites();
-        try {
-            String dataPath = PathUtils.getDataDirectory();
-            File lockFile = new File(dataPath, EXCLUSIVE_LOCK_FILE);
-            boolean success = false;
+            StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites();
             try {
-                // Note that the file is kept open intentionally.
-                sLockFile = new RandomAccessFile(lockFile, "rw");
-                sExclusiveFileLock = sLockFile.getChannel().tryLock();
-                success = sExclusiveFileLock != null;
-            } catch (IOException e) {
-                Log.w(TAG, "Failed to create lock file " + lockFile, e);
-            }
-            if (!success) {
-                final String error = "Using WebView from more than one process at once with the "
-                        + "same data directory is not supported. https://crbug.com/558377";
-                if (dieOnFailure) {
-                    throw new RuntimeException(error);
-                } else {
-                    Log.w(TAG, error);
+                String dataPath = PathUtils.getDataDirectory();
+                File lockFile = new File(dataPath, EXCLUSIVE_LOCK_FILE);
+                boolean success = false;
+                try {
+                    // Note that the file is kept open intentionally.
+                    sLockFile = new RandomAccessFile(lockFile, "rw");
+                    sExclusiveFileLock = sLockFile.getChannel().tryLock();
+                    success = sExclusiveFileLock != null;
+                } catch (IOException e) {
+                    Log.w(TAG, "Failed to create lock file " + lockFile, e);
                 }
+                if (!success) {
+                    final String error =
+                            "Using WebView from more than one process at once with the "
+                            + "same data directory is not supported. https://crbug.com/558377";
+                    if (dieOnFailure) {
+                        throw new RuntimeException(error);
+                    } else {
+                        Log.w(TAG, error);
+                    }
+                }
+            } finally {
+                StrictMode.setThreadPolicy(oldPolicy);
             }
-        } finally {
-            StrictMode.setThreadPolicy(oldPolicy);
         }
     }
 
@@ -204,23 +213,26 @@ public final class AwBrowserProcess {
      * Android Checkbox toggle.
      */
     public static void handleMinidumpsAndSetMetricsConsent(final boolean updateMetricsConsent) {
-        final boolean enableMinidumpUploadingForTesting = CommandLine.getInstance().hasSwitch(
-                CommandLineUtil.CRASH_UPLOADS_ENABLED_FOR_TESTING_SWITCH);
-        if (enableMinidumpUploadingForTesting) {
-            handleMinidumps(true /* enabled */);
+        try (ScopedSysTraceEvent e1 = ScopedSysTraceEvent.scoped(
+                     "AwBrowserProcess.handleMinidumpsAndSetMetricsConsent")) {
+            final boolean enableMinidumpUploadingForTesting = CommandLine.getInstance().hasSwitch(
+                    CommandLineUtil.CRASH_UPLOADS_ENABLED_FOR_TESTING_SWITCH);
+            if (enableMinidumpUploadingForTesting) {
+                handleMinidumps(true /* enabled */);
+            }
+
+            PlatformServiceBridge.getInstance().queryMetricsSetting(enabled -> {
+                ThreadUtils.assertOnUiThread();
+                if (updateMetricsConsent) {
+                    AwMetricsServiceClient.setConsentSetting(
+                            ContextUtils.getApplicationContext(), enabled);
+                }
+
+                if (!enableMinidumpUploadingForTesting) {
+                    handleMinidumps(enabled);
+                }
+            });
         }
-
-        PlatformServiceBridge.getInstance().queryMetricsSetting(enabled -> {
-            ThreadUtils.assertOnUiThread();
-            if (updateMetricsConsent) {
-                AwMetricsServiceClient.setConsentSetting(
-                        ContextUtils.getApplicationContext(), enabled);
-            }
-
-            if (!enableMinidumpUploadingForTesting) {
-                handleMinidumps(enabled);
-            }
-        });
     }
 
     /**

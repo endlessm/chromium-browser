@@ -8,15 +8,15 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/DebugInfo/DWARF/DWARFDebugRnglists.h"
-
 #include "llvm/BinaryFormat/Dwarf.h"
+#include "llvm/DebugInfo/DWARF/DWARFUnit.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
-void DWARFDebugRnglists::clear() {
+void DWARFDebugRnglistTable::clear() {
   HeaderData = {};
   Offsets.clear();
   Ranges.clear();
@@ -30,11 +30,9 @@ static Error createError(char const *Fmt, const Ts &... Vals) {
   return make_error<StringError>(Stream.str(), inconvertibleErrorCode());
 }
 
-Error DWARFDebugRnglists::extract(DWARFDataExtractor Data,
-                                  uint32_t *OffsetPtr) {
-  clear();
+Error DWARFDebugRnglistTable::extractHeaderAndOffsets(DWARFDataExtractor Data,
+                                                      uint32_t *OffsetPtr) {
   HeaderOffset = *OffsetPtr;
-
   // Read and verify the length field.
   if (!Data.isValidOffsetForDataOfSize(*OffsetPtr, sizeof(uint32_t)))
     return createError("section is not large enough to contain a "
@@ -46,6 +44,7 @@ Error DWARFDebugRnglists::extract(DWARFDataExtractor Data,
     return createError(
         "DWARF64 is not supported in .debug_rnglists at offset 0x%" PRIx32,
         HeaderOffset);
+  Format = dwarf::DwarfFormat::DWARF32;
   if (HeaderData.Length + sizeof(uint32_t) < sizeof(Header))
     return createError(".debug_rnglists table at offset 0x%" PRIx32
                        " has too small length (0x%" PRIx32
@@ -82,113 +81,176 @@ Error DWARFDebugRnglists::extract(DWARFDataExtractor Data,
                        " has more offset entries (%" PRIu32
                        ") than there is space for",
                        HeaderOffset, HeaderData.OffsetEntryCount);
-
   Data.setAddressSize(HeaderData.AddrSize);
-
   for (uint32_t I = 0; I < HeaderData.OffsetEntryCount; ++I)
     Offsets.push_back(Data.getU32(OffsetPtr));
+  return Error::success();
+}
 
-  DWARFRangeList CurrentRanges;
-  while (*OffsetPtr < End) {
-    uint32_t EntryOffset = *OffsetPtr;
-    uint8_t Encoding = Data.getU8(OffsetPtr);
-    MaxEncodingStringLength =
-        std::max(MaxEncodingStringLength,
-                 (uint8_t)dwarf::RangeListEncodingString(Encoding).size());
-    switch (Encoding) {
-    case dwarf::DW_RLE_end_of_list:
-      CurrentRanges.push_back(RangeListEntry{ EntryOffset, Encoding, 0, 0 });
-      Ranges.insert(Ranges.end(), std::move(CurrentRanges));
-      CurrentRanges.clear();
-      break;
-    // TODO: Support other encodings.
-    case dwarf::DW_RLE_base_addressx:
-      return createError("unsupported rnglists encoding DW_RLE_base_addressx "
+Error DWARFDebugRnglist::RangeListEntry::extract(DWARFDataExtractor Data,
+                                                 uint32_t End,
+                                                 uint32_t *OffsetPtr) {
+  Offset = *OffsetPtr;
+  SectionIndex = -1ULL;
+  // The caller should guarantee that we have at least 1 byte available, so
+  // we just assert instead of revalidate.
+  assert(*OffsetPtr < End &&
+         "not enough space to extract a rangelist encoding");
+  uint8_t Encoding = Data.getU8(OffsetPtr);
+
+  switch (Encoding) {
+  case dwarf::DW_RLE_end_of_list:
+    Value0 = Value1 = 0;
+    break;
+  // TODO: Support other encodings.
+  case dwarf::DW_RLE_base_addressx:
+    return createError("unsupported rnglists encoding DW_RLE_base_addressx "
+                       "at offset 0x%" PRIx32,
+                       *OffsetPtr - 1);
+  case dwarf::DW_RLE_startx_endx:
+    return createError("unsupported rnglists encoding DW_RLE_startx_endx at "
+                       "offset 0x%" PRIx32,
+                       *OffsetPtr - 1);
+  case dwarf::DW_RLE_startx_length:
+    return createError("unsupported rnglists encoding DW_RLE_startx_length "
+                       "at offset 0x%" PRIx32,
+                       *OffsetPtr - 1);
+  case dwarf::DW_RLE_offset_pair: {
+    uint32_t PreviousOffset = *OffsetPtr - 1;
+    Value0 = Data.getULEB128(OffsetPtr);
+    Value1 = Data.getULEB128(OffsetPtr);
+    if (End < *OffsetPtr)
+      return createError("read past end of table when reading "
+                         "DW_RLE_offset_pair encoding at offset 0x%" PRIx32,
+                         PreviousOffset);
+    break;
+  }
+  case dwarf::DW_RLE_base_address: {
+    if ((End - *OffsetPtr) < Data.getAddressSize())
+      return createError("insufficient space remaining in table for "
+                         "DW_RLE_base_address encoding at offset 0x%" PRIx32,
+                         *OffsetPtr - 1);
+    Value0 = Data.getRelocatedAddress(OffsetPtr, &SectionIndex);
+    break;
+  }
+  case dwarf::DW_RLE_start_end: {
+    if ((End - *OffsetPtr) < unsigned(Data.getAddressSize() * 2))
+      return createError("insufficient space remaining in table for "
+                         "DW_RLE_start_end encoding "
                          "at offset 0x%" PRIx32,
                          *OffsetPtr - 1);
-    case dwarf::DW_RLE_startx_endx:
-      return createError("unsupported rnglists encoding DW_RLE_startx_endx at "
-                         "offset 0x%" PRIx32,
-                         *OffsetPtr - 1);
-    case dwarf::DW_RLE_startx_length:
-      return createError("unsupported rnglists encoding DW_RLE_startx_length "
-                         "at offset 0x%" PRIx32,
-                         *OffsetPtr - 1);
-    case dwarf::DW_RLE_offset_pair: {
-      uint32_t PreviousOffset = *OffsetPtr - 1;
-      uint64_t StartingOffset = Data.getULEB128(OffsetPtr);
-      uint64_t EndingOffset = Data.getULEB128(OffsetPtr);
-      if (End < *OffsetPtr)
-        return createError("read past end of table when reading "
-                           "DW_RLE_offset_pair encoding at offset 0x%" PRIx32,
-                           PreviousOffset);
-      CurrentRanges.push_back(
-          RangeListEntry{EntryOffset, Encoding, StartingOffset, EndingOffset});
-      break;
-    }
-    case dwarf::DW_RLE_base_address: {
-      if ((End - *OffsetPtr) < HeaderData.AddrSize)
-        return createError("insufficient space remaining in table for "
-                           "DW_RLE_base_address encoding at offset 0x%" PRIx32,
-                           *OffsetPtr - 1);
-      uint64_t Base = Data.getAddress(OffsetPtr);
-      CurrentRanges.push_back(RangeListEntry{EntryOffset, Encoding, Base, 0});
-      break;
-    }
-    case dwarf::DW_RLE_start_end: {
-      if ((End - *OffsetPtr) < unsigned(HeaderData.AddrSize * 2))
-        return createError("insufficient space remaining in table for "
-                           "DW_RLE_start_end encoding "
-                           "at offset 0x%" PRIx32,
-                           *OffsetPtr - 1);
-      uint64_t Start = Data.getAddress(OffsetPtr);
-      uint64_t End = Data.getAddress(OffsetPtr);
-      CurrentRanges.push_back(
-          RangeListEntry{EntryOffset, Encoding, Start, End});
-      break;
-    }
-    case dwarf::DW_RLE_start_length: {
-      uint32_t PreviousOffset = *OffsetPtr - 1;
-      uint64_t Start = Data.getAddress(OffsetPtr);
-      uint64_t Length = Data.getULEB128(OffsetPtr);
-      if (End < *OffsetPtr)
-        return createError("read past end of table when reading "
-                           "DW_RLE_start_length encoding at offset 0x%" PRIx32,
-                           PreviousOffset);
-      CurrentRanges.push_back(
-          RangeListEntry{EntryOffset, Encoding, Start, Length});
-      break;
-    }
-    default:
-      Ranges.insert(Ranges.end(), std::move(CurrentRanges));
-      return createError("unknown rnglists encoding 0x%" PRIx32
-                         " at offset 0x%" PRIx32,
-                         uint32_t(Encoding), *OffsetPtr - 1);
-    }
+    Value0 = Data.getRelocatedAddress(OffsetPtr, &SectionIndex);
+    Value1 = Data.getRelocatedAddress(OffsetPtr);
+    break;
+  }
+  case dwarf::DW_RLE_start_length: {
+    uint32_t PreviousOffset = *OffsetPtr - 1;
+    Value0 = Data.getRelocatedAddress(OffsetPtr, &SectionIndex);
+    Value1 = Data.getULEB128(OffsetPtr);
+    if (End < *OffsetPtr)
+      return createError("read past end of table when reading "
+                         "DW_RLE_start_length encoding at offset 0x%" PRIx32,
+                         PreviousOffset);
+    break;
+  }
+  default:
+    return createError("unknown rnglists encoding 0x%" PRIx32
+                       " at offset 0x%" PRIx32,
+                       uint32_t(Encoding), *OffsetPtr - 1);
   }
 
-  // If OffsetPtr does not indicate the End offset, then either the above loop
-  // terminated prematurely, or we encountered a malformed encoding, but did not
-  // report an error when we should have done.
-  assert(*OffsetPtr == End &&
-         "did not detect malformed data or loop ended unexpectedly");
+  EntryKind = Encoding;
+  return Error::success();
+}
 
-  // If CurrentRanges is not empty, we have a malformed section, because we did
-  // not find a DW_RLE_end_of_list marker at the end of the last list.
-  if (!CurrentRanges.empty())
-    return createError(
-        "no end of list marker detected at end of .debug_rnglists table "
-        "starting at offset 0x%" PRIx32,
-        HeaderOffset);
+DWARFAddressRangesVector DWARFDebugRnglist::getAbsoluteRanges(
+    llvm::Optional<BaseAddress> BaseAddr) const {
+  DWARFAddressRangesVector Res;
+  for (const RangeListEntry &RLE : Entries) {
+    if (RLE.EntryKind == dwarf::DW_RLE_end_of_list)
+      break;
+    if (RLE.EntryKind == dwarf::DW_RLE_base_address) {
+      BaseAddr = {RLE.Value0, RLE.SectionIndex};
+      continue;
+    }
+
+    DWARFAddressRange E;
+    E.SectionIndex = RLE.SectionIndex;
+    if (BaseAddr && E.SectionIndex == -1ULL)
+      E.SectionIndex = BaseAddr->SectionIndex;
+
+    switch (RLE.EntryKind) {
+    case dwarf::DW_RLE_offset_pair:
+      E.LowPC = RLE.Value0;
+      E.HighPC = RLE.Value1;
+      if (BaseAddr) {
+        E.LowPC += BaseAddr->Address;
+        E.HighPC += BaseAddr->Address;
+      }
+      break;
+    case dwarf::DW_RLE_start_end:
+      E.LowPC = RLE.Value0;
+      E.HighPC = RLE.Value1;
+      break;
+    case dwarf::DW_RLE_start_length:
+      E.LowPC = RLE.Value0;
+      E.HighPC = E.LowPC + RLE.Value1;
+      break;
+    default:
+      // Unsupported encodings should have been reported during extraction,
+      // so we should not run into any here.
+      llvm_unreachable("Unsupported range list encoding");
+    }
+    Res.push_back(E);
+  }
+  return Res;
+}
+
+Error DWARFDebugRnglist::extract(DWARFDataExtractor Data, uint32_t HeaderOffset,
+                                 uint32_t End, uint32_t *OffsetPtr) {
+  Entries.clear();
+  while (*OffsetPtr < End) {
+    RangeListEntry Entry{0, 0, 0, 0, 0};
+    if (Error E = Entry.extract(Data, End, OffsetPtr))
+      return E;
+    Entries.push_back(Entry);
+    if (Entry.EntryKind == dwarf::DW_RLE_end_of_list)
+      return Error::success();
+  }
+  return createError(
+      "no end of list marker detected at end of .debug_rnglists table "
+      "starting at offset 0x%" PRIx32,
+      HeaderOffset);
+}
+
+Error DWARFDebugRnglistTable::extract(DWARFDataExtractor Data,
+                                      uint32_t *OffsetPtr) {
+  clear();
+  if (Error E = extractHeaderAndOffsets(Data, OffsetPtr))
+    return E;
+
+  Data.setAddressSize(HeaderData.AddrSize);
+  uint32_t End = HeaderOffset + length();
+  while (*OffsetPtr < End) {
+    DWARFDebugRnglist CurrentRangeList;
+    uint32_t Off = *OffsetPtr;
+    if (Error E = CurrentRangeList.extract(Data, HeaderOffset, End, OffsetPtr))
+      return E;
+    Ranges[Off] = CurrentRangeList;
+  }
+
+  assert(*OffsetPtr == End &&
+         "mismatch between expected length of .debug_rnglists table and length "
+         "of extracted data");
   return Error::success();
 }
 
 static void dumpRangeEntry(raw_ostream &OS,
-                           DWARFDebugRnglists::RangeListEntry Entry,
+                           DWARFDebugRnglist::RangeListEntry Entry,
                            uint8_t AddrSize, uint8_t MaxEncodingStringLength,
                            uint64_t &CurrentBase, DIDumpOptions DumpOpts) {
   auto PrintRawEntry = [](raw_ostream &OS,
-                          DWARFDebugRnglists::RangeListEntry Entry,
+                          DWARFDebugRnglist::RangeListEntry Entry,
                           uint8_t AddrSize, DIDumpOptions DumpOpts) {
     if (DumpOpts.Verbose) {
       DumpOpts.DisplayRawContents = true;
@@ -240,7 +302,8 @@ static void dumpRangeEntry(raw_ostream &OS,
   OS << "\n";
 }
 
-void DWARFDebugRnglists::dump(raw_ostream &OS, DIDumpOptions DumpOpts) const {
+void DWARFDebugRnglistTable::dump(raw_ostream &OS,
+                                  DIDumpOptions DumpOpts) const {
   if (DumpOpts.Verbose)
     OS << format("0x%8.8" PRIx32 ": ", HeaderOffset);
   OS << format("Range List Header: length = 0x%8.8" PRIx32
@@ -263,16 +326,46 @@ void DWARFDebugRnglists::dump(raw_ostream &OS, DIDumpOptions DumpOpts) const {
   }
   OS << "Ranges:\n";
 
+  // Determine the length of the longest encoding string we have in the table,
+  // so we can align the output properly. We only need this in verbose mode.
+  size_t MaxEncodingStringLength = 0;
+  if (DumpOpts.Verbose) {
+    for (const auto &List : Ranges)
+      for (const auto &Entry : List.second.getEntries())
+        MaxEncodingStringLength =
+            std::max(MaxEncodingStringLength,
+                     dwarf::RangeListEncodingString(Entry.EntryKind).size());
+  }
+
   uint64_t CurrentBase = 0;
   for (const auto &List : Ranges)
-    for (const auto &Entry : List)
+    for (const auto &Entry : List.second.getEntries())
       dumpRangeEntry(OS, Entry, HeaderData.AddrSize, MaxEncodingStringLength,
                      CurrentBase, DumpOpts);
 }
 
-uint32_t DWARFDebugRnglists::length() const {
+uint32_t DWARFDebugRnglistTable::length() const {
   if (HeaderData.Length == 0)
     return 0;
   // TODO: DWARF64 support.
   return HeaderData.Length + sizeof(uint32_t);
+}
+
+Optional<DWARFDebugRnglist>
+DWARFDebugRnglistTable::findRangeList(DWARFDataExtractor Data,
+                                      uint32_t Offset) {
+  auto Entry = Ranges.find(Offset);
+  if (Entry != Ranges.end())
+    return Entry->second;
+
+  // Extract the rangelist from the section and enter it into the ranges map.
+  DWARFDebugRnglist RngList;
+  uint32_t End = HeaderOffset + length();
+  uint32_t StartingOffset = Offset;
+  if (Error E = RngList.extract(Data, HeaderOffset, End, &Offset)) {
+    llvm::consumeError(std::move(E));
+    return None;
+  }
+  Ranges[StartingOffset] = RngList;
+  return RngList;
 }

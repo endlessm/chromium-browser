@@ -65,7 +65,7 @@ using autofill::FormData;
 using autofill::PasswordForm;
 using password_manager::AccountSelectFillData;
 using password_manager::FillData;
-using password_manager::PasswordFormManager;
+using password_manager::PasswordFormManagerForUI;
 using password_manager::PasswordManager;
 using password_manager::PasswordManagerClient;
 using password_manager::PasswordManagerDriver;
@@ -170,7 +170,7 @@ void LogSuggestionShown(PasswordSuggestionType type) {
 // Displays infobar for |form| with |type|. If |type| is UPDATE, the user
 // is prompted to update the password. If |type| is SAVE, the user is prompted
 // to save the password.
-- (void)showInfoBarForForm:(std::unique_ptr<PasswordFormManager>)form
+- (void)showInfoBarForForm:(std::unique_ptr<PasswordFormManagerForUI>)form
                infoBarType:(PasswordInfoBarType)type;
 
 // Handler for injected JavaScript callbacks.
@@ -429,7 +429,7 @@ bool GetPageURLAndCheckTrustLevel(web::WebState* web_state, GURL* page_url) {
       // InitPasswordFormFillData() that the preferred match (3rd parameter)
       // should be one of the |matches|.
       matches.insert(std::make_pair(form.username_value, &form));
-      autofill::InitPasswordFormFillData(form, matches, &form, false, false,
+      autofill::InitPasswordFormFillData(form, matches, &form, false,
                                          &formData);
       [self fillPasswordForm:formData
                 withUsername:base::SysNSStringToUTF16(username)
@@ -743,13 +743,13 @@ bool GetPageURLAndCheckTrustLevel(web::WebState* web_state, GURL* page_url) {
 #pragma mark - PasswordManagerClientDelegate
 
 - (void)showSavePasswordInfoBar:
-    (std::unique_ptr<PasswordFormManager>)formToSave {
+    (std::unique_ptr<PasswordFormManagerForUI>)formToSave {
   [self showInfoBarForForm:std::move(formToSave)
                infoBarType:PasswordInfoBarType::SAVE];
 }
 
 - (void)showUpdatePasswordInfoBar:
-    (std::unique_ptr<PasswordFormManager>)formToUpdate {
+    (std::unique_ptr<PasswordFormManagerForUI>)formToUpdate {
   [self showInfoBarForForm:std::move(formToUpdate)
                infoBarType:PasswordInfoBarType::UPDATE];
 }
@@ -917,7 +917,7 @@ bool GetPageURLAndCheckTrustLevel(web::WebState* web_state, GURL* page_url) {
 
 #pragma mark - Private methods
 
-- (void)showInfoBarForForm:(std::unique_ptr<PasswordFormManager>)form
+- (void)showInfoBarForForm:(std::unique_ptr<PasswordFormManagerForUI>)form
                infoBarType:(PasswordInfoBarType)type {
   if (!webState_)
     return;

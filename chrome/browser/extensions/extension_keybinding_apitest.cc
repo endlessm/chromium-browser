@@ -18,8 +18,10 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_commands.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/extensions/browser_action_test_util.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/notification_service.h"
@@ -135,6 +137,22 @@ class CommandsApiTest : public ExtensionApiTest {
  public:
   CommandsApiTest() {}
   ~CommandsApiTest() override {}
+
+  void SetUpOnMainThread() override {
+    ExtensionApiTest::SetUpOnMainThread();
+#if defined(OS_MACOSX)
+    // ExtensionKeybindingRegistryViews doesn't get registered until BrowserView
+    // is activated at least once.
+    // TODO(crbug.com/839469): Registry creation should happen independent of
+    // activation. Focus manager lifetime may make this tricky to untangle.
+    // TODO(crbug.com/650859): Reassess after activation is restored in the
+    // focus manager.
+    ui_test_utils::BrowserActivationWaiter waiter(browser());
+    ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
+    waiter.WaitForActivation();
+    ASSERT_TRUE(browser()->window()->IsActive());
+#endif
+  }
 
  protected:
   bool IsGrantedForTab(const Extension* extension,
@@ -502,6 +520,12 @@ IN_PROC_BROWSER_TEST_F(CommandsApiTest,
 // web pages.
 IN_PROC_BROWSER_TEST_F(CommandsApiTest,
                        OverwriteBookmarkShortcutByUserOverridesWebKeybinding) {
+#if defined(OS_MACOSX)
+  // This doesn't work in MacViews mode: https://crbug.com/845503 is the likely
+  // root cause.
+  if (!views_mode_controller::IsViewsBrowserCocoa())
+    return;
+#endif
   ASSERT_TRUE(embedded_test_server()->Start());
 
   ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));

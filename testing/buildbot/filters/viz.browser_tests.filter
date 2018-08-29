@@ -1,108 +1,24 @@
-#### HostFrameSinkManager Crashes
-# HostFrameSinkManager::CreateRootCompositorFrameSink Crash crbug.com/796575
--AppWindowApiTest.OnBoundsChangedEvent
--ForceMaximizeOnFirstRunTest.*TwoRuns
--ForceMaximizePolicyFalseTest.GeneralFirstRun
--SafeBrowsingTriggeredPopupBlockerBrowserTest.NoFeature_AllowCreatingNewWindows
--SafeBrowsingTriggeredPopupBlockerBrowserTest.NoFeature_NoMessages
--ShelfAppBrowserTest.LaunchAppFromDisplayWithoutFocus0
--ShelfAppBrowserTest.LaunchAppFromDisplayWithoutFocus1
-
 #### HostFrameSinkManager::CreateCompositorFrameSinkSupport crash.
 # http://crbug.com/807465
 -ArcAccessibilityHelperBridgeBrowserTest.PreferenceChange
 
-# Tab Capture Errors
-# Tab Capture is still in development: crbug.com/754864
--TabCaptureApiPixelTest.OffscreenTabEndToEnd
--TabCaptureApiPixelTest.OffscreenTabEvilTests
--ThumbnailTest.ShouldCaptureOnNavigatingAwayExplicitWait
--ThumbnailTest.ShouldCaptureOnNavigatingAwaySlowPageLoad
-
 # Tab Capture on Viz fails at CopyOutputRequest: crbug.com/810389
 -FeedbackTest.*
 -LoginFeedbackTest.Basic
+-TabCaptureApiPixelTest.OffscreenTabEndToEnd
+-TabCaptureApiPixelTest.OffscreenTabEvilTests
 
 #### Compositor Frame Observation Timeouts
 # WaitForChildFrameSurfaceReady crashes crbug.com/787945
 -PDFExtensionHitTestTest.ContextMenuCoordinates*
+-PDFExtensionHitTestTest.MouseLeave*
 -SitePerProcessDevToolsSanityTest.InputDispatchEventsToOOPIF
--WebViewTests/WebViewTest.InterstitialPageFocusedWidget/1
--WebViewTests/WebViewTest.ReloadAfterCrash/1
+-WebViewTest.InterstitialPageFocusedWidget
+-WebViewTest.ReloadAfterCrash
+-WebViewGuestTouchFocusBrowserPluginSpecificTest.TouchFocusesBrowserPluginInEmbedder
 
-#### FrameSinkManager Crashes
-# FrameSinkManagerImpl::RegisterFrameSinkHierarchy Crash crbug.com/796344
-# Linux and Windows failures
--WebViewTests/WebViewTest.Shim_TestAssignSrcAfterCrash/0
--WebViewTests/WebViewTest.Shim_TestContentScriptIsInjectedAfterTerminateAndReloadWebView/0
--WebViewTests/WebViewTest.Shim_TestReloadAfterTerminate/0
--WebViewTests/WebViewTest.Shim_TestTerminateAfterExit/0
+# Mac Flaking with missing browser. https://crbug.com/842664
+-IndependentOTRProfileManagerTest.DeleteImmediatelyWhenBrowsersAlreadyClosed
 
-#### Hit Testing
-# Incorrect Focus State crbug.com/818205
--WebViewTests/WebViewFocusTest.TouchFocusesEmbedder/0
-
-#### Surface Invariants
-# Surface Invariants Failure on Mac http://crbug.com/817827
--ActivityLogApiTest.TriggerEvent
--AllUrlsApiTest.WhitelistedExtension
--DNSErrorPageTest.DNSError_GoBack2Forward2
--DevToolsFrontendInWebRequestApiTest.HiddenRequests
--ExtensionApiNewTabTest.Tabs
--ExtensionApiTabTest.TabEvents
--ExtensionApiTabTest.Tabs2
--ExtensionTabUtilBrowserTest.OpenExtensionsOptionsPage
--ExtensionTabUtilBrowserTest.OpenSplitModeExtensionOptionsPageIncognito
--ExtensionWebRequestApiTest.WebRequestBlocking
--ExtensionWebRequestApiTest.WebRequestSimple
--HostedAppProcessModelTest.PopupsInsideHostedApp/0
--HostedAppProcessModelTest.PopupsInsideHostedApp/1
--IsolatedAppTest.IsolatedAppProcessModel
--LocalNTPDoodleTest.ShouldNotMoveFakeboxForIframeSizes
--ServiceWorkerTestWithJSBindings/ServiceWorkerTest.ServiceWorkerSuspensionOnExtensionUnload/0
--ServiceWorkerTestWithNativeBindings/ServiceWorkerTest.ServiceWorkerSuspensionOnExtensionUnload/0
--TabManagerTest.DiscardTabsWithMinimizedAndOccludedWindows
-
-#### GL Renderer
-# GL Renderer Check Failure on Mac https://crbug.com/817830
--DeclarativeNetRequestBrowserTest.BlockRequests_UrlFilter/0
--DeclarativeNetRequestBrowserTest.BlockRequests_UrlFilter/1
--DeclarativeNetRequestBrowserTest.RedirectPriority/0
--DeclarativeNetRequestBrowserTest.RedirectPriority/1
--DeclarativeNetRequestResourceTypeBrowserTest.Test1/0
--DeclarativeNetRequestResourceTypeBrowserTest.Test1/1
--DeclarativeNetRequestResourceTypeBrowserTest.Test2/0
--HardwareAccelerationModePolicyTest.HardwareAccelerationDisabled
--PluginPowerSaverBrowserTest.BackgroundTabPlugins
--PluginPowerSaverBrowserTest.BackgroundTabTinyPlugins
--PluginPowerSaverBrowserTest.BlockTinyPlugins
--PluginPowerSaverBrowserTest.EssentialPlugins
--PluginPowerSaverBrowserTest.ExpandingSmallPlugin
--PluginPowerSaverBrowserTest.ExpandingTinyPlugins
--PluginPowerSaverBrowserTest.LargePostersNotThrottled
--PluginPowerSaverBrowserTest.OriginWhitelisting
--PluginPowerSaverBrowserTest.RunAllFlashInAllowMode
--PluginPowerSaverBrowserTest.ZoomIndependent
--SSLUIWorkerFetchTest.MixedContentSettings/0
--SSLUIWorkerFetchTest.MixedContentSettings/1
--SSLUIWorkerFetchTest.MixedContentSettingsWithBlockingCSP/0
--SSLUIWorkerFetchTest.MixedContentSettingsWithBlockingCSP/1
--SSLUIWorkerFetchTest.MixedContentSubFrame/0
--SSLUIWorkerFetchTest.MixedContentSubFrame/1
--ThumbnailTest.ShouldContainProperContentIfCapturedOnNavigatingAway
--ThumbnailTest.ShouldContainProperContentIfCapturedOnTabSwitch
-
-# Windows timeouts. https://crbug.com/821029
--BrowserNavigatorTest.Disposition_NewPopupFromAppPopup
--ExtensionApiCaptureTest.CaptureNullWindow
--ManifestVerifierBrowserTest.*
--OmniboxPopupContentsViewTest.ThemeIntegration/*
--PDFIsolatedExtensionTest.MultipleDomains
--PrefHashBrowserTest*
--StartupBrowserCreatorTest.ProfilesWithoutPagesNotLaunched
--UserInitiatedRunsDisabled*
--UserInitiatedRunsEnabled*
--WithVaryingSeeds/ChromeCleanerPromptUserTest.*
-
-# Mac shutdown error. https://crbug.com/823276
--PluginPowerSaverBrowserTest.SmallerThanPlayIcon
+# https://crbug.com/843921
+-ThumbnailTest.ShouldCaptureOnNavigatingAwaySlowPageLoad

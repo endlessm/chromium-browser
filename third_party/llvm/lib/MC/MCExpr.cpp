@@ -10,6 +10,7 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCAsmLayout.h"
 #include "llvm/MC/MCAssembler.h"
@@ -73,7 +74,10 @@ void MCExpr::print(raw_ostream &OS, const MCAsmInfo *MAI, bool InParens) const {
     case MCUnaryExpr::Not:   OS << '~'; break;
     case MCUnaryExpr::Plus:  OS << '+'; break;
     }
+    bool Binary = UE.getSubExpr()->getKind() == MCExpr::Binary;
+    if (Binary) OS << "(";
     UE.getSubExpr()->print(OS, MAI);
+    if (Binary) OS << ")";
     return;
   }
 
@@ -440,6 +444,10 @@ bool MCExpr::evaluateAsAbsolute(int64_t &Res, const MCAssembler &Asm) const {
   return evaluateAsAbsolute(Res, &Asm, nullptr, nullptr);
 }
 
+bool MCExpr::evaluateAsAbsolute(int64_t &Res, const MCAssembler *Asm) const {
+  return evaluateAsAbsolute(Res, Asm, nullptr, nullptr);
+}
+
 bool MCExpr::evaluateKnownAbsolute(int64_t &Res,
                                    const MCAsmLayout &Layout) const {
   return evaluateAsAbsolute(Res, &Layout.getAssembler(), &Layout, nullptr,
@@ -475,7 +483,7 @@ bool MCExpr::evaluateAsAbsolute(int64_t &Res, const MCAssembler *Asm,
   return IsRelocatable && Value.isAbsolute();
 }
 
-/// \brief Helper method for \see EvaluateSymbolAdd().
+/// Helper method for \see EvaluateSymbolAdd().
 static void AttemptToFoldSymbolOffsetDifference(
     const MCAssembler *Asm, const MCAsmLayout *Layout,
     const SectionAddrMap *Addrs, bool InSet, const MCSymbolRefExpr *&A,
@@ -493,7 +501,7 @@ static void AttemptToFoldSymbolOffsetDifference(
     return;
 
   if (SA.getFragment() == SB.getFragment() && !SA.isVariable() &&
-      !SB.isVariable()) {
+      !SA.isUnset() && !SB.isVariable() && !SB.isUnset()) {
     Addend += (SA.getOffset() - SB.getOffset());
 
     // Pointers to Thumb symbols need to have their low-bit set to allow
@@ -532,7 +540,7 @@ static void AttemptToFoldSymbolOffsetDifference(
   A = B = nullptr;
 }
 
-/// \brief Evaluate the result of an add between (conceptually) two MCValues.
+/// Evaluate the result of an add between (conceptually) two MCValues.
 ///
 /// This routine conceptually attempts to construct an MCValue:
 ///   Result = (Result_A - Result_B + Result_Cst)
@@ -751,7 +759,8 @@ bool MCExpr::evaluateAsRelocatableImpl(MCValue &Res, const MCAssembler *Asm,
     // Apple as.
     int64_t LHS = LHSValue.getConstant(), RHS = RHSValue.getConstant();
     int64_t Result = 0;
-    switch (ABE->getOpcode()) {
+    auto Op = ABE->getOpcode();
+    switch (Op) {
     case MCBinaryExpr::AShr: Result = LHS >> RHS; break;
     case MCBinaryExpr::Add:  Result = LHS + RHS; break;
     case MCBinaryExpr::And:  Result = LHS & RHS; break;
@@ -786,7 +795,21 @@ bool MCExpr::evaluateAsRelocatableImpl(MCValue &Res, const MCAssembler *Asm,
     case MCBinaryExpr::Xor:  Result = LHS ^ RHS; break;
     }
 
-    Res = MCValue::get(Result);
+    switch (Op) {
+    default:
+      Res = MCValue::get(Result);
+      break;
+    case MCBinaryExpr::EQ:
+    case MCBinaryExpr::GT:
+    case MCBinaryExpr::GTE:
+    case MCBinaryExpr::LT:
+    case MCBinaryExpr::LTE:
+    case MCBinaryExpr::NE:
+      // A comparison operator returns a -1 if true and 0 if false.
+      Res = MCValue::get(Result ? -1 : 0);
+      break;
+    }
+
     return true;
   }
   }

@@ -199,7 +199,7 @@ void TabHelper::CreateHostedAppFromWebContents() {
 }
 
 bool TabHelper::CanCreateBookmarkApp() const {
-  return !profile_->IsGuestSession() &&
+  return !profile_->IsGuestSession() && !profile_->IsOffTheRecord() &&
          !profile_->IsSystemProfile() &&
          IsValidBookmarkAppUrl(web_contents()->GetURL());
 }
@@ -340,6 +340,10 @@ void TabHelper::DidCloneToNewWebContents(WebContents* old_web_contents,
 
   new_helper->SetExtensionApp(extension_app());
   new_helper->extension_app_icon_ = extension_app_icon_;
+}
+
+void TabHelper::WebContentsDestroyed() {
+  ExtensionActionAPI::Get(profile_)->ClearAllValuesForTab(web_contents());
 }
 
 void TabHelper::OnDidGetWebApplicationInfo(

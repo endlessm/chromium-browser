@@ -114,6 +114,16 @@ StringRef CodeViewDebug::getFullFilepath(const DIFile *File) {
 
   StringRef Dir = File->getDirectory(), Filename = File->getFilename();
 
+  // If this is a Unix-style path, just use it as is. Don't try to canonicalize
+  // it textually because one of the path components could be a symlink.
+  if (!Dir.empty() && Dir[0] == '/') {
+    Filepath = Dir;
+    if (Dir.back() != '/')
+      Filepath += '/';
+    Filepath += Filename;
+    return Filepath;
+  }
+
   // Clang emits directory and relative filename info into the IR, but CodeView
   // operates on full paths.  We could change Clang to emit full paths too, but
   // that would increase the IR size and probably not needed for other users.
@@ -524,7 +534,7 @@ void CodeViewDebug::emitTypeInformation() {
   if (TypeTable.empty())
     return;
 
-  // Start the .debug$T section with 0x4.
+  // Start the .debug$T or .debug$P section with 0x4.
   OS.SwitchSection(Asm->getObjFileLowering().getCOFFDebugTypesSection());
   emitCodeViewMagicVersion();
 
@@ -579,7 +589,7 @@ void CodeViewDebug::emitTypeGlobalHashes() {
   OS.AddComment("Section Version");
   OS.EmitIntValue(0, 2);
   OS.AddComment("Hash Algorithm");
-  OS.EmitIntValue(uint16_t(GlobalTypeHashAlg::SHA1), 2);
+  OS.EmitIntValue(uint16_t(GlobalTypeHashAlg::SHA1_8), 2);
 
   TypeIndex TI(TypeIndex::FirstNonSimpleIndex);
   for (const auto &GHR : TypeTable.hashes()) {
@@ -592,7 +602,7 @@ void CodeViewDebug::emitTypeGlobalHashes() {
       OS.AddComment(Comment);
       ++TI;
     }
-    assert(GHR.Hash.size() % 20 == 0);
+    assert(GHR.Hash.size() == 8);
     StringRef S(reinterpret_cast<const char *>(GHR.Hash.data()),
                 GHR.Hash.size());
     OS.EmitBinaryData(S);
@@ -828,6 +838,57 @@ void CodeViewDebug::switchToDebugSectionForSymbol(const MCSymbol *GVSym) {
     emitCodeViewMagicVersion();
 }
 
+// Emit an S_THUNK32/S_END symbol pair for a thunk routine.
+// The only supported thunk ordinal is currently the standard type.
+void CodeViewDebug::emitDebugInfoForThunk(const Function *GV,
+                                          FunctionInfo &FI,
+                                          const MCSymbol *Fn) {
+  std::string FuncName = GlobalValue::dropLLVMManglingEscape(GV->getName());
+  const ThunkOrdinal ordinal = ThunkOrdinal::Standard; // Only supported kind.
+
+  OS.AddComment("Symbol subsection for " + Twine(FuncName));
+  MCSymbol *SymbolsEnd = beginCVSubsection(DebugSubsectionKind::Symbols);
+
+  // Emit S_THUNK32
+  MCSymbol *ThunkRecordBegin = MMI->getContext().createTempSymbol(),
+           *ThunkRecordEnd   = MMI->getContext().createTempSymbol();
+  OS.AddComment("Record length");
+  OS.emitAbsoluteSymbolDiff(ThunkRecordEnd, ThunkRecordBegin, 2);
+  OS.EmitLabel(ThunkRecordBegin);
+  OS.AddComment("Record kind: S_THUNK32");
+  OS.EmitIntValue(unsigned(SymbolKind::S_THUNK32), 2);
+  OS.AddComment("PtrParent");
+  OS.EmitIntValue(0, 4);
+  OS.AddComment("PtrEnd");
+  OS.EmitIntValue(0, 4);
+  OS.AddComment("PtrNext");
+  OS.EmitIntValue(0, 4);
+  OS.AddComment("Thunk section relative address");
+  OS.EmitCOFFSecRel32(Fn, /*Offset=*/0);
+  OS.AddComment("Thunk section index");
+  OS.EmitCOFFSectionIndex(Fn);
+  OS.AddComment("Code size");
+  OS.emitAbsoluteSymbolDiff(FI.End, Fn, 2);
+  OS.AddComment("Ordinal");
+  OS.EmitIntValue(unsigned(ordinal), 1);
+  OS.AddComment("Function name");
+  emitNullTerminatedSymbolName(OS, FuncName);
+  // Additional fields specific to the thunk ordinal would go here.
+  OS.EmitLabel(ThunkRecordEnd);
+
+  // Local variables/inlined routines are purposely omitted here.  The point of
+  // marking this as a thunk is so Visual Studio will NOT stop in this routine.
+
+  // Emit S_PROC_ID_END
+  const unsigned RecordLengthForSymbolEnd = 2;
+  OS.AddComment("Record length");
+  OS.EmitIntValue(RecordLengthForSymbolEnd, 2);
+  OS.AddComment("Record kind: S_PROC_ID_END");
+  OS.EmitIntValue(unsigned(SymbolKind::S_PROC_ID_END), 2);
+
+  endCVSubsection(SymbolsEnd);
+}
+
 void CodeViewDebug::emitDebugInfoForFunction(const Function *GV,
                                              FunctionInfo &FI) {
   // For each function there is a separate subsection which holds the PC to
@@ -842,6 +903,11 @@ void CodeViewDebug::emitDebugInfoForFunction(const Function *GV,
   auto *SP = GV->getSubprogram();
   assert(SP);
   setCurrentSubprogram(SP);
+
+  if (SP->isThunk()) {
+    emitDebugInfoForThunk(GV, FI, Fn);
+    return;
+  }
 
   // If we have a display name, build the fully qualified name by walking the
   // chain of scopes.
@@ -2033,8 +2099,7 @@ CodeViewDebug::lowerRecordFieldList(const DICompositeType *Ty) {
   for (const DIDerivedType *I : Info.Inheritance) {
     if (I->getFlags() & DINode::FlagVirtual) {
       // Virtual base.
-      // FIXME: Emit VBPtrOffset when the frontend provides it.
-      unsigned VBPtrOffset = 0;
+      unsigned VBPtrOffset = I->getVBPtrOffset();
       // FIXME: Despite the accessor name, the offset is really in bytes.
       unsigned VBTableIndex = I->getOffsetInBits() / 4;
       auto RecordKind = (I->getFlags() & DINode::FlagIndirectVirtualBase) == DINode::FlagIndirectVirtualBase
@@ -2271,10 +2336,10 @@ void CodeViewDebug::emitLocalVariableList(ArrayRef<LocalVariable> Locals) {
   for (const LocalVariable &L : Locals)
     if (L.DIVar->isParameter())
       Params.push_back(&L);
-  std::sort(Params.begin(), Params.end(),
-            [](const LocalVariable *L, const LocalVariable *R) {
-              return L->DIVar->getArg() < R->DIVar->getArg();
-            });
+  llvm::sort(Params.begin(), Params.end(),
+             [](const LocalVariable *L, const LocalVariable *R) {
+               return L->DIVar->getArg() < R->DIVar->getArg();
+             });
   for (const LocalVariable *L : Params)
     emitLocalVariable(*L);
 
@@ -2506,7 +2571,8 @@ void CodeViewDebug::endFunctionImpl(const MachineFunction *MF) {
   ScopeVariables.clear();
 
   // Don't emit anything if we don't have any line tables.
-  if (!CurFn->HaveLineInfo) {
+  // Thunks are compiler-generated and probably won't have source correlation.
+  if (!CurFn->HaveLineInfo && !GV.getSubprogram()->isThunk()) {
     FnDebugInfo.erase(&GV);
     CurFn = nullptr;
     return;
@@ -2522,8 +2588,8 @@ void CodeViewDebug::endFunctionImpl(const MachineFunction *MF) {
 void CodeViewDebug::beginInstruction(const MachineInstr *MI) {
   DebugHandlerBase::beginInstruction(MI);
 
-  // Ignore DBG_VALUE locations and function prologue.
-  if (!Asm || !CurFn || MI->isDebugValue() ||
+  // Ignore DBG_VALUE and DBG_LABEL locations and function prologue.
+  if (!Asm || !CurFn || MI->isDebugInstr() ||
       MI->getFlag(MachineInstr::FrameSetup))
     return;
 
@@ -2532,7 +2598,7 @@ void CodeViewDebug::beginInstruction(const MachineInstr *MI) {
   DebugLoc DL = MI->getDebugLoc();
   if (!DL && MI->getParent() != PrevInstBB) {
     for (const auto &NextMI : *MI->getParent()) {
-      if (NextMI.isDebugValue())
+      if (NextMI.isDebugInstr())
         continue;
       DL = NextMI.getDebugLoc();
       if (DL)

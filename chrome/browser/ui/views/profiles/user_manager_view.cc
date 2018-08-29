@@ -46,6 +46,10 @@
 #include "ui/views/win/hwnd_util.h"
 #endif
 
+#if defined(OS_MACOSX)
+#include "chrome/browser/app_controller_mac.h"
+#endif
+
 namespace {
 
 // An open User Manager window. There can only be one open at a time. This
@@ -151,6 +155,10 @@ void UserManager::Show(
     // active profile to Guest.
     profiles::SetActiveProfileToGuestIfLocked();
 
+#if defined(OS_MACOSX)
+    app_controller_mac::CreateGuestProfileIfNeeded();
+#endif
+
     // Note the time we started opening the User Manager.
     g_user_manager_view->set_user_manager_started_showing(base::Time::Now());
 
@@ -194,6 +202,13 @@ bool UserManager::IsShowing() {
 #if defined(OS_MACOSX)
   if (views_mode_controller::IsViewsBrowserCocoa()) {
     return UserManager::IsShowingCocoa();
+  } else {
+    // Widget activation works differently on Mac: the UserManager is a child
+    // widget, so it is not active in the IsActive() sense even when showing
+    // and interactable. Test for IsVisible instead - this is what the Cocoa
+    // UserManager::IsShowing() does as well.
+    return g_user_manager_view ? g_user_manager_view->GetWidget()->IsVisible()
+                               : false;
   }
 #endif
 
@@ -371,6 +386,10 @@ void UserManagerView::OnSystemProfileCreated(
   // If we are showing the User Manager after locking a profile, change the
   // active profile to Guest.
   profiles::SetActiveProfileToGuestIfLocked();
+
+#if defined(OS_MACOSX)
+  app_controller_mac::CreateGuestProfileIfNeeded();
+#endif
 
   DCHECK(!g_user_manager_view);
   g_user_manager_view =

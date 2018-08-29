@@ -116,6 +116,12 @@ void EnterpriseEnrollmentHelperImpl::EnrollUsingAttestation() {
   DoEnroll("");  // The token is not used in attestation mode.
 }
 
+void EnterpriseEnrollmentHelperImpl::EnrollForOfflineDemo() {
+  CHECK_EQ(enrollment_config_.mode,
+           policy::EnrollmentConfig::MODE_OFFLINE_DEMO);
+  DoEnroll("");  // The token is not used in offline demo mode.
+}
+
 void EnterpriseEnrollmentHelperImpl::ClearAuth(const base::Closure& callback) {
   if (oauth_status_ != OAUTH_NOT_STARTED) {
     // Do not revoke the additional token if enrollment has finished
@@ -142,6 +148,18 @@ void EnterpriseEnrollmentHelperImpl::ClearAuth(const base::Closure& callback) {
                  weak_ptr_factory_.GetWeakPtr(), callback));
 }
 
+bool EnterpriseEnrollmentHelperImpl::ShouldCheckLicenseType() const {
+  // The license selection dialog is not used when doing Zero Touch or setting
+  // up offline demo-mode, or when forced to enroll by server.
+  if (enrollment_config_.is_mode_attestation() ||
+      enrollment_config_.mode == policy::EnrollmentConfig::MODE_SERVER_FORCED ||
+      enrollment_config_.mode == policy::EnrollmentConfig::MODE_OFFLINE_DEMO) {
+    return false;
+  }
+  return !base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnterpriseDisableLicenseTypeSelection);
+}
+
 void EnterpriseEnrollmentHelperImpl::DoEnroll(const std::string& token) {
   DCHECK(token == oauth_token_ || oauth_token_.empty());
   DCHECK(enrollment_config_.is_mode_attestation() ||
@@ -162,13 +180,6 @@ void EnterpriseEnrollmentHelperImpl::DoEnroll(const std::string& token) {
     return;
   }
 
-  bool check_license_type = false;
-  // The license selection dialog is not used when doing Zero Touch.
-  if (!enrollment_config_.is_mode_attestation()) {
-    check_license_type = !base::CommandLine::ForCurrentProcess()->HasSwitch(
-        chromeos::switches::kEnterpriseDisableLicenseTypeSelection);
-  }
-
   connector->ScheduleServiceInitialization(0);
   policy::DeviceCloudPolicyInitializer* dcp_initializer =
       connector->GetDeviceCloudPolicyInitializer();
@@ -178,7 +189,7 @@ void EnterpriseEnrollmentHelperImpl::DoEnroll(const std::string& token) {
       enrollment_config_, token,
       base::Bind(&EnterpriseEnrollmentHelperImpl::OnEnrollmentFinished,
                  weak_ptr_factory_.GetWeakPtr()));
-  if (check_license_type) {
+  if (ShouldCheckLicenseType()) {
     dcp_initializer->CheckAvailableLicenses(
         base::Bind(&EnterpriseEnrollmentHelperImpl::OnLicenseMapObtained,
                    weak_ptr_factory_.GetWeakPtr()));

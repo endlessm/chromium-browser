@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.preference.Preference;
 import android.preference.Preference.OnPreferenceClickListener;
 import android.preference.PreferenceFragment;
+import android.widget.ListView;
 
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeFeatureList;
@@ -108,8 +109,16 @@ public class SiteSettingsPreferences extends PreferenceFragment
             return ContentSettingsType.CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER;
         } else if (SOUND_KEY.equals(key)) {
             return ContentSettingsType.CONTENT_SETTINGS_TYPE_SOUND;
+        } else if (USB_KEY.equals(key)) {
+            return ContentSettingsType.CONTENT_SETTINGS_TYPE_USB_GUARD;
         }
         return -1;
+    }
+
+    @Override
+    public void onActivityCreated(Bundle savedInstanceState) {
+        super.onActivityCreated(savedInstanceState);
+        ((ListView) getView().findViewById(android.R.id.list)).setDivider(null);
     }
 
     private void configurePreferences() {
@@ -197,6 +206,7 @@ public class SiteSettingsPreferences extends PreferenceFragment
             if (ChromeFeatureList.isEnabled(ChromeFeatureList.SOUND_CONTENT_SETTING)) {
                 websitePrefs.add(SOUND_KEY);
             }
+            websitePrefs.add(USB_KEY);
         }
 
         // Initialize the summary and icon for all preferences that have an
@@ -230,6 +240,8 @@ public class SiteSettingsPreferences extends PreferenceFragment
                 checked = PrefServiceBridge.getInstance().isProtectedMediaIdentifierEnabled();
             } else if (SOUND_KEY.equals(prefName)) {
                 checked = PrefServiceBridge.getInstance().isSoundEnabled();
+            } else if (USB_KEY.equals(prefName)) {
+                checked = PrefServiceBridge.getInstance().isUsbEnabled();
             }
 
             int contentType = keyToContentSettingsType(prefName);
@@ -270,8 +282,6 @@ public class SiteSettingsPreferences extends PreferenceFragment
         if (p != null) p.setOnPreferenceClickListener(this);
         // TODO(finnur): Re-move this for Storage once it can be moved to the 'Usage' menu.
         p = findPreference(STORAGE_KEY);
-        if (p != null) p.setOnPreferenceClickListener(this);
-        p = findPreference(USB_KEY);
         if (p != null) p.setOnPreferenceClickListener(this);
     }
 

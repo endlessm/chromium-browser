@@ -15,6 +15,7 @@
 #include "base/json/json_string_value_serializer.h"
 #include "base/linux_util.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/sys_info.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_clock.h"
@@ -65,8 +66,6 @@
 #include "extensions/browser/event_router.h"
 #include "extensions/common/constants.h"
 #include "google_apis/gaia/gaia_auth_util.h"
-#include "ui/display/manager/display_manager.h"
-#include "ui/display/manager/managed_display_info.h"
 
 namespace chromeos {
 
@@ -77,6 +76,32 @@ const char kKeyPermitAccess[] = "permitAccess";
 
 // Key name of the remote device list in kEasyUnlockPairing.
 const char kKeyDevices[] = "devices";
+
+enum class SmartLockToggleFeature { DISABLE = false, ENABLE = true };
+
+// The result of a SmartLock operation.
+enum class SmartLockResult { FAILURE = false, SUCCESS = true };
+
+enum class SmartLockEnabledState {
+  ENABLED = 0,
+  DISABLED = 1,
+  UNSET = 2,
+  COUNT
+};
+
+void LogToggleFeature(SmartLockToggleFeature toggle) {
+  UMA_HISTOGRAM_BOOLEAN("SmartLock.ToggleFeature", static_cast<bool>(toggle));
+}
+
+void LogToggleFeatureDisableResult(SmartLockResult result) {
+  UMA_HISTOGRAM_BOOLEAN("SmartLock.ToggleFeature.Disable.Result",
+                        static_cast<bool>(result));
+}
+
+void LogSmartLockEnabledState(SmartLockEnabledState state) {
+  UMA_HISTOGRAM_ENUMERATION("SmartLock.EnabledState", state,
+                            SmartLockEnabledState::COUNT);
+}
 
 }  // namespace
 
@@ -102,11 +127,30 @@ EasyUnlockServiceRegular::~EasyUnlockServiceRegular() {
   registrar_.RemoveAll();
 }
 
+// TODO(jhawkins): This method with |has_unlock_keys| == true is the only signal
+// that SmartLock setup has completed successfully. Make this signal more
+// explicit.
 void EasyUnlockServiceRegular::LoadRemoteDevices() {
   bool has_unlock_keys = !GetCryptAuthDeviceManager()->GetUnlockKeys().empty();
+  // TODO(jhawkins): The enabled pref should not be tied to whether unlock keys
+  // exist; instead, both of these variables should be used to determine
+  // IsEnabled().
   pref_manager_->SetIsEasyUnlockEnabled(has_unlock_keys);
-  if (!has_unlock_keys) {
-    SetProximityAuthDevices(GetAccountId(), cryptauth::RemoteDeviceList());
+  if (has_unlock_keys) {
+    // If |has_unlock_keys| is true, then the user must have successfully
+    // completed setup. Track that the IsEasyUnlockEnabled pref is actively set
+    // by the user, as opposed to passively being set to disabled (the default
+    // state).
+    pref_manager_->SetEasyUnlockEnabledStateSet();
+    LogSmartLockEnabledState(SmartLockEnabledState::ENABLED);
+  } else {
+    SetProximityAuthDevices(GetAccountId(), cryptauth::RemoteDeviceRefList());
+
+    if (pref_manager_->IsEasyUnlockEnabledStateSet()) {
+      LogSmartLockEnabledState(SmartLockEnabledState::DISABLED);
+    } else {
+      LogSmartLockEnabledState(SmartLockEnabledState::UNSET);
+    }
     return;
   }
 
@@ -135,25 +179,32 @@ void EasyUnlockServiceRegular::LoadRemoteDevices() {
 
 void EasyUnlockServiceRegular::OnRemoteDevicesLoaded(
     const cryptauth::RemoteDeviceList& remote_devices) {
-  SetProximityAuthDevices(GetAccountId(), remote_devices);
+  cryptauth::RemoteDeviceRefList remote_device_refs;
+  for (auto& remote_device : remote_devices) {
+    remote_device_refs.push_back(cryptauth::RemoteDeviceRef(
+        std::make_shared<cryptauth::RemoteDevice>(remote_device)));
+  }
+
+  SetProximityAuthDevices(GetAccountId(), remote_device_refs);
 
   // We need to store a copy of |remote devices_| in the TPM, so it can be
   // retrieved on the sign-in screen when a user session has not been started
   // yet.
   std::unique_ptr<base::ListValue> device_list(new base::ListValue());
-  for (const auto& device : remote_devices) {
+  for (const auto& device : remote_device_refs) {
     std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
     std::string b64_public_key, b64_psk;
-    base::Base64UrlEncode(device.public_key,
+    base::Base64UrlEncode(device.public_key(),
                           base::Base64UrlEncodePolicy::INCLUDE_PADDING,
                           &b64_public_key);
-    base::Base64UrlEncode(device.persistent_symmetric_key,
+    base::Base64UrlEncode(device.persistent_symmetric_key(),
                           base::Base64UrlEncodePolicy::INCLUDE_PADDING,
                           &b64_psk);
 
-    dict->SetString("name", device.name);
+    dict->SetString("name", device.name());
     dict->SetString("psk", b64_psk);
-    dict->SetString("bluetoothAddress", device.bluetooth_address);
+    // TODO(jhawkins): Remove the bluetoothAddress field from this proto.
+    dict->SetString("bluetoothAddress", std::string());
     dict->SetString("permitId", "permit://google.com/easyunlock/v1/" +
                                     proximity_auth_client()->GetAccountId());
     dict->SetString("permitRecord.id", b64_public_key);
@@ -161,7 +212,7 @@ void EasyUnlockServiceRegular::OnRemoteDevicesLoaded(
     dict->SetString("permitRecord.data", b64_public_key);
 
     std::unique_ptr<base::ListValue> beacon_seed_list(new base::ListValue());
-    for (const auto& beacon_seed : device.beacon_seeds) {
+    for (const auto& beacon_seed : device.beacon_seeds()) {
       std::string b64_beacon_seed;
       base::Base64UrlEncode(beacon_seed.SerializeAsString(),
                             base::Base64UrlEncodePolicy::INCLUDE_PADDING,
@@ -237,6 +288,9 @@ AccountId EasyUnlockServiceRegular::GetAccountId() const {
 
 void EasyUnlockServiceRegular::LaunchSetup() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  LogToggleFeature(SmartLockToggleFeature::ENABLE);
+
   // TODO(tengs): To keep login working for existing EasyUnlock users, we need
   // to explicitly disable login here for new users who set up EasyUnlock.
   // After a sufficient number of releases, we should make the default value
@@ -331,53 +385,12 @@ void EasyUnlockServiceRegular::SetRemoteDevices(
   RefreshCryptohomeKeysIfPossible();
 }
 
-// This method is called from easyUnlock.setRemoteDevice JS API. It's used
-// here to set the (public key, device address) pair for BLE devices.
-void EasyUnlockServiceRegular::SetRemoteBleDevices(
-    const base::ListValue& devices) {
-  DCHECK(devices.GetSize() == 1);
-  const base::DictionaryValue* dict = nullptr;
-  if (devices.GetDictionary(0, &dict)) {
-    std::string address, b64_public_key;
-    if (dict->GetString("bluetoothAddress", &address) &&
-        dict->GetString("psk", &b64_public_key)) {
-      // The setup is done. Load the remote devices if the device with
-      // |public_key| was already sync from CryptAuth, otherwise re-sync the
-      // devices.
-      if (GetCryptAuthDeviceManager()) {
-        std::string public_key;
-        if (!base::Base64UrlDecode(b64_public_key,
-                                   base::Base64UrlDecodePolicy::REQUIRE_PADDING,
-                                   &public_key)) {
-          PA_LOG(ERROR) << "Unable to base64url decode the public key: "
-                        << b64_public_key;
-          return;
-        }
-        const std::vector<cryptauth::ExternalDeviceInfo> unlock_keys =
-            GetCryptAuthDeviceManager()->GetUnlockKeys();
-        auto iterator = std::find_if(
-            unlock_keys.begin(), unlock_keys.end(),
-            [&public_key](const cryptauth::ExternalDeviceInfo& unlock_key) {
-              return unlock_key.public_key() == public_key;
-            });
-
-        if (iterator != unlock_keys.end()) {
-          LoadRemoteDevices();
-        } else {
-          GetCryptAuthDeviceManager()->ForceSyncNow(
-              cryptauth::INVOCATION_REASON_FEATURE_TOGGLED);
-        }
-      }
-    } else {
-      PA_LOG(ERROR) << "Missing public key or device address";
-    }
-  }
-}
-
 void EasyUnlockServiceRegular::RunTurnOffFlow() {
   if (turn_off_flow_status_ == PENDING)
     return;
   DCHECK(!cryptauth_client_);
+
+  LogToggleFeature(SmartLockToggleFeature::DISABLE);
 
   SetTurnOffFlowStatus(PENDING);
 
@@ -624,13 +637,15 @@ void EasyUnlockServiceRegular::SetTurnOffFlowStatus(TurnOffFlowStatus status) {
 
 void EasyUnlockServiceRegular::OnToggleEasyUnlockApiComplete(
     const cryptauth::ToggleEasyUnlockResponse& response) {
+  LogToggleFeatureDisableResult(SmartLockResult::SUCCESS);
+
   cryptauth_client_.reset();
 
   GetCryptAuthDeviceManager()->ForceSyncNow(
       cryptauth::InvocationReason::INVOCATION_REASON_FEATURE_TOGGLED);
   EasyUnlockService::ResetLocalStateForUser(GetAccountId());
   SetRemoteDevices(base::ListValue());
-  SetProximityAuthDevices(GetAccountId(), cryptauth::RemoteDeviceList());
+  SetProximityAuthDevices(GetAccountId(), cryptauth::RemoteDeviceRefList());
   pref_manager_->SetIsEasyUnlockEnabled(false);
   SetTurnOffFlowStatus(IDLE);
   pref_manager_->SetIsEasyUnlockEnabled(false);
@@ -641,6 +656,7 @@ void EasyUnlockServiceRegular::OnToggleEasyUnlockApiComplete(
 void EasyUnlockServiceRegular::OnToggleEasyUnlockApiFailed(
     const std::string& error_message) {
   LOG(WARNING) << "Failed to turn off Smart Lock: " << error_message;
+  LogToggleFeatureDisableResult(SmartLockResult::FAILURE);
   SetTurnOffFlowStatus(FAIL);
 }
 

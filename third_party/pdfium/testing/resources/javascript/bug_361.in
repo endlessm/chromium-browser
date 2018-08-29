@@ -45,6 +45,7 @@ endobj
 endobj
 % JS program to exexute
 {{object 11 0}} <<
+  {{streamlen}}
 >>
 stream
 function testField(x) {
@@ -105,8 +106,6 @@ testField("function(x) { return x+1; }");
 endstream
 endobj
 {{xref}}
-trailer <<
-  /Root 1 0 R
->>
+{{trailer}}
 {{startxref}}
 %%EOF

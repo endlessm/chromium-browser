@@ -81,6 +81,7 @@
 <translation id="2381405137052800939">الأساسيات</translation>
 <translation id="2386793615875593361">تم تحديد عنصر واحد</translation>
 <translation id="2435457462613246316">عرض كلمة المرور</translation>
+<translation id="2481538920734869610">إضافة حساب</translation>
 <translation id="2523363575747517183">يحاول موقع الويب هذا فتح تطبيق آخر بشكلٍ متكرر.</translation>
 <translation id="2529021024822217800">فتح الكل</translation>
 <translation id="2572712655377361602">حظرت سياسة الجهاز الدخول إلى صورك</translation>
@@ -112,6 +113,7 @@
 <translation id="2909437209446960244">علامات التبويب الأخيرة</translation>
 <translation id="291754862089661335">ضَع رمز الاستجابة السريعة أو الرمز الشريطي في هذا الإطار</translation>
 <translation id="2921219216347069551">تتعذر مشاركة الصفحة</translation>
+<translation id="2923448633003185837">لصق وانتقال</translation>
 <translation id="292639812446257861">وضع علامة كغير مقروءة</translation>
 <translation id="2933759065870693102">الكشاف</translation>
 <translation id="2969979262385602596">تعذّر تسجيل الدخول. يُرجى إعادة المحاولة لاحقًا.</translation>
@@ -131,6 +133,7 @@
 <translation id="3252394070589632019"><ph name="VALUE" />، و<ph name="ADDITIONAL_INFO" />، و<ph name="INDEX" /> من <ph name="NUM_SUGGESTIONS" /></translation>
 <translation id="3268451620468152448">علامات التبويب المفتوحة</translation>
 <translation id="3277021493514034324">تم نسخ عنوان الموقع</translation>
+<translation id="3290875554372353449">اختيار حساب</translation>
 <translation id="3324193307694657476">العنوان 2</translation>
 <translation id="3329904751041170572">تعذر الاتصال بالخادم.</translation>
 <translation id="3335947283844343239">إعادة فتح علامة التبويب المغلقة</translation>
@@ -151,6 +154,7 @@
 <translation id="3588820906588687999">فتح صورة في علامة تبويب جديدة</translation>
 <translation id="3603009562372709545">‏نسخ عنوان URL للرابط</translation>
 <translation id="3607167657931203000">ملء البيانات تلقائيًا</translation>
+<translation id="3609785682760573515">جارٍ المزامنة...</translation>
 <translation id="3628119975092896051">قائمة القراءة متاحة بلا اتصال بالإنترنت. لإضافة صفحة إلى قائمة القراءة، انقر على <ph name="SHARE_OPENING_ICON" />.</translation>
 <translation id="3638472932233958418">تحميل صفحات الويب مسبقًا</translation>
 <translation id="3691593122358196899">أُضيفَت إشارة مرجعية إلى <ph name="FOLDER_TITLE" /></translation>
@@ -171,6 +175,7 @@
 <translation id="4049507953662678203">تأكد من اتصالك بالشبكة، وأعد المحاولة.</translation>
 <translation id="4084682180776658562">إشارة</translation>
 <translation id="411254640334432676">فشلت عملية التنزيل</translation>
+<translation id="4112644173421521737">بحث</translation>
 <translation id="4121993058175073134">لإرسال بيانات تصدير الشبكة، يُرجى تهيئة حساب بريدك الإلكتروني في التطبيق "الإعدادات".</translation>
 <translation id="4124987746317609294">النطاق الزمني</translation>
 <translation id="4172051516777682613">الإظهار دائمًا</translation>
@@ -185,7 +190,7 @@
 <translation id="4359125752503270327">ستفتح هذه الصفحة في تطبيق آخر.</translation>
 <translation id="4370827530403103842">المزامنة لا تعمل. انقر للإصلاح.</translation>
 <translation id="4375040482473363939">البحث عن رمز الاستجابة السريعة</translation>
-<translation id="4378154925671717803">الهاتف</translation>
+<translation id="4378154925671717803">هاتف</translation>
 <translation id="441868831736628555">إشعار الخصوصية</translation>
 <translation id="4460091562821778167">اطلب مني تحديد التطبيق الذي أود استخدامه كل مرة</translation>
 <translation id="4496373720959965247">إضافة علامات التبويب والتبديل بين الصفحات</translation>
@@ -338,10 +343,12 @@
 <translation id="7159472599653637159">طلب موقع ويب متوافق مع الجوّال</translation>
 <translation id="7167621057293532233">أنواع البيانات</translation>
 <translation id="7175593937868963913">إنشاء بريد إلكتروني</translation>
+<translation id="7180611975245234373">تحديث</translation>
 <translation id="7189598951263744875">مشاركة...</translation>
 <translation id="7203585745079012652">النطق بالإجابات</translation>
 <translation id="722055596168483966">‏تخصيص خدمات Google</translation>
 <translation id="7272437679830969316">تعذَّر التحقق من هويتك. لم يتم نسخ كلمة المرور.</translation>
+<translation id="7285236536143823449">نعم، موافق</translation>
 <translation id="7291368939935408496">جارٍ تحضير كلمات المرور…</translation>
 <translation id="7336264872878993241">تم تنزيل <ph name="PERCENT" /> بالمائة</translation>
 <translation id="7346909386216857016">موافق، حسنًا</translation>
@@ -356,6 +363,7 @@
 <translation id="750493650310597496">لم يتم تحديد أي إشارات</translation>
 <translation id="7514365320538308">تنزيل</translation>
 <translation id="7537586195939242955">‏عذرًا، لا يمكن أن تكون بطاقتك مثبتة على Passbook في الوقت الحالي.</translation>
+<translation id="7554791636758816595">علامة تبويب جديدة</translation>
 <translation id="7561196759112975576">دومًا</translation>
 <translation id="7603852183842204213">تم حظر النوافذ المنبثقة (<ph name="NUMBER_OF_BLOCKED_POPUPS" />)</translation>
 <translation id="7605594153474022051">المزامنة لا تعمل</translation>

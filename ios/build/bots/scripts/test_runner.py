@@ -21,7 +21,6 @@ import time
 
 from multiprocessing import pool
 
-import find_xcode
 import gtest_utils
 import xctest_utils
 
@@ -49,6 +48,13 @@ class AppNotFoundError(TestRunnerError):
   def __init__(self, app_path):
     super(AppNotFoundError, self).__init__(
       'App does not exist: %s' % app_path)
+
+
+class SystemAlertPresentError(TestRunnerError):
+  """System alert is shown on the device."""
+  def __init__(self):
+    super(SystemAlertPresentError, self).__init__(
+      'System alert is shown on the device.')
 
 
 class DeviceDetectionError(TestRunnerError):
@@ -204,6 +210,29 @@ def install_xcode(xcode_build_version, mac_toolchain_cmd, xcode_app_path):
   return True
 
 
+def get_current_xcode_info():
+  """Returns the current Xcode path, version, and build number.
+
+  Returns:
+    A dict with 'path', 'version', and 'build' keys.
+      'path': The absolute path to the Xcode installation.
+      'version': The Xcode version.
+      'build': The Xcode build version.
+  """
+  try:
+    out = subprocess.check_output(['xcodebuild', '-version']).splitlines()
+    version, build_version = out[0].split(' ')[-1], out[1].split(' ')[-1]
+    path = subprocess.check_output(['xcode-select', '--print-path']).rstrip()
+  except subprocess.CalledProcessError:
+    version = build_version = path = None
+
+  return {
+    'path': path,
+    'version': version,
+    'build': build_version,
+  }
+
+
 def shard_xctest(object_path, shards, test_cases=None):
   """Gets EarlGrey test methods inside a test target and splits them into shards
 
@@ -250,7 +279,6 @@ class TestRunner(object):
   def __init__(
     self,
     app_path,
-    xcode_version,
     xcode_build_version,
     out_dir,
     env_vars=None,
@@ -266,8 +294,6 @@ class TestRunner(object):
 
     Args:
       app_path: Path to the compiled .app to run.
-      xcode_version: (deprecated by xcode_build_version) Version of Xcode to use
-        when running the test.
       xcode_build_version: Xcode build version to install before running tests.
       out_dir: Directory to emit test data into.
       env_vars: List of environment variables to pass to the test itself.
@@ -290,13 +316,10 @@ class TestRunner(object):
     if not os.path.exists(app_path):
       raise AppNotFoundError(app_path)
 
-    if xcode_build_version:
-      if not install_xcode(xcode_build_version, mac_toolchain, xcode_path):
-        raise XcodeVersionNotFoundError(xcode_build_version)
-    elif not find_xcode.find_xcode(xcode_version)['found']:
-      raise XcodeVersionNotFoundError(xcode_version)
+    if not install_xcode(xcode_build_version, mac_toolchain, xcode_path):
+      raise XcodeVersionNotFoundError(xcode_build_version)
 
-    xcode_info = find_xcode.get_current_xcode_info()
+    xcode_info = get_current_xcode_info()
     print 'Using Xcode version %s build %s at %s' % (
       xcode_info['version'], xcode_info['build'], xcode_info['path'])
 
@@ -317,7 +340,6 @@ class TestRunner(object):
     self.shards = shards or 1
     self.test_args = test_args or []
     self.test_cases = test_cases or []
-    self.xcode_version = xcode_version
     self.xctest_path = ''
 
     self.test_results = {}
@@ -465,6 +487,9 @@ class TestRunner(object):
 
       returncode = proc.returncode
 
+    if self.xctest_path and parser.SystemAlertPresent():
+      raise SystemAlertPresentError()
+
     for test in parser.FailedTests(include_flaky=True):
       # Test cases are named as <test group>.<test case>. If the test case
       # is prefixed with "FLAKY_", it should be reported as flaked not failed.
@@ -573,7 +598,6 @@ class SimulatorTestRunner(TestRunner):
       iossim_path,
       platform,
       version,
-      xcode_version,
       xcode_build_version,
       out_dir,
       env_vars=None,
@@ -594,8 +618,6 @@ class SimulatorTestRunner(TestRunner):
         by running "iossim -l". e.g. "iPhone 5s", "iPad Retina".
       version: Version of iOS the platform should be running. Supported values
         can be found by running "iossim -l". e.g. "9.3", "8.2", "7.1".
-      xcode_version: (deprecated by xcode_build_version) Version of Xcode to use
-        when running the test.
       xcode_build_version: Xcode build version to install before running tests.
       out_dir: Directory to emit test data into.
       env_vars: List of environment variables to pass to the test itself.
@@ -616,7 +638,6 @@ class SimulatorTestRunner(TestRunner):
     """
     super(SimulatorTestRunner, self).__init__(
         app_path,
-        xcode_version,
         xcode_build_version,
         out_dir,
         env_vars=env_vars,
@@ -889,7 +910,6 @@ class DeviceTestRunner(TestRunner):
   def __init__(
     self,
     app_path,
-    xcode_version,
     xcode_build_version,
     out_dir,
     env_vars=None,
@@ -906,8 +926,6 @@ class DeviceTestRunner(TestRunner):
 
     Args:
       app_path: Path to the compiled .app to run.
-      xcode_version: (deprecated by xcode_build_version) Version of Xcode to use
-        when running the test.
       xcode_build_version: Xcode build version to install before running tests.
       out_dir: Directory to emit test data into.
       env_vars: List of environment variables to pass to the test itself.
@@ -929,7 +947,6 @@ class DeviceTestRunner(TestRunner):
     """
     super(DeviceTestRunner, self).__init__(
       app_path,
-      xcode_version,
       xcode_build_version,
       out_dir,
       env_vars=env_vars,

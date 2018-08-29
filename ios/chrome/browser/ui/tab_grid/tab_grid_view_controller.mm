@@ -5,6 +5,8 @@
 #import "ios/chrome/browser/ui/tab_grid/tab_grid_view_controller.h"
 
 #include "base/strings/sys_string_conversions.h"
+#import "ios/chrome/browser/ui/recent_tabs/recent_tabs_table_view_controller.h"
+#import "ios/chrome/browser/ui/rtl_geometry.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_commands.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_consumer.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_image_data_source.h"
@@ -32,22 +34,23 @@ typedef NS_ENUM(NSUInteger, TabGridConfiguration) {
 
 // Computes the page from the offset and width of |scrollView|.
 TabGridPage GetPageFromScrollView(UIScrollView* scrollView) {
-  // TODO(crbug.com/822328) : Fix for RTL.
   CGFloat pageWidth = scrollView.frame.size.width;
-  float fractionalPage = scrollView.contentOffset.x / pageWidth;
-  return static_cast<TabGridPage>(lround(fractionalPage));
+  NSUInteger page = lround(scrollView.contentOffset.x / pageWidth);
+  if (UseRTLLayout()) {
+    // In RTL, page indexes are inverted, so subtract |page| from the highest-
+    // index TabGridPage value.
+    return static_cast<TabGridPage>(TabGridPageRemoteTabs - page);
+  }
+  return static_cast<TabGridPage>(page);
 }
 
-// Temporary alert used while building this feature.
-UIAlertController* NotImplementedAlert() {
-  UIAlertController* alert =
-      [UIAlertController alertControllerWithTitle:@"Not implemented"
-                                          message:nil
-                                   preferredStyle:UIAlertControllerStyleAlert];
-  [alert addAction:[UIAlertAction actionWithTitle:@"OK"
-                                            style:UIAlertActionStyleCancel
-                                          handler:nil]];
-  return alert;
+NSUInteger GetPageIndexFromPage(TabGridPage page) {
+  if (UseRTLLayout()) {
+    // In RTL, page indexes are inverted, so subtract |page| from the highest-
+    // index TabGridPage value.
+    return static_cast<NSUInteger>(TabGridPageRemoteTabs - page);
+  }
+  return static_cast<NSUInteger>(page);
 }
 }  // namespace
 
@@ -56,7 +59,6 @@ UIAlertController* NotImplementedAlert() {
 // Child view controllers.
 @property(nonatomic, strong) GridViewController* regularTabsViewController;
 @property(nonatomic, strong) GridViewController* incognitoTabsViewController;
-@property(nonatomic, strong) UIViewController* remoteTabsViewController;
 // Other UI components.
 @property(nonatomic, weak) UIScrollView* scrollView;
 @property(nonatomic, weak) UIView* scrollContentView;
@@ -106,7 +108,7 @@ UIAlertController* NotImplementedAlert() {
   if (self = [super init]) {
     _regularTabsViewController = [[GridViewController alloc] init];
     _incognitoTabsViewController = [[GridViewController alloc] init];
-    _remoteTabsViewController = [[UIViewController alloc] init];
+    _remoteTabsViewController = [[RecentTabsTableViewController alloc] init];
   }
   return self;
 }
@@ -139,6 +141,7 @@ UIAlertController* NotImplementedAlert() {
 
 - (void)viewWillDisappear:(BOOL)animated {
   self.undoCloseAllAvailable = NO;
+  [self.regularTabsDelegate discardSavedClosedItems];
   if (animated && self.transitionCoordinator) {
     [self animateToolbarsForDisappearance];
   }
@@ -164,6 +167,7 @@ UIAlertController* NotImplementedAlert() {
   }
   self.incognitoTabsViewController.gridView.contentInset = contentInset;
   self.regularTabsViewController.gridView.contentInset = contentInset;
+  self.remoteTabsViewController.tableView.contentInset = contentInset;
 }
 
 - (void)viewWillTransitionToSize:(CGSize)size
@@ -191,6 +195,9 @@ UIAlertController* NotImplementedAlert() {
     CGFloat offsetWidth =
         self.scrollView.contentSize.width - self.scrollView.frame.size.width;
     CGFloat offset = scrollView.contentOffset.x / offsetWidth;
+    // In RTL, flip the offset.
+    if (UseRTLLayout())
+      offset = 1.0 - offset;
     self.topToolbar.pageControl.sliderPosition = offset;
 
     TabGridPage page = GetPageFromScrollView(scrollView);
@@ -283,6 +290,10 @@ UIAlertController* NotImplementedAlert() {
   _incognitoTabsImageDataSource = incognitoTabsImageDataSource;
 }
 
+- (id<RecentTabsTableConsumer>)remoteTabsConsumer {
+  return self.remoteTabsViewController;
+}
+
 #pragma mark - TabGridPaging
 
 - (void)setCurrentPage:(TabGridPage)currentPage {
@@ -296,8 +307,8 @@ UIAlertController* NotImplementedAlert() {
     return;
   }
   CGFloat pageWidth = self.scrollView.frame.size.width;
-  NSUInteger page = static_cast<NSUInteger>(currentPage);
-  CGPoint offset = CGPointMake(page * pageWidth, 0);
+  NSUInteger pageIndex = GetPageIndexFromPage(currentPage);
+  CGPoint offset = CGPointMake(pageIndex * pageWidth, 0);
   // If the view is visible, animate the change. Otherwise don't.
   if (self.view.window == nil) {
     self.scrollView.contentOffset = offset;
@@ -418,11 +429,9 @@ UIAlertController* NotImplementedAlert() {
 // Adds the remote tabs view controller as a contained view controller, and
 // sets constraints.
 - (void)setupRemoteTabsViewController {
-  // TODO(crbug.com/804588) : Create remote tabs.
   UIView* contentView = self.scrollContentView;
   UIViewController* viewController = self.remoteTabsViewController;
   viewController.view.translatesAutoresizingMaskIntoConstraints = NO;
-  viewController.view.backgroundColor = [UIColor greenColor];
   [self addChildViewController:viewController];
   [contentView addSubview:viewController.view];
   [viewController didMoveToParentViewController:self];
@@ -766,13 +775,10 @@ UIAlertController* NotImplementedAlert() {
       DCHECK_EQ(self.undoCloseAllAvailable,
                 self.regularTabsViewController.gridEmpty);
       if (self.undoCloseAllAvailable) {
-        // TODO(crbug.com/804567) : Implement Undo Close All.
-        [self presentViewController:NotImplementedAlert()
-                           animated:YES
-                         completion:nil];
+        [self.regularTabsDelegate undoCloseAllItems];
       } else {
         [self.incognitoTabsDelegate closeAllItems];
-        [self.regularTabsDelegate closeAllItems];
+        [self.regularTabsDelegate saveAndCloseAllItems];
       }
       self.undoCloseAllAvailable = !self.undoCloseAllAvailable;
       [self configureCloseAllButtonForCurrentPageAndUndoAvailability];

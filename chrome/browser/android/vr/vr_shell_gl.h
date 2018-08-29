@@ -17,13 +17,13 @@
 #include "base/single_thread_task_runner.h"
 #include "chrome/browser/android/vr/android_vsync_helper.h"
 #include "chrome/browser/android/vr/vr_controller.h"
-#include "chrome/browser/android/vr/vr_dialog.h"
 #include "chrome/browser/vr/content_input_delegate.h"
 #include "chrome/browser/vr/fps_meter.h"
 #include "chrome/browser/vr/model/controller_model.h"
 #include "chrome/browser/vr/sliding_average.h"
 #include "chrome/browser/vr/ui_input_manager.h"
 #include "chrome/browser/vr/ui_renderer.h"
+#include "chrome/browser/vr/ui_test_input.h"
 #include "device/vr/public/mojom/vr_service.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr.h"
@@ -36,6 +36,7 @@
 namespace gl {
 class GLContext;
 class GLFence;
+class GLFenceAndroidNativeFenceSync;
 class GLFenceEGL;
 class GLImageEGL;
 class GLSurface;
@@ -59,6 +60,7 @@ class BrowserUiInterface;
 class FPSMeter;
 class GlBrowserInterface;
 class MailboxToSurfaceBridge;
+class ScopedGpuTrace;
 class SlidingTimeDeltaAverage;
 class Ui;
 class VrController;
@@ -178,6 +180,21 @@ struct WebXrFrame {
   DISALLOW_COPY_AND_ASSIGN(WebXrFrame);
 };
 
+struct Viewport {
+  gvr::BufferViewport left;
+  gvr::BufferViewport right;
+
+  void SetSourceBufferIndex(int index) {
+    left.SetSourceBufferIndex(index);
+    right.SetSourceBufferIndex(index);
+  }
+
+  void SetSourceUv(const gvr::Rectf& uv) {
+    left.SetSourceUv(uv);
+    right.SetSourceUv(uv);
+  }
+};
+
 class WebXrPresentationState {
  public:
   // WebXR frames use an arbitrary sequential ID to help catch logic errors
@@ -249,7 +266,8 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
             bool reprojected_rendering,
             bool daydream_support,
             bool start_in_web_vr_mode,
-            bool pause_content);
+            bool pause_content,
+            bool low_density);
   ~VrShellGl() override;
 
   void Initialize();
@@ -289,7 +307,7 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
 
   void OnSwapContents(int new_content_id);
 
-  void EnableAlertDialog(ContentInputForwarder* input_forwarder,
+  void EnableAlertDialog(PlatformInputHandler* input_handler,
                          float width,
                          float height);
   void DisableAlertDialog();
@@ -302,20 +320,25 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   void CancelToast();
 
   void AcceptDoffPromptForTesting();
+  void PerformUiActionForTesting(UiTestInput test_input);
+  void SetUiExpectingActivityForTesting(
+      UiTestActivityExpectation ui_expectation);
 
  private:
   void GvrInit(gvr_context* gvr_api);
   device::mojom::VRDisplayFrameTransportOptionsPtr
       GetWebVrFrameTransportOptions(device::mojom::VRRequestPresentOptionsPtr);
   void InitializeRenderer();
+  void UpdateViewports();
   void OnGpuProcessConnectionReady();
   // Returns true if successfully resized.
   bool ResizeForWebVR(int16_t frame_index);
   void UpdateSamples();
   void UpdateEyeInfos(const gfx::Transform& head_pose,
-                      int viewport_offset,
+                      Viewport& viewport,
                       const gfx::Size& render_size,
                       RenderInfo* out_render_info);
+  void UpdateContentViewportTransforms(const gfx::Transform& head_pose);
   void DrawFrame(int16_t frame_index, base::TimeTicks current_time);
   void DrawIntoAcquiredFrame(int16_t frame_index, base::TimeTicks current_time);
   void DrawFrameSubmitWhenReady(int16_t frame_index,
@@ -324,6 +347,7 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   void DrawFrameSubmitNow(int16_t frame_index, const gfx::Transform& head_pose);
   bool ShouldDrawWebVr();
   void DrawWebVr();
+  void DrawContentQuad(bool draw_overlay_texture);
   bool ShouldSendGesturesToWebVr();
   bool WebVrPoseByteIsValid(int pose_index_byte);
 
@@ -347,7 +371,8 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   void OnWebVrFrameTimedOut();
 
   base::TimeDelta GetPredictedFrameTime();
-  void AddWebVrRenderTimeEstimate(int16_t frame_index, bool did_wait);
+  void AddWebVrRenderTimeEstimate(int16_t frame_index,
+                                  const base::TimeTicks& fence_complete_time);
 
   void OnVSync(base::TimeTicks frame_time);
 
@@ -417,8 +442,14 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
 
   device::mojom::XRInputSourceStatePtr GetGazeInputSourceState();
 
+  void ReportUiStatusForTesting(const base::TimeTicks& current_time,
+                                bool ui_updated);
+  void ReportUiActivityResultForTesting(VrUiTestActivityResult result);
+
   // samplerExternalOES texture data for WebVR content image.
   int webvr_texture_id_ = 0;
+  int content_texture_id_ = 0;
+  int content_overlay_texture_id_ = 0;
 
   // Set from feature flags.
   bool webvr_vsync_align_;
@@ -429,31 +460,37 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   scoped_refptr<gl::SurfaceTexture> content_overlay_surface_texture_;
   scoped_refptr<gl::SurfaceTexture> ui_surface_texture_;
   scoped_refptr<gl::SurfaceTexture> webvr_surface_texture_;
+  float webvr_surface_texture_uv_transform_[16];
   std::unique_ptr<gl::ScopedJavaSurface> content_surface_;
   std::unique_ptr<gl::ScopedJavaSurface> ui_surface_;
   std::unique_ptr<gl::ScopedJavaSurface> content_overlay_surface_;
 
   std::unique_ptr<gvr::GvrApi> gvr_api_;
-  std::unique_ptr<gvr::BufferViewportList> buffer_viewport_list_;
-  std::unique_ptr<gvr::BufferViewport> buffer_viewport_;
-  std::unique_ptr<gvr::BufferViewport> webvr_browser_ui_left_viewport_;
-  std::unique_ptr<gvr::BufferViewport> webvr_browser_ui_right_viewport_;
-  std::unique_ptr<gvr::BufferViewport> webvr_left_viewport_;
-  std::unique_ptr<gvr::BufferViewport> webvr_right_viewport_;
-  std::unique_ptr<gvr::SwapChain> swap_chain_;
+  gvr::BufferViewportList viewport_list_;
+  Viewport main_viewport_;
+  Viewport webvr_viewport_;
+  Viewport webvr_overlay_viewport_;
+  Viewport content_underlay_viewport_;
+  bool viewports_need_updating_ = true;
+  gvr::SwapChain swap_chain_;
   gvr::Frame acquired_frame_;
   base::queue<std::pair<WebXrPresentationState::FrameIndexType, WebVrBounds>>
       pending_bounds_;
+  WebVrBounds current_webvr_frame_bounds_ =
+      WebVrBounds(gfx::RectF(), gfx::RectF(), gfx::Size());
   base::queue<uint16_t> pending_frames_;
   std::unique_ptr<MailboxToSurfaceBridge> mailbox_bridge_;
   bool mailbox_bridge_ready_ = false;
 
   // A fence used to avoid overstuffed GVR buffers in WebVR mode.
-  std::unique_ptr<gl::GLFenceEGL> webvr_prev_frame_completion_fence_;
+  std::unique_ptr<gl::GLFenceAndroidNativeFenceSync>
+      webvr_prev_frame_completion_fence_;
+  std::unique_ptr<ScopedGpuTrace> gpu_trace_;
 
   // The default size for the render buffers.
   gfx::Size render_size_default_;
   gfx::Size render_size_webvr_ui_;
+  const bool low_density_;
 
   // WebVR currently supports multiple render path choices, with runtime
   // selection based on underlying support being available and feature flags.
@@ -491,6 +528,7 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
   bool cardboard_trigger_clicked_ = false;
 
   std::unique_ptr<VrController> controller_;
+  std::vector<device::mojom::XRInputSourceStatePtr> input_states_;
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
@@ -543,7 +581,7 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
 
   gfx::Point3F pointer_start_;
 
-  RenderInfo render_info_primary_;
+  RenderInfo render_info_;
 
   AndroidVSyncHelper vsync_helper_;
 
@@ -564,8 +602,9 @@ class VrShellGl : public device::mojom::VRPresentationProvider {
 
   ControllerModel controller_model_;
 
-  std::unique_ptr<VrDialog> vr_dialog_;
+  std::unique_ptr<PlatformUiInputDelegate> vr_dialog_input_delegate_;
   bool showing_vr_dialog_ = false;
+  std::unique_ptr<UiTestState> ui_test_state_;
 
   base::WeakPtrFactory<VrShellGl> weak_ptr_factory_;
 

@@ -205,12 +205,12 @@ class GClientSmoke(GClientSmokeBase):
           ']\n'
           'cache_dir = None\n') % self.git_base)
 
-    test(['config', 'foo', 'faa'],
+    test(['config', 'https://example.com/foo', 'faa'],
          'solutions = [\n'
          '  { "name"        : "foo",\n'
-         '    "url"         : "foo",\n'
+         '    "url"         : "https://example.com/foo",\n'
          '    "deps_file"   : "DEPS",\n'
-          '    "managed"     : True,\n'
+         '    "managed"     : True,\n'
          '    "custom_deps" : {\n'
          '    },\n'
          '    "custom_vars": {},\n'
@@ -218,10 +218,10 @@ class GClientSmoke(GClientSmokeBase):
          ']\n'
          'cache_dir = None\n')
 
-    test(['config', 'foo', '--deps', 'blah'],
+    test(['config', 'https://example.com/foo', '--deps', 'blah'],
          'solutions = [\n'
          '  { "name"        : "foo",\n'
-         '    "url"         : "foo",\n'
+         '    "url"         : "https://example.com/foo",\n'
          '    "deps_file"   : "blah",\n'
          '    "managed"     : True,\n'
          '    "custom_deps" : {\n'
@@ -361,6 +361,35 @@ class GClientSmokeGIT(GClientSmokeBase):
         'cond_var = false',
     ])
     self.assertTree(tree)
+
+  def testSyncJsonOutput(self):
+    self.gclient(['config', self.git_base + 'repo_1', '--name', 'src'])
+    output_json = os.path.join(self.root_dir, 'output.json')
+    self.gclient(['sync', '--deps', 'mac', '--output-json', output_json])
+    with open(output_json) as f:
+      output_json = json.load(f)
+
+    out = {
+        'solutions': {
+            'src/': {
+                'scm': 'git',
+                'url': self.git_base + 'repo_1',
+                'revision': self.githash('repo_1', 2),
+            },
+            'src/repo2/': {
+                'scm': 'git',
+                'url':
+                    self.git_base + 'repo_2@' + self.githash('repo_2', 1)[:7],
+                'revision': self.githash('repo_2', 1),
+            },
+            'src/repo2/repo_renamed/': {
+                'scm': 'git',
+                'url': self.git_base + 'repo_3',
+                'revision': self.githash('repo_3', 2),
+            },
+        },
+    }
+    self.assertEqual(out, output_json)
 
   def testSyncIgnoredSolutionName(self):
     """TODO(maruel): This will become an error soon."""
@@ -786,14 +815,75 @@ class GClientSmokeGIT(GClientSmokeBase):
         'name': 'src',
         'deps_file': 'DEPS',
         'custom_deps': {
-            'foo/bar': None,
             'src/repo2': '%srepo_2@%s' % (
                 self.git_base, self.githash('repo_2', 1)),
-            u'src/repo2/repo_renamed': '%srepo_3@%s' % (
+            'src/repo2/repo_renamed': '%srepo_3@%s' % (
                 self.git_base, self.githash('repo_3', 2)),
         },
     }]
     self.assertEqual(out, output_json)
+
+  def testSetDep(self):
+    fake_deps = os.path.join(self.root_dir, 'DEPS.fake')
+    with open(fake_deps, 'w') as f:
+      f.write('\n'.join([
+          'vars = { ',
+          '  "foo_var": "foo_val",',
+          '  "foo_rev": "foo_rev",',
+          '}',
+          'deps = {',
+          '  "foo": {',
+          '    "url": "url@{foo_rev}",',
+          '  },',
+          '  "bar": "url@bar_rev",',
+          '}',
+      ]))
+
+    self.gclient([
+        'setdep', '-r', 'foo@new_foo', '-r', 'bar@new_bar',
+        '--var', 'foo_var=new_val', '--deps-file', fake_deps])
+
+    with open(fake_deps) as f:
+      contents = f.read().splitlines()
+
+    self.assertEqual([
+          'vars = { ',
+          '  "foo_var": "new_val",',
+          '  "foo_rev": "new_foo",',
+          '}',
+          'deps = {',
+          '  "foo": {',
+          '    "url": "url@{foo_rev}",',
+          '  },',
+          '  "bar": "url@new_bar",',
+          '}',
+    ], contents)
+
+  def testGetDep(self):
+    fake_deps = os.path.join(self.root_dir, 'DEPS.fake')
+    with open(fake_deps, 'w') as f:
+      f.write('\n'.join([
+          'vars = { ',
+          '  "foo_var": "foo_val",',
+          '  "foo_rev": "foo_rev",',
+          '}',
+          'deps = {',
+          '  "foo": {',
+          '    "url": "url@{foo_rev}",',
+          '  },',
+          '  "bar": "url@bar_rev",',
+          '}',
+      ]))
+
+    results = self.gclient([
+        'getdep', '-r', 'foo', '-r', 'bar','--var', 'foo_var',
+        '--deps-file', fake_deps])
+
+    self.assertEqual([
+        'foo_val',
+        'foo_rev',
+        'bar_rev',
+    ], results[0].splitlines())
 
   def testFlatten(self):
     if not self.enabled:
@@ -832,7 +922,7 @@ class GClientSmokeGIT(GClientSmokeBase):
         'gclient_gn_args = [\'false_var\', \'false_str_var\', \'true_var\', '
             '\'true_str_var\', \'str_var\', \'cond_var\']',
         'allowed_hosts = [',
-        '  "git://127.0.0.1:20000/git/",',
+        '  "' + self.git_base + '",',
         ']',
         '',
         'deps = {',
@@ -844,7 +934,19 @@ class GClientSmokeGIT(GClientSmokeBase):
         '',
         '  # src',
         '  "src": {',
-        '    "url": "git://127.0.0.1:20000/git/repo_6",',
+        '    "url": "' + self.git_base + 'repo_6",',
+        '  },',
+        '',
+        '  # src -> src/mac_repo',
+        '  "src/mac_repo": {',
+        '    "url": "{repo5_var}",',
+        '    "condition": \'checkout_mac\',',
+        '  },',
+        '',
+        '  # src -> src/repo8 -> src/recursed_os_repo',
+        '  "src/recursed_os_repo": {',
+        '    "url": "/repo_5",',
+        '    "condition": \'(checkout_linux) or (checkout_mac)\',',
         '  },',
         '',
         '  # src -> src/repo2',
@@ -865,41 +967,16 @@ class GClientSmokeGIT(GClientSmokeBase):
         '    "url": "/repo_8",',
         '  },',
         '',
-        '}',
-        '',
-        'deps_os = {',
-        '  "mac": {',
-        '    # src -> src/mac_repo',
-        '    "src/mac_repo": {',
-        '      "url": "{repo5_var}",',
-        '    },',
-        '',
-        '    # src -> src/repo8 -> src/recursed_os_repo',
-        '    "src/recursed_os_repo": {',
-        '      "url": "/repo_5",',
-        '    },',
-        '',
+        '  # src -> src/unix_repo',
+        '  "src/unix_repo": {',
+        '    "url": "{repo5_var}",',
+        '    "condition": \'checkout_linux\',',
         '  },',
         '',
-        '  "unix": {',
-        '    # src -> src/repo8 -> src/recursed_os_repo',
-        '    "src/recursed_os_repo": {',
-        '      "url": "/repo_5",',
-        '    },',
-        '',
-        '    # src -> src/unix_repo',
-        '    "src/unix_repo": {',
-        '      "url": "{repo5_var}",',
-        '    },',
-        '',
-        '  },',
-        '',
-        '  "win": {',
-        '    # src -> src/win_repo',
-        '    "src/win_repo": {',
-        '      "url": "{repo5_var}",',
-        '    },',
-        '',
+        '  # src -> src/win_repo',
+        '  "src/win_repo": {',
+        '    "url": "{repo5_var}",',
+        '    "condition": \'checkout_win\',',
         '  },',
         '',
         '}',
@@ -929,25 +1006,20 @@ class GClientSmokeGIT(GClientSmokeBase):
         '    ]',
         '  },',
         '',
+        '  # src',
+        '  {',
+        '    "pattern": ".",',
+        '    "condition": \'checkout_mac\',',
+        '    "cwd": ".",',
+        '    "action": [',
+        '        "python",',
+        '        "-c",',
+        '        "open(\'src/git_hooked_mac\', \'w\').write('
+                           '\'git_hooked_mac\')",',
+        '    ]',
+        '  },',
+        '',
         ']',
-        '',
-        'hooks_os = {',
-        '  "mac": [',
-        '    # src',
-        '    {',
-        '      "pattern": ".",',
-        '      "cwd": ".",',
-        '      "action": [',
-        '          "python",',
-        '          "-c",',
-        '          "open(\'src/git_hooked_mac\', \'w\').write('
-                             '\'git_hooked_mac\')",',
-        '      ]',
-        '    },',
-        '',
-        '  ],',
-        '',
-        '}',
         '',
         'vars = {',
         '  # src',
@@ -963,7 +1035,7 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  "false_var": False,',
         '',
         '  # src',
-        '  "git_base": \'git://127.0.0.1:20000/git/\',',
+        '  "git_base": \'' + self.git_base + '\',',
         '',
         '  # src',
         '  "hook1_contents": \'git_hooked1\',',
@@ -985,9 +1057,9 @@ class GClientSmokeGIT(GClientSmokeBase):
         '',
         '}',
         '',
-        '# git://127.0.0.1:20000/git/repo_2@%s, DEPS' % (
+        '# ' + self.git_base + 'repo_2@%s, DEPS' % (
                  self.githash('repo_2', 1)[:7]),
-        '# git://127.0.0.1:20000/git/repo_8, DEPS'
+        '# ' + self.git_base + 'repo_8, DEPS'
     ], deps_contents.splitlines())
 
   def testFlattenPinAllDeps(self):
@@ -1011,7 +1083,7 @@ class GClientSmokeGIT(GClientSmokeBase):
         'gclient_gn_args = [\'false_var\', \'false_str_var\', \'true_var\', '
             '\'true_str_var\', \'str_var\', \'cond_var\']',
         'allowed_hosts = [',
-        '  "git://127.0.0.1:20000/git/",',
+        '  "' + self.git_base + '",',
         ']',
         '',
         'deps = {',
@@ -1023,8 +1095,20 @@ class GClientSmokeGIT(GClientSmokeBase):
         '',
         '  # src',
         '  "src": {',
-        '    "url": "git://127.0.0.1:20000/git/repo_6@%s",' % (
+        '    "url": "' + self.git_base + 'repo_6@%s",' % (
                  self.githash('repo_6', 1)),
+        '  },',
+        '',
+        '  # src -> src/mac_repo',
+        '  "src/mac_repo": {',
+        '    "url": "{repo5_var}@%s",' % (self.githash('repo_5', 3)),
+        '    "condition": \'checkout_mac\',',
+        '  },',
+        '',
+        '  # src -> src/repo8 -> src/recursed_os_repo',
+        '  "src/recursed_os_repo": {',
+        '    "url": "/repo_5@%s",' % (self.githash('repo_5', 3)),
+        '    "condition": \'(checkout_linux) or (checkout_mac)\',',
         '  },',
         '',
         '  # src -> src/repo2',
@@ -1045,41 +1129,16 @@ class GClientSmokeGIT(GClientSmokeBase):
         '    "url": "/repo_8@%s",' % (self.githash('repo_8', 1)),
         '  },',
         '',
-        '}',
-        '',
-        'deps_os = {',
-        '  "mac": {',
-        '    # src -> src/mac_repo',
-        '    "src/mac_repo": {',
-        '      "url": "{repo5_var}@%s",' % (self.githash('repo_5', 3)),
-        '    },',
-        '',
-        '    # src -> src/repo8 -> src/recursed_os_repo',
-        '    "src/recursed_os_repo": {',
-        '      "url": "/repo_5@%s",' % (self.githash('repo_5', 3)),
-        '    },',
-        '',
+        '  # src -> src/unix_repo',
+        '  "src/unix_repo": {',
+        '    "url": "{repo5_var}@%s",' % (self.githash('repo_5', 3)),
+        '    "condition": \'checkout_linux\',',
         '  },',
         '',
-        '  "unix": {',
-        '    # src -> src/repo8 -> src/recursed_os_repo',
-        '    "src/recursed_os_repo": {',
-        '      "url": "/repo_5@%s",' % (self.githash('repo_5', 3)),
-        '    },',
-        '',
-        '    # src -> src/unix_repo',
-        '    "src/unix_repo": {',
-        '      "url": "{repo5_var}@%s",' % (self.githash('repo_5', 3)),
-        '    },',
-        '',
-        '  },',
-        '',
-        '  "win": {',
-        '    # src -> src/win_repo',
-        '    "src/win_repo": {',
-        '      "url": "{repo5_var}@%s",' % (self.githash('repo_5', 3)),
-        '    },',
-        '',
+        '  # src -> src/win_repo',
+        '  "src/win_repo": {',
+        '    "url": "{repo5_var}@%s",' % (self.githash('repo_5', 3)),
+        '    "condition": \'checkout_win\',',
         '  },',
         '',
         '}',
@@ -1109,25 +1168,20 @@ class GClientSmokeGIT(GClientSmokeBase):
         '    ]',
         '  },',
         '',
+        '  # src',
+        '  {',
+        '    "pattern": ".",',
+        '    "condition": \'checkout_mac\',',
+        '    "cwd": ".",',
+        '    "action": [',
+        '        "python",',
+        '        "-c",',
+        '        "open(\'src/git_hooked_mac\', \'w\').write('
+                           '\'git_hooked_mac\')",',
+        '    ]',
+        '  },',
+        '',
         ']',
-        '',
-        'hooks_os = {',
-        '  "mac": [',
-        '    # src',
-        '    {',
-        '      "pattern": ".",',
-        '      "cwd": ".",',
-        '      "action": [',
-        '          "python",',
-        '          "-c",',
-        '          "open(\'src/git_hooked_mac\', \'w\').write('
-                             '\'git_hooked_mac\')",',
-        '      ]',
-        '    },',
-        '',
-        '  ],',
-        '',
-        '}',
         '',
         'vars = {',
         '  # src',
@@ -1143,7 +1197,7 @@ class GClientSmokeGIT(GClientSmokeBase):
         '  "false_var": False,',
         '',
         '  # src',
-        '  "git_base": \'git://127.0.0.1:20000/git/\',',
+        '  "git_base": \'' + self.git_base + '\',',
         '',
         '  # src',
         '  "hook1_contents": \'git_hooked1\',',
@@ -1165,9 +1219,9 @@ class GClientSmokeGIT(GClientSmokeBase):
         '',
         '}',
         '',
-        '# git://127.0.0.1:20000/git/repo_2@%s, DEPS' % (
+        '# ' + self.git_base + 'repo_2@%s, DEPS' % (
             self.githash('repo_2', 1)),
-        '# git://127.0.0.1:20000/git/repo_8@%s, DEPS' % (
+        '# ' + self.git_base + 'repo_8@%s, DEPS' % (
             self.githash('repo_8', 1)),
     ], deps_contents.splitlines())
 
@@ -1190,11 +1244,38 @@ class GClientSmokeGIT(GClientSmokeBase):
     with open(output_deps) as f:
       deps_contents = f.read()
 
+    self.maxDiff = None
     self.assertEqual([
+        'gclient_gn_args_file = "src/repo2/gclient.args"',
+        "gclient_gn_args = ['str_var']",
         'deps = {',
         '  # src',
         '  "src": {',
-        '    "url": "git://127.0.0.1:20000/git/repo_10",',
+        '    "url": "' + self.git_base + 'repo_10",',
+        '  },',
+        '',
+        '  # src -> src/repo9 -> src/repo8 -> src/recursed_os_repo',
+        '  "src/recursed_os_repo": {',
+        '    "url": "/repo_5",',
+        '    "condition": \'(checkout_linux) or (checkout_mac)\',',
+        '  },',
+        '',
+        '  # src -> src/repo11',
+        '  "src/repo11": {',
+        '    "url": "/repo_11",',
+        '    "condition": \'(checkout_ios) or (checkout_mac)\',',
+        '  },',
+        '',
+        '  # src -> src/repo11 -> src/repo12',
+        '  "src/repo12": {',
+        '    "url": "/repo_12",',
+        '    "condition": \'(checkout_ios) or (checkout_mac)\',',
+        '  },',
+        '',
+        '  # src -> src/repo9 -> src/repo4',
+        '  "src/repo4": {',
+        '    "url": "/repo_4",',
+        '    "condition": \'checkout_android\',',
         '  },',
         '',
         '  # src -> src/repo6',
@@ -1219,75 +1300,31 @@ class GClientSmokeGIT(GClientSmokeBase):
         '',
         '}',
         '',
-        'deps_os = {',
-        '  "android": {',
-        '    # src -> src/repo9 -> src/repo4',
-        '    "src/repo4": {',
-        '      "url": "/repo_4",',
-        '    },',
-        '',
-        '  },',
-        '',
-        '  "ios": {',
-        '    # src -> src/repo11',
-        '    "src/repo11": {',
-        '      "url": "/repo_11",',
-        '    },',
-        '',
-        '    # src -> src/repo11 -> src/repo12',
-        '    "src/repo12": {',
-        '      "url": "/repo_12",',
-        '    },',
-        '',
-        '  },',
-        '',
-        '  "mac": {',
-        '    # src -> src/repo9 -> src/repo8 -> src/recursed_os_repo',
-        '    "src/recursed_os_repo": {',
-        '      "url": "/repo_5",',
-        '    },',
-        '',
-        '    # src -> src/repo11',
-        '    "src/repo11": {',
-        '      "url": "/repo_11",',
-        '    },',
-        '',
-        '    # src -> src/repo11 -> src/repo12',
-        '    "src/repo12": {',
-        '      "url": "/repo_12",',
-        '    },',
-        '',
-        '  },',
-        '',
-        '  "unix": {',
-        '    # src -> src/repo9 -> src/repo8 -> src/recursed_os_repo',
-        '    "src/recursed_os_repo": {',
-        '      "url": "/repo_5",',
-        '    },',
-        '',
-        '  },',
+        'vars = {',
+        '  # src -> src/repo9',
+        '  "str_var": \'xyz\',',
         '',
         '}',
         '',
-        '# git://127.0.0.1:20000/git/repo_11, DEPS',
-        '# git://127.0.0.1:20000/git/repo_8, DEPS',
-        '# git://127.0.0.1:20000/git/repo_9, DEPS',
+        '# ' + self.git_base + 'repo_11, DEPS',
+        '# ' + self.git_base + 'repo_8, DEPS',
+        '# ' + self.git_base + 'repo_9, DEPS',
     ], deps_contents.splitlines())
 
     with open(output_deps_files) as f:
       deps_files_contents = json.load(f)
 
     self.assertEqual([
-      {'url': 'git://127.0.0.1:20000/git/repo_11', 'deps_file': 'DEPS',
-       'hierarchy': [['src', 'git://127.0.0.1:20000/git/repo_10'],
-                     ['src/repo11', '/repo_11']]},
-      {'url': 'git://127.0.0.1:20000/git/repo_8', 'deps_file': 'DEPS',
-       'hierarchy': [['src', 'git://127.0.0.1:20000/git/repo_10'],
-                     ['src/repo9', '/repo_9'],
-                     ['src/repo8', '/repo_8']]},
-      {'url': 'git://127.0.0.1:20000/git/repo_9', 'deps_file': 'DEPS',
-       'hierarchy': [['src', 'git://127.0.0.1:20000/git/repo_10'],
-                     ['src/repo9', '/repo_9']]},
+      {'url': self.git_base + 'repo_11', 'deps_file': 'DEPS',
+       'hierarchy': [['src', self.git_base + 'repo_10'],
+                     ['src/repo11', self.git_base + 'repo_11']]},
+      {'url': self.git_base + 'repo_8', 'deps_file': 'DEPS',
+       'hierarchy': [['src', self.git_base + 'repo_10'],
+                     ['src/repo9', self.git_base + 'repo_9'],
+                     ['src/repo8', self.git_base + 'repo_8']]},
+      {'url': self.git_base + 'repo_9', 'deps_file': 'DEPS',
+       'hierarchy': [['src', self.git_base + 'repo_10'],
+                     ['src/repo9', self.git_base + 'repo_9']]},
     ], deps_files_contents)
 
   def testFlattenCipd(self):
@@ -1309,7 +1346,7 @@ class GClientSmokeGIT(GClientSmokeBase):
         'deps = {',
         '  # src',
         '  "src": {',
-        '    "url": "git://127.0.0.1:20000/git/repo_14",',
+        '    "url": "' + self.git_base + 'repo_14",',
         '  },',
         '',
         '  # src -> src/cipd_dep:package0',

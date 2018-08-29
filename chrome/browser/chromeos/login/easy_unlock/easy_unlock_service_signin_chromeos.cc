@@ -30,6 +30,9 @@
 #include "chromeos/login/auth/user_context.h"
 #include "chromeos/tpm/tpm_token_loader.h"
 #include "components/cryptauth/remote_device.h"
+#include "components/cryptauth/remote_device_cache.h"
+#include "components/cryptauth/remote_device_ref.h"
+#include "components/cryptauth/software_feature_state.h"
 
 using proximity_auth::ScreenlockState;
 
@@ -95,8 +98,11 @@ void LoadDataForUser(
       UserSessionManager::GetInstance()->GetEasyUnlockKeyManager();
   DCHECK(key_manager);
 
+  const user_manager::User* const user =
+      user_manager::UserManager::Get()->FindUser(account_id);
+  DCHECK(user);
   key_manager->GetDeviceDataList(
-      UserContext(account_id),
+      UserContext(*user),
       base::Bind(&RetryDataLoadOnError, account_id, backoff_ms, callback));
 }
 
@@ -165,6 +171,7 @@ EasyUnlockServiceSignin::EasyUnlockServiceSignin(Profile* profile)
     : EasyUnlockService(profile),
       account_id_(EmptyAccountId()),
       user_pod_last_focused_timestamp_(base::TimeTicks::Now()),
+      remote_device_cache_(std::make_unique<cryptauth::RemoteDeviceCache>()),
       weak_ptr_factory_(this) {}
 
 EasyUnlockServiceSignin::~EasyUnlockServiceSignin() {}
@@ -231,11 +238,6 @@ const base::ListValue* EasyUnlockServiceSignin::GetRemoteDevices() const {
 }
 
 void EasyUnlockServiceSignin::SetRemoteDevices(const base::ListValue& devices) {
-  NOTREACHED();
-}
-
-void EasyUnlockServiceSignin::SetRemoteBleDevices(
-    const base::ListValue& devices) {
   NOTREACHED();
 }
 
@@ -401,7 +403,7 @@ void EasyUnlockServiceSignin::OnFocusedUserChanged(
   account_id_ = account_id;
   pref_manager_->SetActiveUser(account_id);
   user_pod_last_focused_timestamp_ = base::TimeTicks::Now();
-  SetProximityAuthDevices(account_id_, cryptauth::RemoteDeviceList());
+  SetProximityAuthDevices(account_id_, cryptauth::RemoteDeviceRefList());
   ResetScreenlockState();
 
   pref_manager_->SetActiveUser(account_id);
@@ -505,14 +507,17 @@ void EasyUnlockServiceSignin::OnUserDataLoaded(
       continue;
     }
     // TODO(tengs): We assume that the device is an unlock key since we only
-    // request unlock keys for EasyUnlock. Instead, we should include bool
+    // request unlock keys for EasyUnlock. Instead, we should include unlockable
     // (as well as the "supports_mobile_hotspot" bool and
     // last_update_time_millis) as part of EasyUnlockDeviceKeyData instead of
     // making that assumption here.
+
     cryptauth::RemoteDevice remote_device(
         account_id.GetUserEmail(), std::string(), decoded_public_key,
-        device.bluetooth_address, decoded_psk, true /* unlock_key */,
-        false /* supports_mobile_hotspot */, 0L /* last_update_time_millis */);
+        decoded_psk, true /* unlock_key */, false /* supports_mobile_hotspot */,
+        0L /* last_update_time_millis */,
+        std::map<cryptauth::SoftwareFeature,
+                 cryptauth::SoftwareFeatureState>() /* software_features */);
 
     if (!device.serialized_beacon_seeds.empty()) {
       PA_LOG(INFO) << "Deserializing BeaconSeeds: "
@@ -527,11 +532,12 @@ void EasyUnlockServiceSignin::OnUserDataLoaded(
     PA_LOG(INFO) << "Loaded Remote Device:\n"
                  << "  user id: " << remote_device.user_id << "\n"
                  << "  name: " << remote_device.name << "\n"
-                 << "  public key" << device.public_key << "\n"
-                 << "  bt_addr:" << remote_device.bluetooth_address;
+                 << "  public key" << remote_device.public_key;
   }
 
-  SetProximityAuthDevices(account_id, remote_devices);
+  remote_device_cache_->SetRemoteDevices(remote_devices);
+
+  SetProximityAuthDevices(account_id, remote_device_cache_->GetRemoteDevices());
 }
 
 const EasyUnlockServiceSignin::UserData*

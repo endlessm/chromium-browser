@@ -5,8 +5,6 @@
 #ifndef COMPONENTS_SYNC_DRIVER_SIGNIN_MANAGER_WRAPPER_H_
 #define COMPONENTS_SYNC_DRIVER_SIGNIN_MANAGER_WRAPPER_H_
 
-#include <string>
-
 #include "base/macros.h"
 
 class SigninManagerBase;
@@ -15,24 +13,13 @@ namespace identity {
 class IdentityManager;
 }
 
-// Wraps SigninManager so subclasses can support different ways of getting
-// account information if necessary. Currently exists for supervised users;
-// the subclass SupervisedUserSigninManagerWrapper may be merged back into
-// this class once supervised users are componentized.
+// TODO(crbug.com/825190): Get rid of this class after ProfileSyncService
+// doesn't use SigninManager anymore.
 class SigninManagerWrapper {
  public:
   explicit SigninManagerWrapper(identity::IdentityManager* identity_manager,
                                 SigninManagerBase* signin_manager);
-  virtual ~SigninManagerWrapper();
-
-  // Get the email address to use for this account.
-  virtual std::string GetEffectiveUsername() const;
-
-  // Get the unique ID used to represent this account.
-  virtual std::string GetAccountIdToUse() const;
-
-  // Get the OAuth2 scope to use for this account.
-  virtual std::string GetSyncScopeToUse() const;
+  ~SigninManagerWrapper();
 
   // Return the original IdentityManager object that was passed in.
   identity::IdentityManager* GetIdentityManager();

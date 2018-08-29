@@ -243,7 +243,7 @@ void SettingsAppMonitor::AutomationControllerDelegate::MaybeInvokeChooser(
   {
     // Only invoke the browser chooser once.
     base::AutoLock auto_lock(browser_chooser_invoked_lock_);
-    if (browser_chooser_invoked_ == true)
+    if (browser_chooser_invoked_)
       return;
     browser_chooser_invoked_ = true;
   }

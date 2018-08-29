@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chromecast/base/cast_features.h"
@@ -53,10 +52,7 @@ std::unique_ptr<content::WebContents> CreateWebContents(
   create_params.routing_id = MSG_ROUTING_NONE;
   create_params.initial_size = display_size;
   create_params.site_instance = site_instance;
-  content::WebContents* web_contents =
-      content::WebContents::Create(create_params);
-
-  return base::WrapUnique(web_contents);
+  return content::WebContents::Create(create_params);
 }
 
 }  // namespace
@@ -188,7 +184,7 @@ bool CastWebViewDefault::CheckMediaAccessPermission(
     content::RenderFrameHost* render_frame_host,
     const GURL& security_origin,
     content::MediaStreamType type) {
-  if (!base::FeatureList::IsEnabled(kAllowUserMediaAccess) &&
+  if (!chromecast::IsFeatureEnabled(kAllowUserMediaAccess) &&
       !allow_media_access_) {
     LOG(WARNING) << __func__ << ": media access is disabled.";
     return false;
@@ -228,7 +224,7 @@ void CastWebViewDefault::RequestMediaAccessPermission(
     content::WebContents* web_contents,
     const content::MediaStreamRequest& request,
     const content::MediaResponseCallback& callback) {
-  if (!base::FeatureList::IsEnabled(kAllowUserMediaAccess) &&
+  if (!chromecast::IsFeatureEnabled(kAllowUserMediaAccess) &&
       !allow_media_access_) {
     LOG(WARNING) << __func__ << ": media access is disabled.";
     callback.Run(content::MediaStreamDevices(),
@@ -267,6 +263,16 @@ void CastWebViewDefault::RequestMediaAccessPermission(
 
   callback.Run(devices, content::MEDIA_DEVICE_OK,
                std::unique_ptr<content::MediaStreamUI>());
+}
+
+std::unique_ptr<content::BluetoothChooser>
+CastWebViewDefault::RunBluetoothChooser(
+    content::RenderFrameHost* frame,
+    const content::BluetoothChooser::EventHandler& event_handler) {
+  auto chooser = delegate_->RunBluetoothChooser(frame, event_handler);
+  return chooser
+             ? std::move(chooser)
+             : WebContentsDelegate::RunBluetoothChooser(frame, event_handler);
 }
 
 #if defined(OS_ANDROID)

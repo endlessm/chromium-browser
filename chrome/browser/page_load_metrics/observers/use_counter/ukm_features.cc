@@ -27,6 +27,14 @@ bool IsAllowedUkmFeature(blink::mojom::WebFeature feature) {
           WebFeature::kUsbRequestDevice, WebFeature::kXMLHttpRequestSynchronous,
           WebFeature::kPaymentHandler,
           WebFeature::kPaymentRequestShowWithoutGesture,
+          WebFeature::kHTMLImports, WebFeature::kHTMLImportsHasStyleSheets,
+          WebFeature::kElementCreateShadowRoot,
+          WebFeature::kDocumentRegisterElement,
+          WebFeature::kCredentialManagerCreatePublicKeyCredential,
+          WebFeature::kCredentialManagerGetPublicKeyCredential,
+          WebFeature::kCredentialManagerMakePublicKeyCredentialSuccess,
+          WebFeature::kCredentialManagerGetPublicKeyCredentialSuccess,
+          WebFeature::kV8AudioContext_Constructor,
       }));
   return opt_in_features.count(feature);
 }

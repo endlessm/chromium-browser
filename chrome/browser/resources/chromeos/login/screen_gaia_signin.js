@@ -118,17 +118,6 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
     lastBackMessageValue_: false,
 
     /**
-     * Number of users in the login screen UI.
-     * This is mainly used by views login screen, this value is always 0 for
-     * WebUI login screen.
-     * TODO(crbug.com/808271): WebUI and views implementation should return the
-     * same user list.
-     * @type {number}
-     * @private
-     */
-    userCount_: 0,
-
-    /**
      * Whether the dialog could be closed.
      * This is being checked in cancel() when user clicks on signin-back-button
      * (normal gaia flow) or the buttons in gaia-navigation (used in enterprise
@@ -138,10 +127,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
      * @type {boolean}
      */
     get closable() {
-      var hasUser = Oobe.getInstance().showingViewsLogin ?
-          (!!this.userCount_) :
-          (!!$('pod-row').pods.length);
-      return hasUser || this.isOffline();
+      return Oobe.getInstance().hasUserPods || this.isOffline();
     },
 
     /**
@@ -704,7 +690,6 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       this.chromeOSApiVersion_ = data.chromeOSApiVersion;
       // This triggers updateSigninFrameContainers_()
       this.screenMode = data.screenMode;
-      this.userCount_ = data.userCount;
       this.email = '';
       this.authCompleted_ = false;
       this.lastBackMessageValue_ = false;
@@ -756,6 +741,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
           !(data.enterpriseManagedDevice || data.hasDeviceOwner);
       params.isFirstUser =
           !(data.enterpriseManagedDevice || data.hasDeviceOwner);
+      params.obfuscatedOwnerId = data.obfuscatedOwnerId;
 
       this.gaiaAuthParams_ = params;
 
@@ -1082,7 +1068,8 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       } else if (credentials.authCode) {
         chrome.send('completeAuthentication', [
           credentials.gaiaId, credentials.email, credentials.password,
-          credentials.authCode, credentials.usingSAML, credentials.gapsCookie
+          credentials.authCode, credentials.usingSAML, credentials.gapsCookie,
+          credentials.services
         ]);
       } else {
         chrome.send('completeLogin', [
@@ -1249,10 +1236,14 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       this.loading = true;
       this.startLoadingTimer_();
       var ADAuthUI = this.getSigninFrame_();
-      if ('realm' in params) {
+      if ('realm' in params)
         ADAuthUI.realm = params['realm'];
+
+      if ('emailDomain' in params)
+        ADAuthUI.userRealm = '@' + params['emailDomain'];
+      else if ('realm' in params)
         ADAuthUI.userRealm = '@' + params['realm'];
-      }
+
       ADAuthUI.setUser(params['email']);
       this.onAuthReady_();
     },

@@ -663,6 +663,8 @@ class TestGitCl(TestCase):
     self.mock(git_cl.gerrit_util, 'SetReview',
               lambda h, i, msg=None, labels=None, notify=None:
                   self._mocked_call('SetReview', h, i, msg, labels, notify))
+    self.mock(git_cl.gerrit_util.LuciContextAuthenticator, 'is_luci',
+              staticmethod(lambda: False))
     self.mock(git_cl.gerrit_util.GceAuthenticator, 'is_gce',
               classmethod(lambda _: False))
     self.mock(git_cl, 'DieWithError',
@@ -1281,7 +1283,7 @@ class TestGitCl(TestCase):
     if notify:
       ref_suffix = '%ready,notify=ALL'
     else:
-      if not issue:
+      if not issue and squash:
         ref_suffix = '%wip'
       else:
         ref_suffix = '%notify=NONE'
@@ -2928,7 +2930,10 @@ class TestGitCl(TestCase):
     cl._codereview_impl.SubmitIssue = lambda wait_for_merge: None
     out = StringIO.StringIO()
     self.mock(sys, 'stdout', out)
-    self.assertEqual(0, cl.CMDLand(force=True, bypass_hooks=True, verbose=True))
+    self.assertEqual(0, cl.CMDLand(force=True,
+                                   bypass_hooks=True,
+                                   verbose=True,
+                                   parallel=False))
     self.assertRegexpMatches(out.getvalue(), 'Issue.*123 has been submitted')
     self.assertRegexpMatches(out.getvalue(), 'Landed as: .*deadbeef')
 

@@ -26,6 +26,7 @@
 #include "base/process/launch.h"
 #include "base/process/process.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -47,7 +48,7 @@
 #include "chrome/test/chromedriver/chrome/user_data_dir.h"
 #include "chrome/test/chromedriver/chrome/version.h"
 #include "chrome/test/chromedriver/chrome/web_view.h"
-#include "chrome/test/chromedriver/net/port_server.h"
+#include "chrome/test/chromedriver/net/net_util.h"
 #include "chrome/test/chromedriver/net/url_request_context_getter.h"
 #include "crypto/rsa_private_key.h"
 #include "crypto/sha2.h"
@@ -95,6 +96,8 @@ const char* const kAndroidSwitches[] = {
 #if defined(OS_LINUX)
 const char kEnableCrashReport[] = "enable-crash-reporter-for-testing";
 #endif
+const base::FilePath::CharType kDevToolsActivePort[] =
+    FILE_PATH_LITERAL("DevToolsActivePort");
 
 Status UnpackAutomationExtension(const base::FilePath& temp_dir,
                                  base::FilePath* automation_extension) {
@@ -117,12 +120,12 @@ Status UnpackAutomationExtension(const base::FilePath& temp_dir,
   return Status(kOk);
 }
 
-Status PrepareCommandLine(uint16_t port,
-                          const Capabilities& capabilities,
-                          base::CommandLine* prepared_command,
-                          base::ScopedTempDir* user_data_dir,
-                          base::ScopedTempDir* extension_dir,
-                          std::vector<std::string>* extension_bg_pages) {
+Status PrepareDesktopCommandLine(const Capabilities& capabilities,
+                                 base::CommandLine* prepared_command,
+                                 base::ScopedTempDir* user_data_dir_temp_dir,
+                                 base::ScopedTempDir* extension_dir,
+                                 std::vector<std::string>* extension_bg_pages,
+                                 base::FilePath* user_data_dir) {
   base::FilePath program = capabilities.binary;
   if (program.empty()) {
     if (!FindChrome(&program))
@@ -139,29 +142,33 @@ Status PrepareCommandLine(uint16_t port,
     switches.SetUnparsedSwitch(common_switch);
   for (auto* desktop_switch : kDesktopSwitches)
     switches.SetUnparsedSwitch(desktop_switch);
-  switches.SetSwitch("remote-debugging-port", base::UintToString(port));
   for (const auto& excluded_switch : capabilities.exclude_switches) {
     switches.RemoveSwitch(excluded_switch);
   }
   switches.SetFromSwitches(capabilities.switches);
-
-  if (capabilities.exclude_switches.count("user-data-dir") > 0)
+  if (!switches.HasSwitch("remote-debugging-port")) {
+    switches.SetSwitch("remote-debugging-port", "0");
+  }
+  if (capabilities.exclude_switches.count("user-data-dir") > 0) {
     LOG(WARNING) << "excluding user-data-dir switch is not supported";
-  base::FilePath user_data_dir_path;
+  }
+  if (capabilities.exclude_switches.count("remote-debugging-port") > 0) {
+    LOG(WARNING) << "excluding remote-debugging-port switch is not supported";
+  }
   if (switches.HasSwitch("user-data-dir")) {
-    user_data_dir_path = base::FilePath(
-        switches.GetSwitchValueNative("user-data-dir"));
+    *user_data_dir =
+        base::FilePath(switches.GetSwitchValueNative("user-data-dir"));
   } else {
     command.AppendArg("data:,");
-    if (!user_data_dir->CreateUniqueTempDir())
+    if (!user_data_dir_temp_dir->CreateUniqueTempDir())
       return Status(kUnknownError, "cannot create temp dir for user data dir");
-    switches.SetSwitch("user-data-dir", user_data_dir->GetPath().value());
-    user_data_dir_path = user_data_dir->GetPath();
+    switches.SetSwitch("user-data-dir",
+                       user_data_dir_temp_dir->GetPath().value());
+    *user_data_dir = user_data_dir_temp_dir->GetPath();
   }
 
-  Status status = internal::PrepareUserDataDir(user_data_dir_path,
-                                               capabilities.prefs.get(),
-                                               capabilities.local_state.get());
+  Status status = internal::PrepareUserDataDir(
+      *user_data_dir, capabilities.prefs.get(), capabilities.local_state.get());
   if (status.IsError())
     return status;
 
@@ -191,6 +198,7 @@ Status WaitForDevToolsAndCheckVersion(
     URLRequestContextGetter* context_getter,
     const SyncWebSocketFactory& socket_factory,
     const Capabilities* capabilities,
+    int wait_time,
     std::unique_ptr<DevToolsHttpClient>* user_client) {
   std::unique_ptr<DeviceMetrics> device_metrics;
   if (capabilities && capabilities->device_metrics)
@@ -208,7 +216,7 @@ Status WaitForDevToolsAndCheckVersion(
       address, context_getter, socket_factory, std::move(device_metrics),
       std::move(window_types), capabilities->page_load_strategy));
   base::TimeTicks deadline =
-      base::TimeTicks::Now() + base::TimeDelta::FromSeconds(60);
+      base::TimeTicks::Now() + base::TimeDelta::FromSeconds(wait_time);
   Status status = client->Init(deadline - base::TimeTicks::Now());
   if (status.IsError())
     return status;
@@ -302,7 +310,7 @@ Status LaunchRemoteChromeSession(
   std::unique_ptr<DevToolsHttpClient> devtools_http_client;
   status = WaitForDevToolsAndCheckVersion(
       capabilities.debugger_address, context_getter, socket_factory,
-      &capabilities, &devtools_http_client);
+      &capabilities, 60, &devtools_http_client);
   if (status.IsError()) {
     return Status(kUnknownError, "cannot connect to chrome at " +
                       capabilities.debugger_address.ToString(),
@@ -327,8 +335,6 @@ Status LaunchRemoteChromeSession(
 }
 
 Status LaunchDesktopChrome(URLRequestContextGetter* context_getter,
-                           uint16_t port,
-                           std::unique_ptr<PortReservation> port_reservation,
                            const SyncWebSocketFactory& socket_factory,
                            const Capabilities& capabilities,
                            std::vector<std::unique_ptr<DevToolsEventListener>>
@@ -336,15 +342,34 @@ Status LaunchDesktopChrome(URLRequestContextGetter* context_getter,
                            std::unique_ptr<Chrome>* chrome,
                            bool w3c_compliant) {
   base::CommandLine command(base::CommandLine::NO_PROGRAM);
-  base::ScopedTempDir user_data_dir;
+  base::ScopedTempDir user_data_dir_temp_dir;
+  base::FilePath user_data_dir;
   base::ScopedTempDir extension_dir;
+  Status status = Status(kOk);
   std::vector<std::string> extension_bg_pages;
-  Status status = PrepareCommandLine(port,
-                                     capabilities,
-                                     &command,
-                                     &user_data_dir,
-                                     &extension_dir,
-                                     &extension_bg_pages);
+  int devtools_port = 0;
+
+  if (capabilities.switches.HasSwitch("remote-debugging-port")) {
+    std::string port_switch =
+        capabilities.switches.GetSwitchValue("remote-debugging-port");
+    bool conversion_result = base::StringToInt(port_switch, &devtools_port);
+    if (!conversion_result || devtools_port < 0 || 65535 < devtools_port) {
+      return Status(
+          kUnknownError,
+          "remote-debugging-port flag has invalid value: " + port_switch);
+    }
+  }
+
+  if (!devtools_port && capabilities.switches.HasSwitch("user-data-dir")) {
+    status = internal::RemoveOldDevToolsActivePortFile(base::FilePath(
+        capabilities.switches.GetSwitchValueNative("user-data-dir")));
+    if (status.IsError()) {
+      return status;
+    }
+  }
+  status = PrepareDesktopCommandLine(capabilities, &command,
+                                     &user_data_dir_temp_dir, &extension_dir,
+                                     &extension_bg_pages, &user_data_dir);
   if (status.IsError())
     return status;
 
@@ -401,45 +426,62 @@ Status LaunchDesktopChrome(URLRequestContextGetter* context_getter,
   VLOG(0) << "Launching chrome: " << command_string;
   base::Process process = base::LaunchProcess(command, options);
   if (!process.IsValid())
-    return Status(kUnknownError, "chrome failed to start");
+    return Status(kUnknownError, "Failed to create a Chrome process.");
 
+  // Attempt to connect to devtools in order to send commands to Chrome. If
+  // attempts fail, check if Chrome has crashed and return error.
   std::unique_ptr<DevToolsHttpClient> devtools_http_client;
-  status = WaitForDevToolsAndCheckVersion(
-      NetAddress(port), context_getter, socket_factory, &capabilities,
-      &devtools_http_client);
+  int exit_code;
+  base::TerminationStatus chrome_status =
+      base::TERMINATION_STATUS_STILL_RUNNING;
+  base::TimeTicks deadline =
+      base::TimeTicks::Now() + base::TimeDelta::FromSeconds(60);
+  while (base::TimeTicks::Now() < deadline) {
+    if (!devtools_port) {
+      status =
+          internal::ParseDevToolsActivePortFile(user_data_dir, &devtools_port);
+    } else {
+      status = Status(kOk);
+    }
+    if (status.IsOk()) {
+      status = WaitForDevToolsAndCheckVersion(
+          NetAddress(devtools_port), context_getter, socket_factory,
+          &capabilities, 1, &devtools_http_client);
+    }
+    if (status.IsOk()) {
+      break;
+    }
+    // Check to see if Chrome has crashed.
+    chrome_status = base::GetTerminationStatus(process.Handle(), &exit_code);
+    if (chrome_status != base::TERMINATION_STATUS_STILL_RUNNING) {
+      std::string termination_reason =
+          internal::GetTerminationReason(chrome_status);
+      Status failure_status = Status(
+          kUnknownError, "Chrome failed to start: " + termination_reason);
+      failure_status.AddDetails(status.message());
+      // There is a use case of someone passing a path to a binary to us in
+      // capabilities that is not an actual Chrome binary but a script that
+      // intercepts our arguments and then starts Chrome itself. This method
+      // of starting Chrome should be done carefully. The right way to do it
+      // is to do an exec of Chrome at the end of the script so that Chrome
+      // remains a subprocess of ChromeDriver. This allows us to have the
+      // correct process handle so that we can terminate Chrome after the
+      // test has finished or in the case of any failure. If you can't exec the
+      // Chrome binary at the end of your script, you must find a way to
+      // properly handle our termination signal so that you don't have zombie
+      // Chrome processes running after the test is completed.
+      failure_status.AddDetails(
+          "The process started from chrome location " +
+          command.GetProgram().AsUTF8Unsafe() +
+          " is no longer running, so ChromeDriver is assuming that Chrome has "
+          "crashed.");
+      return failure_status;
+    }
+    base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(50));
+  }
 
   if (status.IsError()) {
-    int exit_code;
-    base::TerminationStatus chrome_status =
-        base::GetTerminationStatus(process.Handle(), &exit_code);
-    if (chrome_status != base::TERMINATION_STATUS_STILL_RUNNING) {
-      std::string termination_reason;
-      switch (chrome_status) {
-        case base::TERMINATION_STATUS_NORMAL_TERMINATION:
-          termination_reason = "exited normally";
-          break;
-        case base::TERMINATION_STATUS_ABNORMAL_TERMINATION:
-          termination_reason = "exited abnormally";
-          break;
-        case base::TERMINATION_STATUS_PROCESS_WAS_KILLED:
-#if defined(OS_CHROMEOS)
-        case base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM:
-#endif
-          termination_reason = "was killed";
-          break;
-        case base::TERMINATION_STATUS_PROCESS_CRASHED:
-          termination_reason = "crashed";
-          break;
-        case base::TERMINATION_STATUS_LAUNCH_FAILED:
-          termination_reason = "failed to launch";
-          break;
-        default:
-          termination_reason = "unknown";
-          break;
-      }
-      return Status(kUnknownError,
-                    "Chrome failed to start: " + termination_reason);
-    }
+    VLOG(0) << "Failed to connect to Chrome. Attempting to kill it.";
     if (!process.Terminate(0, true)) {
       int exit_code;
       if (base::GetTerminationStatus(process.Handle(), &exit_code) ==
@@ -451,8 +493,8 @@ Status LaunchDesktopChrome(URLRequestContextGetter* context_getter,
 
   std::unique_ptr<DevToolsClient> devtools_websocket_client;
   status = CreateBrowserwideDevToolsClientAndConnect(
-      NetAddress(port), capabilities.perf_logging_prefs, socket_factory,
-      devtools_event_listeners,
+      NetAddress(devtools_port), capabilities.perf_logging_prefs,
+      socket_factory, devtools_event_listeners,
       devtools_http_client->browser_info()->web_socket_url,
       &devtools_websocket_client);
   if (status.IsError()) {
@@ -462,9 +504,9 @@ Status LaunchDesktopChrome(URLRequestContextGetter* context_getter,
 
   std::unique_ptr<ChromeDesktopImpl> chrome_desktop(new ChromeDesktopImpl(
       std::move(devtools_http_client), std::move(devtools_websocket_client),
-      std::move(devtools_event_listeners), std::move(port_reservation),
-      capabilities.page_load_strategy, std::move(process), command,
-      &user_data_dir, &extension_dir, capabilities.network_emulation_enabled));
+      std::move(devtools_event_listeners), capabilities.page_load_strategy,
+      std::move(process), command, &user_data_dir_temp_dir, &extension_dir,
+      capabilities.network_emulation_enabled));
   if (!capabilities.extension_load_timeout.is_zero()) {
     for (size_t i = 0; i < extension_bg_pages.size(); ++i) {
       VLOG(0) << "Waiting for extension bg page load: "
@@ -486,8 +528,6 @@ Status LaunchDesktopChrome(URLRequestContextGetter* context_getter,
 }
 
 Status LaunchAndroidChrome(URLRequestContextGetter* context_getter,
-                           uint16_t port,
-                           std::unique_ptr<PortReservation> port_reservation,
                            const SyncWebSocketFactory& socket_factory,
                            const Capabilities& capabilities,
                            std::vector<std::unique_ptr<DevToolsEventListener>>
@@ -496,6 +536,7 @@ Status LaunchAndroidChrome(URLRequestContextGetter* context_getter,
                            std::unique_ptr<Chrome>* chrome) {
   Status status(kOk);
   std::unique_ptr<Device> device;
+  int devtools_port;
   if (capabilities.android_device_serial.empty()) {
     status = device_manager->AcquireDevice(&device);
   } else {
@@ -516,18 +557,16 @@ Status LaunchAndroidChrome(URLRequestContextGetter* context_getter,
       capabilities.android_package, capabilities.android_activity,
       capabilities.android_process, capabilities.android_device_socket,
       capabilities.android_exec_name, switches.ToString(),
-      capabilities.android_use_running_app, port);
+      capabilities.android_use_running_app, &devtools_port);
   if (status.IsError()) {
     device->TearDown();
     return status;
   }
 
   std::unique_ptr<DevToolsHttpClient> devtools_http_client;
-  status = WaitForDevToolsAndCheckVersion(NetAddress(port),
-                                          context_getter,
-                                          socket_factory,
-                                          &capabilities,
-                                          &devtools_http_client);
+  status = WaitForDevToolsAndCheckVersion(
+      NetAddress(devtools_port), context_getter, socket_factory, &capabilities,
+      60, &devtools_http_client);
   if (status.IsError()) {
     device->TearDown();
     return status;
@@ -535,8 +574,8 @@ Status LaunchAndroidChrome(URLRequestContextGetter* context_getter,
 
   std::unique_ptr<DevToolsClient> devtools_websocket_client;
   status = CreateBrowserwideDevToolsClientAndConnect(
-      NetAddress(port), capabilities.perf_logging_prefs, socket_factory,
-      devtools_event_listeners,
+      NetAddress(devtools_port), capabilities.perf_logging_prefs,
+      socket_factory, devtools_event_listeners,
       devtools_http_client->browser_info()->web_socket_url,
       &devtools_websocket_client);
   if (status.IsError()) {
@@ -546,8 +585,8 @@ Status LaunchAndroidChrome(URLRequestContextGetter* context_getter,
 
   chrome->reset(new ChromeAndroidImpl(
       std::move(devtools_http_client), std::move(devtools_websocket_client),
-      std::move(devtools_event_listeners), std::move(port_reservation),
-      capabilities.page_load_strategy, std::move(device)));
+      std::move(devtools_event_listeners), capabilities.page_load_strategy,
+      std::move(device)));
   return Status(kOk);
 }
 
@@ -556,47 +595,26 @@ Status LaunchAndroidChrome(URLRequestContextGetter* context_getter,
 Status LaunchChrome(URLRequestContextGetter* context_getter,
                     const SyncWebSocketFactory& socket_factory,
                     DeviceManager* device_manager,
-                    PortServer* port_server,
-                    PortManager* port_manager,
                     const Capabilities& capabilities,
                     std::vector<std::unique_ptr<DevToolsEventListener>>
                         devtools_event_listeners,
                     std::unique_ptr<Chrome>* chrome,
                     bool w3c_compliant) {
   if (capabilities.IsRemoteBrowser()) {
+    // TODO(johnchen): Clean up naming for ChromeDriver sessions created
+    // by connecting to an already-running Chrome at a given debuggerAddress.
     return LaunchRemoteChromeSession(
         context_getter, socket_factory, capabilities,
         std::move(devtools_event_listeners), chrome);
   }
-
-  uint16_t port = 0;
-  std::unique_ptr<PortReservation> port_reservation;
-  Status port_status(kOk);
-
   if (capabilities.IsAndroid()) {
-    if (port_server)
-      port_status = port_server->ReservePort(&port, &port_reservation);
-    else
-      port_status = port_manager->ReservePortFromPool(&port, &port_reservation);
-    if (port_status.IsError())
-      return Status(kUnknownError, "cannot reserve port for Chrome",
-                    port_status);
-    return LaunchAndroidChrome(
-        context_getter, port, std::move(port_reservation), socket_factory,
-        capabilities, std::move(devtools_event_listeners), device_manager,
-        chrome);
+    return LaunchAndroidChrome(context_getter, socket_factory, capabilities,
+                               std::move(devtools_event_listeners),
+                               device_manager, chrome);
   } else {
-    if (port_server)
-      port_status = port_server->ReservePort(&port, &port_reservation);
-    else
-      port_status = port_manager->ReservePort(&port, &port_reservation);
-    if (port_status.IsError())
-      return Status(kUnknownError, "cannot reserve port for Chrome",
-                    port_status);
-    return LaunchDesktopChrome(
-        context_getter, port, std::move(port_reservation), socket_factory,
-        capabilities, std::move(devtools_event_listeners), chrome,
-        w3c_compliant);
+    return LaunchDesktopChrome(context_getter, socket_factory, capabilities,
+                               std::move(devtools_event_listeners), chrome,
+                               w3c_compliant);
   }
 }
 
@@ -891,6 +909,66 @@ Status PrepareUserDataDir(
     return Status(kUnknownError, "failed to write first run file");
   }
   return Status(kOk);
+}
+
+Status ParseDevToolsActivePortFile(const base::FilePath& user_data_dir,
+                                   int* port) {
+  base::FilePath port_filepath = user_data_dir.Append(kDevToolsActivePort);
+  if (!base::PathExists(port_filepath)) {
+    return Status(kUnknownError, "DevToolsActivePort file doesn't exist");
+  }
+  std::string buffer;
+  bool result = base::ReadFileToString(port_filepath, &buffer);
+  if (!result) {
+    return Status(kUnknownError, "Could not read in devtools port number");
+  }
+  std::vector<std::string> split_port_strings = base::SplitString(
+      buffer, "\n", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  if (split_port_strings.size() < 2) {
+    return Status(kUnknownError,
+                  std::string("Devtools port number file contents <") + buffer +
+                      std::string("> were in an unexpected format"));
+  }
+  if (!base::StringToInt(split_port_strings.front(), port)) {
+    return Status(kUnknownError,
+                  "Could not convert devtools port number to int");
+  }
+  return Status(kOk);
+}
+
+Status RemoveOldDevToolsActivePortFile(const base::FilePath& user_data_dir) {
+  base::FilePath port_filepath = user_data_dir.Append(kDevToolsActivePort);
+  // Note that calling DeleteFile on a path that doesn't exist returns True.
+  if (base::DeleteFile(port_filepath, false)) {
+    return Status(kOk);
+  }
+  return Status(
+      kUnknownError,
+      std::string("Could not remove old devtools port file. Perhaps "
+                  "the given user-data-dir at ") +
+          user_data_dir.AsUTF8Unsafe() +
+          std::string(" is still attached to a running Chrome or Chromium "
+                      "process."));
+}
+
+std::string GetTerminationReason(base::TerminationStatus status) {
+  switch (status) {
+    case base::TERMINATION_STATUS_NORMAL_TERMINATION:
+      return "exited normally";
+    case base::TERMINATION_STATUS_ABNORMAL_TERMINATION:
+      return "exited abnormally";
+    case base::TERMINATION_STATUS_PROCESS_WAS_KILLED:
+#if defined(OS_CHROMEOS)
+    case base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM:
+#endif
+      return "was killed";
+    case base::TERMINATION_STATUS_PROCESS_CRASHED:
+      return "crashed";
+    case base::TERMINATION_STATUS_LAUNCH_FAILED:
+      return "failed to launch";
+    default:
+      return "unknown";
+  }
 }
 
 }  // namespace internal

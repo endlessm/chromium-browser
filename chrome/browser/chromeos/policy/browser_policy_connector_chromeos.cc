@@ -104,8 +104,8 @@ BrowserPolicyConnectorChromeOS::BrowserPolicyConnectorChromeOS()
       install_attributes_ = std::make_unique<chromeos::InstallAttributes>(
           chromeos::DBusThreadManager::Get()->GetCryptohomeClient());
       base::FilePath install_attrs_file;
-      CHECK(PathService::Get(chromeos::FILE_INSTALL_ATTRIBUTES,
-                             &install_attrs_file));
+      CHECK(base::PathService::Get(chromeos::FILE_INSTALL_ATTRIBUTES,
+                                   &install_attrs_file));
       install_attributes_->Init(install_attrs_file);
     }
 
@@ -201,7 +201,8 @@ void BrowserPolicyConnectorChromeOS::Init(
           chromeos::NetworkHandler::Get()
               ->managed_network_configuration_handler(),
           chromeos::NetworkHandler::Get()->network_device_handler(),
-          chromeos::CrosSettings::Get());
+          chromeos::CrosSettings::Get(),
+          DeviceNetworkConfigurationUpdater::DeviceAssetIDFetcher());
 
   bluetooth_policy_handler_ =
       std::make_unique<BluetoothPolicyHandler>(chromeos::CrosSettings::Get());

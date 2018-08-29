@@ -40,8 +40,7 @@ class ExtensionAppResult : public AppResult,
 
   // ChromeSearchResult overrides:
   void Open(int event_flags) override;
-  std::unique_ptr<ChromeSearchResult> Duplicate() const override;
-  ui::MenuModel* GetContextMenuModel() override;
+  void GetContextMenuModel(GetMenuModelCallback callback) override;
 
  private:
   void StartObservingExtensionRegistry();
@@ -51,6 +50,9 @@ class ExtensionAppResult : public AppResult,
   // Returns true if extension enable flow is started or there is already one
   // running.
   bool RunExtensionEnableFlow();
+
+  // ChromeSearchResult overrides:
+  AppContextMenu* GetAppContextMenu() override;
 
   // AppContextMenuDelegate overrides:
   void ExecuteLaunchCommand(int event_flags) override;

@@ -20,6 +20,8 @@ class CastDetailedView;
 class CastDuplexView;
 }  // namespace tray
 
+class DetailedViewDelegate;
+
 class ASH_EXPORT TrayCast : public SystemTrayItem,
                             public ShellObserver,
                             public CastConfigControllerObserver {
@@ -59,12 +61,6 @@ class ASH_EXPORT TrayCast : public SystemTrayItem,
   // casting session.
   void UpdatePrimaryView();
 
-  // Returns true if there is an active cast route. The route may be DIAL based,
-  // such as casting YouTube where the cast sink directly streams content from
-  // another server. In that case, is_mirror_casting_ will be false since this
-  // device is not actively transmitting information to the cast sink.
-  bool HasActiveRoute();
-
   std::vector<mojom::SinkAndRoutePtr> sinks_and_routes_;
 
   // True if there is a mirror-based cast session and the active-cast tray icon
@@ -75,6 +71,8 @@ class ASH_EXPORT TrayCast : public SystemTrayItem,
   tray::CastTrayView* tray_ = nullptr;
   tray::CastDuplexView* default_ = nullptr;
   tray::CastDetailedView* detailed_ = nullptr;
+
+  const std::unique_ptr<DetailedViewDelegate> detailed_view_delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(TrayCast);
 };

@@ -10,11 +10,13 @@
 #include "base/json/json_file_value_serializer.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_service_test_base.h"
 #include "chrome/browser/extensions/extension_util.h"
+#include "chrome/browser/extensions/scripting_permissions_modifier.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_test_util.h"
 #include "chrome/test/base/testing_profile.h"
@@ -25,7 +27,7 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
-#include "extensions/common/feature_switch.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/permissions/permission_set.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/value_builder.h"
@@ -277,10 +279,9 @@ TEST_F(PermissionsUpdaterTest, RevokingPermissions) {
   auto can_access_page =
       [](scoped_refptr<const extensions::Extension> extension,
          const GURL& document_url) -> bool {
-    PermissionsData::AccessType access =
-        extension.get()->permissions_data()->GetPageAccess(
-            extension.get(), document_url, -1, nullptr);
-    return access == PermissionsData::ACCESS_ALLOWED;
+    PermissionsData::PageAccess access =
+        extension->permissions_data()->GetPageAccess(document_url, -1, nullptr);
+    return access == PermissionsData::PageAccess::kAllowed;
   };
 
   {
@@ -340,8 +341,8 @@ TEST_F(PermissionsUpdaterTest, RevokingPermissions) {
 
   {
     // Test revoking non-optional host permissions with click-to-script.
-    FeatureSwitch::ScopedOverride scoped_override(
-        FeatureSwitch::scripts_require_action(), true);
+    base::test::ScopedFeatureList scoped_feature_list;
+    scoped_feature_list.InitAndEnableFeature(features::kRuntimeHostPermissions);
     ListBuilder optional_permissions;
     optional_permissions.Append("tabs");
     ListBuilder required_permissions;
@@ -355,8 +356,11 @@ TEST_F(PermissionsUpdaterTest, RevokingPermissions) {
     PermissionsUpdater updater(profile());
     updater.InitializePermissions(extension.get());
 
-    // By default, all-hosts was withheld, so the extension shouldn't have
-    // access to any site (like foo.com).
+    ScriptingPermissionsModifier(profile(), extension)
+        .SetAllowedOnAllUrls(false);
+
+    // All-hosts was withheld, so the extension shouldn't have access to any
+    // site (like foo.com).
     const GURL kOrigin("http://foo.com");
 
     EXPECT_FALSE(extension->permissions_data()

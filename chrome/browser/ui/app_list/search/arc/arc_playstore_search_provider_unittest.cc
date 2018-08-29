@@ -10,11 +10,11 @@
 
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/chromeos/arc/icon_decode_request.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/ui/app_list/app_list_test_util.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_test.h"
 #include "chrome/browser/ui/app_list/search/arc/arc_playstore_search_result.h"
-#include "chrome/browser/ui/app_list/search/arc/icon_decode_request.h"
 #include "chrome/browser/ui/app_list/search/chrome_search_result.h"
 #include "chrome/browser/ui/app_list/test/test_app_list_controller_delegate.h"
 #include "chrome/test/base/testing_profile.h"
@@ -49,13 +49,7 @@ class ArcPlayStoreSearchProviderTest : public AppListTestBase {
   }
 
   scoped_refptr<extensions::Extension> CreateExtension(const std::string& id) {
-    return extensions::ExtensionBuilder()
-        .SetManifest(extensions::DictionaryBuilder()
-                         .Set("name", "test")
-                         .Set("version", "0.1")
-                         .Build())
-        .SetID(id)
-        .Build();
+    return extensions::ExtensionBuilder("test").SetID(id).Build();
   }
 
   void AddExtension(const extensions::Extension* extension) {
@@ -76,7 +70,7 @@ TEST_F(ArcPlayStoreSearchProviderTest, Basic) {
   std::unique_ptr<ArcPlayStoreSearchProvider> provider =
       CreateSearch(kMaxResults);
   EXPECT_TRUE(provider->results().empty());
-  IconDecodeRequest::DisableSafeDecodingForTesting();
+  arc::IconDecodeRequest::DisableSafeDecodingForTesting();
 
   AddExtension(CreateExtension(extension_misc::kGmailAppId).get());
 
@@ -112,7 +106,7 @@ TEST_F(ArcPlayStoreSearchProviderTest, FailedQuery) {
   std::unique_ptr<ArcPlayStoreSearchProvider> provider =
       CreateSearch(kMaxResults);
   EXPECT_TRUE(provider->results().empty());
-  IconDecodeRequest::DisableSafeDecodingForTesting();
+  arc::IconDecodeRequest::DisableSafeDecodingForTesting();
 
   // Test for empty queries.
   // Create a non-empty query.

@@ -96,12 +96,14 @@ void CloudPolicyClient::Observer::OnRobotAuthCodesFetched(
 CloudPolicyClient::CloudPolicyClient(
     const std::string& machine_id,
     const std::string& machine_model,
+    const std::string& brand_code,
     DeviceManagementService* service,
     scoped_refptr<net::URLRequestContextGetter> request_context,
     SigningService* signing_service,
     DeviceDMTokenCallback device_dm_token_callback)
     : machine_id_(machine_id),
       machine_model_(machine_model),
+      brand_code_(brand_code),
       service_(service),  // Can be null for unit tests.
       signing_service_(signing_service),
       device_dm_token_callback_(device_dm_token_callback),
@@ -169,6 +171,8 @@ void CloudPolicyClient::Register(em::DeviceRegisterRequest::Type type,
     request->set_machine_id(machine_id_);
   if (!machine_model_.empty())
     request->set_machine_model(machine_model_);
+  if (!brand_code_.empty())
+    request->set_brand_code(brand_code_);
   if (!requisition.empty())
     request->set_requisition(requisition);
   if (!current_state_key.empty())
@@ -215,6 +219,8 @@ void CloudPolicyClient::RegisterWithCertificate(
     request->set_machine_id(machine_id_);
   if (!machine_model_.empty())
     request->set_machine_model(machine_model_);
+  if (!brand_code_.empty())
+    request->set_brand_code(brand_code_);
   if (!requisition.empty())
     request->set_requisition(requisition);
   if (!current_state_key.empty())
@@ -405,6 +411,29 @@ void CloudPolicyClient::UploadEnterpriseEnrollmentCertificate(
   UploadCertificate(
       certificate_data,
       em::DeviceCertUploadRequest::ENTERPRISE_ENROLLMENT_CERTIFICATE, callback);
+}
+
+void CloudPolicyClient::UploadEnterpriseEnrollmentId(
+    const std::string& enrollment_id,
+    const CloudPolicyClient::StatusCallback& callback) {
+  CHECK(is_registered());
+  std::unique_ptr<DeviceManagementRequestJob> request_job(
+      service_->CreateJob(DeviceManagementRequestJob::TYPE_UPLOAD_CERTIFICATE,
+                          GetRequestContext()));
+  request_job->SetDMToken(dm_token_);
+  request_job->SetClientID(client_id_);
+
+  em::DeviceManagementRequest* request = request_job->GetRequest();
+  em::DeviceCertUploadRequest* upload_request =
+      request->mutable_cert_upload_request();
+  upload_request->set_enrollment_id(enrollment_id);
+
+  const DeviceManagementRequestJob::Callback job_callback = base::BindRepeating(
+      &CloudPolicyClient::OnCertificateUploadCompleted,
+      weak_ptr_factory_.GetWeakPtr(), request_job.get(), callback);
+
+  request_jobs_.push_back(std::move(request_job));
+  request_jobs_.back()->Start(job_callback);
 }
 
 void CloudPolicyClient::UploadDeviceStatus(

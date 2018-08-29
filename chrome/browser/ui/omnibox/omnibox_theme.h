@@ -17,6 +17,7 @@ enum class OmniboxPart {
   LOCATION_BAR_SELECTED_KEYWORD,
   LOCATION_BAR_TEXT_DEFAULT,
   LOCATION_BAR_TEXT_DIMMED,
+  LOCATION_BAR_BUBBLE_OUTLINE,
   LOCATION_BAR_FOCUS_RING,
 
   RESULTS_BACKGROUND,  // Background of the results dropdown.
@@ -51,5 +52,7 @@ enum class OmniboxPartState {
 SkColor GetOmniboxColor(OmniboxPart part,
                         OmniboxTint tint,
                         OmniboxPartState state = OmniboxPartState::NORMAL);
+
+float GetOmniboxStateAlpha(OmniboxPartState state);
 
 #endif  // CHROME_BROWSER_UI_OMNIBOX_OMNIBOX_THEME_H_

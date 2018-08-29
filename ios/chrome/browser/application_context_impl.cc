@@ -13,6 +13,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
+#include "base/sequenced_task_runner.h"
 #include "base/task_scheduler/post_task.h"
 #include "base/time/default_clock.h"
 #include "base/time/default_tick_clock.h"
@@ -37,13 +38,13 @@
 #include "ios/chrome/browser/browser_state/chrome_browser_state_manager_impl.h"
 #include "ios/chrome/browser/chrome_paths.h"
 #include "ios/chrome/browser/component_updater/ios_component_updater_configurator.h"
+#include "ios/chrome/browser/gcm/ios_chrome_gcm_profile_service_factory.h"
 #include "ios/chrome/browser/history/history_service_factory.h"
 #include "ios/chrome/browser/ios_chrome_io_thread.h"
 #include "ios/chrome/browser/metrics/ios_chrome_metrics_services_manager_client.h"
 #include "ios/chrome/browser/pref_names.h"
 #include "ios/chrome/browser/prefs/browser_prefs.h"
 #include "ios/chrome/browser/prefs/ios_chrome_pref_service_factory.h"
-#include "ios/chrome/browser/services/gcm/ios_chrome_gcm_profile_service_factory.h"
 #include "ios/chrome/browser/update_client/ios_chrome_update_query_params_delegate.h"
 #include "ios/chrome/browser/web_resource/web_resource_util.h"
 #include "ios/chrome/common/channel_info.h"
@@ -52,6 +53,8 @@
 #include "net/socket/client_socket_pool_manager.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 
 ApplicationContextImpl::ApplicationContextImpl(
     base::SequencedTaskRunner* local_state_task_runner,
@@ -104,6 +107,11 @@ void ApplicationContextImpl::StartTearDown() {
 
   if (local_state_) {
     local_state_->CommitPendingWrite();
+  }
+
+  if (network_context_) {
+    web::WebThread::DeleteSoon(web::WebThread::IO, FROM_HERE,
+                               network_context_owner_.release());
   }
 }
 
@@ -189,6 +197,32 @@ net::URLRequestContextGetter*
 ApplicationContextImpl::GetSystemURLRequestContext() {
   DCHECK(thread_checker_.CalledOnValidThread());
   return ios_chrome_io_thread_->system_url_request_context_getter();
+}
+
+scoped_refptr<network::SharedURLLoaderFactory>
+ApplicationContextImpl::GetSharedURLLoaderFactory() {
+  if (!url_loader_factory_) {
+    auto url_loader_factory_params =
+        network::mojom::URLLoaderFactoryParams::New();
+    url_loader_factory_params->process_id = network::mojom::kBrowserProcessId;
+    url_loader_factory_params->is_corb_enabled = false;
+    GetSystemNetworkContext()->CreateURLLoaderFactory(
+        mojo::MakeRequest(&url_loader_factory_),
+        std::move(url_loader_factory_params));
+    shared_url_loader_factory_ =
+        base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
+            url_loader_factory_.get());
+  }
+  return shared_url_loader_factory_;
+}
+
+network::mojom::NetworkContext*
+ApplicationContextImpl::GetSystemNetworkContext() {
+  if (!network_context_) {
+    network_context_owner_ = std::make_unique<web::NetworkContextOwner>(
+        GetSystemURLRequestContext(), &network_context_);
+  }
+  return network_context_.get();
 }
 
 const std::string& ApplicationContextImpl::GetApplicationLocale() {
@@ -293,7 +327,7 @@ void ApplicationContextImpl::CreateLocalState() {
   DCHECK(!local_state_);
 
   base::FilePath local_state_path;
-  CHECK(PathService::Get(ios::FILE_LOCAL_STATE, &local_state_path));
+  CHECK(base::PathService::Get(ios::FILE_LOCAL_STATE, &local_state_path));
   scoped_refptr<PrefRegistrySimple> pref_registry(new PrefRegistrySimple);
 
   // Register local state preferences.
@@ -321,7 +355,7 @@ void ApplicationContextImpl::CreateGCMDriver() {
   DCHECK(!gcm_driver_);
 
   base::FilePath store_path;
-  CHECK(PathService::Get(ios::DIR_GLOBAL_GCM_STORE, &store_path));
+  CHECK(base::PathService::Get(ios::DIR_GLOBAL_GCM_STORE, &store_path));
 
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner(
       base::CreateSequencedTaskRunnerWithTraits(

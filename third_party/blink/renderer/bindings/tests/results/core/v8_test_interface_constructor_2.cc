@@ -8,19 +8,19 @@
 // DO NOT MODIFY!
 
 // clang-format off
-#include "v8_test_interface_constructor_2.h"
+#include "third_party/blink/renderer/bindings/tests/results/core/v8_test_interface_constructor_2.h"
 
 #include "base/memory/scoped_refptr.h"
-#include "bindings/core/v8/dictionary.h"
-#include "bindings/core/v8/exception_state.h"
-#include "bindings/core/v8/idl_types.h"
-#include "bindings/core/v8/native_value_traits_impl.h"
-#include "bindings/core/v8/v8_dom_configuration.h"
-#include "bindings/core/v8/v8_test_interface_empty.h"
-#include "core/execution_context/execution_context.h"
-#include "core/frame/local_dom_window.h"
-#include "platform/bindings/v8_object_constructor.h"
-#include "platform/wtf/get_ptr.h"
+#include "third_party/blink/renderer/bindings/core/v8/dictionary.h"
+#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
+#include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_dom_configuration.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_interface_empty.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
+#include "third_party/blink/renderer/platform/wtf/get_ptr.h"
 
 namespace blink {
 
@@ -183,6 +183,14 @@ static void constructor(const v8::FunctionCallbackInfo<v8::Value>& info) {
     case 1:
       if (info[0]->IsArray()) {
         TestInterfaceConstructor2V8Internal::constructor3(info);
+        return;
+      }
+      if (HasCallableIteratorSymbol(info.GetIsolate(), info[0], exceptionState)) {
+        TestInterfaceConstructor2V8Internal::constructor3(info);
+        return;
+      }
+      if (exceptionState.HadException()) {
+        exceptionState.RethrowV8Exception(exceptionState.GetException());
         return;
       }
       if (info[0]->IsObject()) {

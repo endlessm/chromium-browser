@@ -41,6 +41,7 @@
 #include <clocale>
 #include <cmath>
 #include <codecvt>
+#include <compare>
 #include <complex>
 #include <complex.h>
 #include <condition_variable>
@@ -150,6 +151,7 @@
 #include <experimental/memory_resource>
 #include <experimental/propagate_const>
 #include <experimental/regex>
+#include <experimental/simd>
 #include <experimental/set>
 #include <experimental/string>
 #include <experimental/type_traits>

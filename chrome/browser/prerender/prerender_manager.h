@@ -154,11 +154,35 @@ class PrerenderManager : public content::NotificationObserver,
   // Cancels all active prerenders.
   void CancelAllPrerenders();
 
+  // Wraps input and output parameters to MaybeUsePrerenderedPage.
+  struct Params {
+    Params(NavigateParams* params,
+           content::WebContents* contents_being_navigated);
+    Params(bool uses_post,
+           const std::string& extra_headers,
+           bool should_replace_current_entry,
+           content::WebContents* contents_being_navigated);
+
+    // Input parameters.
+    const bool uses_post;
+    const std::string extra_headers;
+    const bool should_replace_current_entry;
+    content::WebContents* const contents_being_navigated;
+
+    // Output parameters.
+    content::WebContents* replaced_contents = nullptr;
+  };
+
   // If |url| matches a valid prerendered page and |params| are compatible, try
-  // to swap it and merge browsing histories. Returns |true| and updates
-  // |params->target_contents| if a prerendered page is swapped in, |false|
-  // otherwise.
-  bool MaybeUsePrerenderedPage(const GURL& url, NavigateParams* params);
+  // to swap it and merge browsing histories.
+  //
+  // Returns true if a prerendered page is swapped in. When this happens, the
+  // PrerenderManager has already swapped out |contents_being_navigated| with
+  // |replaced_contents| in the WebContents container [e.g. TabStripModel on
+  // desktop].
+  //
+  // Returns false if nothing is swapped.
+  bool MaybeUsePrerenderedPage(const GURL& url, Params* params);
 
   // Moves a PrerenderContents to the pending delete list from the list of
   // active prerenders when prerendering should be cancelled.
@@ -516,11 +540,10 @@ class PrerenderManager : public content::NotificationObserver,
   // |web_contents|.  Returns the new WebContents that was swapped in, or NULL
   // if a swap-in was not possible.  If |should_replace_current_entry| is true,
   // the current history entry in |web_contents| is replaced.
-  std::unique_ptr<content::WebContents> SwapInternal(
-      const GURL& url,
-      content::WebContents* web_contents,
-      PrerenderData* prerender_data,
-      bool should_replace_current_entry);
+  content::WebContents* SwapInternal(const GURL& url,
+                                     content::WebContents* web_contents,
+                                     PrerenderData* prerender_data,
+                                     bool should_replace_current_entry);
 
   // The configuration.
   Config config_;
@@ -553,7 +576,7 @@ class PrerenderManager : public content::NotificationObserver,
   // Track time of last prerender to limit prerender spam.
   base::TimeTicks last_prerender_start_time_;
 
-  std::vector<content::WebContents*> old_web_contents_list_;
+  std::vector<std::unique_ptr<content::WebContents>> old_web_contents_list_;
 
   std::vector<std::unique_ptr<OnCloseWebContentsDeleter>>
       on_close_web_contents_deleters_;

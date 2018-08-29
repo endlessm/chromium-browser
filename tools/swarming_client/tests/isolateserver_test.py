@@ -12,6 +12,7 @@ import logging
 import io
 import os
 import StringIO
+import stat
 import sys
 import tarfile
 import tempfile
@@ -25,6 +26,7 @@ import auth
 import isolated_format
 import isolateserver
 import isolate_storage
+import local_caching
 import test_utils
 from depot_tools import fix_encoding
 from utils import file_path
@@ -409,17 +411,12 @@ class StorageTest(TestCase):
   def test_async_push_upload_errors(self):
     chunk = 'data_chunk'
 
-    def _generator():
-      yield chunk
-
     def push_side_effect():
       raise IOError('Nope')
 
-    # TODO(vadimsh): Retrying push when fetching data from a generator is
-    # broken now (it reuses same generator instance when retrying).
     content_sources = (
-        # generator(),
         lambda: [chunk],
+        lambda: [(yield chunk)],
     )
 
     for use_zip in (False, True):
@@ -883,10 +880,11 @@ class IsolateServerStorageSmokeTest(unittest.TestCase):
     for item in items:
       pending.add(item.digest)
       queue.add(item.digest)
+      queue.wait_on(item.digest)
 
     # Wait for fetch to complete.
     while pending:
-      fetched = queue.wait(pending)
+      fetched = queue.wait()
       pending.discard(fetched)
 
     # Ensure fetched same data as was pushed.
@@ -958,6 +956,19 @@ class IsolateServerDownloadTest(TestCase):
           return result
     self.fail('Unknown request %s' % url)
 
+  def _get_actual(self):
+    actual = {}
+    for root, _dirs, files in os.walk(self.tempdir):
+      for item in files:
+        p = os.path.join(root, item)
+        with open(p, 'rb') as f:
+          content = f.read()
+        if os.path.islink(p):
+          actual[p] = (os.readlink(p), 0)
+        else:
+          actual[p] = (content, os.stat(p).st_mode & 0777)
+    return actual
+
   def setUp(self):
     super(IsolateServerDownloadTest, self).setUp()
     self._flagged_requests = []
@@ -1013,12 +1024,6 @@ class IsolateServerDownloadTest(TestCase):
 
   def test_download_isolated_simple(self):
     # Test downloading an isolated tree.
-    actual = {}
-    def putfile_mock(
-        srcfileobj, dstpath, file_mode=None, size=-1, use_symlink=False):
-      actual[dstpath] = srcfileobj.read()
-    self.mock(isolateserver, 'putfile', putfile_mock)
-    self.mock(os, 'makedirs', lambda _: None)
     server = 'http://example.com'
     files = {
       os.path.join('a', 'foo'): 'Content',
@@ -1027,14 +1032,30 @@ class IsolateServerDownloadTest(TestCase):
     isolated = {
       'command': ['Absurb', 'command'],
       'relative_cwd': 'a',
-      'files': dict(
-          (k, {'h': isolateserver_mock.hash_content(v), 's': len(v)})
-          for k, v in files.iteritems()),
+      'files': {
+        os.path.join('a', 'foo'): {
+          'h': isolateserver_mock.hash_content('Content'),
+          's': len('Content'),
+          'm': 0700,
+        },
+        'b': {
+          'h': isolateserver_mock.hash_content('More content'),
+          's': len('More content'),
+          'm': 0600,
+        },
+        'c': {
+          'l': 'a/foo',
+        },
+      },
+      'read_only': 1,
       'version': isolated_format.ISOLATED_FILE_VERSION,
     }
     isolated_data = json.dumps(isolated, sort_keys=True, separators=(',',':'))
     isolated_hash = isolateserver_mock.hash_content(isolated_data)
-    requests = [(v['h'], files[k]) for k, v in isolated['files'].iteritems()]
+    requests = [
+      (v['h'], files[k]) for k, v in isolated['files'].iteritems()
+      if 'h' in v
+    ]
     requests.append((isolated_hash, isolated_data))
     requests = [
       (
@@ -1062,8 +1083,12 @@ class IsolateServerDownloadTest(TestCase):
     ]
     self.expected_requests(requests)
     self.assertEqual(0, isolateserver.main(cmd))
-    expected = dict(
-        (os.path.join(self.tempdir, k), v) for k, v in files.iteritems())
+    expected = {
+      os.path.join(self.tempdir, 'a', 'foo'): ('Content', 0500),
+      os.path.join(self.tempdir, 'b'): ('More content', 0400),
+      os.path.join(self.tempdir, 'c'): (u'a/foo', 0),
+    }
+    actual = self._get_actual()
     self.assertEqual(expected, actual)
     expected_stdout = (
         'To run this test please run from the directory %s:\n  Absurb command\n'
@@ -1072,18 +1097,12 @@ class IsolateServerDownloadTest(TestCase):
 
   def test_download_isolated_tar_archive(self):
     # Test downloading an isolated tree.
-    actual = {}
-    def putfile_mock(
-        srcfileobj, dstpath, file_mode=None, size=-1, use_symlink=False):
-      actual[dstpath] = srcfileobj.read(size)
-    self.mock(isolateserver, 'putfile', putfile_mock)
-    self.mock(os, 'makedirs', lambda _: None)
     server = 'http://example.com'
 
     files = {
-      os.path.join('a', 'foo'): 'Content',
-      'b': 'More content',
-      'c': 'Even more content!',
+      os.path.join('a', 'foo'): ('Content', 0500),
+      'b': ('More content', 0400),
+      'c': ('Even more content!', 0500),
     }
 
     # Generate a tar archive
@@ -1093,12 +1112,14 @@ class IsolateServerDownloadTest(TestCase):
       f1.type = tarfile.REGTYPE
       f1.name = 'a/foo'
       f1.size = 7
+      f1.mode = 0570
       tar.addfile(f1, io.BytesIO('Content'))
 
       f2 = tarfile.TarInfo()
       f2.type = tarfile.REGTYPE
       f2.name = 'b'
       f2.size = 12
+      f2.mode = 0666
       tar.addfile(f2, io.BytesIO('More content'))
     archive = tf.getvalue()
 
@@ -1112,17 +1133,18 @@ class IsolateServerDownloadTest(TestCase):
           't': 'tar',
         },
         'c': {
-          'h': isolateserver_mock.hash_content(files['c']),
-          's': len(files['c']),
+          'h': isolateserver_mock.hash_content(files['c'][0]),
+          's': len(files['c'][0]),
         },
       },
+      'read_only': 1,
       'version': isolated_format.ISOLATED_FILE_VERSION,
     }
     isolated_data = json.dumps(isolated, sort_keys=True, separators=(',',':'))
     isolated_hash = isolateserver_mock.hash_content(isolated_data)
     requests = [
       (isolated['files']['archive1']['h'], archive),
-      (isolated['files']['c']['h'], files['c']),
+      (isolated['files']['c']['h'], files['c'][0]),
     ]
     requests.append((isolated_hash, isolated_data))
     requests = [
@@ -1153,6 +1175,7 @@ class IsolateServerDownloadTest(TestCase):
     self.assertEqual(0, isolateserver.main(cmd))
     expected = dict(
         (os.path.join(self.tempdir, k), v) for k, v in files.iteritems())
+    actual = self._get_actual()
     self.assertEqual(expected, actual)
     expected_stdout = (
         'To run this test please run from the directory %s:\n  Absurb command\n'
@@ -1266,7 +1289,11 @@ class DiskCacheTest(TestCase):
     self._free_disk = 1000
     # Max: 100 bytes, 2 items
     # Min free disk: 1000 bytes.
-    self._policies = isolateserver.CachePolicies(100, 1000, 2)
+    self._policies = local_caching.CachePolicies(
+        max_cache_size=100,
+        min_free_space=1000,
+        max_items=2,
+        max_age_secs=0)
     def get_free_space(p):
       self.assertEqual(p, self.tempdir)
       return self._free_disk
@@ -1274,9 +1301,9 @@ class DiskCacheTest(TestCase):
     # TODO(maruel): Test the following.
     #cache.touch()
 
-  def get_cache(self):
+  def get_cache(self, **kwargs):
     return isolateserver.DiskCache(
-        self.tempdir, self._policies, self._algo, trim=True)
+        self.tempdir, self._policies, self._algo, trim=True, **kwargs)
 
   def to_hash(self, content):
     return self._algo(content).hexdigest(), content
@@ -1310,8 +1337,14 @@ class DiskCacheTest(TestCase):
     for i in ('a', 'b', 'c', 'd'):
       cache.write(*self.to_hash(i))
     # Mapping more content than the amount of free disk required.
-    with self.assertRaises(isolateserver.Error):
+    with self.assertRaises(isolateserver.Error) as cm:
       cache.write(*self.to_hash('e'))
+    expected = (
+        'Not enough space to fetch the whole isolated tree.\n'
+        '  CachePolicies(max_cache_size=100; max_items=2; min_free_space=1000; '
+          'max_age_secs=0)\n'
+        '  cache=6bytes, 6 items; 999b free_space')
+    self.assertEqual(expected, cm.exception.message)
 
   def test_cleanup(self):
     # Inject an item without a state.json, one is lost. Both will be deleted on
@@ -1375,7 +1408,11 @@ class DiskCacheTest(TestCase):
         sorted([h_b, h_c, u'state.json']), sorted(os.listdir(self.tempdir)))
 
     # Allow 3 items and 101 bytes so h_large is kept.
-    self._policies = isolateserver.CachePolicies(101, 1000, 3)
+    self._policies = local_caching.CachePolicies(
+        max_cache_size=101,
+        min_free_space=1000,
+        max_items=3,
+        max_age_secs=0)
     with self.get_cache() as cache:
       cache.write(h_large, large)
       self.assertEqual(2, cache.initial_number_items)
@@ -1386,13 +1423,35 @@ class DiskCacheTest(TestCase):
         sorted(os.listdir(self.tempdir)))
 
     # Assert that trimming is done in constructor too.
-    self._policies = isolateserver.CachePolicies(100, 1000, 2)
+    self._policies = local_caching.CachePolicies(
+        max_cache_size=100,
+        min_free_space=1000,
+        max_items=2,
+        max_age_secs=0)
     with self.get_cache() as cache:
       assertItems([(h_c, 1), (h_large, len(large))])
       self.assertEqual(None, cache._protected)
       self.assertEqual(1101, cache._free_disk)
       self.assertEqual(2, cache.initial_number_items)
       self.assertEqual(100, cache.initial_size)
+
+  def test_policies_trim_old(self):
+    # Add two items, one 3 weeks and one minute old, one recent, make sure the
+    # old one is trimmed.
+    self._policies = local_caching.CachePolicies(
+        max_cache_size=1000,
+        min_free_space=0,
+        max_items=1000,
+        max_age_secs=21*24*60*60)
+    now = 100
+    c = self.get_cache(time_fn=lambda: now)
+    # Test the very limit of 3 weeks:
+    c.write(hashlib.sha1('old').hexdigest(), 'old')
+    now += 1
+    c.write(hashlib.sha1('recent').hexdigest(), 'recent')
+    now += 21*24*60*60
+    c.trim()
+    self.assertEqual(set([hashlib.sha1('recent').hexdigest()]), c.cached_set())
 
   def test_some_file_brutally_deleted(self):
     h_a = self.to_hash('a')[0]

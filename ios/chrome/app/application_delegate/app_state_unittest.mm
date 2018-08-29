@@ -187,7 +187,7 @@ class AppStateTest : public BlockCleanupTest {
   void swizzleMetricsMediatorDisableReporting() {
     metrics_mediator_called_ = NO;
 
-    metrics_mediator_swizzle_block_ = ^() {
+    metrics_mediator_swizzle_block_ = ^{
       metrics_mediator_called_ = YES;
     };
 
@@ -236,7 +236,7 @@ class AppStateTest : public BlockCleanupTest {
 
     stubNullCurrentBrowserState(browser_view_information_);
 
-    void (^swizzleBlock)() = ^() {
+    void (^swizzleBlock)() = ^{
     };
 
     ScopedBlockSwizzler swizzler(
@@ -524,14 +524,10 @@ TEST_F(AppStateWithThreadTest, willTerminate) {
   id window = [OCMockObject mockForClass:[UIWindow class]];
   id browserViewInformation =
       [OCMockObject mockForProtocol:@protocol(BrowserViewInformation)];
-  id mainTabModel = [OCMockObject mockForClass:[TabModel class]];
-  id OTRTabModel = [OCMockObject mockForClass:[TabModel class]];
   [[[browserLauncher stub] andReturnValue:@(INITIALIZATION_STAGE_FOREGROUND)]
       browserInitializationStage];
   [[[browserLauncher stub] andReturn:browserViewInformation]
       browserViewInformation];
-  [[[browserViewInformation stub] andReturn:mainTabModel] mainTabModel];
-  [[[browserViewInformation stub] andReturn:OTRTabModel] otrTabModel];
   [[[browserViewInformation stub] andReturn:browserViewController] currentBVC];
 
   id settingsNavigationController =
@@ -543,11 +539,7 @@ TEST_F(AppStateWithThreadTest, willTerminate) {
   [[appNavigation expect] closeSettingsAnimated:NO completion:nil];
 
   [[browserViewInformation expect] cleanDeviceSharingManager];
-
-  [[mainTabModel expect] haltAllTabs];
-
-  [[OTRTabModel expect] closeAllTabs];
-  [[OTRTabModel expect] saveSessionImmediately:YES];
+  [[browserViewInformation expect] haltAllTabs];
 
   id startupInformation =
       [OCMockObject mockForProtocol:@protocol(StartupInformation)];
@@ -566,8 +558,6 @@ TEST_F(AppStateWithThreadTest, willTerminate) {
                applicationNavigation:appNavigation];
 
   // Test.
-  EXPECT_OCMOCK_VERIFY(OTRTabModel);
-  EXPECT_OCMOCK_VERIFY(mainTabModel);
   EXPECT_OCMOCK_VERIFY(browserViewController);
   EXPECT_OCMOCK_VERIFY(startupInformation);
   EXPECT_OCMOCK_VERIFY(appNavigation);
@@ -765,7 +755,7 @@ TEST_F(AppStateTest, applicationWillEnterForeground) {
 
   stubNullCurrentBrowserState(browserViewInformation);
 
-  void (^swizzleBlock)() = ^() {
+  void (^swizzleBlock)() = ^{
   };
 
   ScopedBlockSwizzler swizzler(

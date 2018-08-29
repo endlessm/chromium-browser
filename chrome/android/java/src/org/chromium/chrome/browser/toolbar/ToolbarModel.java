@@ -5,10 +5,13 @@
 package org.chromium.chrome.browser.toolbar;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
+import android.content.res.Resources;
 import android.support.annotation.DrawableRes;
 import android.support.annotation.Nullable;
 import android.text.TextUtils;
 
+import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
@@ -23,6 +26,7 @@ import org.chromium.chrome.browser.ntp.NativePageFactory;
 import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.offlinepages.OfflinePageUtils;
 import org.chromium.chrome.browser.omnibox.AutocompleteController;
+import org.chromium.chrome.browser.omnibox.UrlBarData;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.search_engines.TemplateUrlService;
 import org.chromium.chrome.browser.tab.Tab;
@@ -39,8 +43,10 @@ import java.net.URI;
  * Provides a way of accessing toolbar data and state.
  */
 public class ToolbarModel implements ToolbarDataProvider {
+    private final Context mContext;
     private final BottomSheet mBottomSheet;
     private final boolean mUseModernDesign;
+
     private Tab mTab;
     private boolean mIsIncognito;
     private int mPrimaryColor;
@@ -57,15 +63,18 @@ public class ToolbarModel implements ToolbarDataProvider {
 
     /**
      * Default constructor for this class.
+     * @param context The Context used for styling the toolbar visuals.
      * @param bottomSheet The {@link BottomSheet} for the activity displaying this toolbar.
      * @param useModernDesign Whether the modern design should be used for the toolbar represented
      *                        by this model.
      */
-    public ToolbarModel(@Nullable BottomSheet bottomSheet, boolean useModernDesign) {
+    public ToolbarModel(
+            Context context, @Nullable BottomSheet bottomSheet, boolean useModernDesign) {
+        mContext = context;
         mBottomSheet = bottomSheet;
         mUseModernDesign = useModernDesign;
-        mPrimaryColor = ColorUtils.getDefaultThemeColor(
-                ContextUtils.getApplicationContext().getResources(), useModernDesign, false);
+        mPrimaryColor =
+                ColorUtils.getDefaultThemeColor(context.getResources(), useModernDesign, false);
     }
 
     /**
@@ -137,95 +146,64 @@ public class ToolbarModel implements ToolbarDataProvider {
         return null;
     }
 
-    /**
-     * @return Whether a truncated URL should be shown in the display (non-editing) state of the
-     *         omnibox.
-     */
-    private boolean useTruncatedUrlForDisplay() {
-        if (!hasTab() || mTab.isFrozen()) return false;
-
-        if (!ChromeFeatureList.isEnabled(
-                    ChromeFeatureList.OMNIBOX_HIDE_SCHEME_DOMAIN_IN_STEADY_STATE)) {
-            return false;
-        }
-
-        String url = getCurrentUrl();
-        if (DomDistillerUrlUtils.isDistilledPage(url)) return false;
-        if (isOfflinePage()) return false;
-        if (shouldDisplaySearchTerms()) return false;
-        if (NativePageFactory.isNativePageUrl(url, isIncognito()) || NewTabPage.isNTPUrl(url)) {
-            return false;
-        }
-
-        return true;
-    }
-
     @Override
-    public String getDisplayText() {
-        if (useTruncatedUrlForDisplay()) {
-            return getUrlForDisplay();
-        } else {
-            return getTextSuitableForEditing(false);
-        }
-    }
-
-    @Override
-    public String getEditingText() {
-        return getTextSuitableForEditing(true);
-    }
-
-    /**
-     * Generate the text that would be suitable to be shown while the user is editing the omnibox.
-     * This should be a closer approximation to the actual URL than that shown as the display URL.
-     *
-     * @param isEditing Whether the user is currently editing the omnibox.  A null return value
-     *                  while in editing, will ensure the original display text will be untouched.
-     * @return The more verbose text that is suitable for editing.
-     */
-    private String getTextSuitableForEditing(boolean isEditing) {
-        if (!hasTab()) return isEditing ? null : "";
+    public UrlBarData getUrlBarData() {
+        if (!hasTab()) return UrlBarData.EMPTY;
 
         String url = getCurrentUrl();
         if (NativePageFactory.isNativePageUrl(url, isIncognito()) || NewTabPage.isNTPUrl(url)) {
-            return isEditing ? null : "";
+            return UrlBarData.EMPTY;
         }
 
-        String editingText = getFormattedFullUrl();
-        if (mTab.isFrozen()) return editingText;
+        String formattedUrl = getFormattedFullUrl();
+        if (mTab.isFrozen()) return UrlBarData.forUrlAndText(url, formattedUrl);
 
-        if (isEditing && isShowingUntrustedOfflinePage()) {
-            editingText = "";
-        } else if (DomDistillerUrlUtils.isDistilledPage(url)) {
-            if (isStoredArticle(url)) {
-                DomDistillerService domDistillerService =
-                        DomDistillerServiceFactory.getForProfile(getProfile());
-                String originalUrl = domDistillerService.getUrlForEntry(
-                        DomDistillerUrlUtils.getValueForKeyInUrl(url, "entry_id"));
-                editingText =
-                        DomDistillerTabUtils.getFormattedUrlFromOriginalDistillerUrl(originalUrl);
-            } else if (DomDistillerUrlUtils.getOriginalUrlFromDistillerUrl(url) != null) {
-                String originalUrl = DomDistillerUrlUtils.getOriginalUrlFromDistillerUrl(url);
-                editingText =
-                        DomDistillerTabUtils.getFormattedUrlFromOriginalDistillerUrl(originalUrl);
+        if (DomDistillerUrlUtils.isDistilledPage(url)) {
+            DomDistillerService domDistillerService =
+                    DomDistillerServiceFactory.getForProfile(getProfile());
+            String entryIdFromUrl = DomDistillerUrlUtils.getValueForKeyInUrl(url, "entry_id");
+            if (!TextUtils.isEmpty(entryIdFromUrl)
+                    && domDistillerService.hasEntry(entryIdFromUrl)) {
+                String originalUrl = domDistillerService.getUrlForEntry(entryIdFromUrl);
+                return UrlBarData.forUrl(
+                        DomDistillerTabUtils.getFormattedUrlFromOriginalDistillerUrl(originalUrl));
             }
-        } else if (isOfflinePage()) {
-            String originalUrl = mTab.getOriginalUrl();
-            editingText = OfflinePageUtils.stripSchemeFromOnlineUrl(
-                    DomDistillerTabUtils.getFormattedUrlFromOriginalDistillerUrl(originalUrl));
-        } else if (shouldDisplaySearchTerms()) {
-            // Show the search terms in the omnibox instead of the URL if this is a DSE search URL.
-            editingText = getDisplaySearchTerms(url);
+
+            String originalUrl = DomDistillerUrlUtils.getOriginalUrlFromDistillerUrl(url);
+            if (originalUrl != null) {
+                return UrlBarData.forUrl(
+                        DomDistillerTabUtils.getFormattedUrlFromOriginalDistillerUrl(originalUrl));
+            }
+            return UrlBarData.forUrlAndText(url, formattedUrl);
         }
 
-        return editingText;
-    }
+        if (isOfflinePage()) {
+            String originalUrl = mTab.getOriginalUrl();
+            formattedUrl = OfflinePageUtils.stripSchemeFromOnlineUrl(
+                    DomDistillerTabUtils.getFormattedUrlFromOriginalDistillerUrl(originalUrl));
 
-    private boolean isStoredArticle(String url) {
-        DomDistillerService domDistillerService =
-                DomDistillerServiceFactory.getForProfile(getProfile());
-        String entryIdFromUrl = DomDistillerUrlUtils.getValueForKeyInUrl(url, "entry_id");
-        if (TextUtils.isEmpty(entryIdFromUrl)) return false;
-        return domDistillerService.hasEntry(entryIdFromUrl);
+            // Clear the editing text for untrusted offline pages.
+            if (!OfflinePageUtils.isShowingTrustedOfflinePage(mTab)) {
+                return UrlBarData.forUrlAndText(url, formattedUrl, "");
+            }
+
+            return UrlBarData.forUrlAndText(url, formattedUrl);
+        }
+
+        if (shouldDisplaySearchTerms()) {
+            // Show the search terms in the omnibox instead of the URL if this is a DSE search URL.
+            return UrlBarData.forUrlAndText(url, getDisplaySearchTerms());
+        }
+
+        if (ChromeFeatureList.isEnabled(
+                    ChromeFeatureList.OMNIBOX_HIDE_SCHEME_DOMAIN_IN_STEADY_STATE)) {
+            String urlForDisplay = getUrlForDisplay();
+            if (!urlForDisplay.equals(formattedUrl)) {
+                return UrlBarData.forUrlAndText(url, urlForDisplay, formattedUrl);
+            }
+        }
+
+        return UrlBarData.forUrlAndText(url, formattedUrl);
     }
 
     @Override
@@ -282,11 +260,6 @@ public class ToolbarModel implements ToolbarDataProvider {
     @Override
     public boolean isOfflinePage() {
         return hasTab() && OfflinePageUtils.isOfflinePage(mTab);
-    }
-
-    @Override
-    public boolean isShowingUntrustedOfflinePage() {
-        return isOfflinePage() && !OfflinePageUtils.isShowingTrustedOfflinePage(mTab);
     }
 
     @Override
@@ -377,15 +350,48 @@ public class ToolbarModel implements ToolbarDataProvider {
     }
 
     @Override
-    public boolean shouldDisplaySearchTerms() {
-        return (mIgnoreSecurityLevelForSearchTerms || securityLevelSafeForQueryInOmnibox())
-                && isUrlApplicableToDisplaySearchTerms(getCurrentUrl());
+    public ColorStateList getSecurityIconColorStateList() {
+        int securityLevel = getSecurityLevel();
+
+        Resources resources = mContext.getResources();
+        ColorStateList list = null;
+        int color = getPrimaryColor();
+        boolean needLightIcon = ColorUtils.shouldUseLightForegroundOnBackground(color);
+        if (isIncognito() || needLightIcon) {
+            // For a dark theme color, use light icons.
+            list = ApiCompatibilityUtils.getColorStateList(resources, R.color.light_mode_tint);
+        } else if (!hasTab() || isUsingBrandColor()
+                || ChromeFeatureList.isEnabled(
+                           ChromeFeatureList.OMNIBOX_HIDE_SCHEME_DOMAIN_IN_STEADY_STATE)) {
+            // For theme colors which are not dark and are also not
+            // light enough to warrant an opaque URL bar, use dark
+            // icons.
+            list = ApiCompatibilityUtils.getColorStateList(resources, R.color.dark_mode_tint);
+        } else {
+            // For the default toolbar color, use a green or red icon.
+            if (securityLevel == ConnectionSecurityLevel.DANGEROUS) {
+                assert !shouldDisplaySearchTerms();
+                list = ApiCompatibilityUtils.getColorStateList(resources, R.color.google_red_700);
+            } else if (!shouldDisplaySearchTerms()
+                    && (securityLevel == ConnectionSecurityLevel.SECURE
+                               || securityLevel == ConnectionSecurityLevel.EV_SECURE)) {
+                list = ApiCompatibilityUtils.getColorStateList(resources, R.color.google_green_700);
+            } else {
+                list = ApiCompatibilityUtils.getColorStateList(resources, R.color.dark_mode_tint);
+            }
+        }
+        assert list != null : "Missing ColorStateList for Security Button.";
+        return list;
     }
 
-    private boolean isUrlApplicableToDisplaySearchTerms(String url) {
+    @Override
+    public boolean shouldDisplaySearchTerms() {
+        if (!securityLevelSafeForQueryInOmnibox() && !mIgnoreSecurityLevelForSearchTerms) {
+            return false;
+        }
         if (!mQueryInOmniboxEnabled) return false;
         if (mTab != null && !(mTab.getActivity() instanceof ChromeTabbedActivity)) return false;
-        if (TextUtils.isEmpty(getDisplaySearchTerms(url))) return false;
+        if (TextUtils.isEmpty(getDisplaySearchTerms())) return false;
         return true;
     }
 
@@ -396,17 +402,17 @@ public class ToolbarModel implements ToolbarDataProvider {
     }
 
     /**
-     * Extracts query terms from a URL if it's a SRP URL from the default search engine, caching
-     * the result of the more expensive call to {@link #getDisplaySearchTermsInternal}.
+     * Extracts query terms from the current URL if it's a SRP URL from the default search engine,
+     * caching the result of the more expensive call to {@link #getDisplaySearchTermsInternal}.
      *
-     * @param url The URL to extract search terms from.
      * @return The search terms. Returns null if not a DSE SRP URL or there are no search terms to
      *         extract, if query in omnibox is disabled, or if the security level is insufficient to
      *         display search terms in place of SRP URL. This will also return nothing if the search
      *         terms look too much like a URL, since we don't want to display URL look-a-likes with
      *         "Query in Omnibox" to avoid confusion.
      */
-    private String getDisplaySearchTerms(String url) {
+    private String getDisplaySearchTerms() {
+        String url = getCurrentUrl();
         if (url == null) {
             mCachedSearchTerms = null;
         } else {
@@ -465,13 +471,13 @@ public class ToolbarModel implements ToolbarDataProvider {
 
     /** @return The formatted URL suitable for editing. */
     public String getFormattedFullUrl() {
-        if (mNativeToolbarModelAndroid == 0) return null;
+        if (mNativeToolbarModelAndroid == 0) return "";
         return nativeGetFormattedFullURL(mNativeToolbarModelAndroid);
     }
 
     /** @return The formatted URL suitable for display only. */
     public String getUrlForDisplay() {
-        if (mNativeToolbarModelAndroid == 0) return null;
+        if (mNativeToolbarModelAndroid == 0) return "";
         return nativeGetURLForDisplay(mNativeToolbarModelAndroid);
     }
 

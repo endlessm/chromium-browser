@@ -4,6 +4,9 @@
 
 #include "ash/public/cpp/ash_features.h"
 
+#include "ash/public/cpp/ash_switches.h"
+#include "base/command_line.h"
+
 namespace ash {
 namespace features {
 
@@ -13,14 +16,20 @@ const base::Feature kDisplayMoveWindowAccels{"DisplayMoveWindowAccels",
 const base::Feature kDockedMagnifier{"DockedMagnifier",
                                      base::FEATURE_ENABLED_BY_DEFAULT};
 
+const base::Feature kDragTabsInTabletMode{"DragTabsInTabletMode",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
+
 const base::Feature kKeyboardShortcutViewer{"KeyboardShortcutViewer",
                                             base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kLockScreenNotifications{"LockScreenNotifications",
+                                             base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kNewOverviewAnimations{"NewOverviewAnimations",
                                            base::FEATURE_ENABLED_BY_DEFAULT};
 
-const base::Feature kNewOverviewUi{"NewOverviewUi",
-                                   base::FEATURE_ENABLED_BY_DEFAULT};
+const base::Feature kOverviewSwipeToClose{"OverviewSwipeToClose",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kPersistentWindowBounds{"PersistentWindowBounds",
                                             base::FEATURE_ENABLED_BY_DEFAULT};
@@ -28,14 +37,14 @@ const base::Feature kPersistentWindowBounds{"PersistentWindowBounds",
 const base::Feature kSystemTrayUnified{"SystemTrayUnified",
                                        base::FEATURE_DISABLED_BY_DEFAULT};
 
+const base::Feature kTapVisualizerApp{"TapVisualizerApp",
+                                      base::FEATURE_ENABLED_BY_DEFAULT};
+
 const base::Feature kTrilinearFiltering{"TrilinearFiltering",
                                         base::FEATURE_ENABLED_BY_DEFAULT};
 
-const base::Feature kLockScreenNotifications{"LockScreenNotifications",
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
-
-const base::Feature kModeSpecificPowerButton{"ModeSpecificPowerButton",
-                                             base::FEATURE_ENABLED_BY_DEFAULT};
+const base::Feature kViewsLogin{"ViewsLogin",
+                                base::FEATURE_DISABLED_BY_DEFAULT};
 
 bool IsDisplayMoveWindowAccelsEnabled() {
   return base::FeatureList::IsEnabled(kDisplayMoveWindowAccels);
@@ -47,6 +56,10 @@ bool IsDockedMagnifierEnabled() {
 
 bool IsKeyboardShortcutViewerEnabled() {
   return base::FeatureList::IsEnabled(kKeyboardShortcutViewer);
+}
+
+bool IsLockScreenNotificationsEnabled() {
+  return base::FeatureList::IsEnabled(kLockScreenNotifications);
 }
 
 bool IsPersistentWindowBoundsEnabled() {
@@ -63,12 +76,13 @@ bool IsTrilinearFilteringEnabled() {
   return use_trilinear_filtering;
 }
 
-bool IsLockScreenNotificationsEnabled() {
-  return base::FeatureList::IsEnabled(kLockScreenNotifications);
-}
-
-bool IsModeSpecificPowerButtonEnabled() {
-  return base::FeatureList::IsEnabled(kModeSpecificPowerButton);
+bool IsViewsLoginEnabled() {
+  // Always show webui login if --show-webui-login is present, which is passed
+  // by session manager for automatic recovery. Otherwise, only show views login
+  // if the feature is enabled.
+  return !base::CommandLine::ForCurrentProcess()->HasSwitch(
+             ash::switches::kShowWebUiLogin) &&
+         base::FeatureList::IsEnabled(kViewsLogin);
 }
 
 }  // namespace features

@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "ash/display/display_configuration_controller_test_api.h"
+#include "ash/display/screen_ash.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/config.h"
 #include "ash/shell.h"
@@ -34,7 +35,6 @@
 #include "components/prefs/testing_pref_service.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/dbus/bluez_dbus_manager.h"
-#include "services/ui/public/cpp/input_devices/input_device_client.h"
 #include "ui/aura/env.h"
 #include "ui/aura/input_state_lookup.h"
 #include "ui/aura/mus/window_tree_client.h"
@@ -70,7 +70,11 @@ AshTestHelper::AshTestHelper(AshTestEnvironment* ash_test_environment)
   aura::test::InitializeAuraEventGeneratorDelegate();
 }
 
-AshTestHelper::~AshTestHelper() = default;
+AshTestHelper::~AshTestHelper() {
+  // Ensure the next test starts with a null display::Screen. Done here because
+  // some tests use Screen after TearDown().
+  ScreenAsh::DeleteScreenForShutdown();
+}
 
 void AshTestHelper::SetUp(bool start_session, bool provide_local_state) {
   // TODO(jamescook): Can we do this without changing command line?
@@ -94,11 +98,6 @@ void AshTestHelper::SetUp(bool start_session, bool provide_local_state) {
         switches::kAshDisableSmoothScreenRotation);
   }
 
-  // Allow for other code to have created InputDeviceManager (such as the
-  // test-suite).
-  if (config_ == Config::MUS && !ui::InputDeviceManager::HasInstance())
-    input_device_client_ = std::make_unique<ui::InputDeviceClient>();
-
   display::ResetDisplayIdForTest();
   if (config_ != Config::CLASSIC)
     aura::test::EnvTestHelper().SetAlwaysUseLastMouseLocation(true);
@@ -111,18 +110,6 @@ void AshTestHelper::SetUp(bool start_session, bool provide_local_state) {
   zero_duration_mode_.reset(new ui::ScopedAnimationDurationScaleMode(
       ui::ScopedAnimationDurationScaleMode::ZERO_DURATION));
   ui::InitializeInputMethodForTesting();
-
-  if (config_ == Config::MUS &&
-      !base::FeatureList::IsEnabled(features::kMash)) {
-    ui::ContextFactory* context_factory = nullptr;
-    ui::ContextFactoryPrivate* context_factory_private = nullptr;
-    ui::InitializeContextFactoryForTests(false /* enable_pixel_output */,
-                                         &context_factory,
-                                         &context_factory_private);
-    auto* env = aura::Env::GetInstance();
-    env->set_context_factory(context_factory);
-    env->set_context_factory_private(context_factory_private);
-  }
 
   // Creates Shell and hook with Desktop.
   if (!test_shell_delegate_)
@@ -183,7 +170,7 @@ void AshTestHelper::SetUp(bool start_session, bool provide_local_state) {
 
   if (provide_local_state) {
     auto pref_service = std::make_unique<TestingPrefServiceSimple>();
-    Shell::RegisterLocalStatePrefs(pref_service->registry());
+    Shell::RegisterLocalStatePrefs(pref_service->registry(), true);
     Shell::Get()->OnLocalStatePrefServiceInitialized(std::move(pref_service));
   }
 
@@ -244,15 +231,14 @@ void AshTestHelper::TearDown() {
     dbus_thread_manager_initialized_ = false;
   }
 
-  ui::TerminateContextFactoryForTests();
+  if (config_ == Config::CLASSIC)
+    ui::TerminateContextFactoryForTests();
 
   ui::ShutdownInputMethodForTesting();
   zero_duration_mode_.reset();
 
   test_views_delegate_.reset();
   wm_state_.reset();
-
-  input_device_client_.reset();
 
   command_line_.reset();
 
@@ -273,6 +259,7 @@ void AshTestHelper::NotifyClientAboutAcceleratedWidgets() {
     return;
   if (base::FeatureList::IsEnabled(features::kMash))
     return;
+  // TODO(crbug.com/841941): Remove this. Config::MUS is deprecated.
   Shell* shell = Shell::Get();
   window_tree_client_setup_.NotifyClientAboutAcceleratedWidgets(
       shell->display_manager());
@@ -295,13 +282,13 @@ display::Display AshTestHelper::GetSecondaryDisplay() {
 }
 
 void AshTestHelper::CreateMashWindowManager() {
-  CHECK(config_ != Config::CLASSIC);
+  CHECK_EQ(config_, Config::MASH);
   const bool show_primary_root_on_connect = false;
   window_manager_service_ =
       std::make_unique<WindowManagerService>(show_primary_root_on_connect);
 
   window_manager_service_->window_manager_.reset(
-      new WindowManager(nullptr, config_, show_primary_root_on_connect));
+      new WindowManager(nullptr, show_primary_root_on_connect));
   window_manager_service_->window_manager()->shell_delegate_.reset(
       test_shell_delegate_);
 

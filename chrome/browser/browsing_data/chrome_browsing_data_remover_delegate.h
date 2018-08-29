@@ -187,6 +187,11 @@ class ChromeBrowsingDataRemoverDelegate
   // created by this method have been invoked.
   base::OnceClosure CreatePendingTaskCompletionClosure();
 
+  // Same as CreatePendingTaskCompletionClosure() but guarantees that
+  // OnTaskComplete() is called if the task is dropped. That can typically
+  // happen when the connection is closed while an interface call is made.
+  base::OnceClosure CreatePendingTaskCompletionClosureForMojo();
+
   // Callback for when TemplateURLService has finished loading. Clears the data,
   // clears the respective waiting flag, and invokes NotifyIfDone.
   void OnKeywordsLoaded(base::RepeatingCallback<bool(const GURL&)> url_filter,
@@ -195,9 +200,6 @@ class ChromeBrowsingDataRemoverDelegate
 #if defined (OS_CHROMEOS)
   void OnClearPlatformKeys(base::OnceClosure done, base::Optional<bool> result);
 #endif
-
-  // Callback for when cookies have been deleted. Invokes NotifyIfDone.
-  void OnClearedCookies(base::OnceClosure done);
 
 #if BUILDFLAG(ENABLE_PLUGINS)
   // Called when plugin data has been cleared. Invokes NotifyIfDone.

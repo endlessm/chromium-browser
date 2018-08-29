@@ -128,6 +128,7 @@ def mem_mm_16 : Operand<i32> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops ptr_rc, simm16);
   let EncoderMethod = "getMemEncodingMMImm16";
+  let DecoderMethod = "DecodeMemMMImm16";
   let ParserMatchClass = MipsMemSimm16AsmOperand;
   let OperandType = "OPERAND_MEMORY";
 }
@@ -201,6 +202,9 @@ class LoadLeftRightMM<string opstr, SDNode OpNode, RegisterOperand RO,
          Itin, FrmI> {
   let DecoderMethod = "DecodeMemMMImm12";
   string Constraints = "$src = $rt";
+  let BaseOpcode = opstr;
+  bit mayLoad = 1;
+  bit mayStore = 0;
 }
 
 class StoreLeftRightMM<string opstr, SDNode OpNode, RegisterOperand RO,
@@ -209,6 +213,9 @@ class StoreLeftRightMM<string opstr, SDNode OpNode, RegisterOperand RO,
          !strconcat(opstr, "\t$rt, $addr"),
          [(OpNode RO:$rt, addrimm12:$addr)], Itin, FrmI> {
   let DecoderMethod = "DecodeMemMMImm12";
+  let BaseOpcode = opstr;
+  bit mayLoad = 0;
+  bit mayStore = 1;
 }
 
 /// A register pair used by movep instruction.
@@ -588,6 +595,31 @@ class UncondBranchMM16<string opstr> :
   let Defs = [AT];
 }
 
+class HypcallMM<string opstr> :
+  InstSE<(outs), (ins uimm10:$code_),
+          !strconcat(opstr, "\t$code_"), [], II_HYPCALL, FrmOther> {
+  let BaseOpcode = opstr;
+}
+
+class TLBINVMM<string opstr, InstrItinClass Itin> :
+  InstSE<(outs), (ins), opstr, [], Itin, FrmOther> {
+  let BaseOpcode = opstr;
+}
+
+class MfCop0MM<string opstr, RegisterOperand DstRC,
+               RegisterOperand SrcRC, InstrItinClass Itin> :
+  InstSE<(outs DstRC:$rt), (ins SrcRC:$rs, uimm3:$sel),
+          !strconcat(opstr, "\t$rt, $rs, $sel"), [], Itin, FrmR> {
+  let BaseOpcode = opstr;
+}
+
+class MtCop0MM<string opstr, RegisterOperand DstRC,
+               RegisterOperand SrcRC, InstrItinClass Itin> :
+  InstSE<(outs DstRC:$rs), (ins SrcRC:$rt, uimm3:$sel),
+          !strconcat(opstr, "\t$rt, $rs, $sel"), [], Itin, FrmR> {
+  let BaseOpcode = opstr;
+}
+
 def ADDU16_MM : ArithRMM16<"addu16", GPRMM16Opnd, 1, II_ADDU, add>,
     ARITH_FM_MM16<0>, ISA_MICROMIPS_NOT_32R6;
 def AND16_MM : LogicRMM16<"and16", GPRMM16Opnd, II_AND, and>,
@@ -737,17 +769,17 @@ let DecoderNamespace = "MicroMips", Predicates = [InMicroMips] in {
 
   /// Shift Instructions
   def SLL_MM   : MMRel, shift_rotate_imm<"sll", uimm5, GPR32Opnd, II_SLL>,
-                 SRA_FM_MM<0, 0>;
+                 SRA_FM_MM<0, 0>, ISA_MICROMIPS;
   def SRL_MM   : MMRel, shift_rotate_imm<"srl", uimm5, GPR32Opnd, II_SRL>,
-                 SRA_FM_MM<0x40, 0>;
+                 SRA_FM_MM<0x40, 0>, ISA_MICROMIPS;
   def SRA_MM   : MMRel, shift_rotate_imm<"sra", uimm5, GPR32Opnd, II_SRA>,
-                 SRA_FM_MM<0x80, 0>;
+                 SRA_FM_MM<0x80, 0>, ISA_MICROMIPS;
   def SLLV_MM  : MMRel, shift_rotate_reg<"sllv", GPR32Opnd, II_SLLV>,
-                 SRLV_FM_MM<0x10, 0>;
+                 SRLV_FM_MM<0x10, 0>, ISA_MICROMIPS;
   def SRLV_MM  : MMRel, shift_rotate_reg<"srlv", GPR32Opnd, II_SRLV>,
-                 SRLV_FM_MM<0x50, 0>;
+                 SRLV_FM_MM<0x50, 0>, ISA_MICROMIPS;
   def SRAV_MM  : MMRel, shift_rotate_reg<"srav", GPR32Opnd, II_SRAV>,
-                 SRLV_FM_MM<0x90, 0>;
+                 SRLV_FM_MM<0x90, 0>, ISA_MICROMIPS;
   def ROTR_MM  : MMRel, shift_rotate_imm<"rotr", uimm5, GPR32Opnd, II_ROTR>,
                  SRA_FM_MM<0xc0, 0> {
     list<dag> Pattern = [(set GPR32Opnd:$rd,
@@ -761,21 +793,22 @@ let DecoderNamespace = "MicroMips", Predicates = [InMicroMips] in {
 
   /// Load and Store Instructions - aligned
   let DecoderMethod = "DecodeMemMMImm16" in {
-    def LB_MM  : LoadMemory<"lb", GPR32Opnd, mem_mm_16, null_frag, II_LB>,
-                 MMRel, LW_FM_MM<0x7>;
-    def LBu_MM : LoadMemory<"lbu", GPR32Opnd, mem_mm_16, null_frag, II_LBU>,
-                 MMRel, LW_FM_MM<0x5>;
-    def LH_MM  : LoadMemory<"lh", GPR32Opnd, mem_simm16, sextloadi16, II_LH,
-                            addrDefault>, MMRel, LW_FM_MM<0xf>;
-    def LHu_MM : LoadMemory<"lhu", GPR32Opnd, mem_simm16, zextloadi16, II_LHU>,
-                 MMRel, LW_FM_MM<0xd>;
-    def LW_MM  : Load<"lw", GPR32Opnd, null_frag, II_LW>, MMRel, LW_FM_MM<0x3f>;
-    def SB_MM  : Store<"sb", GPR32Opnd, null_frag, II_SB>, MMRel,
-                 LW_FM_MM<0x6>;
-    def SH_MM  : Store<"sh", GPR32Opnd, null_frag, II_SH>, MMRel,
-                 LW_FM_MM<0xe>;
+    def LB_MM  : LoadMemory<"lb", GPR32Opnd, mem_mm_16, sextloadi8, II_LB>,
+                 MMRel, LW_FM_MM<0x7>, ISA_MICROMIPS;
+    def LBu_MM : LoadMemory<"lbu", GPR32Opnd, mem_mm_16, zextloadi8, II_LBU>,
+                 MMRel, LW_FM_MM<0x5>, ISA_MICROMIPS;
+    def LH_MM  : LoadMemory<"lh", GPR32Opnd, mem_simmptr, sextloadi16, II_LH,
+                            addrDefault>, MMRel, LW_FM_MM<0xf>, ISA_MICROMIPS;
+    def LHu_MM : LoadMemory<"lhu", GPR32Opnd, mem_simmptr, zextloadi16, II_LHU>,
+                 MMRel, LW_FM_MM<0xd>, ISA_MICROMIPS;
+    def LW_MM  : Load<"lw", GPR32Opnd, null_frag, II_LW>, MMRel, LW_FM_MM<0x3f>,
+                 ISA_MICROMIPS;
+    def SB_MM  : Store<"sb", GPR32Opnd, truncstorei8, II_SB>, MMRel,
+                 LW_FM_MM<0x6>, ISA_MICROMIPS;
+    def SH_MM  : Store<"sh", GPR32Opnd, truncstorei16, II_SH>, MMRel,
+                 LW_FM_MM<0xe>, ISA_MICROMIPS;
     def SW_MM  : Store<"sw", GPR32Opnd, null_frag, II_SW>, MMRel,
-                 LW_FM_MM<0x3e>;
+                 LW_FM_MM<0x3e>, ISA_MICROMIPS;
   }
 }
 let DecoderNamespace = "MicroMips" in {
@@ -819,27 +852,32 @@ let DecoderNamespace = "MicroMips" in {
                   POOL32C_STEVA_LDEVA_FM_MM<0xa, 0x1>,
                   ISA_MICROMIPS32_NOT_MIPS32R6, ASE_EVA;
   }
-}
-let DecoderNamespace = "MicroMips", Predicates = [InMicroMips] in {
-  def LWXS_MM : LoadWordIndexedScaledMM<"lwxs", GPR32Opnd>, LWXS_FM_MM<0x118>;
+
+  def LWXS_MM : LoadWordIndexedScaledMM<"lwxs", GPR32Opnd>, LWXS_FM_MM<0x118>,
+                ISA_MICROMIPS;
 
   /// Load and Store Instructions - unaligned
-  def LWL_MM : LoadLeftRightMM<"lwl", MipsLWL, GPR32Opnd, mem_mm_12, II_LWL>,
-               LWL_FM_MM<0x0>;
-  def LWR_MM : LoadLeftRightMM<"lwr", MipsLWR, GPR32Opnd, mem_mm_12, II_LWR>,
-               LWL_FM_MM<0x1>;
-  def SWL_MM : StoreLeftRightMM<"swl", MipsSWL, GPR32Opnd, mem_mm_12, II_SWL>,
-               LWL_FM_MM<0x8>;
-  def SWR_MM : StoreLeftRightMM<"swr", MipsSWR, GPR32Opnd, mem_mm_12, II_SWR>,
-               LWL_FM_MM<0x9>;
-
+  def LWL_MM : MMRel, LoadLeftRightMM<"lwl", MipsLWL, GPR32Opnd, mem_mm_12,
+                                      II_LWL>, LWL_FM_MM<0x0>,
+               ISA_MICROMIPS32_NOT_MIPS32R6;
+  def LWR_MM : MMRel, LoadLeftRightMM<"lwr", MipsLWR, GPR32Opnd, mem_mm_12,
+                                      II_LWR>, LWL_FM_MM<0x1>,
+               ISA_MICROMIPS32_NOT_MIPS32R6;
+  def SWL_MM : MMRel, StoreLeftRightMM<"swl", MipsSWL, GPR32Opnd, mem_mm_12,
+                                       II_SWL>, LWL_FM_MM<0x8>,
+               ISA_MICROMIPS32_NOT_MIPS32R6;
+  def SWR_MM : MMRel, StoreLeftRightMM<"swr", MipsSWR, GPR32Opnd, mem_mm_12,
+                                       II_SWR>, LWL_FM_MM<0x9>,
+               ISA_MICROMIPS32_NOT_MIPS32R6;
+}
+let DecoderNamespace = "MicroMips", Predicates = [InMicroMips] in {
   /// Load and Store Instructions - multiple
-  def SWM32_MM  : StoreMultMM<"swm32", II_SWM>, LWM_FM_MM<0xd>;
-  def LWM32_MM  : LoadMultMM<"lwm32", II_LWM>, LWM_FM_MM<0x5>;
+  def SWM32_MM  : StoreMultMM<"swm32", II_SWM>, LWM_FM_MM<0xd>, ISA_MICROMIPS;
+  def LWM32_MM  : LoadMultMM<"lwm32", II_LWM>, LWM_FM_MM<0x5>, ISA_MICROMIPS;
 
   /// Load and Store Pair Instructions
-  def SWP_MM  : StorePairMM<"swp">, LWM_FM_MM<0x9>;
-  def LWP_MM  : LoadPairMM<"lwp">, LWM_FM_MM<0x1>;
+  def SWP_MM  : StorePairMM<"swp">, LWM_FM_MM<0x9>, ISA_MICROMIPS;
+  def LWP_MM  : LoadPairMM<"lwp">, LWM_FM_MM<0x1>, ISA_MICROMIPS;
 
   /// Load and Store multiple pseudo Instructions
   class LoadWordMultMM<string instr_asm > :
@@ -851,18 +889,20 @@ let DecoderNamespace = "MicroMips", Predicates = [InMicroMips] in {
                       !strconcat(instr_asm, "\t$rt, $addr")> ;
 
 
-  def SWM_MM  : StoreWordMultMM<"swm">;
-  def LWM_MM  : LoadWordMultMM<"lwm">;
+  def SWM_MM  : StoreWordMultMM<"swm">, ISA_MICROMIPS;
+  def LWM_MM  : LoadWordMultMM<"lwm">, ISA_MICROMIPS;
 
   /// Move Conditional
   def MOVZ_I_MM : MMRel, CMov_I_I_FT<"movz", GPR32Opnd, GPR32Opnd,
-                  NoItinerary>, ADD_FM_MM<0, 0x58>;
+                                     II_MOVZ>, ADD_FM_MM<0, 0x58>,
+                  ISA_MICROMIPS32_NOT_MIPS32R6;
   def MOVN_I_MM : MMRel, CMov_I_I_FT<"movn", GPR32Opnd, GPR32Opnd,
-                  NoItinerary>, ADD_FM_MM<0, 0x18>;
-  def MOVT_I_MM : MMRel, CMov_F_I_FT<"movt", GPR32Opnd, II_MOVT>,
-                  CMov_F_I_FM_MM<0x25>;
-  def MOVF_I_MM : MMRel, CMov_F_I_FT<"movf", GPR32Opnd, II_MOVF>,
-                  CMov_F_I_FM_MM<0x5>;
+                                     II_MOVN>, ADD_FM_MM<0, 0x18>,
+                  ISA_MICROMIPS32_NOT_MIPS32R6;
+  def MOVT_I_MM : MMRel, CMov_F_I_FT<"movt", GPR32Opnd, II_MOVT, MipsCMovFP_T>,
+                  CMov_F_I_FM_MM<0x25>, ISA_MICROMIPS32_NOT_MIPS32R6;
+  def MOVF_I_MM : MMRel, CMov_F_I_FT<"movf", GPR32Opnd, II_MOVF, MipsCMovFP_F>,
+                  CMov_F_I_FM_MM<0x5>, ISA_MICROMIPS32_NOT_MIPS32R6;
 
   /// Move to/from HI/LO
   def MTHI_MM : MMRel, MoveToLOHI<"mthi", GPR32Opnd, [HI0]>,
@@ -882,15 +922,15 @@ let DecoderNamespace = "MicroMips", Predicates = [InMicroMips] in {
 
   /// Count Leading
   def CLZ_MM : MMRel, CountLeading0<"clz", GPR32Opnd, II_CLZ>, CLO_FM_MM<0x16c>,
-               ISA_MIPS32;
+               ISA_MICROMIPS;
   def CLO_MM : MMRel, CountLeading1<"clo", GPR32Opnd, II_CLO>, CLO_FM_MM<0x12c>,
-               ISA_MIPS32;
+               ISA_MICROMIPS;
 
   /// Sign Ext In Register Instructions.
   def SEB_MM : MMRel, SignExtInReg<"seb", i8, GPR32Opnd, II_SEB>,
-               SEB_FM_MM<0x0ac>, ISA_MIPS32R2;
+               SEB_FM_MM<0x0ac>, ISA_MICROMIPS;
   def SEH_MM : MMRel, SignExtInReg<"seh", i16, GPR32Opnd, II_SEH>,
-               SEB_FM_MM<0x0ec>, ISA_MIPS32R2;
+               SEB_FM_MM<0x0ec>, ISA_MICROMIPS;
 
   /// Word Swap Bytes Within Halfwords
   def WSBH_MM : MMRel, SubwordSwap<"wsbh", GPR32Opnd, II_WSBH>,
@@ -909,83 +949,105 @@ let DecoderNamespace = "MicroMips", DecoderMethod = "DecodeJumpTargetMM" in
                       J_FM_MM<0x35>, AdditionalRequires<[RelocNotPIC]>,
                       IsBranch, ISA_MICROMIPS32_NOT_MIPS32R6;
 
-let DecoderNamespace = "MicroMips", Predicates = [InMicroMips] in {
+let DecoderNamespace = "MicroMips" in {
   let DecoderMethod = "DecodeJumpTargetMM" in {
-    def JAL_MM      : MMRel, JumpLink<"jal", calltarget_mm>, J_FM_MM<0x3d>;
-    def JALX_MM     : MMRel, JumpLink<"jalx", calltarget>, J_FM_MM<0x3c>;
+    def JAL_MM      : MMRel, JumpLink<"jal", calltarget_mm>, J_FM_MM<0x3d>,
+                      ISA_MICROMIPS32_NOT_MIPS32R6;
+    def JALX_MM     : MMRel, JumpLink<"jalx", calltarget>, J_FM_MM<0x3c>,
+                      ISA_MICROMIPS32_NOT_MIPS32R6;
   }
   def JR_MM : MMRel, IndirectBranch<"jr", GPR32Opnd>, JR_FM_MM<0x3c>,
               ISA_MICROMIPS32_NOT_MIPS32R6;
-  def JALR_MM : JumpLinkReg<"jalr", GPR32Opnd>, JALR_FM_MM<0x03c>;
+  def JALR_MM : JumpLinkReg<"jalr", GPR32Opnd>, JALR_FM_MM<0x03c>,
+                ISA_MICROMIPS32_NOT_MIPS32R6;
 
   /// Jump Instructions - Short Delay Slot
-  def JALS_MM   : JumpLinkMM<"jals", calltarget_mm>, J_FM_MM<0x1d>;
-  def JALRS_MM  : JumpLinkRegMM<"jalrs", GPR32Opnd>, JALR_FM_MM<0x13c>;
+  def JALS_MM   : JumpLinkMM<"jals", calltarget_mm>, J_FM_MM<0x1d>,
+                  ISA_MICROMIPS32_NOT_MIPS32R6;
+  def JALRS_MM  : JumpLinkRegMM<"jalrs", GPR32Opnd>, JALR_FM_MM<0x13c>,
+                  ISA_MICROMIPS32_NOT_MIPS32R6;
 
   /// Branch Instructions
   def BEQ_MM  : MMRel, CBranch<"beq", brtarget_mm, seteq, GPR32Opnd>,
-                BEQ_FM_MM<0x25>;
+                BEQ_FM_MM<0x25>, ISA_MICROMIPS32_NOT_MIPS32R6;
   def BNE_MM  : MMRel, CBranch<"bne", brtarget_mm, setne, GPR32Opnd>,
-                BEQ_FM_MM<0x2d>;
+                BEQ_FM_MM<0x2d>, ISA_MICROMIPS32_NOT_MIPS32R6;
   def BGEZ_MM : MMRel, CBranchZero<"bgez", brtarget_mm, setge, GPR32Opnd>,
-                BGEZ_FM_MM<0x2>;
+                BGEZ_FM_MM<0x2>, ISA_MICROMIPS32_NOT_MIPS32R6;
   def BGTZ_MM : MMRel, CBranchZero<"bgtz", brtarget_mm, setgt, GPR32Opnd>,
-                BGEZ_FM_MM<0x6>;
+                BGEZ_FM_MM<0x6>, ISA_MICROMIPS32_NOT_MIPS32R6;
   def BLEZ_MM : MMRel, CBranchZero<"blez", brtarget_mm, setle, GPR32Opnd>,
-                BGEZ_FM_MM<0x4>;
+                BGEZ_FM_MM<0x4>, ISA_MICROMIPS32_NOT_MIPS32R6;
   def BLTZ_MM : MMRel, CBranchZero<"bltz", brtarget_mm, setlt, GPR32Opnd>,
-                BGEZ_FM_MM<0x0>;
+                BGEZ_FM_MM<0x0>, ISA_MICROMIPS32_NOT_MIPS32R6;
   def BGEZAL_MM : MMRel, BGEZAL_FT<"bgezal", brtarget_mm, GPR32Opnd>,
-                  BGEZAL_FM_MM<0x03>;
+                  BGEZAL_FM_MM<0x03>, ISA_MICROMIPS32_NOT_MIPS32R6;
   def BLTZAL_MM : MMRel, BGEZAL_FT<"bltzal", brtarget_mm, GPR32Opnd>,
-                  BGEZAL_FM_MM<0x01>;
+                  BGEZAL_FM_MM<0x01>, ISA_MICROMIPS32_NOT_MIPS32R6;
+  def BAL_BR_MM : BAL_BR_Pseudo<BGEZAL_MM, brtarget_mm>,
+                  ISA_MICROMIPS32_NOT_MIPS32R6;
 
   /// Branch Instructions - Short Delay Slot
   def BGEZALS_MM : BranchCompareToZeroLinkMM<"bgezals", brtarget_mm,
-                                             GPR32Opnd>, BGEZAL_FM_MM<0x13>;
+                                             GPR32Opnd>, BGEZAL_FM_MM<0x13>,
+                   ISA_MICROMIPS32_NOT_MIPS32R6;
   def BLTZALS_MM : BranchCompareToZeroLinkMM<"bltzals", brtarget_mm,
-                                             GPR32Opnd>, BGEZAL_FM_MM<0x11>;
-}
-def B_MM    : UncondBranch<BEQ_MM, brtarget_mm>, IsBranch, ISA_MICROMIPS;
-let DecoderNamespace = "MicroMips", Predicates = [InMicroMips] in {
+                                             GPR32Opnd>, BGEZAL_FM_MM<0x11>,
+                   ISA_MICROMIPS32_NOT_MIPS32R6;
+  def B_MM    : UncondBranch<BEQ_MM, brtarget_mm>, IsBranch,
+                ISA_MICROMIPS32_NOT_MIPS32R6;
 
   /// Control Instructions
-  def SYNC_MM    : MMRel, SYNC_FT<"sync">, SYNC_FM_MM;
-  def SYNCI_MM   : MMRel, SYNCI_FT<"synci">, SYNCI_FM_MM;
-  def BREAK_MM   : MMRel, BRK_FT<"break">, BRK_FM_MM;
-  def SYSCALL_MM : MMRel, SYS_FT<"syscall", uimm10, II_SYSCALL>, SYS_FM_MM;
-  def WAIT_MM    : WaitMM<"wait">, WAIT_FM_MM;
-  def ERET_MM    : MMRel, ER_FT<"eret", II_ERET>, ER_FM_MM<0x3cd>;
-  def DERET_MM   : MMRel, ER_FT<"deret", II_DERET>, ER_FM_MM<0x38d>;
+  def SYNC_MM    : MMRel, SYNC_FT<"sync">, SYNC_FM_MM, ISA_MICROMIPS;
+  let DecoderMethod = "DecodeSyncI_MM" in
+    def SYNCI_MM   : MMRel, SYNCI_FT<"synci", mem_mm_16>, SYNCI_FM_MM,
+                     ISA_MICROMIPS32_NOT_MIPS32R6;
+  def BREAK_MM   : MMRel, BRK_FT<"break">, BRK_FM_MM, ISA_MICROMIPS;
+  def SYSCALL_MM : MMRel, SYS_FT<"syscall", uimm10, II_SYSCALL>, SYS_FM_MM,
+                   ISA_MICROMIPS;
+  def WAIT_MM    : MMRel, WaitMM<"wait">, WAIT_FM_MM, ISA_MICROMIPS;
+  def ERET_MM    : MMRel, ER_FT<"eret", II_ERET>, ER_FM_MM<0x3cd>,
+                   ISA_MICROMIPS;
+  def DERET_MM   : MMRel, ER_FT<"deret", II_DERET>, ER_FM_MM<0x38d>,
+                   ISA_MICROMIPS;
   def EI_MM      : MMRel, DEI_FT<"ei", GPR32Opnd, II_EI>, EI_FM_MM<0x15d>,
-                   ISA_MIPS32R2;
+                   ISA_MICROMIPS;
   def DI_MM      : MMRel, DEI_FT<"di", GPR32Opnd, II_DI>, EI_FM_MM<0x11d>,
-                   ISA_MIPS32R2;
+                   ISA_MICROMIPS;
 
   /// Trap Instructions
-  def TEQ_MM  : MMRel, TEQ_FT<"teq", GPR32Opnd, uimm4, II_TEQ>, TEQ_FM_MM<0x0>;
-  def TGE_MM  : MMRel, TEQ_FT<"tge", GPR32Opnd, uimm4, II_TGE>, TEQ_FM_MM<0x08>;
+  def TEQ_MM  : MMRel, TEQ_FT<"teq", GPR32Opnd, uimm4, II_TEQ>, TEQ_FM_MM<0x0>,
+                ISA_MICROMIPS;
+  def TGE_MM  : MMRel, TEQ_FT<"tge", GPR32Opnd, uimm4, II_TGE>, TEQ_FM_MM<0x08>,
+                ISA_MICROMIPS;
   def TGEU_MM : MMRel, TEQ_FT<"tgeu", GPR32Opnd, uimm4, II_TGEU>,
-                TEQ_FM_MM<0x10>;
-  def TLT_MM  : MMRel, TEQ_FT<"tlt", GPR32Opnd, uimm4, II_TLT>, TEQ_FM_MM<0x20>;
+                TEQ_FM_MM<0x10>, ISA_MICROMIPS;
+  def TLT_MM  : MMRel, TEQ_FT<"tlt", GPR32Opnd, uimm4, II_TLT>, TEQ_FM_MM<0x20>,
+                ISA_MICROMIPS;
   def TLTU_MM : MMRel, TEQ_FT<"tltu", GPR32Opnd, uimm4, II_TLTU>,
-                TEQ_FM_MM<0x28>;
-  def TNE_MM  : MMRel, TEQ_FT<"tne", GPR32Opnd, uimm4, II_TNE>, TEQ_FM_MM<0x30>;
+                TEQ_FM_MM<0x28>, ISA_MICROMIPS;
+  def TNE_MM  : MMRel, TEQ_FT<"tne", GPR32Opnd, uimm4, II_TNE>, TEQ_FM_MM<0x30>,
+                ISA_MICROMIPS;
 
-  def TEQI_MM  : MMRel, TEQI_FT<"teqi", GPR32Opnd, II_TEQI>, TEQI_FM_MM<0x0e>;
-  def TGEI_MM  : MMRel, TEQI_FT<"tgei", GPR32Opnd, II_TGEI>, TEQI_FM_MM<0x09>;
+  def TEQI_MM  : MMRel, TEQI_FT<"teqi", GPR32Opnd, II_TEQI>, TEQI_FM_MM<0x0e>,
+                 ISA_MICROMIPS32_NOT_MIPS32R6;
+  def TGEI_MM  : MMRel, TEQI_FT<"tgei", GPR32Opnd, II_TGEI>, TEQI_FM_MM<0x09>,
+                 ISA_MICROMIPS32_NOT_MIPS32R6;
   def TGEIU_MM : MMRel, TEQI_FT<"tgeiu", GPR32Opnd, II_TGEIU>,
-                 TEQI_FM_MM<0x0b>;
-  def TLTI_MM  : MMRel, TEQI_FT<"tlti", GPR32Opnd, II_TLTI>, TEQI_FM_MM<0x08>;
+                 TEQI_FM_MM<0x0b>, ISA_MICROMIPS32_NOT_MIPS32R6;
+  def TLTI_MM  : MMRel, TEQI_FT<"tlti", GPR32Opnd, II_TLTI>, TEQI_FM_MM<0x08>,
+                 ISA_MICROMIPS32_NOT_MIPS32R6;
   def TLTIU_MM : MMRel, TEQI_FT<"tltiu", GPR32Opnd, II_TTLTIU>,
-                 TEQI_FM_MM<0x0a>;
-  def TNEI_MM  : MMRel, TEQI_FT<"tnei", GPR32Opnd, II_TNEI>, TEQI_FM_MM<0x0c>;
+                 TEQI_FM_MM<0x0a>, ISA_MICROMIPS32_NOT_MIPS32R6;
+  def TNEI_MM  : MMRel, TEQI_FT<"tnei", GPR32Opnd, II_TNEI>, TEQI_FM_MM<0x0c>,
+                 ISA_MICROMIPS32_NOT_MIPS32R6;
 
   /// Load-linked, Store-conditional
-  def LL_MM : LLBaseMM<"ll", GPR32Opnd>, LL_FM_MM<0x3>;
-  def SC_MM : SCBaseMM<"sc", GPR32Opnd>, LL_FM_MM<0xb>;
-}
-let DecoderNamespace = "MicroMips" in {
+  def LL_MM : LLBaseMM<"ll", GPR32Opnd>, LL_FM_MM<0x3>,
+              ISA_MICROMIPS32_NOT_MIPS32R6;
+  def SC_MM : SCBaseMM<"sc", GPR32Opnd>, LL_FM_MM<0xb>,
+              ISA_MICROMIPS32_NOT_MIPS32R6;
+
   def LLE_MM : MMRel, LLEBaseMM<"lle", GPR32Opnd>, LLE_FM_MM<0x6>,
                ISA_MICROMIPS, ASE_EVA;
   def SCE_MM : MMRel, SCEBaseMM<"sce", GPR32Opnd>, LLE_FM_MM<0xA>,
@@ -1006,20 +1068,27 @@ let DecoderNamespace = "MicroMips" in {
     def CACHEE_MM : MMRel, CacheOp<"cachee", mem_mm_9, II_CACHEE>,
                     CACHE_PREFE_FM_MM<0x18, 0x3>, ISA_MICROMIPS, ASE_EVA;
   }
-}
-let DecoderNamespace = "MicroMips", Predicates = [InMicroMips] in {
-  def SSNOP_MM : MMRel, Barrier<"ssnop", II_SSNOP>, BARRIER_FM_MM<0x1>;
-  def EHB_MM   : MMRel, Barrier<"ehb", II_EHB>, BARRIER_FM_MM<0x3>;
-  def PAUSE_MM : MMRel, Barrier<"pause", II_PAUSE>, BARRIER_FM_MM<0x5>;
+  def SSNOP_MM : MMRel, Barrier<"ssnop", II_SSNOP>, BARRIER_FM_MM<0x1>,
+                 ISA_MICROMIPS;
+  def EHB_MM   : MMRel, Barrier<"ehb", II_EHB>, BARRIER_FM_MM<0x3>,
+                 ISA_MICROMIPS;
+  def PAUSE_MM : MMRel, Barrier<"pause", II_PAUSE>, BARRIER_FM_MM<0x5>,
+                 ISA_MICROMIPS;
 
-  def TLBP_MM : MMRel, TLB<"tlbp", II_TLBP>, COP0_TLB_FM_MM<0x0d>;
-  def TLBR_MM : MMRel, TLB<"tlbr", II_TLBR>, COP0_TLB_FM_MM<0x4d>;
-  def TLBWI_MM : MMRel, TLB<"tlbwi", II_TLBWI>, COP0_TLB_FM_MM<0x8d>;
-  def TLBWR_MM : MMRel, TLB<"tlbwr", II_TLBWR>, COP0_TLB_FM_MM<0xcd>;
+  def TLBP_MM : MMRel, TLB<"tlbp", II_TLBP>, COP0_TLB_FM_MM<0x0d>,
+                ISA_MICROMIPS;
+  def TLBR_MM : MMRel, TLB<"tlbr", II_TLBR>, COP0_TLB_FM_MM<0x4d>,
+                ISA_MICROMIPS;
+  def TLBWI_MM : MMRel, TLB<"tlbwi", II_TLBWI>, COP0_TLB_FM_MM<0x8d>,
+                 ISA_MICROMIPS;
+  def TLBWR_MM : MMRel, TLB<"tlbwr", II_TLBWR>, COP0_TLB_FM_MM<0xcd>,
+                 ISA_MICROMIPS;
 
-  def SDBBP_MM : MMRel, SYS_FT<"sdbbp", uimm10, II_SDBBP>, SDBBP_FM_MM;
+  def SDBBP_MM : MMRel, SYS_FT<"sdbbp", uimm10, II_SDBBP>, SDBBP_FM_MM,
+                 ISA_MICROMIPS;
 
-  def PREFX_MM : PrefetchIndexed<"prefx">, POOL32F_PREFX_FM_MM<0x15, 0x1A0>;
+  def PREFX_MM : PrefetchIndexed<"prefx">, POOL32F_PREFX_FM_MM<0x15, 0x1A0>,
+                 ISA_MICROMIPS32_NOT_MIPS32R6;
 }
 
 def TAILCALL_MM : TailCall<J_MM, jmptarget_mm>, ISA_MIPS1_NOT_32R6_64R6;
@@ -1036,6 +1105,35 @@ let DecoderNamespace = "MicroMips" in {
   def LWU_MM : MMRel, LoadMM<"lwu", GPR32Opnd, zextloadi32, II_LWU,
                              mem_simm12>, LL_FM_MM<0xe>,
                ISA_MICROMIPS32_NOT_MIPS32R6;
+}
+
+let DecoderNamespace = "MicroMips" in {
+  def MFGC0_MM    : MMRel, MfCop0MM<"mfgc0", GPR32Opnd, COP0Opnd, II_MFGC0>,
+                    POOL32A_MFTC0_FM_MM<0b10011, 0b111100>,
+                    ISA_MICROMIPS32R5, ASE_VIRT;
+  def MFHGC0_MM   : MMRel, MfCop0MM<"mfhgc0", GPR32Opnd, COP0Opnd, II_MFHGC0>,
+                    POOL32A_MFTC0_FM_MM<0b10011, 0b110100>,
+                    ISA_MICROMIPS32R5, ASE_VIRT;
+  def MTGC0_MM    : MMRel, MtCop0MM<"mtgc0", COP0Opnd, GPR32Opnd, II_MTGC0>,
+                    POOL32A_MFTC0_FM_MM<0b11011, 0b111100>,
+                    ISA_MICROMIPS32R5, ASE_VIRT;
+  def MTHGC0_MM   : MMRel, MtCop0MM<"mthgc0", COP0Opnd, GPR32Opnd, II_MTHGC0>,
+                    POOL32A_MFTC0_FM_MM<0b11011, 0b110100>,
+                    ISA_MICROMIPS32R5, ASE_VIRT;
+  def HYPCALL_MM  : MMRel, HypcallMM<"hypcall">, POOL32A_HYPCALL_FM_MM,
+                    ISA_MICROMIPS32R5, ASE_VIRT;
+  def TLBGINV_MM  : MMRel, TLBINVMM<"tlbginv", II_TLBGINV>,
+                    POOL32A_TLBINV_FM_MM<0x105>, ISA_MICROMIPS32R5, ASE_VIRT;
+  def TLBGINVF_MM : MMRel, TLBINVMM<"tlbginvf", II_TLBGINVF>,
+                    POOL32A_TLBINV_FM_MM<0x145>, ISA_MICROMIPS32R5, ASE_VIRT;
+  def TLBGP_MM    : MMRel, TLBINVMM<"tlbgp", II_TLBGP>,
+                    POOL32A_TLBINV_FM_MM<0x5>, ISA_MICROMIPS32R5, ASE_VIRT;
+  def TLBGR_MM    : MMRel, TLBINVMM<"tlbgr", II_TLBGR>,
+                    POOL32A_TLBINV_FM_MM<0x45>, ISA_MICROMIPS32R5, ASE_VIRT;
+  def TLBGWI_MM   : MMRel, TLBINVMM<"tlbgwi", II_TLBGWI>,
+                    POOL32A_TLBINV_FM_MM<0x85>, ISA_MICROMIPS32R5, ASE_VIRT;
+  def TLBGWR_MM   : MMRel, TLBINVMM<"tlbgwr", II_TLBGWR>,
+                    POOL32A_TLBINV_FM_MM<0xc5>, ISA_MICROMIPS32R5, ASE_VIRT;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1097,30 +1195,63 @@ let Predicates = [InMicroMips] in {
                 (LW_MM addr:$addr)>;
   def : MipsPat<(subc GPR32:$lhs, GPR32:$rhs),
                 (SUBu_MM GPR32:$lhs, GPR32:$rhs)>;
+
+  def : MipsPat<(i32 (extloadi1  addr:$src)), (LBu_MM addr:$src)>,
+        ISA_MICROMIPS;
+
+  def : MipsPat<(i32 (extloadi8  addr:$src)), (LBu_MM addr:$src)>,
+        ISA_MICROMIPS;
+
+  def : MipsPat<(i32 (extloadi16 addr:$src)), (LHu_MM addr:$src)>,
+        ISA_MICROMIPS;
+
+  let AddedComplexity = 40 in
+    def : MipsPat<(i32 (sextloadi16 addrRegImm:$a)),
+                  (LH_MM addrRegImm:$a)>, ISA_MICROMIPS;
 }
+
+def : MipsPat<(bswap GPR32:$rt), (ROTR_MM (WSBH_MM GPR32:$rt), 16)>,
+      ISA_MICROMIPS;
 
 def : MipsPat<(MipsTailCall (iPTR tglobaladdr:$dst)),
               (TAILCALL_MM tglobaladdr:$dst)>, ISA_MICROMIPS32_NOT_MIPS32R6;
 def : MipsPat<(MipsTailCall (iPTR texternalsym:$dst)),
               (TAILCALL_MM texternalsym:$dst)>, ISA_MICROMIPS32_NOT_MIPS32R6;
 
-let AddedComplexity = 40 in {
-  def : MipsPat<(i32 (sextloadi16 addrRegImm:$a)),
-                (LH_MM addrRegImm:$a)>;
-}
 def : MipsPat<(atomic_load_16 addr:$a),
               (LH_MM addr:$a)>;
-def : MipsPat<(i32 (extloadi16 addr:$src)),
-              (LHu_MM addr:$src)>;
 
 defm : BrcondPats<GPR32, BEQ_MM, BEQ_MM, BNE_MM, SLT_MM, SLTu_MM, SLTi_MM,
-                  SLTiu_MM, ZERO>;
+                  SLTiu_MM, ZERO>, ISA_MICROMIPS32_NOT_MIPS32R6;
 
 defm : SeteqPats<GPR32, SLTiu_MM, XOR_MM, SLTu_MM, ZERO>;
 defm : SetlePats<GPR32, XORi_MM, SLT_MM, SLTu_MM>;
 defm : SetgtPats<GPR32, SLT_MM, SLTu_MM>;
 defm : SetgePats<GPR32, XORi_MM, SLT_MM, SLTu_MM>;
 defm : SetgeImmPats<GPR32, XORi_MM, SLTi_MM, SLTiu_MM>;
+
+// Select patterns
+
+// Instantiation of conditional move patterns.
+defm : MovzPats0<GPR32, GPR32, MOVZ_I_MM, SLT_MM, SLTu_MM, SLTi_MM, SLTiu_MM>,
+       ISA_MICROMIPS32_NOT_MIPS32R6;
+defm : MovzPats1<GPR32, GPR32, MOVZ_I_MM, XOR_MM>,
+       ISA_MICROMIPS32_NOT_MIPS32R6;
+defm : MovzPats2<GPR32, GPR32, MOVZ_I_MM, XORi_MM>,
+       ISA_MICROMIPS32_NOT_MIPS32R6;
+
+
+defm : MovnPats<GPR32, GPR32, MOVN_I_MM, XOR_MM>, INSN_MIPS4_32_NOT_32R6_64R6;
+
+// Instantiation of conditional move patterns.
+defm : MovzPats0<GPR32, GPR32, MOVZ_I_MM, SLT_MM, SLTu_MM, SLTi_MM, SLTiu_MM>,
+       ISA_MICROMIPS32_NOT_MIPS32R6;
+defm : MovzPats1<GPR32, GPR32, MOVZ_I_MM, XOR_MM>,
+       ISA_MICROMIPS32_NOT_MIPS32R6;
+defm : MovzPats2<GPR32, GPR32, MOVZ_I_MM, XORi_MM>,
+       ISA_MICROMIPS32_NOT_MIPS32R6;
+
+defm : MovnPats<GPR32, GPR32, MOVN_I_MM, XOR_MM>, ISA_MICROMIPS32_NOT_MIPS32R6;
 
 //===----------------------------------------------------------------------===//
 // MicroMips instruction aliases
@@ -1138,11 +1269,11 @@ let Predicates = [InMicroMips] in {
   def UDIV_MM_Pseudo : MultDivPseudo<UDIV_MM, ACC64, GPR32Opnd, MipsDivRemU,
                                      II_DIVU, 0, 1, 1>, ISA_MIPS1_NOT_32R6_64R6;
 
-  def : MipsInstAlias<"wait", (WAIT_MM 0x0), 1>;
+  def : MipsInstAlias<"wait", (WAIT_MM 0x0), 1>, ISA_MICROMIPS;
   def : MipsInstAlias<"nop", (SLL_MM ZERO, ZERO, 0), 1>;
   def : MipsInstAlias<"nop", (MOVE16_MM ZERO, ZERO), 1>;
-  def : MipsInstAlias<"ei", (EI_MM ZERO), 1>, ISA_MIPS32R2;
-  def : MipsInstAlias<"di", (DI_MM ZERO), 1>, ISA_MIPS32R2;
+  def : MipsInstAlias<"ei", (EI_MM ZERO), 1>, ISA_MICROMIPS;
+  def : MipsInstAlias<"di", (DI_MM ZERO), 1>, ISA_MICROMIPS;
   def : MipsInstAlias<"teq $rs, $rt",
                       (TEQ_MM GPR32Opnd:$rs, GPR32Opnd:$rt, 0), 1>;
   def : MipsInstAlias<"tge $rs, $rt",
@@ -1187,32 +1318,57 @@ let Predicates = [InMicroMips] in {
                       (SRL_MM GPR32Opnd:$rd, GPR32Opnd:$rd, uimm5:$shamt), 0>;
   def : MipsInstAlias<"rotr $rt, $imm",
                       (ROTR_MM GPR32Opnd:$rt, GPR32Opnd:$rt, uimm5:$imm), 0>;
-  def : MipsInstAlias<"syscall", (SYSCALL_MM 0), 1>;
+  def : MipsInstAlias<"syscall", (SYSCALL_MM 0), 1>, ISA_MICROMIPS;
 
-  defm : OneOrTwoOperandMacroImmediateAlias<"add", ADDi_MM>;
+  def : MipsInstAlias<"sync", (SYNC_MM 0), 1>, ISA_MICROMIPS;
 
-  defm : OneOrTwoOperandMacroImmediateAlias<"addu", ADDiu_MM>;
+  defm : OneOrTwoOperandMacroImmediateAlias<"add", ADDi_MM>, ISA_MICROMIPS;
 
-  defm : OneOrTwoOperandMacroImmediateAlias<"and", ANDi_MM>;
+  defm : OneOrTwoOperandMacroImmediateAlias<"addu", ADDiu_MM>, ISA_MICROMIPS;
 
-  defm : OneOrTwoOperandMacroImmediateAlias<"or", ORi_MM>;
+  defm : OneOrTwoOperandMacroImmediateAlias<"and", ANDi_MM>, ISA_MICROMIPS;
 
-  defm : OneOrTwoOperandMacroImmediateAlias<"xor", XORi_MM>;
+  defm : OneOrTwoOperandMacroImmediateAlias<"or", ORi_MM>, ISA_MICROMIPS;
 
-  defm : OneOrTwoOperandMacroImmediateAlias<"slt", SLTi_MM>;
+  defm : OneOrTwoOperandMacroImmediateAlias<"xor", XORi_MM>, ISA_MICROMIPS;
 
-  defm : OneOrTwoOperandMacroImmediateAlias<"sltu", SLTiu_MM>;
+  defm : OneOrTwoOperandMacroImmediateAlias<"slt", SLTi_MM>, ISA_MICROMIPS;
+
+  defm : OneOrTwoOperandMacroImmediateAlias<"sltu", SLTiu_MM>, ISA_MICROMIPS;
 
   def : MipsInstAlias<"not $rt, $rs",
-                      (NOR_MM GPR32Opnd:$rt, GPR32Opnd:$rs, ZERO), 0>;
+                      (NOR_MM GPR32Opnd:$rt, GPR32Opnd:$rs, ZERO), 0>,
+        ISA_MICROMIPS;
   def : MipsInstAlias<"not $rt",
-                      (NOR_MM GPR32Opnd:$rt, GPR32Opnd:$rt, ZERO), 0>;
+                      (NOR_MM GPR32Opnd:$rt, GPR32Opnd:$rt, ZERO), 0>,
+        ISA_MICROMIPS;
   def : MipsInstAlias<"bnez $rs,$offset",
-                      (BNE_MM GPR32Opnd:$rs, ZERO, brtarget:$offset), 0>;
+                      (BNE_MM GPR32Opnd:$rs, ZERO, brtarget:$offset), 0>,
+        ISA_MICROMIPS;
   def : MipsInstAlias<"beqz $rs,$offset",
-                      (BEQ_MM GPR32Opnd:$rs, ZERO, brtarget:$offset), 0>;
+                      (BEQ_MM GPR32Opnd:$rs, ZERO, brtarget:$offset), 0>,
+        ISA_MICROMIPS;
   def : MipsInstAlias<"seh $rd", (SEH_MM GPR32Opnd:$rd, GPR32Opnd:$rd), 0>,
-                     ISA_MIPS32R2_NOT_32R6_64R6;
+                     ISA_MICROMIPS;
   def : MipsInstAlias<"seb $rd", (SEB_MM GPR32Opnd:$rd, GPR32Opnd:$rd), 0>,
-                     ISA_MIPS32R2_NOT_32R6_64R6;
+                     ISA_MICROMIPS;
+  def : MipsInstAlias<"break", (BREAK_MM 0, 0), 1>, ISA_MICROMIPS;
+  def : MipsInstAlias<"break $imm", (BREAK_MM uimm10:$imm, 0), 1>,
+        ISA_MICROMIPS;
+  def : MipsInstAlias<"bal $offset", (BGEZAL_MM ZERO, brtarget_mm:$offset), 1>,
+        ISA_MICROMIPS32_NOT_MIPS32R6;
 }
+def : MipsInstAlias<"hypcall", (HYPCALL_MM 0), 1>,
+                    ISA_MICROMIPS32R5, ASE_VIRT;
+def : MipsInstAlias<"mfgc0 $rt, $rs",
+                    (MFGC0_MM GPR32Opnd:$rt, COP0Opnd:$rs, 0), 0>,
+                    ISA_MICROMIPS32R5, ASE_VIRT;
+def : MipsInstAlias<"mfhgc0 $rt, $rs",
+                    (MFHGC0_MM GPR32Opnd:$rt, COP0Opnd:$rs, 0), 0>,
+                    ISA_MICROMIPS32R5, ASE_VIRT;
+def : MipsInstAlias<"mtgc0 $rt, $rs",
+                    (MTGC0_MM COP0Opnd:$rs, GPR32Opnd:$rt, 0), 0>,
+                    ISA_MICROMIPS32R5, ASE_VIRT;
+def : MipsInstAlias<"mthgc0 $rt, $rs",
+                    (MTHGC0_MM COP0Opnd:$rs, GPR32Opnd:$rt, 0), 0>,
+                    ISA_MICROMIPS32R5, ASE_VIRT;

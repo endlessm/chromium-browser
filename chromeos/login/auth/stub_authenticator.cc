@@ -73,25 +73,33 @@ void StubAuthenticator::LoginAsPublicSession(const UserContext& user_context) {
   logged_in_user_context.SetIsUsingOAuth(false);
   logged_in_user_context.SetUserIDHash(
       logged_in_user_context.GetAccountId().GetUserEmail() + kUserIdHashSuffix);
+  logged_in_user_context.GetKey()->Transform(
+      Key::KEY_TYPE_SALTED_SHA256_TOP_HALF, "some-salt");
   consumer_->OnAuthSuccess(logged_in_user_context);
 }
 
 void StubAuthenticator::LoginAsKioskAccount(
     const AccountId& /* app_account_id */,
     bool use_guest_mount) {
-  UserContext user_context(expected_user_context_.GetAccountId());
+  UserContext user_context(user_manager::UserType::USER_TYPE_KIOSK_APP,
+                           expected_user_context_.GetAccountId());
   user_context.SetIsUsingOAuth(false);
   user_context.SetUserIDHash(
       expected_user_context_.GetAccountId().GetUserEmail() + kUserIdHashSuffix);
+  user_context.GetKey()->Transform(Key::KEY_TYPE_SALTED_SHA256_TOP_HALF,
+                                   "some-salt");
   consumer_->OnAuthSuccess(user_context);
 }
 
 void StubAuthenticator::LoginAsArcKioskAccount(
     const AccountId& /* app_account_id */) {
-  UserContext user_context(expected_user_context_.GetAccountId());
+  UserContext user_context(user_manager::USER_TYPE_ARC_KIOSK_APP,
+                           expected_user_context_.GetAccountId());
   user_context.SetIsUsingOAuth(false);
   user_context.SetUserIDHash(
       expected_user_context_.GetAccountId().GetUserEmail() + kUserIdHashSuffix);
+  user_context.GetKey()->Transform(Key::KEY_TYPE_SALTED_SHA256_TOP_HALF,
+                                   "some-salt");
   consumer_->OnAuthSuccess(user_context);
 }
 
@@ -101,6 +109,8 @@ void StubAuthenticator::OnAuthSuccess() {
   UserContext user_context(expected_user_context_);
   user_context.SetUserIDHash(
       expected_user_context_.GetAccountId().GetUserEmail() + kUserIdHashSuffix);
+  user_context.GetKey()->Transform(Key::KEY_TYPE_SALTED_SHA256_TOP_HALF,
+                                   "some-salt");
   consumer_->OnAuthSuccess(user_context);
 }
 

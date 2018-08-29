@@ -15,7 +15,7 @@ import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.ProcessInitException;
 import org.chromium.chromecast.base.ChromecastConfigAndroid;
 import org.chromium.content.browser.BrowserStartupController;
-import org.chromium.content.browser.DeviceUtils;
+import org.chromium.content_public.browser.DeviceUtils;
 import org.chromium.net.NetworkChangeNotifier;
 
 /**
@@ -58,7 +58,7 @@ public class CastBrowserHelper {
         DeviceUtils.addDeviceSpecificUserAgentSwitch(context);
 
         try {
-            LibraryLoader.get(LibraryProcessType.PROCESS_BROWSER).ensureInitialized();
+            LibraryLoader.getInstance().ensureInitialized(LibraryProcessType.PROCESS_BROWSER);
 
             Log.d(TAG, "Loading BrowserStartupController...");
             BrowserStartupController.get(LibraryProcessType.PROCESS_BROWSER)

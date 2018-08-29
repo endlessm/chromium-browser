@@ -13,15 +13,20 @@
 #include "chrome/browser/vr/assets_load_status.h"
 #include "chrome/browser/vr/browser_ui_interface.h"
 #include "chrome/browser/vr/keyboard_ui_interface.h"
+#include "chrome/browser/vr/model/tab_model.h"
 #include "chrome/browser/vr/platform_controller.h"
 #include "chrome/browser/vr/ui_element_renderer.h"
+#include "chrome/browser/vr/ui_test_input.h"
 
 namespace vr {
+
 class AudioDelegate;
 class BrowserUiInterface;
+class ContentElement;
 class ContentInputDelegate;
-class ContentInputForwarder;
+class PlatformInputHandler;
 class KeyboardDelegate;
+class PlatformUiInputDelegate;
 class SkiaSurfaceProvider;
 class TextInputDelegate;
 class UiBrowserInterface;
@@ -35,6 +40,8 @@ struct OmniboxSuggestions;
 struct ReticleModel;
 
 struct UiInitialState {
+  UiInitialState();
+  UiInitialState(const UiInitialState& other);
   bool in_cct = false;
   bool in_web_vr = false;
   bool web_vr_autopresentation_expected = false;
@@ -44,6 +51,8 @@ struct UiInitialState {
   bool assets_supported = false;
   bool supports_selection = true;
   bool needs_keyboard_update = false;
+  bool is_standalone_vr_device = false;
+  bool create_tabs_view = false;
 };
 
 // This class manages all GLThread owned objects and GL rendering for VrShell.
@@ -51,7 +60,7 @@ struct UiInitialState {
 class Ui : public BrowserUiInterface, public KeyboardUiInterface {
  public:
   Ui(UiBrowserInterface* browser,
-     ContentInputForwarder* content_input_forwarder,
+     PlatformInputHandler* content_input_forwarder,
      KeyboardDelegate* keyboard_delegate,
      TextInputDelegate* text_input_delegate,
      AudioDelegate* audio_delegate,
@@ -96,8 +105,18 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
                       std::unique_ptr<Assets> assets,
                       const base::Version& component_version) override;
   void OnAssetsUnavailable() override;
-  void SetIncognitoTabsOpen(bool open) override;
+  void WaitForAssets() override;
   void SetOverlayTextureEmpty(bool empty) override;
+  void ShowSoftInput(bool show) override;
+  void UpdateWebInputIndices(int selection_start,
+                             int selection_end,
+                             int composition_start,
+                             int composition_end) override;
+  void AddOrUpdateTab(int id,
+                      bool incognito,
+                      const base::string16& title) override;
+  void RemoveTab(int id, bool incognito) override;
+  void RemoveAllTabs() override;
 
   // TODO(ymalik): We expose this to stop sending VSync to the WebVR page until
   // the splash screen has been visible for its minimum duration. The visibility
@@ -106,17 +125,17 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
   // like other WebVR phases (e.g. OnWebVrFrameAvailable below).
   bool CanSendWebVrVSync();
 
-  void ShowSoftInput(bool show) override;
-  void UpdateWebInputIndices(int selection_start,
-                             int selection_end,
-                             int composition_start,
-                             int composition_end) override;
-
   void SetAlertDialogEnabled(bool enabled,
-                             ContentInputDelegate* delegate,
+                             PlatformUiInputDelegate* delegate,
                              float width,
                              float height);
+  void SetContentOverlayAlertDialogEnabled(bool enabled,
+                                           PlatformUiInputDelegate* delegate,
+                                           float width_percentage,
+                                           float height_percentage);
   void SetAlertDialogSize(float width, float height);
+  void SetContentOverlayAlertDialogSize(float width_percentage,
+                                        float height_percentage);
   void SetDialogLocation(float x, float y);
   void SetDialogFloating(bool floating);
   void ShowPlatformToast(const base::string16& text);
@@ -146,6 +165,7 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
   void OnContentBoundsChanged(int width, int height);
   void OnPlatformControllerInitialized(PlatformController* controller);
   void OnUiRequestedNavigation();
+  void SetFloorHeight(float floor_height);
 
   Model* model_for_test() { return model_.get(); }
 
@@ -164,10 +184,19 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
   void OnKeyboardHidden() override;
 
   void AcceptDoffPromptForTesting();
+  void PerformUiActionForTesting(UiTestInput test_input);
+
+  bool IsContentVisibleAndOpaque();
+  bool IsContentOverlayTextureEmpty();
+  void SetContentUsesQuadLayer(bool uses_quad_buffers);
+  gfx::Transform GetContentWorldSpaceTransform();
 
  private:
+  void OnSpeechRecognitionEnded();
   void InitializeModel(const UiInitialState& ui_initial_state);
   UiBrowserInterface* browser_;
+  ContentElement* GetContentElement();
+  std::vector<TabModel>::iterator FindTab(int id, std::vector<TabModel>* tabs);
 
   // This state may be further abstracted into a SkiaUi object.
   std::unique_ptr<UiScene> scene_;
@@ -177,6 +206,10 @@ class Ui : public BrowserUiInterface, public KeyboardUiInterface {
   std::unique_ptr<UiInputManager> input_manager_;
   std::unique_ptr<UiRenderer> ui_renderer_;
   std::unique_ptr<SkiaSurfaceProvider> provider_;
+
+  // Cache the content element so we don't have to get it multiple times per
+  // frame.
+  ContentElement* content_element_ = nullptr;
 
   AudioDelegate* audio_delegate_ = nullptr;
 

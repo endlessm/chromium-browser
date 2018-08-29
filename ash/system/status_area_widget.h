@@ -21,14 +21,16 @@ class FlagWarningTray;
 class ImeMenuTray;
 class LogoutButtonTray;
 class OverviewButtonTray;
+class DictationButtonTray;
 class PaletteTray;
+class SelectToSpeakTray;
 class Shelf;
 class StatusAreaWidgetDelegate;
 class SystemTray;
 class UnifiedSystemTray;
 class TrayBackgroundView;
 class VirtualKeyboardTray;
-class WebNotificationTray;
+class NotificationTray;
 
 // Widget showing the system tray, notification tray, and other tray views in
 // the bottom-right of the screen. Exists separately from ShelfView/ShelfWidget
@@ -69,14 +71,18 @@ class ASH_EXPORT StatusAreaWidget : public views::Widget,
   UnifiedSystemTray* unified_system_tray() {
     return unified_system_tray_.get();
   }
-  WebNotificationTray* web_notification_tray() {
-    return web_notification_tray_.get();
+  NotificationTray* notification_tray() { return notification_tray_.get(); }
+  DictationButtonTray* dictation_button_tray() {
+    return dictation_button_tray_.get();
   }
   OverviewButtonTray* overview_button_tray() {
     return overview_button_tray_.get();
   }
   PaletteTray* palette_tray() { return palette_tray_.get(); }
   ImeMenuTray* ime_menu_tray() { return ime_menu_tray_.get(); }
+  SelectToSpeakTray* select_to_speak_tray() {
+    return select_to_speak_tray_.get();
+  }
 
   Shelf* shelf() { return shelf_; }
 
@@ -113,16 +119,20 @@ class ASH_EXPORT StatusAreaWidget : public views::Widget,
   }
 
  private:
+  friend class StatusAreaWidgetTestApi;
+
   StatusAreaWidgetDelegate* status_area_widget_delegate_;
 
   std::unique_ptr<OverviewButtonTray> overview_button_tray_;
+  std::unique_ptr<DictationButtonTray> dictation_button_tray_;
   std::unique_ptr<SystemTray> system_tray_;
   std::unique_ptr<UnifiedSystemTray> unified_system_tray_;
-  std::unique_ptr<WebNotificationTray> web_notification_tray_;
+  std::unique_ptr<NotificationTray> notification_tray_;
   std::unique_ptr<LogoutButtonTray> logout_button_tray_;
   std::unique_ptr<PaletteTray> palette_tray_;
   std::unique_ptr<VirtualKeyboardTray> virtual_keyboard_tray_;
   std::unique_ptr<ImeMenuTray> ime_menu_tray_;
+  std::unique_ptr<SelectToSpeakTray> select_to_speak_tray_;
   std::unique_ptr<FlagWarningTray> flag_warning_tray_;
 
   LoginStatus login_status_ = LoginStatus::NOT_LOGGED_IN;

@@ -7,11 +7,11 @@
 #include <memory>
 #include <utility>
 
+#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/vector_icons/vector_icons.h"
 #include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "ui/app_list/app_list_constants.h"
-#include "ui/app_list/vector_icons/vector_icons.h"
 #include "ui/app_list/views/app_list_view.h"
 #include "ui/app_list/views/contents_view.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -56,11 +56,10 @@ constexpr int kArrowMoveInEndTimeInMs = 900;
 constexpr SkColor kExpandArrowColor = SK_ColorWHITE;
 constexpr SkColor kPulseColor = SK_ColorWHITE;
 constexpr SkColor kUnFocusedBackgroundColor =
-    SkColorSetARGBMacro(0xF, 0xFF, 0xFF, 0xFF);
+    SkColorSetARGB(0xF, 0xFF, 0xFF, 0xFF);
 constexpr SkColor kFocusedBackgroundColor =
-    SkColorSetARGBMacro(0x3D, 0xFF, 0xFF, 0xFF);
-constexpr SkColor kInkDropRippleColor =
-    SkColorSetARGBMacro(0x14, 0xFF, 0xFF, 0xFF);
+    SkColorSetARGB(0x3D, 0xFF, 0xFF, 0xFF);
+constexpr SkColor kInkDropRippleColor = SkColorSetARGB(0x14, 0xFF, 0xFF, 0xFF);
 
 }  // namespace
 

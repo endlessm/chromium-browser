@@ -24,9 +24,9 @@
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
+#include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Intrinsics.h"
-#include "llvm/IR/ValueTypes.h"
 #include "llvm/Support/Debug.h"
 #include <algorithm>
 
@@ -72,7 +72,7 @@ static ARCCC::CondCode ISDCCtoARCCC(ISD::CondCode isdCC) {
 
 ARCTargetLowering::ARCTargetLowering(const TargetMachine &TM,
                                      const ARCSubtarget &Subtarget)
-    : TargetLowering(TM), TM(TM), Subtarget(Subtarget) {
+    : TargetLowering(TM), Subtarget(Subtarget) {
   // Set up the register classes.
   addRegisterClass(MVT::i32, &ARC::GPR32RegClass);
 
@@ -486,8 +486,8 @@ SDValue ARCTargetLowering::LowerCallArguments(
       EVT RegVT = VA.getLocVT();
       switch (RegVT.getSimpleVT().SimpleTy) {
       default: {
-        DEBUG(errs() << "LowerFormalArguments Unhandled argument type: "
-                     << (unsigned)RegVT.getSimpleVT().SimpleTy << "\n");
+        LLVM_DEBUG(errs() << "LowerFormalArguments Unhandled argument type: "
+                          << (unsigned)RegVT.getSimpleVT().SimpleTy << "\n");
         llvm_unreachable("Unhandled LowerFormalArguments type.");
       }
       case MVT::i32:

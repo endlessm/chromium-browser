@@ -92,6 +92,7 @@ struct Configuration {
   std::string ImportName;
   bool DoGC = true;
   bool DoICF = true;
+  bool TailMerge;
   bool Relocatable = true;
   bool Force = false;
   bool Debug = false;
@@ -100,6 +101,7 @@ struct Configuration {
   bool ShowTiming = false;
   unsigned DebugTypes = static_cast<unsigned>(DebugType::None);
   std::vector<std::string> NatvisFiles;
+  llvm::SmallString<128> PDBAltPath;
   llvm::SmallString<128> PDBPath;
   std::vector<llvm::StringRef> Argv;
 
@@ -179,6 +181,7 @@ struct Configuration {
   uint32_t MinorImageVersion = 0;
   uint32_t MajorOSVersion = 6;
   uint32_t MinorOSVersion = 0;
+  uint32_t Timestamp = 0;
   bool DynamicBase = true;
   bool AllowBind = true;
   bool NxCompat = true;
@@ -192,6 +195,7 @@ struct Configuration {
   bool WarnLocallyDefinedImported = true;
   bool Incremental = true;
   bool KillAt = false;
+  bool Repro = false;
 };
 
 extern Configuration *Config;

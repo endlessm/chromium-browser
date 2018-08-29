@@ -8,11 +8,11 @@
 // DO NOT MODIFY!
 
 // clang-format off
-#include "array_buffer_or_array_buffer_view_or_dictionary.h"
+#include "third_party/blink/renderer/bindings/tests/results/core/array_buffer_or_array_buffer_view_or_dictionary.h"
 
-#include "bindings/core/v8/dictionary.h"
-#include "bindings/core/v8/to_v8_for_core.h"
-#include "bindings/core/v8/v8_array_buffer.h"
+#include "third_party/blink/renderer/bindings/core/v8/dictionary.h"
+#include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_array_buffer.h"
 
 namespace blink {
 

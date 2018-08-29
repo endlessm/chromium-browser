@@ -28,13 +28,14 @@ class AccessibilityControllerClient
   void PlayEarcon(int32_t sound_key) override;
   void PlayShutdownSound(PlayShutdownSoundCallback callback) override;
   void HandleAccessibilityGesture(ax::mojom::Gesture gesture) override;
-  void ToggleDictation() override;
+  void ToggleDictation(ToggleDictationCallback callback) override;
   void SilenceSpokenFeedback() override;
   void OnTwoFingerTouchStart() override;
   void OnTwoFingerTouchStop() override;
   void ShouldToggleSpokenFeedbackViaTouch(
       ShouldToggleSpokenFeedbackViaTouchCallback callback) override;
   void PlaySpokenFeedbackToggleCountdown(int tick_count) override;
+  void RequestSelectToSpeakStateChange() override;
 
   // Flushes the mojo pipe to ash.
   void FlushForTesting();

@@ -927,8 +927,16 @@ message DeviceNativePrintersWhitelistProto {
 
 // Settings to control the behavior of the TPM firmware update functionality.
 message TPMFirmwareUpdateSettingsProto {
-  // Whether the user can invoke the update via powerwash.
+  // Whether the user is allowed to invoke the update via powerwash. This flow
+  // performs a powerwash operation (which implies a TPM clear), followed by
+  // installation of the TPM firmware update. As a result of the powerwash, all
+  // writable data on the device will be cleared.
   optional bool allow_user_initiated_powerwash = 1;
+
+  // Whether the user is allowed to invoke a variant of the update flow that
+  // clears the TPM to install the firmware update, but preserves device-wide
+  // state (including enrollment). User data will not be preserved in this flow.
+  optional bool allow_user_initiated_preserve_device_state = 2;
 }
 
 // Settings to control the minimum version that is allowed to sign in / stay
@@ -1020,6 +1028,18 @@ message DeviceMachinePasswordChangeRateProto {
   optional int32 rate_days = 1;
 }
 
+// Setting to control the authentication type for newly added users which log in
+// via SAML.
+message SamlLoginAuthenticationTypeProto {
+  enum Type {
+    TYPE_DEFAULT = 0;             // Implementation-defined default config.
+    TYPE_CLIENT_CERTIFICATE = 1;  // Client certificate authentication.
+    // Next ID to use: 2
+  }
+
+  optional Type saml_login_authentication_type = 1 [default = TYPE_DEFAULT];
+}
+
 message ChromeDeviceSettingsProto {
   reserved 61;
   optional DevicePolicyRefreshRateProto device_policy_refresh_rate = 1;
@@ -1109,4 +1129,5 @@ message ChromeDeviceSettingsProto {
   optional VirtualMachinesAllowedProto virtual_machines_allowed = 69;
   optional DeviceMachinePasswordChangeRateProto
       device_machine_password_change_rate = 70;
+  optional SamlLoginAuthenticationTypeProto saml_login_authentication_type = 71;
 }

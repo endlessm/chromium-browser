@@ -777,9 +777,8 @@ void LinkerScript::assignOffsets(OutputSection *Sec) {
   if (PhdrEntry *L = Ctx->OutSec->PtLoad)
     L->LMAOffset = Ctx->LMAOffset;
 
-  // The Size previously denoted how many InputSections had been added to this
-  // section, and was used for sorting SHF_LINK_ORDER sections. Reset it to
-  // compute the actual size value.
+  // We can call this method multiple times during the creation of
+  // thunks and want to start over calculation each time.
   Sec->Size = 0;
 
   // We visited SectionsCommands from processSectionCommands to
@@ -788,9 +787,9 @@ void LinkerScript::assignOffsets(OutputSection *Sec) {
   for (BaseCommand *Base : Sec->SectionCommands) {
     // This handles the assignments to symbol or to the dot.
     if (auto *Cmd = dyn_cast<SymbolAssignment>(Base)) {
-      Cmd->Offset = Dot - Ctx->OutSec->Addr;
+      Cmd->Addr = Dot;
       assignSymbol(Cmd, true);
-      Cmd->Size = Dot - Ctx->OutSec->Addr - Cmd->Offset;
+      Cmd->Size = Dot - Cmd->Addr;
       continue;
     }
 
@@ -799,12 +798,6 @@ void LinkerScript::assignOffsets(OutputSection *Sec) {
       Cmd->Offset = Dot - Ctx->OutSec->Addr;
       Dot += Cmd->Size;
       expandOutputSection(Cmd->Size);
-      continue;
-    }
-
-    // Handle ASSERT().
-    if (auto *Cmd = dyn_cast<AssertCommand>(Base)) {
-      Cmd->Expression();
       continue;
     }
 
@@ -875,6 +868,11 @@ void LinkerScript::adjustSectionsBeforeSorting() {
     if (!Sec)
       continue;
 
+    // Handle align (e.g. ".foo : ALIGN(16) { ... }").
+    if (Sec->AlignExpr)
+      Sec->Alignment =
+          std::max<uint32_t>(Sec->Alignment, Sec->AlignExpr().getValue());
+
     // A live output section means that some input section was added to it. It
     // might have been removed (if it was empty synthetic section), but we at
     // least know the flags.
@@ -913,10 +911,6 @@ void LinkerScript::adjustSectionsAfterSorting() {
           error("memory region '" + Sec->LMARegionName + "' not declared");
       }
       Sec->MemRegion = findMemoryRegion(Sec);
-      // Handle align (e.g. ".foo : ALIGN(16) { ... }").
-      if (Sec->AlignExpr)
-        Sec->Alignment =
-            std::max<uint32_t>(Sec->Alignment, Sec->AlignExpr().getValue());
     }
   }
 
@@ -1049,15 +1043,11 @@ void LinkerScript::assignAddresses() {
 
   for (BaseCommand *Base : SectionCommands) {
     if (auto *Cmd = dyn_cast<SymbolAssignment>(Base)) {
+      Cmd->Addr = Dot;
       assignSymbol(Cmd, false);
+      Cmd->Size = Dot - Cmd->Addr;
       continue;
     }
-
-    if (auto *Cmd = dyn_cast<AssertCommand>(Base)) {
-      Cmd->Expression();
-      continue;
-    }
-
     assignOffsets(cast<OutputSection>(Base));
   }
   Ctx = nullptr;
@@ -1121,9 +1111,9 @@ ExprValue LinkerScript::getSymbolValue(StringRef Name, const Twine &Loc) {
   if (Symbol *Sym = Symtab->find(Name)) {
     if (auto *DS = dyn_cast<Defined>(Sym))
       return {DS->Section, false, DS->Value, Loc};
-    if (auto *SS = dyn_cast<SharedSymbol>(Sym))
-      if (!ErrorOnMissingSection || SS->CopyRelSec)
-        return {SS->CopyRelSec, false, 0, Loc};
+    if (isa<SharedSymbol>(Sym))
+      if (!ErrorOnMissingSection)
+        return {nullptr, false, 0, Loc};
   }
 
   error(Loc + ": symbol not found: " + Name);

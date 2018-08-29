@@ -44,8 +44,8 @@ public:
   using CompileLayerT = IRCompileLayer<ObjLayerT, SimpleCompiler>;
 
   KaleidoscopeJIT()
-      : ES(SSP),
-        Resolver(createLegacyLookupResolver(
+      : Resolver(createLegacyLookupResolver(
+            ES,
             [this](const std::string &Name) {
               return ObjectLayer.findSymbol(Name, true);
             },
@@ -89,7 +89,7 @@ private:
   }
 
   JITSymbol findMangledSymbol(const std::string &Name) {
-#ifdef LLVM_ON_WIN32
+#ifdef _WIN32
     // The symbol lookup of ObjectLinkingLayer uses the SymbolRef::SF_Exported
     // flag to decide whether a symbol will be visible or not, when we call
     // IRCompileLayer::findSymbolIn with ExportedSymbolsOnly set to true.
@@ -113,7 +113,7 @@ private:
     if (auto SymAddr = RTDyldMemoryManager::getSymbolAddressInProcess(Name))
       return JITSymbol(SymAddr, JITSymbolFlags::Exported);
 
-#ifdef LLVM_ON_WIN32
+#ifdef _WIN32
     // For Windows retry without "_" at beginning, as RTDyldMemoryManager uses
     // GetProcAddress and standard libraries like msvcrt.dll use names
     // with and without "_" (for example "_itoa" but "sin").
@@ -126,7 +126,6 @@ private:
     return nullptr;
   }
 
-  SymbolStringPool SSP;
   ExecutionSession ES;
   std::shared_ptr<SymbolResolver> Resolver;
   std::unique_ptr<TargetMachine> TM;

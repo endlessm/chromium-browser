@@ -10,6 +10,7 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/hosted_app_menu_button.h"
 #include "chrome/browser/ui/views/location_bar/content_setting_image_view.h"
+#include "chrome/browser/ui/views/page_action/page_action_icon_container_view.h"
 #include "chrome/browser/ui/views/toolbar/browser_actions_container.h"
 #include "ui/compositor/layer_animation_element.h"
 #include "ui/compositor/layer_animation_sequence.h"
@@ -192,6 +193,9 @@ HostedAppButtonContainer::HostedAppButtonContainer(BrowserView* browser_view,
   content_settings_container_ = content_settings_container.get();
   AddChildView(content_settings_container.release());
 
+  page_action_icon_container_view_ = new PageActionIconContainerView();
+  AddChildView(page_action_icon_container_view_);
+
   AddChildView(browser_actions_container_);
 
   app_menu_button_->SetIconColor(active_icon_color);
@@ -250,19 +254,6 @@ void HostedAppButtonContainer::OnImmersiveRevealStarted() {
     fade_in_content_setting_buttons_timer_.AbandonAndStop();
     content_settings_container_->SetVisible(true);
   }
-  // Remove layers so that buttons display correctly when painted into the
-  // immersive mode top container view.
-  // See https://crbug.com/787640 for details.
-  // TODO(calamity): Make immersive mode support button layers.
-  content_settings_container_->DestroyLayer();
-  // Disable the ink drop as ink drops also render layers.
-  app_menu_button_->SetInkDropMode(HostedAppMenuButton::InkDropMode::OFF);
-}
-
-void HostedAppButtonContainer::OnImmersiveFullscreenExited() {
-  content_settings_container_->SetPaintToLayer();
-  content_settings_container_->layer()->SetFillsBoundsOpaquely(false);
-  app_menu_button_->SetInkDropMode(HostedAppMenuButton::InkDropMode::ON);
 }
 
 void HostedAppButtonContainer::ChildVisibilityChanged(views::View* child) {
@@ -293,6 +284,11 @@ HostedAppButtonContainer::CreateToolbarActionsBar(
 BrowserActionsContainer*
 HostedAppButtonContainer::GetBrowserActionsContainer() {
   return browser_actions_container_;
+}
+
+PageActionIconContainerView*
+HostedAppButtonContainer::GetPageActionIconContainerView() {
+  return page_action_icon_container_view_;
 }
 
 AppMenuButton* HostedAppButtonContainer::GetAppMenuButton() {

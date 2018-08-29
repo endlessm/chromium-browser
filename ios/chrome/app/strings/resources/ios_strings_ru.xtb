@@ -81,6 +81,7 @@
 <translation id="2381405137052800939">Основные</translation>
 <translation id="2386793615875593361">Выбрана 1 фотография</translation>
 <translation id="2435457462613246316">Показать пароль</translation>
+<translation id="2481538920734869610">ДОБАВИТЬ АККАУНТ</translation>
 <translation id="2523363575747517183">Этот сайт часто пытается открыть другое приложение.</translation>
 <translation id="2529021024822217800">Открыть все</translation>
 <translation id="2572712655377361602">Политика устройства блокирует доступ к фотографиям</translation>
@@ -112,6 +113,7 @@
 <translation id="2909437209446960244">Недавние вкладки</translation>
 <translation id="291754862089661335">Поместите QR-код или штрихкод в эту рамку</translation>
 <translation id="2921219216347069551">Ошибка</translation>
+<translation id="2923448633003185837">Вставить и перейти</translation>
 <translation id="292639812446257861">Отметить как непрочитанное</translation>
 <translation id="2933759065870693102">Вспышка</translation>
 <translation id="2969979262385602596">Не удалось войти в аккаунт. Повторите попытку.</translation>
@@ -131,6 +133,7 @@
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> из <ph name="NUM_SUGGESTIONS" /></translation>
 <translation id="3268451620468152448">Вкладки</translation>
 <translation id="3277021493514034324">Адрес сайта скопирован</translation>
+<translation id="3290875554372353449">Выберите аккаунт</translation>
 <translation id="3324193307694657476">Адрес, строка 2</translation>
 <translation id="3329904751041170572">Не удалось установить соединение с сервером.</translation>
 <translation id="3335947283844343239">Открыть закрытую вкладку</translation>
@@ -151,6 +154,7 @@
 <translation id="3588820906588687999">Открыть изображение в новой вкладке</translation>
 <translation id="3603009562372709545">Копировать URL</translation>
 <translation id="3607167657931203000">Данные автозаполнения</translation>
+<translation id="3609785682760573515">Cинхронизация…</translation>
 <translation id="3628119975092896051">Ваш список для чтения доступен без подключения к Интернету. Чтобы добавить в него страницу, нажмите <ph name="SHARE_OPENING_ICON" />.</translation>
 <translation id="3638472932233958418">Предварительная загрузка</translation>
 <translation id="3691593122358196899">Закладка добавлена в папку "<ph name="FOLDER_TITLE" />"</translation>
@@ -171,6 +175,7 @@
 <translation id="4049507953662678203">Проверьте подключение к Интернету и повторите попытку.</translation>
 <translation id="4084682180776658562">Закладка</translation>
 <translation id="411254640334432676">Ошибка при скачивании</translation>
+<translation id="4112644173421521737">Поиск</translation>
 <translation id="4121993058175073134">Чтобы отправлять очищенные данные для экспорта, задайте соответствующие параметры аккаунта электронной почты в приложении "Настройки".</translation>
 <translation id="4124987746317609294">Временной диапазон</translation>
 <translation id="4172051516777682613">Показывать всегда</translation>
@@ -338,10 +343,12 @@
 <translation id="7159472599653637159">Мобильная версия</translation>
 <translation id="7167621057293532233">Типы данных</translation>
 <translation id="7175593937868963913">Текст сообщения</translation>
+<translation id="7180611975245234373">Обновить</translation>
 <translation id="7189598951263744875">Поделиться…</translation>
 <translation id="7203585745079012652">Озвучивать результаты поиска</translation>
 <translation id="722055596168483966">Персонализировать сервисы Google</translation>
 <translation id="7272437679830969316">Не удалось пройти проверку. Пароль не скопирован.</translation>
+<translation id="7285236536143823449">ОК</translation>
 <translation id="7291368939935408496">Подготовка паролей…</translation>
 <translation id="7336264872878993241">Скачивается: <ph name="PERCENT" />%</translation>
 <translation id="7346909386216857016">ОК</translation>
@@ -356,6 +363,7 @@
 <translation id="750493650310597496">Закладки не выбраны</translation>
 <translation id="7514365320538308">Скачать</translation>
 <translation id="7537586195939242955">Не удалось внести данные в Passbook.</translation>
+<translation id="7554791636758816595">Новая вкладка</translation>
 <translation id="7561196759112975576">Всегда</translation>
 <translation id="7603852183842204213">Заблок. вспл. окон: <ph name="NUMBER_OF_BLOCKED_POPUPS" /></translation>
 <translation id="7605594153474022051">Ошибка синхронизации</translation>

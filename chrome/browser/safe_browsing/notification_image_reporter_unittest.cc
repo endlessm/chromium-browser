@@ -34,8 +34,7 @@ namespace {
 
 class TestingNotificationImageReporter : public NotificationImageReporter {
  public:
-  explicit TestingNotificationImageReporter()
-      : NotificationImageReporter(nullptr) {}
+  TestingNotificationImageReporter() : NotificationImageReporter(nullptr) {}
 
   void WaitForReportSkipped() {
     base::RunLoop run_loop;
@@ -170,7 +169,11 @@ void NotificationImageReporterTest::SetUp() {
 
 void NotificationImageReporterTest::TearDown() {
   TestingBrowserProcess::GetGlobal()->safe_browsing_service()->ShutDown();
-  base::RunLoop().RunUntilIdle();  // TODO(johnme): Might still be tasks on IO.
+  // Ensure no races between internal SafeBrowsingService's IO thread
+  // initialization that will create a NetworkChangeNotifier, which is also used
+  // by Profile's destructor.
+  thread_bundle_.RunIOThreadUntilIdle();
+  thread_bundle_.RunUntilIdle();
   TestingBrowserProcess::GetGlobal()->SetSafeBrowsingService(nullptr);
 }
 
@@ -193,7 +196,8 @@ void NotificationImageReporterTest::ReportNotificationImage() {
       image_);
 }
 
-TEST_F(NotificationImageReporterTest, ReportSuccess) {
+// Disabled due to data race. https://crbug.com/836359
+TEST_F(NotificationImageReporterTest, DISABLED_ReportSuccess) {
   SetExtendedReportingLevel(SBER_LEVEL_SCOUT);
 
   ReportNotificationImage();
@@ -218,7 +222,8 @@ TEST_F(NotificationImageReporterTest, ReportSuccess) {
   EXPECT_FALSE(report.image().has_original_dimensions());
 }
 
-TEST_F(NotificationImageReporterTest, ImageDownscaling) {
+// Disabled due to data race. https://crbug.com/836359
+TEST_F(NotificationImageReporterTest, DISABLED_ImageDownscaling) {
   SetExtendedReportingLevel(SBER_LEVEL_SCOUT);
 
   image_ = CreateBitmap(640 /* w */, 360 /* h */);
@@ -239,7 +244,8 @@ TEST_F(NotificationImageReporterTest, ImageDownscaling) {
   EXPECT_EQ(360, report.image().original_dimensions().height());
 }
 
-TEST_F(NotificationImageReporterTest, NoReportWithoutSBER) {
+// Disabled due to data race. https://crbug.com/836359
+TEST_F(NotificationImageReporterTest, DISABLED_NoReportWithoutSBER) {
   SetExtendedReportingLevel(SBER_LEVEL_OFF);
 
   ReportNotificationImage();
@@ -248,7 +254,8 @@ TEST_F(NotificationImageReporterTest, NoReportWithoutSBER) {
   EXPECT_EQ(0, notification_image_reporter_->sent_report_count());
 }
 
-TEST_F(NotificationImageReporterTest, NoReportWithoutScout) {
+// Disabled due to data race. https://crbug.com/836359
+TEST_F(NotificationImageReporterTest, DISABLED_NoReportWithoutScout) {
   SetExtendedReportingLevel(SBER_LEVEL_LEGACY);
 
   ReportNotificationImage();
@@ -257,7 +264,9 @@ TEST_F(NotificationImageReporterTest, NoReportWithoutScout) {
   EXPECT_EQ(0, notification_image_reporter_->sent_report_count());
 }
 
-TEST_F(NotificationImageReporterTest, NoReportWithoutReportingEnabled) {
+// Disabled due to flakiness: crbug.com/831563
+TEST_F(NotificationImageReporterTest,
+       DISABLED_NoReportWithoutReportingEnabled) {
   SetExtendedReportingLevel(SBER_LEVEL_SCOUT);
   notification_image_reporter_->SetReportingChance(0.0);
 
@@ -279,7 +288,8 @@ TEST_F(NotificationImageReporterTest, NoReportOnWhitelistedUrl) {
   EXPECT_EQ(0, notification_image_reporter_->sent_report_count());
 }
 
-TEST_F(NotificationImageReporterTest, MaxReportsPerDay) {
+// Disabled due to data race. https://crbug.com/836359
+TEST_F(NotificationImageReporterTest, DISABLED_MaxReportsPerDay) {
   SetExtendedReportingLevel(SBER_LEVEL_SCOUT);
 
   const int kMaxReportsPerDay = 5;

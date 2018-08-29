@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_PASSWORDS_MANAGE_PASSWORDS_UI_CONTROLLER_H_
 #define CHROME_BROWSER_UI_PASSWORDS_MANAGE_PASSWORDS_UI_CONTROLLER_H_
 
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -28,7 +29,7 @@ class WebContents;
 namespace password_manager {
 enum class CredentialType;
 struct InteractionsStats;
-class PasswordFormManager;
+class PasswordFormManagerForUI;
 }
 
 class AccountChooserPrompt;
@@ -56,13 +57,13 @@ class ManagePasswordsUIController
 
   // PasswordsClientUIDelegate:
   void OnPasswordSubmitted(
-      std::unique_ptr<password_manager::PasswordFormManager> form_manager)
+      std::unique_ptr<password_manager::PasswordFormManagerForUI> form_manager)
       override;
   void OnUpdatePasswordSubmitted(
-      std::unique_ptr<password_manager::PasswordFormManager> form_manager)
+      std::unique_ptr<password_manager::PasswordFormManagerForUI> form_manager)
       override;
   void OnShowManualFallbackForSaving(
-      std::unique_ptr<password_manager::PasswordFormManager> form_manager,
+      std::unique_ptr<password_manager::PasswordFormManagerForUI> form_manager,
       bool has_generated_password,
       bool is_update) override;
   void OnHideManualFallbackForSaving() override;
@@ -75,7 +76,7 @@ class ManagePasswordsUIController
       const GURL& origin) override;
   void OnPromptEnableAutoSignin() override;
   void OnAutomaticPasswordSave(
-      std::unique_ptr<password_manager::PasswordFormManager> form_manager)
+      std::unique_ptr<password_manager::PasswordFormManagerForUI> form_manager)
       override;
   void OnPasswordAutofilled(
       const std::map<base::string16, const autofill::PasswordForm*>&
@@ -118,9 +119,9 @@ class ManagePasswordsUIController
   void OnNoInteraction() override;
   void OnNopeUpdateClicked() override;
   void NeverSavePassword() override;
+  void OnPasswordsRevealed() override;
   void SavePassword(const base::string16& username,
                     const base::string16& password) override;
-  void UpdatePassword(const autofill::PasswordForm& password_form) override;
   void ChooseCredential(
       const autofill::PasswordForm& form,
       password_manager::CredentialType credential_type) override;
@@ -147,8 +148,6 @@ class ManagePasswordsUIController
   // The pieces of saving and blacklisting passwords that interact with
   // FormManager, split off into internal functions for testing/mocking.
   virtual void SavePasswordInternal();
-  virtual void UpdatePasswordInternal(
-      const autofill::PasswordForm& password_form);
   virtual void NeverSavePasswordInternal();
 
   // Called when a PasswordForm is autofilled, when a new PasswordForm is

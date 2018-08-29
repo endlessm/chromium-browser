@@ -16,7 +16,6 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -32,6 +31,7 @@
 #include "chromecast/public/cast_media_shlib.h"
 #include "chromecast/public/media/cast_decoder_buffer.h"
 #include "chromecast/public/media/decoder_config.h"
+#include "chromecast/public/media/media_capabilities_shlib.h"
 #include "chromecast/public/media/media_pipeline_backend.h"
 #include "chromecast/public/media/media_pipeline_device_params.h"
 #include "chromecast/public/volume_control.h"
@@ -84,7 +84,7 @@ VideoConfig DefaultVideoConfig() {
 
 base::FilePath GetTestDataFilePath(const std::string& name) {
   base::FilePath file_path;
-  CHECK(PathService::Get(base::DIR_SOURCE_ROOT, &file_path));
+  CHECK(base::PathService::Get(base::DIR_SOURCE_ROOT, &file_path));
 
   file_path = file_path.Append(FILE_PATH_LITERAL("media"))
       .Append(FILE_PATH_LITERAL("test")).Append(FILE_PATH_LITERAL("data"))
@@ -950,6 +950,9 @@ TEST_F(AudioVideoPipelineDeviceTest, H264Playback) {
 }
 
 TEST_F(AudioVideoPipelineDeviceTest, WebmPlaybackWithPause) {
+  if (!MediaCapabilitiesShlib::IsSupportedVideoConfig(kCodecVP8,
+                                                      kVideoProfileUnknown, 1))
+    return;
   set_sync_type(MediaPipelineDeviceParams::kModeSyncPts);
   // Setup to pause for 100ms every 500ms
   AddPause(base::TimeDelta::FromMilliseconds(500),
@@ -961,6 +964,9 @@ TEST_F(AudioVideoPipelineDeviceTest, WebmPlaybackWithPause) {
 }
 
 TEST_F(AudioVideoPipelineDeviceTest, Vp8Playback) {
+  if (!MediaCapabilitiesShlib::IsSupportedVideoConfig(kCodecVP8,
+                                                      kVideoProfileUnknown, 1))
+    return;
   set_sync_type(MediaPipelineDeviceParams::kModeSyncPts);
   ConfigureForVideoOnly("bear-vp8a.webm", false /* raw_h264 */);
   Start();
@@ -968,6 +974,9 @@ TEST_F(AudioVideoPipelineDeviceTest, Vp8Playback) {
 }
 
 TEST_F(AudioVideoPipelineDeviceTest, WebmPlayback) {
+  if (!MediaCapabilitiesShlib::IsSupportedVideoConfig(kCodecVP8,
+                                                      kVideoProfileUnknown, 1))
+    return;
   set_sync_type(MediaPipelineDeviceParams::kModeSyncPts);
   ConfigureForFile("bear-640x360.webm");
   PauseBeforeEos();
@@ -1103,6 +1112,9 @@ TEST_F(AudioVideoPipelineDeviceTest, H264Playback_WithEffectsStreams) {
 }
 
 TEST_F(AudioVideoPipelineDeviceTest, WebmPlaybackWithPause_WithEffectsStreams) {
+  if (!MediaCapabilitiesShlib::IsSupportedVideoConfig(kCodecVP8,
+                                                      kVideoProfileUnknown, 1))
+    return;
   set_sync_type(MediaPipelineDeviceParams::kModeSyncPts);
   // Setup to pause for 100ms every 500ms
   AddPause(base::TimeDelta::FromMilliseconds(500),
@@ -1115,6 +1127,9 @@ TEST_F(AudioVideoPipelineDeviceTest, WebmPlaybackWithPause_WithEffectsStreams) {
 }
 
 TEST_F(AudioVideoPipelineDeviceTest, Vp8Playback_WithEffectsStreams) {
+  if (!MediaCapabilitiesShlib::IsSupportedVideoConfig(kCodecVP8,
+                                                      kVideoProfileUnknown, 1))
+    return;
   set_sync_type(MediaPipelineDeviceParams::kModeSyncPts);
   ConfigureForVideoOnly("bear-vp8a.webm", false /* raw_h264 */);
   AddEffectsStreams();
@@ -1123,6 +1138,9 @@ TEST_F(AudioVideoPipelineDeviceTest, Vp8Playback_WithEffectsStreams) {
 }
 
 TEST_F(AudioVideoPipelineDeviceTest, WebmPlayback_WithEffectsStreams) {
+  if (!MediaCapabilitiesShlib::IsSupportedVideoConfig(kCodecVP8,
+                                                      kVideoProfileUnknown, 1))
+    return;
   set_sync_type(MediaPipelineDeviceParams::kModeSyncPts);
   ConfigureForFile("bear-640x360.webm");
   PauseBeforeEos();

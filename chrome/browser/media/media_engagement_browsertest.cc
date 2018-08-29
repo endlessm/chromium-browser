@@ -154,8 +154,8 @@ class MediaEngagementBrowserTest : public InProcessBrowserTest {
     Navigate(&params);
 
     InjectTimerTaskRunner();
-    params.target_contents->SetAudioMuted(false);
-    content::WaitForLoadStop(params.target_contents);
+    params.navigated_or_inserted_contents->SetAudioMuted(false);
+    content::WaitForLoadStop(params.navigated_or_inserted_contents);
   }
 
   void OpenTabAsLink(const GURL& url) {
@@ -254,7 +254,8 @@ class MediaEngagementBrowserTest : public InProcessBrowserTest {
   void EraseHistory() {
     history::URLRows urls;
     urls.push_back(history::URLRow(http_server_.GetURL("/")));
-    GetService()->OnURLsDeleted(nullptr, false, false, urls, std::set<GURL>());
+    GetService()->OnURLsDeleted(
+        nullptr, history::DeletionInfo::ForUrls(urls, std::set<GURL>()));
   }
 
   void LoadNewOriginPage() {

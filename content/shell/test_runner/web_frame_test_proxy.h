@@ -6,6 +6,7 @@
 #define CONTENT_SHELL_TEST_RUNNER_WEB_FRAME_TEST_PROXY_H_
 
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "base/command_line.h"
@@ -77,15 +78,10 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
                                  stack_trace);
   }
 
-  bool CanCreatePluginWithoutRenderer(
-      const blink::WebString& mime_type) override {
-    const char suffix[] = "-can-create-without-renderer";
-    return mime_type.Utf8().find(suffix) != std::string::npos;
-  }
-
-  void DownloadURL(const blink::WebURLRequest& request) override {
-    test_client()->DownloadURL(request);
-    Base::DownloadURL(request);
+  void DownloadURL(const blink::WebURLRequest& request,
+                   mojo::ScopedMessagePipeHandle blob_url_token) override {
+    test_client()->DownloadURL(request, mojo::ScopedMessagePipeHandle());
+    Base::DownloadURL(request, std::move(blob_url_token));
   }
 
 
@@ -121,11 +117,12 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
                                    global_object_reuse_policy);
   }
 
-  void DidNavigateWithinPage(const blink::WebHistoryItem& item,
-                             blink::WebHistoryCommitType commit_type,
-                             bool content_initiated) {
-    test_client()->DidNavigateWithinPage(item, commit_type, content_initiated);
-    Base::DidNavigateWithinPage(item, commit_type, content_initiated);
+  void DidFinishSameDocumentNavigation(const blink::WebHistoryItem& item,
+                                       blink::WebHistoryCommitType commit_type,
+                                       bool content_initiated) {
+    test_client()->DidFinishSameDocumentNavigation(item, commit_type,
+                                                   content_initiated);
+    Base::DidFinishSameDocumentNavigation(item, commit_type, content_initiated);
   }
 
   void DidReceiveTitle(const blink::WebString& title,
@@ -251,10 +248,9 @@ class WebFrameTestProxy : public Base, public WebFrameTestProxyBase {
 
   void CheckIfAudioSinkExistsAndIsAuthorized(
       const blink::WebString& sink_id,
-      const blink::WebSecurityOrigin& security_origin,
       blink::WebSetSinkIdCallbacks* web_callbacks) override {
-    test_client()->CheckIfAudioSinkExistsAndIsAuthorized(
-        sink_id, security_origin, web_callbacks);
+    test_client()->CheckIfAudioSinkExistsAndIsAuthorized(sink_id,
+                                                         web_callbacks);
   }
 
   blink::WebSpeechRecognizer* SpeechRecognizer() override {

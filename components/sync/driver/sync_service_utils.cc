@@ -7,6 +7,7 @@
 #include "components/sync/base/sync_prefs.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/engine/cycle/sync_cycle_snapshot.h"
+#include "google_apis/gaia/google_service_auth_error.h"
 
 namespace syncer {
 
@@ -18,7 +19,16 @@ UploadState GetUploadToGoogleState(const SyncService* sync_service,
   if (!sync_service || !sync_service->CanSyncStart() ||
       sync_service->IsLocalSyncEnabled() ||
       !sync_service->GetPreferredDataTypes().Has(type) ||
-      sync_service->GetAuthError().IsPersistentError() ||
+      sync_service->GetAuthError().IsPersistentError()) {
+    return UploadState::NOT_ACTIVE;
+  }
+  // If the given ModelType is encrypted with a custom passphrase, we also
+  // consider uploading inactive, since Google can't read the data.
+  // Note that encryption is tricky: Some data types (e.g. PASSWORDS) are always
+  // encrypted, but not necessarily with a custom passphrase. On the other hand,
+  // some data types are never encrypted (e.g. DEVICE_INFO), even if the
+  // "encrypt everything" setting is enabled.
+  if (sync_service->GetEncryptedDataTypes().Has(type) &&
       sync_service->IsUsingSecondaryPassphrase()) {
     return UploadState::NOT_ACTIVE;
   }

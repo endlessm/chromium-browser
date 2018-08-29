@@ -10,6 +10,7 @@ var NavigationModelItemType = {
   VOLUME: 'volume',
   MENU: 'menu',
   RECENT: 'recent',
+  CROSTINI: 'crostini',
 };
 
 /**
@@ -110,20 +111,21 @@ NavigationModelMenuItem.prototype = /** @struct */ {
 };
 
 /**
- * Item of NavigationListModel for a Recent view.
+ * Item of NavigationListModel for a fake item such as Recent or Linux Files.
  *
  * @param {string} label Label on the menu button.
- * @param {!FakeEntry} entry Fake entry for the Recent root folder.
+ * @param {NavigationModelItemType} type
+ * @param {!FakeEntry} entry Fake entry for the root folder.
  * @constructor
  * @extends {NavigationModelItem}
  * @struct
  */
-function NavigationModelRecentItem(label, entry) {
-  NavigationModelItem.call(this, label, NavigationModelItemType.RECENT);
+function NavigationModelFakeItem(label, type, entry) {
+  NavigationModelItem.call(this, label, type);
   this.entry_ = entry;
 }
 
-NavigationModelRecentItem.prototype = /** @struct */ {
+NavigationModelFakeItem.prototype = /** @struct */ {
   __proto__: NavigationModelItem.prototype,
   get entry() {
     return this.entry_;
@@ -135,15 +137,13 @@ NavigationModelRecentItem.prototype = /** @struct */ {
  * @param {!VolumeManagerWrapper} volumeManager VolumeManagerWrapper instance.
  * @param {(!cr.ui.ArrayDataModel|!FolderShortcutsDataModel)} shortcutListModel
  *     The list of folder shortcut.
- * @param {NavigationModelMenuItem} menuModelItem Menu button at the end of the
- *     list.
- * @param {NavigationModelRecentItem} recentModelItem Recent folder below the
- *     Downloads volume in the list.
+ * @param {NavigationModelFakeItem} recentModelItem Recent folder.
+ * @param {NavigationModelMenuItem} addNewServicesItem Add new services item.
  * @constructor
  * @extends {cr.EventTarget}
  */
 function NavigationListModel(
-    volumeManager, shortcutListModel, menuModelItem, recentModelItem) {
+    volumeManager, shortcutListModel, recentModelItem, addNewServicesItem) {
   cr.EventTarget.call(this);
 
   /**
@@ -159,16 +159,30 @@ function NavigationListModel(
   this.shortcutListModel_ = shortcutListModel;
 
   /**
-   * @private {NavigationModelMenuItem}
-   * @const
-   */
-  this.menuModelItem_ = menuModelItem;
-
-  /**
-   * @private {NavigationModelRecentItem}
+   * @private {NavigationModelFakeItem}
    * @const
    */
   this.recentModelItem_ = recentModelItem;
+
+  /**
+   * Root folder for crostini Linux Files.
+   * This field will be set asynchronously after calling
+   * chrome.fileManagerPrivate.isCrostiniEnabled.
+   * @private {NavigationModelFakeItem}
+   */
+  this.linuxFilesItem_ = null;
+
+  /**
+   * @private {NavigationModelMenuItem}
+   * @const
+   */
+  this.addNewServicesItem_ = addNewServicesItem;
+
+  /**
+   * All root navigation items in display order.
+   * @private {!Array<!NavigationModelItem>}
+   */
+  this.navigationItems_ = [];
 
   var volumeInfoToModelItem = function(volumeInfo) {
     return new NavigationModelVolumeItem(
@@ -200,12 +214,16 @@ function NavigationListModel(
 
   this.shortcutList_ = [];
   for (var i = 0; i < this.shortcutListModel_.length; i++) {
-    var shortcutEntry = /** @type {Entry} */ (this.shortcutListModel_.item(i));
+    var shortcutEntry = /** @type {!Entry} */ (this.shortcutListModel_.item(i));
     var volumeInfo = this.volumeManager_.getVolumeInfo(shortcutEntry);
     this.shortcutList_.push(entryToModelItem(shortcutEntry));
   }
 
-  // Generates a combined 'permuted' event from an event of either list.
+  // Reorder volumes, shortcuts, and optional items for initial display.
+  this.reorderNavigationItems_();
+
+  // Generates a combined 'permuted' event from an event of either volumeList or
+  // shortcutList.
   var permutedHandler = function(listType, event) {
     var permutation;
 
@@ -288,6 +306,9 @@ function NavigationListModel(
       this.shortcutList_ = newList;
     }
 
+    // Reorder items after permutation.
+    this.reorderNavigationItems_();
+
     // Dispatch permuted event.
     var permutedEvent = new Event('permuted');
     permutedEvent.newLength =
@@ -312,8 +333,58 @@ function NavigationListModel(
  */
 NavigationListModel.prototype = {
   __proto__: cr.EventTarget.prototype,
-  get length() { return this.length_(); },
-  get folderShortcutList() { return this.shortcutList_; }
+  get length() {
+    return this.length_();
+  },
+  get folderShortcutList() {
+    return this.shortcutList_;
+  },
+  /**
+   * Set the crostini Linux Files root and reorder items.
+   * This setter is provided separate to the constructor since
+   * this field is set async after calling fileManagerPrivate.isCrostiniEnabled.
+   * @param {NavigationModelFakeItem} item Linux Files root.
+   */
+  set linuxFilesItem(item) {
+    this.linuxFilesItem_ = item;
+    this.reorderNavigationItems_();
+  },
+};
+
+/**
+ * Reorder navigation items in the following order:
+ *  1. Volumes.
+ *  2. If Downloads exists, then immediately after Downloads should be:
+ *  2a. Recent if it exists.
+ *  2b. Linux Files if it exists and is not mounted.
+ *      When mounted, it will be located in Volumes at this position.
+ *  3. Shortcuts.
+ *  4. Add new services if it exists.
+ * @private
+ */
+NavigationListModel.prototype.reorderNavigationItems_ = function() {
+  // Check if Linux files already mounted.
+  let linuxFilesMounted = false;
+  for (let i = 0; i < this.volumeList_.length; i++) {
+    if (this.volumeList_[i].volumeInfo.volumeType ===
+        VolumeManagerCommon.VolumeType.CROSTINI) {
+      linuxFilesMounted = true;
+      break;
+    }
+  }
+
+  // Items as per required order.
+  this.navigationItems_ = this.volumeList_.slice();
+  var downloadsVolumeIndex = this.findDownloadsVolumeIndex_();
+  if (this.linuxFilesItem_ && !linuxFilesMounted && downloadsVolumeIndex >= 0)
+    this.navigationItems_.splice(
+        downloadsVolumeIndex + 1, 0, this.linuxFilesItem_);
+  if (this.recentModelItem_ && downloadsVolumeIndex >= 0)
+    this.navigationItems_.splice(
+        downloadsVolumeIndex + 1, 0, this.recentModelItem_);
+  Array.prototype.push.apply(this.navigationItems_, this.shortcutList_);
+  if (this.addNewServicesItem_)
+    this.navigationItems_.push(this.addNewServicesItem_);
 };
 
 /**
@@ -322,22 +393,7 @@ NavigationListModel.prototype = {
  * @return {NavigationModelItem|undefined} The item at the given index.
  */
 NavigationListModel.prototype.item = function(index) {
-  // If we should show "Recent" folder, insert it just below Downloads volume.
-  var downloadsVolumeIndex = this.findDownloadsVolumeIndex_();
-  var indexWithoutRecent = index;
-  if (this.recentModelItem_ && downloadsVolumeIndex >= 0) {
-    if (index == downloadsVolumeIndex + 1)
-      return this.recentModelItem_;
-    if (index > downloadsVolumeIndex + 1)
-      indexWithoutRecent--;
-  }
-  if (indexWithoutRecent < this.volumeList_.length)
-    return this.volumeList_[indexWithoutRecent];
-  if (indexWithoutRecent < this.volumeList_.length + this.shortcutList_.length)
-    return this.shortcutList_[indexWithoutRecent - this.volumeList_.length];
-  if (index === this.length_() - 1)
-    return this.menuModelItem_;
-  return undefined;
+  return this.navigationItems_[index];
 };
 
 /**
@@ -346,9 +402,7 @@ NavigationListModel.prototype.item = function(index) {
  * @private
  */
 NavigationListModel.prototype.length_ = function() {
-  return this.volumeList_.length + this.shortcutList_.length +
-      (this.menuModelItem_ ? 1 : 0) +
-      (this.recentModelItem_ && this.findDownloadsVolumeIndex_() >= 0 ? 1 : 0);
+  return this.navigationItems_.length;
 };
 
 /**

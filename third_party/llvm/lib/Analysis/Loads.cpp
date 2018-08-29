@@ -107,11 +107,14 @@ static bool isDereferenceableAndAlignedPointer(
     return isDereferenceableAndAlignedPointer(ASC->getOperand(0), Align, Size,
                                               DL, CtxI, DT, Visited);
 
-  if (auto CS = ImmutableCallSite(V))
+  if (auto CS = ImmutableCallSite(V)) {
     if (const Value *RV = CS.getReturnedArgOperand())
       return isDereferenceableAndAlignedPointer(RV, Align, Size, DL, CtxI, DT,
                                                 Visited);
-
+    if (CS.getIntrinsicID() == Intrinsic::launder_invariant_group)
+      return isDereferenceableAndAlignedPointer(CS->getOperand(0), Align, Size,
+                                                DL, CtxI, DT, Visited);
+  }
   // If we don't know, assume the worst.
   return false;
 }
@@ -156,7 +159,7 @@ bool llvm::isDereferenceablePointer(const Value *V, const DataLayout &DL,
   return isDereferenceableAndAlignedPointer(V, 1, DL, CtxI, DT);
 }
 
-/// \brief Test if A and B will obviously have the same value.
+/// Test if A and B will obviously have the same value.
 ///
 /// This includes recognizing that %t0 and %t1 will have the same
 /// value in code like this:
@@ -187,7 +190,7 @@ static bool AreEquivalentAddressValues(const Value *A, const Value *B) {
   return false;
 }
 
-/// \brief Check if executing a load of this pointer value cannot trap.
+/// Check if executing a load of this pointer value cannot trap.
 ///
 /// If DT and ScanFrom are specified this method performs context-sensitive
 /// analysis and returns true if it is safe to load immediately before ScanFrom.

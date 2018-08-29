@@ -15,6 +15,7 @@
 #include "base/logging.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "build/build_config.h"
 #include "components/signin/core/browser/account_info.h"
 #include "components/sync/model/entity_change.h"
 #include "components/sync/model/metadata_batch.h"
@@ -153,21 +154,19 @@ std::string UserEventSyncBridge::GetStorageKey(const EntityData& entity_data) {
   return GetStorageKeyFromSpecifics(entity_data.specifics.user_event());
 }
 
-void UserEventSyncBridge::OnSyncStarting(
-    const ModelErrorHandler& error_handler,
-    const ModelTypeChangeProcessor::StartCallback& start_callback) {
+void UserEventSyncBridge::OnSyncStarting() {
+#if !defined(OS_IOS)  // https://crbug.com/834042
   DCHECK(!GetAuthenticatedAccountId().empty());
-  change_processor()->OnSyncStarting(std::move(error_handler), start_callback);
-
-  bool was_sync_starting_or_started = is_sync_starting_or_started_;
+#endif  // !defined(OS_IOS)
+  bool was_sync_started = is_sync_starting_or_started_;
   is_sync_starting_or_started_ = true;
-  if (store_ && change_processor()->IsTrackingMetadata() &&
-      !was_sync_starting_or_started) {
+  if (store_ && change_processor()->IsTrackingMetadata() && !was_sync_started) {
     ReadAllDataAndResubmit();
   }
 }
 
-void UserEventSyncBridge::ApplyDisableSyncChanges(
+ModelTypeSyncBridge::DisableSyncResponse
+UserEventSyncBridge::ApplyDisableSyncChanges(
     std::unique_ptr<MetadataChangeList> delete_metadata_change_list) {
   // Sync can only be disabled after initialization.
   DCHECK(deferred_user_events_while_initializing_.empty());
@@ -180,6 +179,7 @@ void UserEventSyncBridge::ApplyDisableSyncChanges(
   store_->ReadAllData(base::BindOnce(
       &UserEventSyncBridge::OnReadAllDataToDelete, base::AsWeakPtr(this),
       std::move(delete_metadata_change_list)));
+  return DisableSyncResponse::kModelStillReadyToSync;
 }
 
 void UserEventSyncBridge::OnReadAllDataToDelete(
@@ -319,7 +319,7 @@ void UserEventSyncBridge::OnReadAllMetadata(
   if (error) {
     change_processor()->ReportError(*error);
   } else {
-    change_processor()->ModelReadyToSync(this, std::move(metadata_batch));
+    change_processor()->ModelReadyToSync(std::move(metadata_batch));
     DCHECK(change_processor()->IsTrackingMetadata());
     if (is_sync_starting_or_started_) {
       ReadAllDataAndResubmit();

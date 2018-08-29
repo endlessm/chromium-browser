@@ -7,6 +7,8 @@
 
 #include "ash/accessibility/accessibility_focus_ring_controller.h"
 #include "ash/accessibility/accessibility_focus_ring_layer.h"
+#include "ash/public/interfaces/constants.mojom.h"
+#include "ash/public/interfaces/status_area_widget_test_api.mojom.h"
 #include "ash/shell.h"
 #include "ash/system/tray/system_tray.h"
 #include "base/bind.h"
@@ -21,10 +23,12 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/common/service_manager_connection.h"
 #include "content/public/test/browser_test_utils.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/notification_types.h"
 #include "extensions/browser/process_manager.h"
+#include "services/service_manager/public/cpp/connector.h"
 #include "ui/events/test/event_generator.h"
 #include "url/url_constants.h"
 
@@ -38,12 +42,24 @@ class SelectToSpeakTest : public InProcessBrowserTest {
     }
   }
 
+  void OnSelectToSpeakStateChanged() {
+    if (tray_loop_runner_) {
+      tray_loop_runner_->Quit();
+    }
+  }
+
  protected:
   SelectToSpeakTest() : weak_ptr_factory_(this) {}
   ~SelectToSpeakTest() override {}
 
   void SetUpOnMainThread() override {
     ASSERT_FALSE(AccessibilityManager::Get()->IsSelectToSpeakEnabled());
+
+    // Connect to the ash test interface for the StatusAreaWidget.
+    content::ServiceManagerConnection::GetForProcess()
+        ->GetConnector()
+        ->BindInterface(ash::mojom::kServiceName,
+                        &status_area_widget_test_api_);
 
     content::WindowedNotificationObserver extension_load_waiter(
         extensions::NOTIFICATION_EXTENSION_HOST_DID_STOP_FIRST_LOAD,
@@ -72,6 +88,24 @@ class SelectToSpeakTest : public InProcessBrowserTest {
                             bounds.y() + bounds.height() - 8);
     generator_->ReleaseLeftButton();
     generator_->ReleaseKey(ui::VKEY_LWIN, 0 /* flags */);
+  }
+
+  void PrepareToWaitForSelectToSpeakStatusChanged() {
+    tray_loop_runner_ = new content::MessageLoopRunner();
+  }
+
+  // Blocks until the select-to-speak tray status is changed.
+  void WaitForSelectToSpeakStatusChanged() {
+    tray_loop_runner_->Run();
+    tray_loop_runner_ = nullptr;
+  }
+
+  void TapSelectToSpeakTray() {
+    ash::mojom::StatusAreaWidgetTestApiAsyncWaiter status_area(
+        status_area_widget_test_api_.get());
+    PrepareToWaitForSelectToSpeakStatusChanged();
+    status_area.TapSelectToSpeakTray();
+    WaitForSelectToSpeakStatusChanged();
   }
 
   void PrepareToWaitForFocusRingChanged() {
@@ -106,7 +140,9 @@ class SelectToSpeakTest : public InProcessBrowserTest {
   }
 
  private:
+  ash::mojom::StatusAreaWidgetTestApiPtr status_area_widget_test_api_;
   scoped_refptr<content::MessageLoopRunner> loop_runner_;
+  scoped_refptr<content::MessageLoopRunner> tray_loop_runner_;
   base::WeakPtrFactory<SelectToSpeakTest> weak_ptr_factory_;
   DISALLOW_COPY_AND_ASSIGN(SelectToSpeakTest);
 };
@@ -124,6 +160,48 @@ IN_PROC_BROWSER_TEST_F(SelectToSpeakTest, SpeakStatusTray) {
 
   EXPECT_TRUE(
       base::MatchPattern(speech_monitor_.GetNextUtterance(), "Status tray*"));
+}
+
+IN_PROC_BROWSER_TEST_F(SelectToSpeakTest, ActivatesWithTapOnSelectToSpeakTray) {
+  base::RepeatingCallback<void()> callback = base::BindRepeating(
+      &SelectToSpeakTest::OnSelectToSpeakStateChanged, GetWeakPtr());
+  chromeos::AccessibilityManager::Get()->SetSelectToSpeakStateObserverForTest(
+      callback);
+  // Click in the tray bounds to start 'selection' mode.
+  TapSelectToSpeakTray();
+
+  // We should be in "selection" mode, so clicking with the mouse should
+  // start speech.
+  ui_test_utils::NavigateToURL(
+      browser(), GURL("data:text/html;charset=utf-8,<p>This is some text</p>"));
+  gfx::Rect bounds = browser()->window()->GetBounds();
+  generator_->MoveMouseTo(bounds.x() + 8, bounds.y() + 8);
+  generator_->PressLeftButton();
+  generator_->MoveMouseTo(bounds.x() + bounds.width() - 8,
+                          bounds.y() + bounds.height() - 8);
+  generator_->ReleaseLeftButton();
+
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(),
+                                 "This is some text*"));
+}
+
+IN_PROC_BROWSER_TEST_F(SelectToSpeakTest, SelectToSpeakTrayNotSpoken) {
+  base::RepeatingCallback<void()> callback = base::BindRepeating(
+      &SelectToSpeakTest::OnSelectToSpeakStateChanged, GetWeakPtr());
+  chromeos::AccessibilityManager::Get()->SetSelectToSpeakStateObserverForTest(
+      callback);
+
+  // Tap it once to enter selection mode.
+  TapSelectToSpeakTray();
+
+  // Tap again to turn off selection mode.
+  TapSelectToSpeakTray();
+
+  // The next should be the first thing spoken -- the tray was not spoken.
+  ActivateSelectToSpeakInWindowBounds(
+      "data:text/html;charset=utf-8,<p>This is some text</p>");
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(),
+                                 "This is some text*"));
 }
 
 IN_PROC_BROWSER_TEST_F(SelectToSpeakTest, SmoothlyReadsAcrossInlineUrl) {
@@ -272,6 +350,32 @@ IN_PROC_BROWSER_TEST_F(SelectToSpeakTest, ContinuesReadingDuringResize) {
       "document.getElementById('resize').style.width='100px'");
   EXPECT_TRUE(
       base::MatchPattern(speech_monitor_.GetNextUtterance(), "*when*resized*"));
+}
+
+IN_PROC_BROWSER_TEST_F(SelectToSpeakTest, WorksWithStickyKeys) {
+  AccessibilityManager::Get()->EnableStickyKeys(true);
+
+  ui_test_utils::NavigateToURL(
+      browser(), GURL("data:text/html;charset=utf-8,<p>This is some text</p>"));
+  gfx::Rect bounds = browser()->window()->GetBounds();
+
+  // Tap Search and click a few pixels into the window bounds.
+  generator_->PressKey(ui::VKEY_LWIN, 0 /* flags */);
+  generator_->ReleaseKey(ui::VKEY_LWIN, 0 /* flags */);
+
+  // Sticky keys should remember the 'search' key was clicked, so STS is
+  // actually in a capturing mode now.
+  generator_->MoveMouseTo(bounds.x() + 8, bounds.y() + 50);
+  generator_->PressLeftButton();
+  generator_->MoveMouseTo(bounds.x() + bounds.width() - 8,
+                          bounds.y() + bounds.height() - 8);
+  generator_->ReleaseLeftButton();
+
+  EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(),
+                                 "This is some text*"));
+
+  // Reset state.
+  AccessibilityManager::Get()->EnableStickyKeys(false);
 }
 
 }  // namespace chromeos

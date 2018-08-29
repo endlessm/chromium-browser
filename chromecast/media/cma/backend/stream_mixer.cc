@@ -14,7 +14,7 @@
 
 #include "base/bind_helpers.h"
 #include "base/compiler_specific.h"
-#include "base/lazy_instance.h"
+#include "base/no_destructor.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -22,10 +22,10 @@
 #include "chromecast/media/base/audio_device_ids.h"
 #include "chromecast/media/cma/backend/cast_audio_json.h"
 #include "chromecast/media/cma/backend/filter_group.h"
-#include "chromecast/media/cma/backend/mixer_output_stream.h"
 #include "chromecast/media/cma/backend/post_processing_pipeline_impl.h"
 #include "chromecast/media/cma/backend/post_processing_pipeline_parser.h"
 #include "chromecast/public/media/audio_post_processor_shlib.h"
+#include "chromecast/public/media/mixer_output_stream.h"
 #include "media/audio/audio_device_description.h"
 
 #define POST_THROUGH_SHIM_THREAD(method, ...)                                  \
@@ -41,6 +41,57 @@
 
 namespace chromecast {
 namespace media {
+
+class StreamMixer::ExternalLoopbackAudioObserver
+    : public CastMediaShlib::LoopbackAudioObserver {
+ public:
+  ExternalLoopbackAudioObserver(StreamMixer* mixer) : mixer_(mixer) {}
+
+  void OnLoopbackAudio(int64_t timestamp,
+                       SampleFormat format,
+                       int sample_rate,
+                       int num_channels,
+                       uint8_t* data,
+                       int length) override {
+    auto loopback_data = std::make_unique<uint8_t[]>(length);
+    std::copy(data, data + length, loopback_data.get());
+    mixer_->PostLoopbackData(timestamp, format, sample_rate, num_channels,
+                             std::move(loopback_data), length);
+  }
+  void OnLoopbackInterrupted() override { mixer_->PostLoopbackInterrupted(); }
+
+  void OnRemoved() override {
+    // We expect that external pipeline will not invoke any other callbacks
+    // after this one.
+    delete this;
+    // No need to pipe this, StreamMixer will let the other observer know when
+    // it's being removed.
+  }
+
+ private:
+  StreamMixer* const mixer_;
+};
+
+class StreamMixer::ExternalMediaVolumeChangeRequestObserver
+    : public StreamMixer::BaseExternalMediaVolumeChangeRequestObserver {
+ public:
+  ExternalMediaVolumeChangeRequestObserver(StreamMixer* mixer) : mixer_(mixer) {
+    DCHECK(mixer_);
+  }
+
+  // ExternalAudioPipelineShlib::ExternalMediaVolumeChangeRequestObserver
+  // implementation:
+  void OnVolumeChangeRequest(float new_volume) override {
+    mixer_->SetVolume(AudioContentType::kMedia, new_volume);
+  }
+
+  void OnMuteChangeRequest(bool new_muted) override {
+    mixer_->SetVolume(AudioContentType::kMedia, new_muted);
+  }
+
+ private:
+  StreamMixer* const mixer_;
+};
 
 namespace {
 
@@ -124,9 +175,6 @@ void UseHighPriority() {
 #endif
 }
 
-base::LazyInstance<StreamMixer>::DestructorAtExit g_mixer_instance =
-    LAZY_INSTANCE_INITIALIZER;
-
 }  // namespace
 
 float StreamMixer::VolumeInfo::GetEffectiveVolume() {
@@ -135,7 +183,8 @@ float StreamMixer::VolumeInfo::GetEffectiveVolume() {
 
 // static
 StreamMixer* StreamMixer::Get() {
-  return g_mixer_instance.Pointer();
+  static base::NoDestructor<StreamMixer> mixer_instance;
+  return mixer_instance.get();
 }
 
 StreamMixer::StreamMixer()
@@ -163,8 +212,14 @@ StreamMixer::StreamMixer(
       no_input_close_timeout_(GetNoInputCloseTimeout()),
       filter_frame_alignment_(kDefaultFilterFrameAlignment),
       state_(kStateStopped),
+      external_audio_pipeline_supported_(
+          ExternalAudioPipelineShlib::IsSupported()),
       weak_factory_(this) {
   VLOG(1) << __func__;
+
+  volume_info_[AudioContentType::kOther].volume = 1.0f;
+  volume_info_[AudioContentType::kOther].limit = 1.0f;
+  volume_info_[AudioContentType::kOther].muted = false;
 
   if (mixer_thread_) {
     base::Thread::Options options;
@@ -194,6 +249,17 @@ StreamMixer::StreamMixer(
   // TODO(jyw): command line flag for filter frame alignment.
   DCHECK_EQ(filter_frame_alignment_ & (filter_frame_alignment_ - 1), 0)
       << "Alignment must be a power of 2.";
+
+  if (external_audio_pipeline_supported_) {
+    external_volume_observer_ =
+        std::make_unique<ExternalMediaVolumeChangeRequestObserver>(this);
+    ExternalAudioPipelineShlib::AddExternalMediaVolumeChangeRequestObserver(
+        external_volume_observer_.get());
+    external_loopback_audio_observer_ =
+        std::make_unique<ExternalLoopbackAudioObserver>(this);
+    ExternalAudioPipelineShlib::AddExternalLoopbackAudioObserver(
+        external_loopback_audio_observer_.get());
+  }
 }
 
 void StreamMixer::ResetPostProcessorsForTest(
@@ -305,6 +371,14 @@ StreamMixer::~StreamMixer() {
   if (mixer_thread_) {
     mixer_thread_->Stop();
   }
+
+  if (external_volume_observer_) {
+    ExternalAudioPipelineShlib::RemoveExternalLoopbackAudioObserver(
+        external_loopback_audio_observer_.get());
+    external_loopback_audio_observer_.release();
+    ExternalAudioPipelineShlib::RemoveExternalMediaVolumeChangeRequestObserver(
+        external_volume_observer_.get());
+  }
 }
 
 void StreamMixer::FinalizeOnMixerThread() {
@@ -322,8 +396,13 @@ void StreamMixer::Start() {
   DCHECK(inputs_.empty());
 
   if (!output_) {
-    output_ = MixerOutputStream::Create();
+    if (external_audio_pipeline_supported_) {
+      output_ = ExternalAudioPipelineShlib::CreateMixerOutputStream();
+    } else {
+      output_ = MixerOutputStream::Create();
+    }
   }
+  DCHECK(output_);
 
   int requested_sample_rate;
   if (fixed_sample_rate_ != MixerOutputStream::kInvalidSampleRate) {
@@ -373,7 +452,7 @@ void StreamMixer::Stop() {
 
   weak_factory_.InvalidateWeakPtrs();
 
-  POST_TASK_TO_SHIM_THREAD(&StreamMixer::LoopbackInterrupted);
+  PostLoopbackInterrupted();
 
   if (output_) {
     output_->Stop();
@@ -470,13 +549,15 @@ void StreamMixer::AddInputOnThread(MixerInput::Source* input_source) {
   }
 
   auto type = input->content_type();
-  if (input->primary()) {
-    input->SetContentTypeVolume(volume_info_[type].GetEffectiveVolume(),
-                                kUseDefaultFade);
-  } else {
-    input->SetContentTypeVolume(volume_info_[type].volume, kUseDefaultFade);
+  if (type != AudioContentType::kOther) {
+    if (input->primary()) {
+      input->SetContentTypeVolume(volume_info_[type].GetEffectiveVolume(),
+                                  kUseDefaultFade);
+    } else {
+      input->SetContentTypeVolume(volume_info_[type].volume, kUseDefaultFade);
+    }
+    input->SetMuted(volume_info_[type].muted);
   }
-  input->SetMuted(volume_info_[type].muted);
 
   inputs_[input_source] = std::move(input);
   UpdatePlayoutChannel();
@@ -612,14 +693,15 @@ void StreamMixer::WriteMixedPcm(int frames, int64_t expected_playback_time) {
     mixed_data[i] = std::min(1.0f, std::max(-1.0f, mixed_data[i]));
   }
 
-  auto loopback_data =
-      std::make_unique<float[]>(frames * loopback_channel_count);
-  std::copy(mixed_data, mixed_data + frames * loopback_channel_count,
-            loopback_data.get());
-  POST_TASK_TO_SHIM_THREAD(&StreamMixer::SendLoopbackData,
-                           expected_playback_time, output_samples_per_second_,
-                           frames, loopback_channel_count,
-                           std::move(loopback_data));
+  if (!external_audio_pipeline_supported_) {
+    size_t length = frames * loopback_channel_count * sizeof(float);
+    auto loopback_data = std::make_unique<uint8_t[]>(length);
+    uint8_t* data = reinterpret_cast<uint8_t*>(mixed_data);
+    std::copy(data, data + length, loopback_data.get());
+    PostLoopbackData(expected_playback_time, kSampleFormatF32,
+                     output_samples_per_second_, loopback_channel_count,
+                     std::move(loopback_data), length);
+  }
 
   // Drop extra channels from linearize filter if necessary.
   float* linearized_data = linearize_filter_->GetOutputBuffer();
@@ -640,18 +722,20 @@ void StreamMixer::WriteMixedPcm(int frames, int64_t expected_playback_time) {
                  &playback_interrupted);
 
   if (playback_interrupted) {
-    POST_TASK_TO_SHIM_THREAD(&StreamMixer::LoopbackInterrupted);
+    PostLoopbackInterrupted();
   }
 }
 
 void StreamMixer::AddLoopbackAudioObserver(
     CastMediaShlib::LoopbackAudioObserver* observer) {
+  VLOG(1) << __func__;
   POST_TASK_TO_SHIM_THREAD(&StreamMixer::AddLoopbackAudioObserverOnShimThread,
                            observer);
 }
 
 void StreamMixer::AddLoopbackAudioObserverOnShimThread(
     CastMediaShlib::LoopbackAudioObserver* observer) {
+  VLOG(1) << __func__;
   DCHECK(shim_task_runner_->BelongsToCurrentThread());
   DCHECK(observer);
   loopback_observers_.insert(observer);
@@ -659,29 +743,45 @@ void StreamMixer::AddLoopbackAudioObserverOnShimThread(
 
 void StreamMixer::RemoveLoopbackAudioObserver(
     CastMediaShlib::LoopbackAudioObserver* observer) {
+  VLOG(1) << __func__;
   POST_TASK_TO_SHIM_THREAD(
       &StreamMixer::RemoveLoopbackAudioObserverOnShimThread, observer);
 }
 
 void StreamMixer::RemoveLoopbackAudioObserverOnShimThread(
     CastMediaShlib::LoopbackAudioObserver* observer) {
+  VLOG(1) << __func__;
   DCHECK(shim_task_runner_->BelongsToCurrentThread());
   loopback_observers_.erase(observer);
   observer->OnRemoved();
 }
 
-void StreamMixer::SendLoopbackData(int64_t expected_playback_time,
+void StreamMixer::PostLoopbackData(int64_t expected_playback_time,
+                                   SampleFormat format,
                                    int sample_rate,
-                                   int frames,
                                    int channels,
-                                   std::unique_ptr<float[]> data) {
+                                   std::unique_ptr<uint8_t[]> data,
+                                   int length) {
+  POST_TASK_TO_SHIM_THREAD(&StreamMixer::SendLoopbackData,
+                           expected_playback_time, format, sample_rate,
+                           channels, std::move(data), length);
+}
+
+void StreamMixer::SendLoopbackData(int64_t expected_playback_time,
+                                   SampleFormat format,
+                                   int sample_rate,
+                                   int channels,
+                                   std::unique_ptr<uint8_t[]> data,
+                                   int length) {
   DCHECK(shim_task_runner_->BelongsToCurrentThread());
   for (CastMediaShlib::LoopbackAudioObserver* observer : loopback_observers_) {
-    observer->OnLoopbackAudio(
-        expected_playback_time, kSampleFormatF32, sample_rate, channels,
-        reinterpret_cast<uint8_t*>(data.get()),
-        static_cast<size_t>(frames) * channels * sizeof(float));
+    observer->OnLoopbackAudio(expected_playback_time, format, sample_rate,
+                              channels, data.get(), length);
   }
+}
+
+void StreamMixer::PostLoopbackInterrupted() {
+  POST_TASK_TO_SHIM_THREAD(&StreamMixer::LoopbackInterrupted);
 }
 
 void StreamMixer::LoopbackInterrupted() {
@@ -697,6 +797,8 @@ void StreamMixer::SetVolume(AudioContentType type, float level) {
 
 void StreamMixer::SetVolumeOnThread(AudioContentType type, float level) {
   DCHECK(mixer_task_runner_->BelongsToCurrentThread());
+  DCHECK(type != AudioContentType::kOther);
+
   volume_info_[type].volume = level;
   float effective_volume = volume_info_[type].GetEffectiveVolume();
   for (const auto& input : inputs_) {
@@ -709,6 +811,9 @@ void StreamMixer::SetVolumeOnThread(AudioContentType type, float level) {
       }
     }
   }
+  if (external_audio_pipeline_supported_ && type == AudioContentType::kMedia) {
+    ExternalAudioPipelineShlib::SetExternalMediaVolume(effective_volume);
+  }
 }
 
 void StreamMixer::SetMuted(AudioContentType type, bool muted) {
@@ -717,11 +822,16 @@ void StreamMixer::SetMuted(AudioContentType type, bool muted) {
 
 void StreamMixer::SetMutedOnThread(AudioContentType type, bool muted) {
   DCHECK(mixer_task_runner_->BelongsToCurrentThread());
+  DCHECK(type != AudioContentType::kOther);
+
   volume_info_[type].muted = muted;
   for (const auto& input : inputs_) {
     if (input.second->content_type() == type) {
       input.second->SetMuted(muted);
     }
+  }
+  if (external_audio_pipeline_supported_ && type == AudioContentType::kMedia) {
+    ExternalAudioPipelineShlib::SetExternalMediaMuted(muted);
   }
 }
 
@@ -731,6 +841,8 @@ void StreamMixer::SetOutputLimit(AudioContentType type, float limit) {
 
 void StreamMixer::SetOutputLimitOnThread(AudioContentType type, float limit) {
   DCHECK(mixer_task_runner_->BelongsToCurrentThread());
+  DCHECK(type != AudioContentType::kOther);
+
   LOG(INFO) << "Set volume limit for " << static_cast<int>(type) << " to "
             << limit;
   volume_info_[type].limit = limit;
@@ -748,6 +860,9 @@ void StreamMixer::SetOutputLimitOnThread(AudioContentType type, float limit) {
     if (input.second->primary() && input.second->content_type() == type) {
       input.second->SetContentTypeVolume(effective_volume, fade_ms);
     }
+  }
+  if (external_audio_pipeline_supported_ && type == AudioContentType::kMedia) {
+    ExternalAudioPipelineShlib::SetExternalMediaVolume(effective_volume);
   }
 }
 
@@ -798,6 +913,5 @@ void StreamMixer::ValidatePostProcessors() {
       << "PostProcessor configuration has " << loopback_channel_count
       << " channels after 'mix' group, but only 1 or 2 are allowed.";
 }
-
 }  // namespace media
 }  // namespace chromecast

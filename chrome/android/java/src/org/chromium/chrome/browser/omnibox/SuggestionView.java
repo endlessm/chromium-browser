@@ -11,8 +11,6 @@ import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.support.annotation.IntDef;
 import android.support.v4.view.ViewCompat;
@@ -358,8 +356,7 @@ class SuggestionView extends ViewGroup {
                 mContentsView.mTextLine2.setVisibility(INVISIBLE);
             }
             setSuggestedQuery(suggestionItem, true, urlShown, urlHighlighted);
-            setRefinable(!sameAsTyped
-                    && suggestionType != OmniboxSuggestionType.PHYSICAL_WEB_OVERFLOW);
+            setRefinable(!sameAsTyped);
         } else {
             @SuggestionIcon int suggestionIcon = SUGGESTION_ICON_MAGNIFIER;
             if (suggestionType == OmniboxSuggestionType.VOICE_SUGGEST) {
@@ -711,7 +708,7 @@ class SuggestionView extends ViewGroup {
                                 @Override
                                 public void onClick(DialogInterface dialog, int which) {
                                     RecordUserAction.record("MobileOmniboxDeleteRequested");
-                                    mSuggestionDelegate.onDeleteSuggestion(mPosition);
+                                    mSuggestionDelegate.onDeleteSuggestion(mSuggestion, mPosition);
                                 }
                             };
                     b.setPositiveButton(android.R.string.ok, okListener);
@@ -1053,10 +1050,8 @@ class SuggestionView extends ViewGroup {
                 default:
                     break;
             }
-            mSuggestionIcon = ApiCompatibilityUtils.getDrawable(getResources(), drawableId);
-            mSuggestionIcon.setColorFilter(mUseDarkColors
-                    ? ApiCompatibilityUtils.getColor(getResources(), R.color.light_normal_color)
-                    : Color.WHITE, PorterDuff.Mode.SRC_IN);
+            mSuggestionIcon = TintedDrawable.constructTintedDrawable(getResources(), drawableId,
+                    mUseDarkColors ? R.color.dark_mode_tint : R.color.white_mode_tint);
             mSuggestionIcon.setBounds(
                     0, 0,
                     mSuggestionIcon.getIntrinsicWidth(),

@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "Backend.h"
+#include "FetchStage.h"
 #include "HWEventListener.h"
 #include "llvm/CodeGen/TargetSchedule.h"
 #include "llvm/Support/Debug.h"
@@ -28,34 +29,31 @@ void Backend::addEventListener(HWEventListener *Listener) {
     Listeners.insert(Listener);
 }
 
+void Backend::run() {
+  while (Fetch->isReady() || !Dispatch->isReady())
+    runCycle(Cycles++);
+}
+
 void Backend::runCycle(unsigned Cycle) {
   notifyCycleBegin(Cycle);
 
-  while (SM.hasNext()) {
-    InstRef IR = SM.peekNext();
-    std::unique_ptr<Instruction> NewIS =
-        IB.createInstruction(IR.first, *IR.second);
-    const InstrDesc &Desc = NewIS->getDesc();
-    if (!DU->isAvailable(Desc.NumMicroOps) ||
-        !DU->canDispatch(IR.first, *NewIS))
+  InstRef IR;
+  while (Fetch->execute(IR)) {
+    if (!Dispatch->execute(IR))
       break;
-
-    Instruction *IS = NewIS.get();
-    Instructions[IR.first] = std::move(NewIS);
-    DU->dispatch(IR.first, IS, STI);
-    SM.updateNext();
+    Fetch->postExecute(IR);
   }
 
   notifyCycleEnd(Cycle);
 }
 
 void Backend::notifyCycleBegin(unsigned Cycle) {
-  DEBUG(dbgs() << "[E] Cycle begin: " << Cycle << '\n');
+  LLVM_DEBUG(dbgs() << "[E] Cycle begin: " << Cycle << '\n');
   for (HWEventListener *Listener : Listeners)
-    Listener->onCycleBegin(Cycle);
+    Listener->onCycleBegin();
 
-  DU->cycleEvent(Cycle);
-  HWS->cycleEvent(Cycle);
+  Dispatch->cycleEvent();
+  HWS->cycleEvent();
 }
 
 void Backend::notifyInstructionEvent(const HWInstructionEvent &Event) {
@@ -69,8 +67,8 @@ void Backend::notifyStallEvent(const HWStallEvent &Event) {
 }
 
 void Backend::notifyResourceAvailable(const ResourceRef &RR) {
-  DEBUG(dbgs() << "[E] Resource Available: [" << RR.first << '.' << RR.second
-               << "]\n");
+  LLVM_DEBUG(dbgs() << "[E] Resource Available: [" << RR.first << '.'
+                    << RR.second << "]\n");
   for (HWEventListener *Listener : Listeners)
     Listener->onResourceAvailable(RR);
 }
@@ -86,8 +84,8 @@ void Backend::notifyReleasedBuffers(ArrayRef<unsigned> Buffers) {
 }
 
 void Backend::notifyCycleEnd(unsigned Cycle) {
-  DEBUG(dbgs() << "[E] Cycle end: " << Cycle << "\n\n");
+  LLVM_DEBUG(dbgs() << "[E] Cycle end: " << Cycle << "\n\n");
   for (HWEventListener *Listener : Listeners)
-    Listener->onCycleEnd(Cycle);
+    Listener->onCycleEnd();
 }
 } // namespace mca.

@@ -22,7 +22,6 @@
 #include "components/nacl/common/nacl_service.h"
 #include "components/nacl/common/nacl_switches.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/common/mojo_channel_switches.h"
 #include "content/public/common/sandbox_init.h"
 #include "ipc/ipc_channel.h"
 #include "mojo/edk/embedder/embedder.h"
@@ -30,6 +29,7 @@
 #include "mojo/edk/embedder/platform_channel_pair.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "sandbox/win/src/sandbox_policy.h"
+#include "services/service_manager/embedder/switches.h"
 #include "services/service_manager/public/cpp/service_context.h"
 
 namespace {
@@ -105,7 +105,7 @@ void NaClBrokerListener::OnLaunchLoaderThroughBroker(
   // Create the path to the nacl broker/loader executable - it's the executable
   // this code is running in.
   base::FilePath exe_path;
-  PathService::Get(base::FILE_EXE, &exe_path);
+  base::PathService::Get(base::FILE_EXE, &exe_path);
   if (!exe_path.empty()) {
     base::CommandLine* cmd_line = new base::CommandLine(exe_path);
     nacl::CopyNaClCommandLineArguments(cmd_line);
@@ -115,9 +115,9 @@ void NaClBrokerListener::OnLaunchLoaderThroughBroker(
 
     // Mojo IPC setup.
     mojo::edk::PlatformChannelPair channel_pair;
-    mojo::edk::ScopedPlatformHandle parent_handle =
+    mojo::edk::ScopedInternalPlatformHandle parent_handle =
         channel_pair.PassServerHandle();
-    mojo::edk::ScopedPlatformHandle client_handle =
+    mojo::edk::ScopedInternalPlatformHandle client_handle =
         channel_pair.PassClientHandle();
     base::HandlesToInheritVector handles;
     handles.push_back(client_handle.get().handle);
@@ -126,7 +126,8 @@ void NaClBrokerListener::OnLaunchLoaderThroughBroker(
         base::UintToString(base::win::HandleToUint32(handles[0])));
 
     std::string token = mojo::edk::GenerateRandomToken();
-    cmd_line->AppendSwitchASCII(switches::kServiceRequestChannelToken, token);
+    cmd_line->AppendSwitchASCII(
+        service_manager::switches::kServiceRequestChannelToken, token);
     mojo::edk::OutgoingBrokerClientInvitation invitation;
     MojoResult fuse_result = mojo::FuseMessagePipes(
         mojo::ScopedMessagePipeHandle(service_request_pipe),

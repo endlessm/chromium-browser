@@ -9,20 +9,22 @@
 #include "components/browser_sync/profile_sync_service.h"
 #include "components/history/core/browser/browsing_history_service.h"
 #include "components/keyed_service/core/service_access_type.h"
-#include "components/strings/grit/components_strings.h"
+#include "ios/chrome/browser/experimental_flags.h"
 #include "ios/chrome/browser/history/history_service_factory.h"
 #include "ios/chrome/browser/sync/ios_chrome_profile_sync_service_factory.h"
-#import "ios/chrome/browser/ui/history/history_table_container_view_controller.h"
+#import "ios/chrome/browser/ui/commands/application_commands.h"
+#include "ios/chrome/browser/ui/history/history_local_commands.h"
 #include "ios/chrome/browser/ui/history/history_table_view_controller.h"
+#import "ios/chrome/browser/ui/history/history_transitioning_delegate.h"
 #include "ios/chrome/browser/ui/history/ios_browsing_history_driver.h"
-#import "ios/chrome/browser/ui/util/form_sheet_navigation_controller.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ios/chrome/browser/ui/settings/clear_browsing_data_coordinator.h"
+#import "ios/chrome/browser/ui/table_view/table_view_navigation_controller.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-@interface HistoryCoordinator () {
+@interface HistoryCoordinator ()<HistoryLocalCommands> {
   // Provides dependencies and funnels callbacks from BrowsingHistoryService.
   std::unique_ptr<IOSBrowsingHistoryDriver> _browsingHistoryDriver;
   // Abstraction to communicate with HistoryService and WebHistoryService.
@@ -30,13 +32,23 @@
 }
 // ViewController being managed by this Coordinator.
 @property(nonatomic, strong)
-    HistoryTableContainerViewController* historyContainerViewController;
+    TableViewNavigationController* historyNavigationController;
+
+// The transitioning delegate used by the history view controller.
+@property(nonatomic, strong)
+    HistoryTransitioningDelegate* historyTransitioningDelegate;
+
+// The coordinator that will present Clear Browsing Data.
+@property(nonatomic, strong)
+    ClearBrowsingDataCoordinator* clearBrowsingDataCoordinator;
 @end
 
 @implementation HistoryCoordinator
 @synthesize dispatcher = _dispatcher;
-@synthesize historyContainerViewController = _historyContainerViewController;
+@synthesize historyNavigationController = _historyNavigationController;
+@synthesize historyTransitioningDelegate = _historyTransitioningDelegate;
 @synthesize loader = _loader;
+@synthesize clearBrowsingDataCoordinator = _clearBrowsingDataCoordinator;
 
 - (void)start {
   // Initialize and configure HistoryTableViewController.
@@ -56,35 +68,50 @@
           self.browserState));
   historyTableViewController.historyService = _browsingHistoryService.get();
 
-  // Initialize and configure HistoryContainerViewController.
-  self.historyContainerViewController =
-      [[HistoryTableContainerViewController alloc]
-          initWithTable:historyTableViewController];
-  self.historyContainerViewController.dispatcher = self.dispatcher;
-  self.historyContainerViewController.title =
-      l10n_util::GetNSString(IDS_HISTORY_TITLE);
-  // TODO(crbug.com/805192): Move this configuration code to
-  // HistoryContainerVC once its created, we will use a dispatcher then.
-  [self.historyContainerViewController.dismissButton setTarget:self];
-  [self.historyContainerViewController.dismissButton setAction:@selector(stop)];
-  self.historyContainerViewController.navigationItem.rightBarButtonItem =
-      self.historyContainerViewController.dismissButton;
-  historyTableViewController.delegate = self.historyContainerViewController;
-
-  // Present HistoryContainerViewController.
-  FormSheetNavigationController* navController =
-      [[FormSheetNavigationController alloc]
-          initWithRootViewController:self.historyContainerViewController];
-  [navController setModalPresentationStyle:UIModalPresentationFormSheet];
-  [self.baseViewController presentViewController:navController
-                                        animated:YES
-                                      completion:nil];
+  // Configure and present HistoryNavigationController.
+  self.historyNavigationController = [[TableViewNavigationController alloc]
+      initWithTable:historyTableViewController];
+  self.historyNavigationController.toolbarHidden = NO;
+  historyTableViewController.localDispatcher = self;
+  self.historyTransitioningDelegate =
+      [[HistoryTransitioningDelegate alloc] init];
+  self.historyNavigationController.transitioningDelegate =
+      self.historyTransitioningDelegate;
+  [self.historyNavigationController
+      setModalPresentationStyle:UIModalPresentationCustom];
+  [self.baseViewController
+      presentViewController:self.historyNavigationController
+                   animated:YES
+                 completion:nil];
 }
 
 - (void)stop {
-  [self.historyContainerViewController dismissViewControllerAnimated:YES
-                                                          completion:nil];
-  self.historyContainerViewController = nil;
+  [self stopWithCompletion:nil];
+}
+
+- (void)stopWithCompletion:(ProceduralBlock)completionHandler {
+  [self.historyNavigationController
+      dismissViewControllerAnimated:YES
+                         completion:completionHandler];
+  self.historyNavigationController = nil;
+}
+
+#pragma mark - HistoryLocalCommands
+
+- (void)dismissHistoryWithCompletion:(ProceduralBlock)completionHandler {
+  [self stopWithCompletion:completionHandler];
+}
+
+- (void)displayPrivacySettings {
+  if (experimental_flags::IsCollectionsUIRebootEnabled()) {
+    self.clearBrowsingDataCoordinator = [[ClearBrowsingDataCoordinator alloc]
+        initWithBaseViewController:self.historyNavigationController
+                      browserState:self.browserState];
+    [self.clearBrowsingDataCoordinator start];
+  } else {
+    [self.dispatcher showClearBrowsingDataSettingsFromViewController:
+                         self.historyNavigationController];
+  }
 }
 
 @end

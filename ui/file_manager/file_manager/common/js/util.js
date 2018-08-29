@@ -324,7 +324,6 @@ util.createChild = function(parent, opt_className, opt_tag) {
  * returns it.
  * @param {string} query Query for the element.
  * @param {function(new: T, ...)} type Type used to decorate.
- * @private
  * @template T
  * @return {!T} Decorated element.
  */
@@ -659,10 +658,12 @@ util.isFakeEntry = function(entry) {
 
 /**
  * Obtains whether an entry is the root directory of a Team Drive.
- * @param {(!Entry|!FakeEntry)} entry Entry or a fake entry.
+ * @param {(!Entry|!FakeEntry)|null} entry Entry or a fake entry.
  * @return {boolean} True if the given entry is root of a Team Drive.
  */
 util.isTeamDriveRoot = function(entry) {
+  if (entry === null)
+    return false;
   if (!entry.fullPath)
     return false;
   var tree = entry.fullPath.split('/');
@@ -724,25 +725,33 @@ util.isRecentRoot = function(entry) {
  * FileError except that it does not have the deprecated FileError.code member.
  *
  * @param {string} name Error name for the file error.
+ * @param {string=} opt_message optional message.
  * @return {DOMError} DOMError instance
  */
-util.createDOMError = function(name) {
-  return new util.UserDOMError(name);
+util.createDOMError = function(name, opt_message) {
+  return new util.UserDOMError(name, opt_message);
 };
 
 /**
  * Creates a DOMError-like object to be used in place of returning file errors.
  *
  * @param {string} name Error name for the file error.
+ * @param {string=} opt_message Optional message for this error.
  * @extends {DOMError}
  * @constructor
  */
-util.UserDOMError = function(name) {
+util.UserDOMError = function(name, opt_message) {
   /**
    * @type {string}
    * @private
    */
   this.name_ = name;
+
+  /**
+   * @type {string}
+   * @private
+   */
+  this.message_ = opt_message || '';
   Object.freeze(this);
 };
 
@@ -750,8 +759,15 @@ util.UserDOMError.prototype = {
   /**
    * @return {string} File error name.
    */
-  get name() { return this.name_;
-  }
+  get name() {
+    return this.name_;
+  },
+  /**
+   * @return {string} Error message.
+   */
+  get message() {
+    return this.message_;
+  },
 };
 
 /**
@@ -902,16 +918,35 @@ util.isDescendantEntry = function(ancestorEntry, childEntry) {
 };
 
 /**
+ * The last URL with visitURL().
+ *
+ * @type {string}
+ * @private
+ */
+util.lastVisitedURL;
+
+/**
  * Visit the URL.
  *
  * If the browser is opening, the url is opened in a new tag, otherwise the url
  * is opened in a new window.
  *
- * @param {string} url URL to visit.
+ * @param {!string} url URL to visit.
  */
 util.visitURL = function(url) {
+  util.lastVisitedURL = url;
   window.open(url);
 };
+
+/**
+ * Return the last URL visited with visitURL().
+ *
+ * @return {string} The last URL visited.
+ */
+util.getLastVisitedURL = function() {
+  return util.lastVisitedURL;
+};
+
 
 /**
  * Returns normalized current locale, or default locale - 'en'.
@@ -1081,6 +1116,8 @@ util.getRootTypeLabel = function(locationInfo) {
       return str('DRIVE_RECENT_COLLECTION_LABEL');
     case VolumeManagerCommon.RootType.RECENT:
       return str('RECENT_ROOT_LABEL');
+    case VolumeManagerCommon.RootType.CROSTINI:
+      return str('LINUX_FILES_ROOT_LABEL');
     case VolumeManagerCommon.RootType.MEDIA_VIEW:
       var mediaViewRootType =
           VolumeManagerCommon.getMediaViewRootTypeFromVolumeId(
@@ -1100,6 +1137,7 @@ util.getRootTypeLabel = function(locationInfo) {
     case VolumeManagerCommon.RootType.REMOVABLE:
     case VolumeManagerCommon.RootType.MTP:
     case VolumeManagerCommon.RootType.PROVIDED:
+    case VolumeManagerCommon.RootType.ANDROID_FILES:
       return locationInfo.volumeInfo.label;
     default:
       console.error('Unsupported root type: ' + locationInfo.rootType);

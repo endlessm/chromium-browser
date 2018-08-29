@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
@@ -35,9 +34,9 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "chromeos/login/auth/key.h"
 #include "chromeos/login/auth/user_context.h"
+#include "components/account_id/account_id.h"
 #include "components/browser_sync/browser_sync_switches.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/fake_auth_status_provider.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
@@ -70,6 +69,7 @@ const char kTestGaiaId[] = "12345";
 const char kTestEmail[] = "username@gmail.com";
 const char kTestRawEmail[] = "User.Name@gmail.com";
 const char kTestAccountPassword[] = "fake-password";
+const char kTestAccountServices[] = "[]";
 const char kTestAuthCode[] = "fake-auth-code";
 const char kTestGaiaUberToken[] = "fake-uber-token";
 const char kTestAuthLoginAccessToken[] = "fake-access-token";
@@ -336,7 +336,8 @@ class OAuth2Test : public OobeBaseTest {
       return false;
     }
 
-    UserContext user_context(account_id);
+    UserContext user_context(user_manager::UserType::USER_TYPE_REGULAR,
+                             account_id);
     user_context.SetKey(Key(password));
     controller->Login(user_context, SigninSpecifics());
     content::WindowedNotificationObserver(
@@ -382,8 +383,8 @@ class OAuth2Test : public OobeBaseTest {
 
     // Use capitalized and dotted user name on purpose to make sure
     // our email normalization kicks in.
-    GetLoginDisplay()->ShowSigninScreenForCreds(kTestRawEmail,
-                                                kTestAccountPassword);
+    GetLoginDisplay()->ShowSigninScreenForTest(
+        kTestRawEmail, kTestAccountPassword, kTestAccountServices);
     session_start_waiter.Wait();
 
     if (wait_for_merge) {
@@ -621,7 +622,8 @@ IN_PROC_BROWSER_TEST_F(OAuth2Test, TerminateOnBadMergeSessionAfterOnlineAuth) {
   fake_gaia_->SetMergeSessionParams(params);
 
   // Simulate an online sign-in.
-  GetLoginDisplay()->ShowSigninScreenForCreds(kTestEmail, kTestAccountPassword);
+  GetLoginDisplay()->ShowSigninScreenForTest(kTestEmail, kTestAccountPassword,
+                                             kTestAccountServices);
 
   // User session should be terminated.
   termination_waiter.Wait();
@@ -656,6 +658,7 @@ IN_PROC_BROWSER_TEST_F(OAuth2Test, SetInvalidTokenStatus) {
   ExistingUserController* const controller =
       ExistingUserController::current_controller();
   UserContext user_context(
+      user_manager::USER_TYPE_REGULAR,
       AccountId::FromUserEmailGaiaId(kTestEmail, kTestGaiaId));
   user_context.SetKey(Key(kTestAccountPassword));
   controller->Login(user_context, SigninSpecifics());

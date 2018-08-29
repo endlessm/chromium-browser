@@ -10,9 +10,14 @@
 #include "base/macros.h"
 #include "chrome/browser/chrome_browser_main_extra_parts.h"
 #include "chrome/common/buildflags.h"
+#include "chromeos/assistant/buildflags.h"
 
 namespace aura {
 class UserActivityForwarder;
+}
+
+namespace chromeos {
+class NetworkPortalNotificationController;
 }
 
 namespace ui {
@@ -27,7 +32,6 @@ class CastConfigClientMediaRouter;
 class ChromeNewWindowClient;
 class ChromeShellContentState;
 class DataPromoNotification;
-class DockedMagnifierClient;
 class ImeControllerClient;
 class ImmersiveContextMus;
 class ImmersiveHandlerFactoryMus;
@@ -44,6 +48,10 @@ class WallpaperControllerClient;
 
 #if BUILDFLAG(ENABLE_WAYLAND_SERVER)
 class ExoParts;
+#endif
+
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+class AssistantClient;
 #endif
 
 namespace internal {
@@ -90,12 +98,20 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
   std::unique_ptr<VolumeController> volume_controller_;
   std::unique_ptr<VpnListForwarder> vpn_list_forwarder_;
   std::unique_ptr<WallpaperControllerClient> wallpaper_controller_client_;
+  // TODO(stevenjb): Move NetworkPortalNotificationController to c/b/ui/ash and
+  // elim chromeos:: namespace. https://crbug.com/798569.
+  std::unique_ptr<chromeos::NetworkPortalNotificationController>
+      network_portal_notification_controller_;
 
   std::unique_ptr<internal::ChromeLauncherControllerInitializer>
       chrome_launcher_controller_initializer_;
 
 #if BUILDFLAG(ENABLE_WAYLAND_SERVER)
   std::unique_ptr<ExoParts> exo_parts_;
+#endif
+
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+  std::unique_ptr<AssistantClient> assistant_client_;
 #endif
 
   // Initialized in PostProfileInit if ash config == MASH:
@@ -110,7 +126,6 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
   // Initialized in PostBrowserStart in all configs:
   std::unique_ptr<DataPromoNotification> data_promo_notification_;
   std::unique_ptr<NightLightClient> night_light_client_;
-  std::unique_ptr<DockedMagnifierClient> docked_magnifier_client_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeBrowserMainExtraPartsAsh);
 };

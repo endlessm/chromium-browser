@@ -23,7 +23,6 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
@@ -112,7 +111,6 @@
 #include "extensions/browser/extension_dialog_auto_confirm.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/scoped_ignore_content_verifier_for_test.h"
-#include "extensions/common/switches.h"
 #include "net/base/filename_util.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -192,6 +190,44 @@ class CreatedObserver : public content::DownloadManager::Observer {
   bool waiting_;
 
   DISALLOW_COPY_AND_ASSIGN(CreatedObserver);
+};
+
+class OnCanDownloadDecidedObserver {
+ public:
+  OnCanDownloadDecidedObserver()
+      : on_decided_called_(false), last_allow_(false) {}
+
+  void Wait(bool expectation) {
+    if (on_decided_called_) {
+      EXPECT_EQ(last_allow_, expectation);
+      on_decided_called_ = false;
+    } else {
+      expectation_ = expectation;
+      base::RunLoop run_loop;
+      completion_closure_ = run_loop.QuitClosure();
+      run_loop.Run();
+    }
+  }
+
+  void OnCanDownloadDecided(bool allow) {
+    // It is possible this is called before Wait(), so the result needs to
+    // be stored in that case.
+    if (!completion_closure_.is_null()) {
+      base::ResetAndReturn(&completion_closure_).Run();
+      EXPECT_EQ(allow, expectation_);
+    } else {
+      on_decided_called_ = true;
+      last_allow_ = allow;
+    }
+  }
+
+ private:
+  bool expectation_;
+  base::Closure completion_closure_;
+  bool on_decided_called_;
+  bool last_allow_;
+
+  DISALLOW_COPY_AND_ASSIGN(OnCanDownloadDecidedObserver);
 };
 
 class PercentWaiter : public download::DownloadItem::Observer {
@@ -452,14 +488,6 @@ class DownloadTest : public InProcessBrowserTest {
 
   DownloadTest() {}
 
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    InProcessBrowserTest::SetUpCommandLine(command_line);
-
-    // TODO(devlin): Remove this. See https://crbug.com/816679.
-    command_line->AppendSwitch(
-        extensions::switches::kAllowLegacyExtensionManifests);
-  }
-
   void SetUpOnMainThread() override {
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
@@ -478,7 +506,8 @@ class DownloadTest : public InProcessBrowserTest {
   // Returning false indicates a failure of the setup, and should be asserted
   // in the caller.
   bool InitialSetup() {
-    bool have_test_dir = PathService::Get(chrome::DIR_TEST_DATA, &test_dir_);
+    bool have_test_dir =
+        base::PathService::Get(chrome::DIR_TEST_DATA, &test_dir_);
     EXPECT_TRUE(have_test_dir);
     if (!have_test_dir)
       return false;
@@ -508,7 +537,7 @@ class DownloadTest : public InProcessBrowserTest {
 
   base::FilePath GetTestDataDirectory() {
     base::FilePath test_file_directory;
-    PathService::Get(chrome::DIR_TEST_DATA, &test_file_directory);
+    base::PathService::Get(chrome::DIR_TEST_DATA, &test_file_directory);
     return test_file_directory;
   }
 
@@ -969,8 +998,8 @@ class DownloadTest : public InProcessBrowserTest {
           // If it's not where we asked it to be, it should be in the
           // My Documents folder.
           base::FilePath my_docs_folder;
-          EXPECT_TRUE(PathService::Get(chrome::DIR_USER_DOCUMENTS,
-                                       &my_docs_folder));
+          EXPECT_TRUE(base::PathService::Get(chrome::DIR_USER_DOCUMENTS,
+                                             &my_docs_folder));
           EXPECT_EQ(0u,
                     my_downloaded_file.value().find(my_docs_folder.value()));
         }
@@ -1437,6 +1466,65 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, DownloadResourceThrottleCancels) {
   EXPECT_TRUE(VerifyNoDownloads());
 }
 
+// Test to make sure 'download' attribute in anchor tag doesn't trigger a
+// downloadd if DownloadRequestLimiter disallows it.
+IN_PROC_BROWSER_TEST_F(DownloadTest,
+                       DownloadRequestLimiterDisallowsAnchorDownloadTag) {
+  OnCanDownloadDecidedObserver can_download_observer;
+  g_browser_process->download_request_limiter()
+      ->SetOnCanDownloadDecidedCallbackForTesting(base::BindRepeating(
+          &OnCanDownloadDecidedObserver::OnCanDownloadDecided,
+          base::Unretained(&can_download_observer)));
+  embedded_test_server()->ServeFilesFromDirectory(GetTestDataDirectory());
+  ASSERT_TRUE(embedded_test_server()->Start());
+  GURL url(embedded_test_server()->GetURL("/download-anchor-script.html"));
+
+  ui_test_utils::NavigateToURL(browser(), url);
+  // Make sure the initial navigation didn't trigger a download.
+  EXPECT_TRUE(VerifyNoDownloads());
+
+  WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  DownloadRequestLimiter::TabDownloadState* tab_download_state =
+      g_browser_process->download_request_limiter()->GetDownloadState(
+          web_contents, web_contents, true);
+  ASSERT_TRUE(tab_download_state);
+  // Let the first download to fail.
+  tab_download_state->set_download_seen();
+  tab_download_state->SetDownloadStatusAndNotify(
+      DownloadRequestLimiter::DOWNLOADS_NOT_ALLOWED);
+  bool download_attempted;
+  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
+      browser()->tab_strip_model()->GetActiveWebContents(),
+      "window.domAutomationController.send(startDownload1());",
+      &download_attempted));
+  ASSERT_TRUE(download_attempted);
+  can_download_observer.Wait(false);
+
+  // Let the 2nd download to succeed.
+  std::unique_ptr<content::DownloadTestObserver> observer(
+      CreateWaiter(browser(), 1));
+  tab_download_state->SetDownloadStatusAndNotify(
+      DownloadRequestLimiter::ALLOW_ALL_DOWNLOADS);
+  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
+      browser()->tab_strip_model()->GetActiveWebContents(),
+      "window.domAutomationController.send(startDownload2());",
+      &download_attempted));
+  ASSERT_TRUE(download_attempted);
+  can_download_observer.Wait(true);
+  // Waits for the 2nd download to complete.
+  observer->WaitForFinished();
+
+  // Check that only the 2nd file is downloaded.
+  base::FilePath file1(FILE_PATH_LITERAL("red_dot1.png"));
+  base::FilePath file_path1(DestinationFile(browser(), file1));
+  base::FilePath file2(FILE_PATH_LITERAL("red_dot2.png"));
+  base::FilePath file_path2(DestinationFile(browser(), file2));
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  EXPECT_FALSE(base::PathExists(file_path1));
+  EXPECT_TRUE(base::PathExists(file_path2));
+}
+
 // Download a 0-size file with a content-disposition header, verify that the
 // download tab opened and the file exists as the filename specified in the
 // header.  This also ensures we properly handle empty file downloads.
@@ -1768,17 +1856,18 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, CloseNewTab4) {
   // Open a new tab for the download
   content::WebContents* tab =
         browser()->tab_strip_model()->GetActiveWebContents();
-  content::WebContents* new_tab = content::WebContents::Create(
-        content::WebContents::CreateParams(tab->GetBrowserContext()));
-  ASSERT_TRUE(new_tab);
-  ASSERT_TRUE(new_tab->GetController().IsInitialNavigation());
-  browser()->tab_strip_model()->AppendWebContents(new_tab, true);
+  std::unique_ptr<content::WebContents> new_tab = content::WebContents::Create(
+      content::WebContents::CreateParams(tab->GetBrowserContext()));
+  content::WebContents* raw_new_tab = new_tab.get();
+  ASSERT_TRUE(raw_new_tab);
+  ASSERT_TRUE(raw_new_tab->GetController().IsInitialNavigation());
+  browser()->tab_strip_model()->AppendWebContents(std::move(new_tab), true);
   EXPECT_EQ(2, browser()->tab_strip_model()->count());
 
   // Download a file in that new tab, having it open a file picker
   std::unique_ptr<DownloadUrlParameters> params(
       content::DownloadRequestUtils::CreateDownloadForWebContentsMainFrame(
-          new_tab, slow_download_url, TRAFFIC_ANNOTATION_FOR_TESTS));
+          raw_new_tab, slow_download_url, TRAFFIC_ANNOTATION_FOR_TESTS));
   params->set_prompt(true);
   manager->DownloadUrl(std::move(params));
   observer->WaitForFinished();

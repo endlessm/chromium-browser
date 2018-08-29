@@ -16,10 +16,8 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.AppHooks;
 import org.chromium.chrome.browser.fullscreen.FullscreenManager;
 import org.chromium.chrome.browser.media.MediaCaptureNotificationService;
-import org.chromium.chrome.browser.metrics.UmaUtils;
 import org.chromium.chrome.browser.policy.PolicyAuditor;
 import org.chromium.chrome.browser.policy.PolicyAuditor.AuditEvent;
-import org.chromium.chrome.browser.util.UrlUtilities;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
 
@@ -106,14 +104,11 @@ public class TabWebContentsObserver extends WebContentsObserver {
         int activityState = ApplicationStatus.getStateForActivity(
                 mTab.getWindowAndroid().getActivity().get());
         int rendererCrashStatus = TAB_RENDERER_CRASH_STATUS_MAX;
-        if (!processWasOomProtected
-                || activityState == ActivityState.PAUSED
+        if (mTab.isHidden() || activityState == ActivityState.PAUSED
                 || activityState == ActivityState.STOPPED
                 || activityState == ActivityState.DESTROYED) {
             // The tab crashed in background or was killed by the OS out-of-memory killer.
-            // TODO(crbug.com/829381): why not reuse the native needsReload flag found in
-            // NavigationController?
-            mTab.setNeedsReload(true);
+            mTab.setNeedsReload();
             if (applicationRunning) {
                 rendererCrashStatus = TAB_RENDERER_CRASH_STATUS_HIDDEN_IN_FOREGROUND_APP;
             } else {
@@ -205,9 +200,6 @@ public class TabWebContentsObserver extends WebContentsObserver {
             recordErrorInPolicyAuditor(url, errorDescription, errorCode);
         }
 
-        boolean isTrackedPage = hasCommitted && isInMainFrame && !isErrorPage && !isSameDocument
-                && !isFragmentNavigation && UrlUtilities.isHttpOrHttps(url);
-        UmaUtils.registerFinishNavigation(isTrackedPage);
         if (!hasCommitted) return;
 
         if (isInMainFrame) {
@@ -224,7 +216,7 @@ public class TabWebContentsObserver extends WebContentsObserver {
 
         FullscreenManager fullscreenManager = mTab.getFullscreenManager();
         if (isInMainFrame && !isSameDocument && fullscreenManager != null) {
-            fullscreenManager.setPersistentFullscreenMode(false);
+            fullscreenManager.exitPersistentFullscreenMode();
         }
 
         if (isInMainFrame) {

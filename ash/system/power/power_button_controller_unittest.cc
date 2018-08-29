@@ -46,13 +46,13 @@ namespace {
 constexpr double kNonZeroBrightness = 10.;
 
 // Width of the display.
-constexpr int kDisplayWidth = 800;
+constexpr int kDisplayWidth = 2000;
 
 // Height of the display.
-constexpr int kDisplayHeight = 600;
+constexpr int kDisplayHeight = 1200;
 
 // Power button position offset percentage.
-constexpr double kPowerButtonPercentage = 0.75f;
+constexpr double kPowerButtonPercentage = 0.9f;
 
 // Shorthand for some long constants.
 constexpr power_manager::BacklightBrightnessChange_Cause kUserCause =
@@ -133,8 +133,6 @@ class PowerButtonControllerTest : public PowerButtonTestBase {
     }
     ReleasePowerButton();
     ASSERT_TRUE(power_button_test_api_->IsMenuOpened());
-    // Power button menu has focus after it is opened.
-    EXPECT_TRUE(power_button_test_api_->GetPowerButtonMenuView()->HasFocus());
   }
 
   // Tap outside of the menu view to dismiss the menu.
@@ -276,24 +274,6 @@ TEST_F(PowerButtonControllerTest, TappingPowerButtonOfTablet) {
   // Should turn screen on if screen is off.
   AdvanceClockToAvoidIgnoring();
   TappingPowerButtonWhenScreenIsIdleOff();
-
-  // Should not turn screen off if clamshell-like power button behavior is
-  // requested.
-  AdvanceClockToAvoidIgnoring();
-  ForceClamshellPowerButton();
-  SetTabletModeSwitchState(PowerManagerClient::TabletMode::ON);
-  AdvanceClockToAvoidIgnoring();
-  EXPECT_FALSE(power_manager_client_->backlights_forced_off());
-  PressPowerButton();
-  power_button_test_api_->SetShowMenuAnimationDone(false);
-  // Forced clamshell power button device should start showing menu animation
-  // immediately as pressing the power button.
-  EXPECT_TRUE(power_button_test_api_->IsMenuOpened());
-  ReleasePowerButton();
-  EXPECT_FALSE(power_manager_client_->backlights_forced_off());
-  // Forced clamshell power button device should start dismissing menu animation
-  // immediately as releasing the power button.
-  EXPECT_FALSE(power_button_test_api_->IsMenuOpened());
 }
 
 // Tests that power button taps turn the screen off while in tablet mode but not
@@ -800,26 +780,33 @@ TEST_F(PowerButtonControllerTest, MouseClickToDismissMenu) {
   EXPECT_FALSE(power_button_test_api_->IsMenuOpened());
 }
 
-// Tests the menu items according to the login status.
-TEST_F(PowerButtonControllerTest, MenuItemsToLoginStatus) {
-  // No sign out item if user is not logged in.
+// Tests the menu items according to the login and screen locked status.
+TEST_F(PowerButtonControllerTest, MenuItemsToLoginAndLockedStatus) {
+  // No sign out and lock screen item if user is not logged in.
   ClearLogin();
   Shell::Get()->UpdateAfterLoginStatusChange(LoginStatus::NOT_LOGGED_IN);
   OpenPowerButtonMenu();
   EXPECT_FALSE(power_button_test_api_->MenuHasSignOutItem());
+  EXPECT_FALSE(power_button_test_api_->MenuHasLockScreenItem());
   TapToDismissPowerButtonMenu();
 
-  // Should have sign out item if user is login.
+  // Should have sign out and lock screen item if user is logged in and screen
+  // is unlocked.
   CreateUserSessions(1);
   Shell::Get()->UpdateAfterLoginStatusChange(LoginStatus::USER);
   OpenPowerButtonMenu();
+  EXPECT_FALSE(GetLockedState());
   EXPECT_TRUE(power_button_test_api_->MenuHasSignOutItem());
+  EXPECT_TRUE(power_button_test_api_->MenuHasLockScreenItem());
   TapToDismissPowerButtonMenu();
 
-  // Should have sign out item if user is logged in but screen is locked.
-  Shell::Get()->UpdateAfterLoginStatusChange(LoginStatus::LOCKED);
+  // Should have sign out but not lock screen item if user is logged in but
+  // screen is locked.
+  LockScreen();
+  EXPECT_TRUE(GetLockedState());
   OpenPowerButtonMenu();
   EXPECT_TRUE(power_button_test_api_->MenuHasSignOutItem());
+  EXPECT_FALSE(power_button_test_api_->MenuHasLockScreenItem());
 }
 
 // Tests long-pressing the power button when the menu is open.
@@ -988,9 +975,31 @@ TEST_F(PowerButtonControllerTest, ESCDismissMenu) {
 // Tests the navigation of the menu.
 TEST_F(PowerButtonControllerTest, MenuNavigation) {
   OpenPowerButtonMenu();
+  ASSERT_TRUE(power_button_test_api_->MenuHasSignOutItem());
+  ASSERT_TRUE(power_button_test_api_->MenuHasLockScreenItem());
   PressKey(ui::VKEY_TAB);
   EXPECT_TRUE(power_button_test_api_->GetPowerButtonMenuView()
                   ->power_off_item_for_test()
+                  ->HasFocus());
+
+  PressKey(ui::VKEY_RIGHT);
+  EXPECT_TRUE(power_button_test_api_->GetPowerButtonMenuView()
+                  ->sign_out_item_for_test()
+                  ->HasFocus());
+
+  PressKey(ui::VKEY_DOWN);
+  EXPECT_TRUE(power_button_test_api_->GetPowerButtonMenuView()
+                  ->lock_screen_item_for_test()
+                  ->HasFocus());
+
+  PressKey(ui::VKEY_TAB);
+  EXPECT_TRUE(power_button_test_api_->GetPowerButtonMenuView()
+                  ->power_off_item_for_test()
+                  ->HasFocus());
+
+  PressKey(ui::VKEY_UP);
+  EXPECT_TRUE(power_button_test_api_->GetPowerButtonMenuView()
+                  ->lock_screen_item_for_test()
                   ->HasFocus());
 
   PressKey(ui::VKEY_LEFT);
@@ -998,17 +1007,7 @@ TEST_F(PowerButtonControllerTest, MenuNavigation) {
                   ->sign_out_item_for_test()
                   ->HasFocus());
 
-  PressKey(ui::VKEY_RIGHT);
-  EXPECT_TRUE(power_button_test_api_->GetPowerButtonMenuView()
-                  ->power_off_item_for_test()
-                  ->HasFocus());
-
   PressKey(ui::VKEY_UP);
-  EXPECT_TRUE(power_button_test_api_->GetPowerButtonMenuView()
-                  ->sign_out_item_for_test()
-                  ->HasFocus());
-
-  PressKey(ui::VKEY_DOWN);
   EXPECT_TRUE(power_button_test_api_->GetPowerButtonMenuView()
                   ->power_off_item_for_test()
                   ->HasFocus());
@@ -1022,31 +1021,26 @@ class PowerButtonControllerWithPositionTest
     base::DictionaryValue position_info;
     switch (power_button_position_) {
       case PowerButtonPosition::LEFT:
-        position_info.SetString(PowerButtonController::kPositionField,
-                                PowerButtonController::kLeftPosition);
+        position_info.SetString(PowerButtonController::kEdgeField,
+                                PowerButtonController::kLeftEdge);
         break;
       case PowerButtonPosition::RIGHT:
-        position_info.SetString(PowerButtonController::kPositionField,
-                                PowerButtonController::kRightPosition);
+        position_info.SetString(PowerButtonController::kEdgeField,
+                                PowerButtonController::kRightEdge);
         break;
       case PowerButtonPosition::TOP:
-        position_info.SetString(PowerButtonController::kPositionField,
-                                PowerButtonController::kTopPosition);
+        position_info.SetString(PowerButtonController::kEdgeField,
+                                PowerButtonController::kTopEdge);
         break;
       case PowerButtonPosition::BOTTOM:
-        position_info.SetString(PowerButtonController::kPositionField,
-                                PowerButtonController::kBottomPosition);
+        position_info.SetString(PowerButtonController::kEdgeField,
+                                PowerButtonController::kBottomEdge);
         break;
       default:
         return;
     }
-    if (IsLeftOrRightPosition()) {
-      position_info.SetDouble(PowerButtonController::kYField,
-                              kPowerButtonPercentage);
-    } else {
-      position_info.SetDouble(PowerButtonController::kXField,
-                              kPowerButtonPercentage);
-    }
+    position_info.SetDouble(PowerButtonController::kPositionField,
+                            kPowerButtonPercentage);
 
     std::string json_position_info;
     base::JSONWriter::Write(position_info, &json_position_info);
@@ -1199,7 +1193,7 @@ TEST_P(PowerButtonControllerWithPositionTest,
 // display has different scale factors.
 TEST_P(PowerButtonControllerWithPositionTest, MenuShownAtPercentageOfPosition) {
   const int scale_factor = 2;
-  std::string display = "1000x500*" + std::to_string(scale_factor);
+  std::string display = "4000x2400*" + std::to_string(scale_factor);
   UpdateDisplay(display);
   int64_t primary_id = GetPrimaryDisplay().id();
   display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
@@ -1223,8 +1217,7 @@ TEST_P(PowerButtonControllerWithPositionTest, MenuShownAtPercentageOfPosition) {
   }
   TapToDismissPowerButtonMenu();
 
-  ASSERT_TRUE(display::test::DisplayManagerTestApi(display_manager())
-                  .SetDisplayUIScale(primary_id, scale_factor));
+  display_manager()->UpdateZoomFactor(primary_id, 1.f / scale_factor);
   ASSERT_EQ(1.0f, GetPrimaryDisplay().device_scale_factor());
   display_bounds = GetPrimaryDisplay().bounds();
   int scale_up_width = display_bounds.width();
@@ -1242,6 +1235,63 @@ TEST_P(PowerButtonControllerWithPositionTest, MenuShownAtPercentageOfPosition) {
     EXPECT_EQ(menu_center_point.x(), static_cast<int>(display_bounds.width() *
                                                       kPowerButtonPercentage));
   }
+}
+
+TEST_P(PowerButtonControllerWithPositionTest, AdjustMenuShownForDisplaySize) {
+  OpenPowerButtonMenu();
+  gfx::Rect menu_bounds = power_button_test_api_->GetMenuBoundsInScreen();
+  TapToDismissPowerButtonMenu();
+
+  // (1 - kPowerButtonPercentage) * display_height < 0.5 * menu_height makes
+  // sure menu will be cut off by display when button is on LEFT/RIGHT, and (1 -
+  // kPowerButtonPercentage) * display_width < 0.5 * menu_width makes sure menu
+  // will be cut off by display when button is on TOP/BOTTOM.
+  int display_width =
+      0.5 / (1.0f - kPowerButtonPercentage) * menu_bounds.width() - 5;
+  int display_height =
+      0.5 / (1.0f - kPowerButtonPercentage) * menu_bounds.height() - 5;
+  std::string display =
+      std::to_string(display_width) + "x" + std::to_string(display_height);
+  UpdateDisplay(display);
+  display::test::ScopedSetInternalDisplayId set_internal(
+      display_manager(), GetPrimaryDisplay().id());
+
+  ScreenOrientationControllerTestApi test_api(
+      Shell::Get()->screen_orientation_controller());
+  // Set the screen orientation to LANDSCAPE_PRIMARY.
+  test_api.SetDisplayRotation(display::Display::ROTATE_0,
+                              display::Display::RotationSource::ACTIVE);
+  EXPECT_EQ(test_api.GetCurrentOrientation(),
+            OrientationLockType::kLandscapePrimary);
+  EnableTabletMode(true);
+  OpenPowerButtonMenu();
+  // Menu's bounds is always inside the display.
+  EXPECT_TRUE(GetPrimaryDisplay().bounds().Contains(
+      power_button_test_api_->GetMenuBoundsInScreen()));
+
+  // Rotate the screen by 270 degrees.
+  test_api.SetDisplayRotation(display::Display::ROTATE_270,
+                              display::Display::RotationSource::ACTIVE);
+  EXPECT_EQ(test_api.GetCurrentOrientation(),
+            OrientationLockType::kPortraitPrimary);
+  EXPECT_TRUE(GetPrimaryDisplay().bounds().Contains(
+      power_button_test_api_->GetMenuBoundsInScreen()));
+
+  // Rotate the screen by 180 degrees.
+  test_api.SetDisplayRotation(display::Display::ROTATE_180,
+                              display::Display::RotationSource::ACTIVE);
+  EXPECT_EQ(test_api.GetCurrentOrientation(),
+            OrientationLockType::kLandscapeSecondary);
+  EXPECT_TRUE(GetPrimaryDisplay().bounds().Contains(
+      power_button_test_api_->GetMenuBoundsInScreen()));
+
+  // Rotate the screen by 90 degrees.
+  test_api.SetDisplayRotation(display::Display::ROTATE_90,
+                              display::Display::RotationSource::ACTIVE);
+  EXPECT_EQ(test_api.GetCurrentOrientation(),
+            OrientationLockType::kPortraitSecondary);
+  EXPECT_TRUE(GetPrimaryDisplay().bounds().Contains(
+      power_button_test_api_->GetMenuBoundsInScreen()));
 }
 
 INSTANTIATE_TEST_CASE_P(AshPowerButtonPosition,

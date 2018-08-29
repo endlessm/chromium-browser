@@ -83,6 +83,14 @@ def uimmlog2xlen : Operand<XLenVT>, ImmLeaf<XLenVT, [{
   let ParserMatchClass = UImmLog2XLenAsmOperand;
   // TODO: should ensure invalid shamt is rejected when decoding.
   let DecoderMethod = "decodeUImmOperand<6>";
+  let MCOperandPredicate = [{
+    int64_t Imm;
+    if (!MCOp.evaluateAsConstantImm(Imm))
+      return false;
+    if (STI.getTargetTriple().isArch64Bit())
+      return  isUInt<6>(Imm);
+    return isUInt<5>(Imm);
+  }];
 }
 
 def uimm5 : Operand<XLenVT>, ImmLeaf<XLenVT, [{return isUInt<5>(Imm);}]> {
@@ -94,6 +102,12 @@ def simm12 : Operand<XLenVT>, ImmLeaf<XLenVT, [{return isInt<12>(Imm);}]> {
   let ParserMatchClass = SImmAsmOperand<12>;
   let EncoderMethod = "getImmOpValue";
   let DecoderMethod = "decodeSImmOperand<12>";
+  let MCOperandPredicate = [{
+    int64_t Imm;
+    if (MCOp.evaluateAsConstantImm(Imm))
+      return isInt<12>(Imm);
+    return MCOp.isBareSymbolRef();
+  }];
 }
 
 def uimm12 : Operand<XLenVT> {
@@ -106,12 +120,24 @@ def simm13_lsb0 : Operand<OtherVT> {
   let ParserMatchClass = SImmAsmOperand<13, "Lsb0">;
   let EncoderMethod = "getImmOpValueAsr1";
   let DecoderMethod = "decodeSImmOperandAndLsl1<13>";
+  let MCOperandPredicate = [{
+    int64_t Imm;
+    if (MCOp.evaluateAsConstantImm(Imm))
+      return isShiftedInt<12, 1>(Imm);
+    return MCOp.isBareSymbolRef();
+  }];
 }
 
 def uimm20 : Operand<XLenVT> {
   let ParserMatchClass = UImmAsmOperand<20>;
   let EncoderMethod = "getImmOpValue";
   let DecoderMethod = "decodeUImmOperand<20>";
+  let MCOperandPredicate = [{
+    int64_t Imm;
+    if (MCOp.evaluateAsConstantImm(Imm))
+      return isUInt<20>(Imm);
+    return MCOp.isBareSymbolRef();
+  }];
 }
 
 // A 21-bit signed immediate where the least significant bit is zero.
@@ -119,13 +145,34 @@ def simm21_lsb0 : Operand<OtherVT> {
   let ParserMatchClass = SImmAsmOperand<21, "Lsb0">;
   let EncoderMethod = "getImmOpValueAsr1";
   let DecoderMethod = "decodeSImmOperandAndLsl1<21>";
+  let MCOperandPredicate = [{
+    int64_t Imm;
+    if (MCOp.evaluateAsConstantImm(Imm))
+      return isShiftedInt<20, 1>(Imm);
+    return MCOp.isBareSymbolRef();
+  }];
+}
+
+def BareSymbol : AsmOperandClass {
+  let Name = "BareSymbol";
+  let RenderMethod = "addImmOperands";
+  let DiagnosticType = "InvalidBareSymbol";
+}
+
+// A bare symbol.
+def bare_symbol : Operand<XLenVT> {
+  let ParserMatchClass = BareSymbol;
+  let MCOperandPredicate = [{
+     return MCOp.isBareSymbolRef();
+  }];
 }
 
 // A parameterized register class alternative to i32imm/i64imm from Target.td.
 def ixlenimm : Operand<XLenVT>;
 
 // Standalone (codegen-only) immleaf patterns.
-def simm32 : ImmLeaf<XLenVT, [{return isInt<32>(Imm);}]>;
+def simm32     : ImmLeaf<XLenVT, [{return isInt<32>(Imm);}]>;
+def simm32hi20 : ImmLeaf<XLenVT, [{return isShiftedInt<20, 12>(Imm);}]>;
 
 // Addressing modes.
 // Necessary because a frameindex can't be matched directly in a pattern.
@@ -220,7 +267,7 @@ class Priv<string opcodestr, bits<7> funct7>
 // Instructions
 //===----------------------------------------------------------------------===//
 
-let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in {
+let hasSideEffects = 0, isReMaterializable = 1, mayLoad = 0, mayStore = 0 in {
 def LUI : RVInstU<OPC_LUI, (outs GPR:$rd), (ins uimm20:$imm20),
                   "lui", "$rd, $imm20">;
 
@@ -254,7 +301,11 @@ def SB : Store_rri<0b000, "sb">;
 def SH : Store_rri<0b001, "sh">;
 def SW : Store_rri<0b010, "sw">;
 
+// ADDI isn't always rematerializable, but isReMaterializable will be used as
+// a hint which is verified in isReallyTriviallyReMaterializable.
+let isReMaterializable = 1 in
 def ADDI  : ALU_ri<0b000, "addi">;
+
 def SLTI  : ALU_ri<0b010, "slti">;
 def SLTIU : ALU_ri<0b011, "sltiu">;
 def XORI  : ALU_ri<0b100, "xori">;
@@ -489,7 +540,7 @@ def IsOrAdd: PatFrag<(ops node:$A, node:$B), (or node:$A, node:$B), [{
 /// Immediates
 
 def : Pat<(simm12:$imm), (ADDI X0, simm12:$imm)>;
-// TODO: Add a pattern for immediates with all zeroes in the lower 12 bits.
+def : Pat<(simm32hi20:$imm), (LUI (HI20 imm:$imm))>;
 def : Pat<(simm32:$imm), (ADDI (LUI (HI20 imm:$imm)), (LO12Sext imm:$imm))>;
 
 /// Simple arithmetic operations
@@ -588,13 +639,36 @@ def : Pat<(brind GPR:$rs1), (PseudoBRIND GPR:$rs1, 0)>;
 def : Pat<(brind (add GPR:$rs1, simm12:$imm12)),
           (PseudoBRIND GPR:$rs1, simm12:$imm12)>;
 
+// PseudoCALL is a pseudo instruction which will eventually expand to auipc
+// and jalr while encoding. This is desirable, as an auipc+jalr pair with
+// R_RISCV_CALL and R_RISCV_RELAX relocations can be be relaxed by the linker
+// if the offset fits in a signed 21-bit immediate.
+// Define AsmString to print "call" when compile with -S flag.
+// Define isCodeGenOnly = 0 to support parsing assembly "call" instruction.
+let isCall = 1, Defs = [X1], isCodeGenOnly = 0 in
+def PseudoCALL : Pseudo<(outs), (ins bare_symbol:$func),
+                        [(Call tglobaladdr:$func)]> {
+  let AsmString = "call\t$func";
+}
+
+def : Pat<(Call texternalsym:$func), (PseudoCALL texternalsym:$func)>;
+
 let isCall = 1, Defs = [X1] in
-def PseudoCALL : Pseudo<(outs), (ins GPR:$rs1), [(Call GPR:$rs1)]>,
-                 PseudoInstExpansion<(JALR X1, GPR:$rs1, 0)>;
+def PseudoCALLIndirect : Pseudo<(outs), (ins GPR:$rs1), [(Call GPR:$rs1)]>,
+                         PseudoInstExpansion<(JALR X1, GPR:$rs1, 0)>;
 
 let isBarrier = 1, isReturn = 1, isTerminator = 1 in
 def PseudoRET : Pseudo<(outs), (ins), [(RetFlag)]>,
                 PseudoInstExpansion<(JALR X0, X1, 0)>;
+
+// PseudoTAIL is a pseudo instruction similar to PseudoCALL and will eventually
+// expand to auipc and jalr while encoding.
+// Define AsmString to print "tail" when compile with -S flag.
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Uses = [X2],
+    hasSideEffects = 0, mayLoad = 0, mayStore = 0, isCodeGenOnly = 0 in
+def PseudoTAIL : Pseudo<(outs), (ins bare_symbol:$dst), []> {
+  let AsmString = "tail\t$dst";
+}
 
 /// Loads
 

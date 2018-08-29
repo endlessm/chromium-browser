@@ -590,7 +590,7 @@ NextCipherSuite:
 	}
 
 	if serverWireVersion != serverHello.vers {
-		c.sendAlert(alertProtocolVersion)
+		c.sendAlert(alertIllegalParameter)
 		return fmt.Errorf("tls: server sent non-matching version %x vs %x", serverWireVersion, serverHello.vers)
 	}
 
@@ -841,6 +841,10 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 
 			if c.config.Bugs.ExpectNoCertificateAuthoritiesExtension && certReq.hasCAExtension {
 				return errors.New("tls: expected no certificate_authorities extension")
+			}
+
+			if err := checkRSAPSSSupport(c.config.Bugs.ExpectRSAPSSSupport, certReq.signatureAlgorithms, certReq.signatureAlgorithmsCert); err != nil {
+				return err
 			}
 
 			if c.config.Bugs.IgnorePeerSignatureAlgorithmPreferences {
@@ -1163,6 +1167,9 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	certReq, ok := msg.(*certificateRequestMsg)
 	if ok {
 		certRequested = true
+		if err := checkRSAPSSSupport(c.config.Bugs.ExpectRSAPSSSupport, certReq.signatureAlgorithms, certReq.signatureAlgorithmsCert); err != nil {
+			return err
+		}
 		if c.config.Bugs.IgnorePeerSignatureAlgorithmPreferences {
 			certReq.signatureAlgorithms = c.config.signSignatureAlgorithms()
 		}

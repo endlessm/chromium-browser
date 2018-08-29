@@ -26,7 +26,6 @@
 #include "chrome/common/buildflags.h"
 #include "components/metrics/data_use_tracker.h"
 #include "components/prefs/pref_member.h"
-#include "components/ssl_config/ssl_config_service_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browser_thread_delegate.h"
 #include "extensions/buildflags/buildflags.h"
@@ -43,11 +42,6 @@ namespace android {
 class ExternalDataUseObserver;
 }
 #endif  // defined(OS_ANDROID)
-
-namespace certificate_transparency {
-class TreeStateTracker;
-class STHObserver;
-}
 
 namespace chrome_browser_net {
 class DnsProbeService;
@@ -67,13 +61,11 @@ class EventRouterForwarder;
 
 namespace net {
 class CertVerifier;
-class CTLogVerifier;
 class HostResolver;
 class HttpAuthHandlerFactory;
 class HttpAuthPreferences;
 class NetworkQualityEstimator;
 class RTTAndThroughputEstimatesObserver;
-class SSLConfigService;
 class URLRequestContext;
 class URLRequestContextGetter;
 }  // namespace net
@@ -124,7 +116,6 @@ class IOThread : public content::BrowserThreadDelegate {
     std::unique_ptr<android::ExternalDataUseObserver>
         external_data_use_observer;
 #endif  // defined(OS_ANDROID)
-    std::vector<scoped_refptr<const net::CTLogVerifier>> ct_logs;
     std::unique_ptr<net::HttpAuthPreferences> http_auth_preferences;
 
     // NetworkQualityEstimator only for use in dummy in-process
@@ -193,27 +184,8 @@ class IOThread : public content::BrowserThreadDelegate {
   // Returns the callback for updating data use prefs.
   metrics::UpdateUsagePrefCallbackType GetMetricsDataUseForwarder();
 
-  // Registers the |observer| for new STH notifications.
-  void RegisterSTHObserver(certificate_transparency::STHObserver* observer);
-
-  // Un-registers the |observer|.
-  void UnregisterSTHObserver(certificate_transparency::STHObserver* observer);
-
-  // Returns true if the indicated proxy resolution features are
-  // enabled. These features are controlled through
-  // preferences/policy/commandline.
-  //
-  // For a description of what these features are, and how they are
-  // configured, see the comments in pref_names.cc for
-  // |kQuickCheckEnabled| and |kPacHttpsUrlStrippingEnabled
-  // respectively.
-  bool WpadQuickCheckEnabled() const;
-  bool PacHttpsUrlStrippingEnabled() const;
-
   // Configures |builder|'s ProxyResolutionService based on prefs and policies.
   void SetUpProxyService(network::URLRequestContextBuilderMojo* builder) const;
-
-  certificate_transparency::TreeStateTracker* ct_tree_tracker() const;
 
  private:
   // BrowserThreadDelegate implementation, runs on the IO thread.
@@ -224,9 +196,6 @@ class IOThread : public content::BrowserThreadDelegate {
 
   std::unique_ptr<net::HttpAuthHandlerFactory> CreateDefaultAuthHandlerFactory(
       net::HostResolver* host_resolver);
-
-  // Returns an SSLConfigService instance.
-  net::SSLConfigService* GetSSLConfigService();
 
   void ChangedToOnTheRecordOnIOThread();
 
@@ -269,15 +238,9 @@ class IOThread : public content::BrowserThreadDelegate {
 
   Globals* globals_;
 
-  std::unique_ptr<certificate_transparency::TreeStateTracker> ct_tree_tracker_;
-
   BooleanPrefMember system_enable_referrers_;
 
   BooleanPrefMember dns_client_enabled_;
-
-  BooleanPrefMember quick_check_enabled_;
-
-  BooleanPrefMember pac_https_url_stripping_enabled_;
 
   StringListPrefMember dns_over_https_servers_;
 
@@ -313,11 +276,6 @@ class IOThread : public content::BrowserThreadDelegate {
   // the IO thread.
   network::mojom::NetworkContextRequest network_context_request_;
   network::mojom::NetworkContextParamsPtr network_context_params_;
-
-  // This is an instance of the default SSLConfigServiceManager for the current
-  // platform and it gets SSL preferences from local_state object.
-  std::unique_ptr<ssl_config::SSLConfigServiceManager>
-      ssl_config_service_manager_;
 
   scoped_refptr<net::URLRequestContextGetter>
       system_url_request_context_getter_;

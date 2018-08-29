@@ -11,6 +11,7 @@ goog.provide('Output.EventType');
 
 goog.require('AutomationTreeWalker');
 goog.require('EarconEngine');
+goog.require('EventSourceState');
 goog.require('Spannable');
 goog.require('constants');
 goog.require('cursors.Cursor');
@@ -115,7 +116,8 @@ Output.SPACE = ' ';
  *                 inherits: (string|undefined),
  *                 outputContextFirst: (boolean|undefined),
  *                 ignoreAncestry: (boolean|undefined)}>}
- * msgId: the message id of the role.
+ * msgId: the message id of the role. Each role used requires a speech entry in
+ *        chromevox_strings.grd + an optional Braille entry (with _BRL suffix).
  * earconId: an optional earcon to play when encountering the role.
  * inherits: inherits rules from this role.
  * outputContextFirst: where to place the context output.
@@ -140,8 +142,71 @@ Output.ROLE_INFO_ = {
   dialog:
       {msgId: 'role_dialog', outputContextFirst: true, ignoreAncestry: true},
   directory: {msgId: 'role_directory', inherits: 'abstractContainer'},
+  docAbstract: {msgId: 'role_doc_abstract', inherits: 'abstractContainer'},
+  docAcknowledgments:
+      {msgId: 'role_doc_acknowledgments', inherits: 'abstractContainer'},
+  docAfterword: {msgId: 'role_doc_afterword', inherits: 'abstractContainer'},
+  docAppendix: {msgId: 'role_doc_appendix', inherits: 'abstractContainer'},
+  docBackLink:
+      {msgId: 'role_doc_back_link', earconId: 'LINK', inherits: 'link'},
+  docBiblioEntry: {
+    msgId: 'role_doc_biblio_entry',
+    earconId: 'LIST_ITEM',
+    inherits: 'abstractItem'
+  },
+  docBibliography:
+      {msgId: 'role_doc_bibliography', inherits: 'abstractContainer'},
+  docBiblioRef:
+      {msgId: 'role_doc_biblio_ref', earconId: 'LINK', inherits: 'link'},
+  docChapter: {msgId: 'role_doc_chapter', inherits: 'abstractContainer'},
+  docColophon: {msgId: 'role_doc_colophon', inherits: 'abstractContainer'},
+  docConclusion: {msgId: 'role_doc_conclusion', inherits: 'abstractContainer'},
+  docCover: {msgId: 'role_doc_cover', inherits: 'image'},
+  docCredit: {msgId: 'role_doc_credit', inherits: 'abstractContainer'},
+  docCredits: {msgId: 'role_doc_credits', inherits: 'abstractContainer'},
+  docDedication: {msgId: 'role_doc_dedication', inherits: 'abstractContainer'},
+  docEndnote: {
+    msgId: 'role_doc_endnote',
+    earconId: 'LIST_ITEM',
+    inherits: 'abstractItem'
+  },
+  docEndnotes:
+      {msgId: 'role_doc_endnotes', earconId: 'LISTBOX', inherits: 'list'},
+  docEpigraph: {msgId: 'role_doc_epigraph', inherits: 'abstractContainer'},
+  docEpilogue: {msgId: 'role_doc_epilogue', inherits: 'abstractContainer'},
+  docErrata: {msgId: 'role_doc_errata', inherits: 'abstractContainer'},
+  docExample: {msgId: 'role_doc_example', inherits: 'abstractContainer'},
+  docFootnote: {
+    msgId: 'role_doc_footnote',
+    earconId: 'LIST_ITEM',
+    inherits: 'abstractItem'
+  },
+  docForeword: {msgId: 'role_doc_foreword', inherits: 'abstractContainer'},
+  docGlossary: {msgId: 'role_doc_glossary', inherits: 'abstractContainer'},
+  docGlossRef:
+      {msgId: 'role_doc_gloss_ref', earconId: 'LINK', inherits: 'link'},
+  docIndex: {msgId: 'role_doc_index', inherits: 'abstractContainer'},
+  docIntroduction:
+      {msgId: 'role_doc_introduction', inherits: 'abstractContainer'},
+  docNoteRef: {msgId: 'role_doc_note_ref', earconId: 'LINK', inherits: 'link'},
+  docNotice: {msgId: 'role_doc_notice', inherits: 'abstractContainer'},
+  docPageBreak: {msgId: 'role_doc_page_break', inherits: 'abstractContainer'},
+  docPageList: {msgId: 'role_doc_page_list', inherits: 'abstractContainer'},
+  docPart: {msgId: 'role_doc_part', inherits: 'abstractContainer'},
+  docPreface: {msgId: 'role_doc_preface', inherits: 'abstractContainer'},
+  docPrologue: {msgId: 'role_doc_prologue', inherits: 'abstractContainer'},
+  docPullquote: {msgId: 'role_doc_pullquote', inherits: 'abstractContainer'},
+  docQna: {msgId: 'role_doc_qna', inherits: 'abstractContainer'},
+  docSubtitle: {msgId: 'role_doc_subtitle', inherits: 'heading'},
+  docTip: {msgId: 'role_doc_tip', inherits: 'abstractContainer'},
+  docToc: {msgId: 'role_doc_toc', inherits: 'abstractContainer'},
   document: {msgId: 'role_document', inherits: 'abstractContainer'},
   form: {msgId: 'role_form', inherits: 'abstractContainer'},
+  graphicsDocument:
+      {msgId: 'role_graphics_document', inherits: 'abstractContainer'},
+  graphicsObject:
+      {msgId: 'role_graphics_object', inherits: 'abstractContainer'},
+  graphicsSymbol: {msgId: 'role_graphics_symbol', inherits: 'image'},
   grid: {msgId: 'role_grid', inherits: 'table'},
   group: {msgId: 'role_group', inherits: 'abstractContainer'},
   heading: {
@@ -679,6 +744,15 @@ Output.prototype = {
     return false;
   },
 
+  /**
+   * @return {boolean} True if there is only whitespace in this output.
+   */
+  get isOnlyWhitespace() {
+    return this.speechBuffer_.every(function(buff) {
+      return !/\S+/.test(buff.toString());
+    });
+  },
+
   /** @return {Spannable} */
   get braille() {
     return this.mergeBraille_(this.brailleBuffer_);
@@ -1001,7 +1075,7 @@ Output.prototype = {
     else
       this.range_(range, prevRange, type, buff);
 
-    this.hint_(range, uniqueAncestors, buff);
+    this.hint_(range, uniqueAncestors, type, buff);
   },
 
   /**
@@ -1767,7 +1841,16 @@ Output.prototype = {
       this.locations_.push(loc);
   },
 
-  hint_: function(range, uniqueAncestors, buff) {
+  /**
+   * Renders the given range using optional context previous range and event
+   * type.
+   * @param {!cursors.Range} range
+   * @param {!Array<AutomationNode>} uniqueAncestors
+   * @param {EventType|Output.EventType} type
+   * @param {!Array<Spannable>} buff Buffer to receive rendered output.
+   * @private
+   */
+  hint_: function(range, uniqueAncestors, type, buff) {
     if (!this.enableHints_ || localStorage['useVerboseMode'] != 'true')
       return;
 
@@ -1783,8 +1866,23 @@ Output.prototype = {
       return;
     }
 
+    if (type == EventType.HOVER ||
+        EventSourceState.get() == EventSourceType.TOUCH_GESTURE) {
+      if (node.defaultActionVerb != 'none')
+        this.format_(node, '@hint_double_tap', buff);
+      return;
+    }
+
     if (node.state[StateType.EDITABLE] && cvox.ChromeVox.isStickyPrefOn)
       this.format_(node, '@sticky_mode_enabled', buff);
+
+    if (node.state[StateType.EDITABLE] && node.state[StateType.FOCUSED] &&
+        !this.formatOptions_.braille) {
+      this.format_(node, '@hint_is_editing', buff);
+      if (node.state[StateType.MULTILINE] ||
+          node.state[StateType.RICHLY_EDITABLE])
+        this.format_(node, '@hint_search_within_text_field', buff);
+    }
 
     if (AutomationPredicate.checkable(node))
       this.format_(node, '@hint_checkable', buff);
@@ -1798,10 +1896,11 @@ Output.prototype = {
       this.append_(buff, Msgs.getMsg('access_key', [node.accessKey]));
 
     // Ancestry based hints.
-    if (uniqueAncestors.find(AutomationPredicate.table))
-      this.format_(node, '@hint_table', buff);
     if (uniqueAncestors.find(
-            AutomationPredicate.roles([RoleType.MENU, RoleType.MENU_BAR])))
+            /** @type {function(?) : boolean} */ (AutomationPredicate.table)))
+      this.format_(node, '@hint_table', buff);
+    if (uniqueAncestors.find(/** @type {function(?) : boolean} */ (
+            AutomationPredicate.roles([RoleType.MENU, RoleType.MENU_BAR]))))
       this.format_(node, '@hint_menu', buff);
   },
 

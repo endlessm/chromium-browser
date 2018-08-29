@@ -168,6 +168,10 @@ multiclass VOP2eInst <string opName,
     let Uses = !if(useSGPRInput, [VCC, EXEC], [EXEC]) in {
       def _e32 : VOP2_Pseudo <opName, P>,
                  Commutable_REV<revOp#"_e32", !eq(revOp, opName)>;
+
+      def _sdwa : VOP2_SDWA_Pseudo <opName, P> {
+        let AsmMatchConverter = "cvtSdwaVOP2b";
+      }
     }
 
     def _e64 : VOP3_Pseudo <opName, P, getVOP2Pat64<node, P>.ret>,
@@ -294,12 +298,30 @@ def VOP2e_I32_I32_I32_I1 : VOPProfile<[i32, i32, i32, i1]> {
   let Src0RC32 = VCSrc_b32; // See comment in def VOP2b_I32_I1_I32_I32_I1 above.
   let Asm32 = "$vdst, $src0, $src1, vcc";
   let Asm64 = "$vdst, $src0, $src1, $src2";
+  let AsmSDWA = "$vdst, $src0_modifiers, $src1_modifiers, vcc $clamp $dst_sel $dst_unused $src0_sel $src1_sel";
+  let AsmSDWA9 = "$vdst, $src0_modifiers, $src1_modifiers, vcc $clamp $dst_sel $dst_unused $src0_sel $src1_sel";
+  let AsmDPP = "$vdst, $src0, $src1, vcc $dpp_ctrl$row_mask$bank_mask$bound_ctrl";
+
   let Outs32 = (outs DstRC:$vdst);
   let Outs64 = (outs DstRC:$vdst);
 
   // Suppress src2 implied by type since the 32-bit encoding uses an
   // implicit VCC use.
   let Ins32 = (ins Src0RC32:$src0, Src1RC32:$src1);
+
+  let InsSDWA = (ins Src0ModSDWA:$src0_modifiers, Src0SDWA:$src0,
+                     Src1ModSDWA:$src1_modifiers, Src1SDWA:$src1,
+                     clampmod:$clamp,
+                     dst_sel:$dst_sel, dst_unused:$dst_unused,
+                     src0_sel:$src0_sel, src1_sel:$src1_sel);
+
+  let InsDPP = (ins DstRCDPP:$old,
+                    Src0DPP:$src0,
+                    Src1DPP:$src1,
+                    dpp_ctrl:$dpp_ctrl, row_mask:$row_mask,
+                    bank_mask:$bank_mask, bound_ctrl:$bound_ctrl);
+  let HasExt = 1;
+  let HasSDWA9 = 1;
 }
 
 def VOP_READLANE : VOPProfile<[i32, i32, i32]> {
@@ -468,6 +490,19 @@ defm V_MAC_F16 : VOP2Inst <"v_mac_f16", VOP_MAC_F16>;
 } // End isCommutable = 1
 
 } // End SubtargetPredicate = Has16BitInsts
+
+let SubtargetPredicate = HasDLInsts in {
+
+defm V_XNOR_B32 : VOP2Inst <"v_xnor_b32", VOP_I32_I32_I32>;
+
+let Constraints = "$vdst = $src2",
+    DisableEncoding="$src2",
+    isConvertibleToThreeAddress = 1,
+    isCommutable = 1 in {
+defm V_FMAC_F32 : VOP2Inst <"v_fmac_f32", VOP_MAC_F32>;
+}
+
+} // End SubtargetPredicate = HasDLInsts
 
 // Note: 16-bit instructions produce a 0 result in the high 16-bits.
 multiclass Arithmetic_i16_Pats <SDPatternOperator op, Instruction inst> {
@@ -820,7 +855,7 @@ multiclass VOP2_Real_e32e64_vi <bits<6> op> :
   def _dpp : VOP2_DPP<op, !cast<VOP2_Pseudo>(NAME#"_e32")>;
 }
 
-defm V_CNDMASK_B32        : Base_VOP2_Real_e32e64_vi <0x0>;
+defm V_CNDMASK_B32        : VOP2_Real_e32e64_vi <0x0>;
 defm V_ADD_F32            : VOP2_Real_e32e64_vi <0x1>;
 defm V_SUB_F32            : VOP2_Real_e32e64_vi <0x2>;
 defm V_SUBREV_F32         : VOP2_Real_e32e64_vi <0x3>;
@@ -922,3 +957,10 @@ def : SI2_VI3Alias <"v_cvt_pknorm_u16_f32", V_CVT_PKNORM_U16_F32_e64_vi>;
 def : SI2_VI3Alias <"v_cvt_pkrtz_f16_f32", V_CVT_PKRTZ_F16_F32_e64_vi>;
 
 } // End SubtargetPredicate = isVI
+
+let SubtargetPredicate = HasDLInsts in {
+
+defm V_FMAC_F32 : VOP2_Real_e32e64_vi <0x3b>;
+defm V_XNOR_B32 : VOP2_Real_e32e64_vi <0x3d>;
+
+} // End SubtargetPredicate = HasDLInsts

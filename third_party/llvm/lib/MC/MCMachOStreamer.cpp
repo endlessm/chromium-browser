@@ -24,6 +24,7 @@
 #include "llvm/MC/MCLinkerOptimizationHint.h"
 #include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCObjectStreamer.h"
+#include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCSectionMachO.h"
 #include "llvm/MC/MCStreamer.h"
@@ -63,9 +64,11 @@ private:
 
 public:
   MCMachOStreamer(MCContext &Context, std::unique_ptr<MCAsmBackend> MAB,
-                  raw_pwrite_stream &OS, std::unique_ptr<MCCodeEmitter> Emitter,
+                  std::unique_ptr<MCObjectWriter> OW,
+                  std::unique_ptr<MCCodeEmitter> Emitter,
                   bool DWARFMustBeAtTheEnd, bool label)
-      : MCObjectStreamer(Context, std::move(MAB), OS, std::move(Emitter)),
+      : MCObjectStreamer(Context, std::move(MAB), std::move(OW),
+                         std::move(Emitter)),
         LabelSections(label), DWARFMustBeAtTheEnd(DWARFMustBeAtTheEnd),
         CreatedADWARFSection(false) {}
 
@@ -455,42 +458,19 @@ void MCMachOStreamer::FinishImpl() {
 
   // We have to set the fragment atom associations so we can relax properly for
   // Mach-O.
-
-  // First, scan the symbol table to build a lookup table from fragments to
-  // defining symbols.
-  DenseMap<const MCFragment *, const MCSymbol *> DefiningSymbolMap;
-  for (const MCSymbol &Symbol : getAssembler().symbols()) {
-    if (getAssembler().isSymbolLinkerVisible(Symbol) && Symbol.isInSection() &&
-        !Symbol.isVariable()) {
-      // An atom defining symbol should never be internal to a fragment.
-      assert(Symbol.getOffset() == 0 &&
-             "Invalid offset in atom defining symbol!");
-      DefiningSymbolMap[Symbol.getFragment()] = &Symbol;
-    }
-  }
-
-  // Set the fragment atom associations by tracking the last seen atom defining
-  // symbol.
-  for (MCSection &Sec : getAssembler()) {
-    const MCSymbol *CurrentAtom = nullptr;
-    for (MCFragment &Frag : Sec) {
-      if (const MCSymbol *Symbol = DefiningSymbolMap.lookup(&Frag))
-        CurrentAtom = Symbol;
-      Frag.setAtom(CurrentAtom);
-    }
-  }
+  addFragmentAtoms();
 
   this->MCObjectStreamer::FinishImpl();
 }
 
 MCStreamer *llvm::createMachOStreamer(MCContext &Context,
                                       std::unique_ptr<MCAsmBackend> &&MAB,
-                                      raw_pwrite_stream &OS,
+                                      std::unique_ptr<MCObjectWriter> &&OW,
                                       std::unique_ptr<MCCodeEmitter> &&CE,
                                       bool RelaxAll, bool DWARFMustBeAtTheEnd,
                                       bool LabelSections) {
   MCMachOStreamer *S =
-      new MCMachOStreamer(Context, std::move(MAB), OS, std::move(CE),
+      new MCMachOStreamer(Context, std::move(MAB), std::move(OW), std::move(CE),
                           DWARFMustBeAtTheEnd, LabelSections);
   const Triple &Target = Context.getObjectFileInfo()->getTargetTriple();
   S->EmitVersionForTarget(Target);

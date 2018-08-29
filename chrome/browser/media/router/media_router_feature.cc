@@ -24,9 +24,9 @@
 namespace media_router {
 
 #if !defined(OS_ANDROID)
-// Controls if browser side DIAL sink query is enabled.
-const base::Feature kEnableDialSinkQuery{"EnableDialSinkQuery",
-                                         base::FEATURE_DISABLED_BY_DEFAULT};
+// Controls if browser side DialMediaRouteProvider is enabled.
+const base::Feature kDialMediaRouteProvider{"DialMediaRouteProvider",
+                                            base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Controls if browser side Cast device discovery is enabled.
 const base::Feature kEnableCastDiscovery{"EnableCastDiscovery",
@@ -35,9 +35,6 @@ const base::Feature kEnableCastDiscovery{"EnableCastDiscovery",
 const base::Feature kCastMediaRouteProvider{"CastMediaRouteProvider",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Controls if local media casting is enabled.
-const base::Feature kEnableCastLocalMedia{"EnableCastLocalMedia",
-                                          base::FEATURE_ENABLED_BY_DEFAULT};
 #endif
 
 #if defined(OS_ANDROID) || BUILDFLAG(ENABLE_EXTENSIONS)
@@ -91,12 +88,10 @@ bool GetCastAllowAllIPsPref(PrefService* pref_service) {
   return allow_all_ips;
 }
 
-// Returns true if browser side DIAL sink query is enabled.
-bool DialSinkQueryEnabled() {
-  return base::FeatureList::IsEnabled(kEnableDialSinkQuery);
+bool DialMediaRouteProviderEnabled() {
+  return base::FeatureList::IsEnabled(kDialMediaRouteProvider);
 }
 
-// Returns true if browser side Cast discovery is enabled.
 bool CastDiscoveryEnabled() {
   return base::FeatureList::IsEnabled(kEnableCastDiscovery);
 }
@@ -105,13 +100,6 @@ bool CastMediaRouteProviderEnabled() {
   return base::FeatureList::IsEnabled(kCastMediaRouteProvider);
 }
 
-// Returns true if local media casting is enabled.
-bool CastLocalMediaEnabled() {
-  return base::FeatureList::IsEnabled(kEnableCastLocalMedia);
-}
-
-// Returns true if the presentation receiver window for local media casting is
-// available on the current platform.
 bool PresentationReceiverWindowEnabled() {
 #if defined(OS_MACOSX) && !BUILDFLAG(MAC_VIEWS_BROWSER)
   return false;

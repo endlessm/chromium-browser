@@ -106,6 +106,11 @@ struct VkStructureHeader {
     void *pNext;
 };
 
+struct pNextChainBuildingBlockInfo {
+    VkStructureType sType;
+    uint32_t mem_size;
+};
+
 struct LayerExtensionList {
     VkLayerProperties layer_properties;
     uint32_t extension_count;
@@ -474,6 +479,43 @@ static bool CheckExtensionEnabled(const char *extension_to_check, const char **e
     return false;
 }
 
+static bool CheckPhysicalDeviceExtensionIncluded(const char *extension_to_check, VkExtensionProperties *extension_list,
+                                                 uint32_t extension_count) {
+    for (uint32_t i = 0; i < extension_count; ++i) {
+        if (!strcmp(extension_to_check, extension_list[i].extensionName)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void buildpNextChain(struct VkStructureHeader *first, const struct pNextChainBuildingBlockInfo *chain_info,
+                            uint32_t chain_info_len) {
+    struct VkStructureHeader *place = first;
+
+    for (uint32_t i = 0; i < chain_info_len; i++) {
+        place->pNext = malloc(chain_info[i].mem_size);
+        if (!place->pNext) {
+            ERR_EXIT(VK_ERROR_OUT_OF_HOST_MEMORY);
+        }
+        place = place->pNext;
+        place->sType = chain_info[i].sType;
+    }
+
+    place->pNext = NULL;
+}
+
+static void freepNextChain(struct VkStructureHeader *first) {
+    struct VkStructureHeader *place = first;
+    struct VkStructureHeader *next = NULL;
+
+    while (place) {
+        next = place->pNext;
+        free(place);
+        place = next;
+    }
+}
+
 static void ExtractVersion(uint32_t version, uint32_t *major, uint32_t *minor, uint32_t *patch) {
     *major = version >> 22;
     *minor = (version >> 12) & 0x3ff;
@@ -664,7 +706,6 @@ void PrintHtmlHeader(FILE *out) {
     fprintf(out, "\t</head>\n");
     fprintf(out, "\t<body>\n");
     fprintf(out, "\t\t<div id='header'>\n");
-    fprintf(out, "\t\t\t<img src='C:/Git/VulkanTools/layersvt/images/lunarg.png' />\n");
     fprintf(out, "\t\t\t<h1>Vulkan Info</h1>\n");
     fprintf(out, "\t\t</div>\n");
     fprintf(out, "\t\t<div id='wrapper'>\n");
@@ -704,11 +745,13 @@ static void AppCreateInstance(struct AppInstance *inst) {
 
     //---Build a list of extensions to load---
 
-    const char *info_instance_extensions[] = {VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-                                              VK_EXT_DISPLAY_SURFACE_COUNTER_EXTENSION_NAME,
-                                              VK_KHR_SURFACE_EXTENSION_NAME,
+    const char *info_instance_extensions[] = {VK_EXT_DISPLAY_SURFACE_COUNTER_EXTENSION_NAME,
+                                              VK_KHR_DISPLAY_EXTENSION_NAME,
+                                              VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
                                               VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
                                               VK_KHR_SHARED_PRESENTABLE_IMAGE_EXTENSION_NAME,
+                                              VK_KHR_SURFACE_EXTENSION_NAME,
+                                              VK_KHR_DEVICE_GROUP_CREATION_EXTENSION_NAME,
 #ifdef VK_USE_PLATFORM_WIN32_KHR
                                               VK_KHR_WIN32_SURFACE_EXTENSION_NAME
 #elif VK_USE_PLATFORM_XCB_KHR
@@ -820,8 +863,22 @@ static void AppGpuInit(struct AppGpu *gpu, struct AppInstance *inst, uint32_t id
 
     if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
                               gpu->inst->inst_extensions_count)) {
+        struct pNextChainBuildingBlockInfo chain_info[] = {
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_PROPERTIES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceBlendOperationAdvancedPropertiesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_POINT_CLIPPING_PROPERTIES_KHR,
+             .mem_size = sizeof(VkPhysicalDevicePointClippingPropertiesKHR)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR,
+             .mem_size = sizeof(VkPhysicalDevicePushDescriptorPropertiesKHR)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DISCARD_RECTANGLE_PROPERTIES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceDiscardRectanglePropertiesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_PROPERTIES_KHR,
+             .mem_size = sizeof(VkPhysicalDeviceMultiviewPropertiesKHR)}};
+
+        uint32_t chain_info_len = ARRAY_SIZE(chain_info);
+
         gpu->props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2_KHR;
-        gpu->props2.pNext = NULL;
+        buildpNextChain((struct VkStructureHeader *)&gpu->props2, chain_info, chain_info_len);
 
         inst->vkGetPhysicalDeviceProperties2KHR(gpu->obj, &gpu->props2);
     }
@@ -858,17 +915,36 @@ static void AppGpuInit(struct AppGpu *gpu, struct AppInstance *inst, uint32_t id
         ERR_EXIT(VK_ERROR_OUT_OF_HOST_MEMORY);
     }
     for (i = 0; i < gpu->queue_count; ++i) {
-        float *queue_priorities = malloc(gpu->queue_props[i].queueCount * sizeof(float));
+        float *queue_priorities = NULL;
+        if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
+                                  gpu->inst->inst_extensions_count)) {
+            queue_priorities = malloc(gpu->queue_props2[i].queueFamilyProperties.queueCount * sizeof(float));
+        } else {
+            queue_priorities = malloc(gpu->queue_props[i].queueCount * sizeof(float));
+        }
         if (!queue_priorities) {
             ERR_EXIT(VK_ERROR_OUT_OF_HOST_MEMORY);
         }
-        memset(queue_priorities, 0, gpu->queue_props[i].queueCount * sizeof(float));
+
+        if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
+                                  gpu->inst->inst_extensions_count)) {
+            memset(queue_priorities, 0, gpu->queue_props2[i].queueFamilyProperties.queueCount * sizeof(float));
+        } else {
+            memset(queue_priorities, 0, gpu->queue_props[i].queueCount * sizeof(float));
+        }
 
         gpu->queue_reqs[i].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         gpu->queue_reqs[i].pNext = NULL;
         gpu->queue_reqs[i].flags = 0;
         gpu->queue_reqs[i].queueFamilyIndex = i;
-        gpu->queue_reqs[i].queueCount = gpu->queue_props[i].queueCount;
+
+        if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
+                                  gpu->inst->inst_extensions_count)) {
+            gpu->queue_reqs[i].queueCount = gpu->queue_props2[i].queueFamilyProperties.queueCount;
+        } else {
+            gpu->queue_reqs[i].queueCount = gpu->queue_props[i].queueCount;
+        }
+
         gpu->queue_reqs[i].pQueuePriorities = queue_priorities;
     }
 
@@ -883,8 +959,22 @@ static void AppGpuInit(struct AppGpu *gpu, struct AppInstance *inst, uint32_t id
 
         inst->vkGetPhysicalDeviceMemoryProperties2KHR(gpu->obj, &gpu->memory_props2);
 
+        struct pNextChainBuildingBlockInfo chain_info[] = {
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES_KHR,
+             .mem_size = sizeof(VkPhysicalDevice16BitStorageFeaturesKHR)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES_KHR,
+             .mem_size = sizeof(VkPhysicalDeviceSamplerYcbcrConversionFeaturesKHR)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTER_FEATURES_KHR,
+             .mem_size = sizeof(VkPhysicalDeviceVariablePointerFeaturesKHR)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_FEATURES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceBlendOperationAdvancedFeaturesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES_KHR,
+             .mem_size = sizeof(VkPhysicalDeviceMultiviewFeaturesKHR)}};
+
+        uint32_t chain_info_len = ARRAY_SIZE(chain_info);
+
         gpu->features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2_KHR;
-        gpu->features2.pNext = NULL;
+        buildpNextChain((struct VkStructureHeader *)&gpu->features2, chain_info, chain_info_len);
 
         inst->vkGetPhysicalDeviceFeatures2KHR(gpu->obj, &gpu->features2);
     }
@@ -895,6 +985,11 @@ static void AppGpuInit(struct AppGpu *gpu, struct AppInstance *inst, uint32_t id
 static void AppGpuDestroy(struct AppGpu *gpu) {
     free(gpu->device_extensions);
 
+    if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
+                              gpu->inst->inst_extensions_count)) {
+        freepNextChain(gpu->features2.pNext);
+    }
+
     for (uint32_t i = 0; i < gpu->queue_count; ++i) {
         free((void *)gpu->queue_reqs[i].pQueuePriorities);
     }
@@ -904,6 +999,8 @@ static void AppGpuDestroy(struct AppGpu *gpu) {
     if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
                               gpu->inst->inst_extensions_count)) {
         free(gpu->queue_props2);
+
+        freepNextChain(gpu->props2.pNext);
     }
 }
 
@@ -1246,29 +1343,21 @@ static void AppDumpSurfaceCapabilities(struct AppInstance *inst, struct AppGpu *
             }
             if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
                 fprintf(out, "\t\t\t\t\t\t<details><summary><div class='type'>VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR</div></summary></details>\n");
-            }
-            else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR) {
+            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR) {
                 fprintf(out, "\t\t\t\t\t\t<details><summary><div class='type'>VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR</div></summary></details>\n");
-            }
-            else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR) {
+            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR) {
                 fprintf(out, "\t\t\t\t\t\t<details><summary><div class='type'>VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR</div></summary></details>\n");
-            }
-            else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR) {
+            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR) {
                 fprintf(out, "\t\t\t\t\t\t<details><summary><div class='type'>VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR</div></summary></details>\n");
-            }
-            else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR) {
+            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR) {
                 fprintf(out, "\t\t\t\t\t\t<details><summary><div class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR</div></summary></details>\n");
-            }
-            else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR) {
+            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR) {
                 fprintf(out, "\t\t\t\t\t<details><summary><div class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR</div></summary></details>\n");
-            }
-            else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR) {
+            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR) {
                 fprintf(out, "\t\t\t\t\t\t<details><summary><div class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR</div></summary></details>\n");
-            }
-            else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR) {
+            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR) {
                 fprintf(out, "\t\t\t\t\t\t<details><summary><div class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR</div></summary></details>\n");
-            }
-            else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR) {
+            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR) {
                 fprintf(out, "\t\t\t\t\t\t<details><summary><div class='type'>VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR</div></summary></details>\n");
             }
             fprintf(out, "\t\t\t\t\t</details>\n");
@@ -1394,7 +1483,7 @@ static void AppDumpSurfaceCapabilities(struct AppInstance *inst, struct AppGpu *
                 fprintf(out, "\t\t\t\t\t</details>\n");
             } else if (human_readable_output) {
                 printf("\nVkSurfaceCapabilities2EXT:\n");
-                printf("==========================\n\n");
+                printf("==========================\n");
                 printf("\tsupportedSurfaceCounters:\n");
                 if (inst->surface_capabilities2_ext.supportedSurfaceCounters == 0) {
                     printf("\t\tNone\n");
@@ -1609,184 +1698,271 @@ static void AppDevDump(const struct AppGpu *gpu, FILE *out) {
 #endif
 
 static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
-    const VkPhysicalDeviceFeatures *features = &gpu->features;
+    VkPhysicalDeviceFeatures features;
+
+    if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
+        gpu->inst->inst_extensions_count)) {
+        const VkPhysicalDeviceFeatures *features2_const = &gpu->features2.features;
+        features = *features2_const;
+    } else {
+        const VkPhysicalDeviceFeatures *features_const = &gpu->features;
+        features = *features_const;
+    }
 
     if (html_output) {
         fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceFeatures</summary>\n");
-        fprintf(out, "\t\t\t\t\t\t<details><summary>alphaToOne                              = <div class='val'>%u</div></summary></details>\n", features->alphaToOne                             );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>depthBiasClamp                          = <div class='val'>%u</div></summary></details>\n", features->depthBiasClamp                         );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>depthBounds                             = <div class='val'>%u</div></summary></details>\n", features->depthBounds                            );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>depthClamp                              = <div class='val'>%u</div></summary></details>\n", features->depthClamp                             );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>drawIndirectFirstInstance               = <div class='val'>%u</div></summary></details>\n", features->drawIndirectFirstInstance              );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>dualSrcBlend                            = <div class='val'>%u</div></summary></details>\n", features->dualSrcBlend                           );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>fillModeNonSolid                        = <div class='val'>%u</div></summary></details>\n", features->fillModeNonSolid                       );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>fragmentStoresAndAtomics                = <div class='val'>%u</div></summary></details>\n", features->fragmentStoresAndAtomics               );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>fullDrawIndexUint32                     = <div class='val'>%u</div></summary></details>\n", features->fullDrawIndexUint32                    );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>geometryShader                          = <div class='val'>%u</div></summary></details>\n", features->geometryShader                         );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>imageCubeArray                          = <div class='val'>%u</div></summary></details>\n", features->imageCubeArray                         );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>independentBlend                        = <div class='val'>%u</div></summary></details>\n", features->independentBlend                       );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>inheritedQueries                        = <div class='val'>%u</div></summary></details>\n", features->inheritedQueries                       );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>largePoints                             = <div class='val'>%u</div></summary></details>\n", features->largePoints                            );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>logicOp                                 = <div class='val'>%u</div></summary></details>\n", features->logicOp                                );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>multiDrawIndirect                       = <div class='val'>%u</div></summary></details>\n", features->multiDrawIndirect                      );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>multiViewport                           = <div class='val'>%u</div></summary></details>\n", features->multiViewport                          );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>occlusionQueryPrecise                   = <div class='val'>%u</div></summary></details>\n", features->occlusionQueryPrecise                  );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>pipelineStatisticsQuery                 = <div class='val'>%u</div></summary></details>\n", features->pipelineStatisticsQuery                );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>robustBufferAccess                      = <div class='val'>%u</div></summary></details>\n", features->robustBufferAccess                     );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>samplerAnisotropy                       = <div class='val'>%u</div></summary></details>\n", features->samplerAnisotropy                      );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>sampleRateShading                       = <div class='val'>%u</div></summary></details>\n", features->sampleRateShading                      );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderClipDistance                      = <div class='val'>%u</div></summary></details>\n", features->shaderClipDistance                     );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderCullDistance                      = <div class='val'>%u</div></summary></details>\n", features->shaderCullDistance                     );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderFloat64                           = <div class='val'>%u</div></summary></details>\n", features->shaderFloat64                          );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderImageGatherExtended               = <div class='val'>%u</div></summary></details>\n", features->shaderImageGatherExtended              );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderInt16                             = <div class='val'>%u</div></summary></details>\n", features->shaderInt16                            );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderInt64                             = <div class='val'>%u</div></summary></details>\n", features->shaderInt64                            );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderResourceMinLod                    = <div class='val'>%u</div></summary></details>\n", features->shaderResourceMinLod                   );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderResourceResidency                 = <div class='val'>%u</div></summary></details>\n", features->shaderResourceResidency                );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderSampledImageArrayDynamicIndexing  = <div class='val'>%u</div></summary></details>\n", features->shaderSampledImageArrayDynamicIndexing );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderStorageBufferArrayDynamicIndexing = <div class='val'>%u</div></summary></details>\n", features->shaderStorageBufferArrayDynamicIndexing);
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderStorageImageArrayDynamicIndexing  = <div class='val'>%u</div></summary></details>\n", features->shaderStorageImageArrayDynamicIndexing );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderStorageImageExtendedFormats       = <div class='val'>%u</div></summary></details>\n", features->shaderStorageImageExtendedFormats      );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderStorageImageMultisample           = <div class='val'>%u</div></summary></details>\n", features->shaderStorageImageMultisample          );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderStorageImageReadWithoutFormat     = <div class='val'>%u</div></summary></details>\n", features->shaderStorageImageReadWithoutFormat    );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderStorageImageWriteWithoutFormat    = <div class='val'>%u</div></summary></details>\n", features->shaderStorageImageWriteWithoutFormat   );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderTessellationAndGeometryPointSize  = <div class='val'>%u</div></summary></details>\n", features->shaderTessellationAndGeometryPointSize );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderUniformBufferArrayDynamicIndexing = <div class='val'>%u</div></summary></details>\n", features->shaderUniformBufferArrayDynamicIndexing);
-        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseBinding                           = <div class='val'>%u</div></summary></details>\n", features->sparseBinding                          );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidency2Samples                 = <div class='val'>%u</div></summary></details>\n", features->sparseResidency2Samples                );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidency4Samples                 = <div class='val'>%u</div></summary></details>\n", features->sparseResidency4Samples                );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidency8Samples                 = <div class='val'>%u</div></summary></details>\n", features->sparseResidency8Samples                );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidency16Samples                = <div class='val'>%u</div></summary></details>\n", features->sparseResidency16Samples               );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidencyAliased                  = <div class='val'>%u</div></summary></details>\n", features->sparseResidencyAliased                 );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidencyBuffer                   = <div class='val'>%u</div></summary></details>\n", features->sparseResidencyBuffer                  );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidencyImage2D                  = <div class='val'>%u</div></summary></details>\n", features->sparseResidencyImage2D                 );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidencyImage3D                  = <div class='val'>%u</div></summary></details>\n", features->sparseResidencyImage3D                 );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>tessellationShader                      = <div class='val'>%u</div></summary></details>\n", features->tessellationShader                     );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>textureCompressionASTC_LDR              = <div class='val'>%u</div></summary></details>\n", features->textureCompressionASTC_LDR             );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>textureCompressionBC                    = <div class='val'>%u</div></summary></details>\n", features->textureCompressionBC                   );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>textureCompressionETC2                  = <div class='val'>%u</div></summary></details>\n", features->textureCompressionETC2                 );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>variableMultisampleRate                 = <div class='val'>%u</div></summary></details>\n", features->variableMultisampleRate                );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>vertexPipelineStoresAndAtomics          = <div class='val'>%u</div></summary></details>\n", features->vertexPipelineStoresAndAtomics         );
-        fprintf(out, "\t\t\t\t\t\t<details><summary>wideLines                               = <div class='val'>%u</div></summary></details>\n", features->wideLines                              );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>alphaToOne                              = <div class='val'>%u</div></summary></details>\n", features.alphaToOne                             );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>depthBiasClamp                          = <div class='val'>%u</div></summary></details>\n", features.depthBiasClamp                         );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>depthBounds                             = <div class='val'>%u</div></summary></details>\n", features.depthBounds                            );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>depthClamp                              = <div class='val'>%u</div></summary></details>\n", features.depthClamp                             );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>drawIndirectFirstInstance               = <div class='val'>%u</div></summary></details>\n", features.drawIndirectFirstInstance              );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>dualSrcBlend                            = <div class='val'>%u</div></summary></details>\n", features.dualSrcBlend                           );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>fillModeNonSolid                        = <div class='val'>%u</div></summary></details>\n", features.fillModeNonSolid                       );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>fragmentStoresAndAtomics                = <div class='val'>%u</div></summary></details>\n", features.fragmentStoresAndAtomics               );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>fullDrawIndexUint32                     = <div class='val'>%u</div></summary></details>\n", features.fullDrawIndexUint32                    );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>geometryShader                          = <div class='val'>%u</div></summary></details>\n", features.geometryShader                         );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>imageCubeArray                          = <div class='val'>%u</div></summary></details>\n", features.imageCubeArray                         );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>independentBlend                        = <div class='val'>%u</div></summary></details>\n", features.independentBlend                       );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>inheritedQueries                        = <div class='val'>%u</div></summary></details>\n", features.inheritedQueries                       );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>largePoints                             = <div class='val'>%u</div></summary></details>\n", features.largePoints                            );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>logicOp                                 = <div class='val'>%u</div></summary></details>\n", features.logicOp                                );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>multiDrawIndirect                       = <div class='val'>%u</div></summary></details>\n", features.multiDrawIndirect                      );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>multiViewport                           = <div class='val'>%u</div></summary></details>\n", features.multiViewport                          );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>occlusionQueryPrecise                   = <div class='val'>%u</div></summary></details>\n", features.occlusionQueryPrecise                  );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>pipelineStatisticsQuery                 = <div class='val'>%u</div></summary></details>\n", features.pipelineStatisticsQuery                );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>robustBufferAccess                      = <div class='val'>%u</div></summary></details>\n", features.robustBufferAccess                     );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>samplerAnisotropy                       = <div class='val'>%u</div></summary></details>\n", features.samplerAnisotropy                      );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>sampleRateShading                       = <div class='val'>%u</div></summary></details>\n", features.sampleRateShading                      );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderClipDistance                      = <div class='val'>%u</div></summary></details>\n", features.shaderClipDistance                     );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderCullDistance                      = <div class='val'>%u</div></summary></details>\n", features.shaderCullDistance                     );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderFloat64                           = <div class='val'>%u</div></summary></details>\n", features.shaderFloat64                          );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderImageGatherExtended               = <div class='val'>%u</div></summary></details>\n", features.shaderImageGatherExtended              );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderInt16                             = <div class='val'>%u</div></summary></details>\n", features.shaderInt16                            );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderInt64                             = <div class='val'>%u</div></summary></details>\n", features.shaderInt64                            );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderResourceMinLod                    = <div class='val'>%u</div></summary></details>\n", features.shaderResourceMinLod                   );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderResourceResidency                 = <div class='val'>%u</div></summary></details>\n", features.shaderResourceResidency                );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderSampledImageArrayDynamicIndexing  = <div class='val'>%u</div></summary></details>\n", features.shaderSampledImageArrayDynamicIndexing );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderStorageBufferArrayDynamicIndexing = <div class='val'>%u</div></summary></details>\n", features.shaderStorageBufferArrayDynamicIndexing);
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderStorageImageArrayDynamicIndexing  = <div class='val'>%u</div></summary></details>\n", features.shaderStorageImageArrayDynamicIndexing );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderStorageImageExtendedFormats       = <div class='val'>%u</div></summary></details>\n", features.shaderStorageImageExtendedFormats      );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderStorageImageMultisample           = <div class='val'>%u</div></summary></details>\n", features.shaderStorageImageMultisample          );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderStorageImageReadWithoutFormat     = <div class='val'>%u</div></summary></details>\n", features.shaderStorageImageReadWithoutFormat    );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderStorageImageWriteWithoutFormat    = <div class='val'>%u</div></summary></details>\n", features.shaderStorageImageWriteWithoutFormat   );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderTessellationAndGeometryPointSize  = <div class='val'>%u</div></summary></details>\n", features.shaderTessellationAndGeometryPointSize );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>shaderUniformBufferArrayDynamicIndexing = <div class='val'>%u</div></summary></details>\n", features.shaderUniformBufferArrayDynamicIndexing);
+        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseBinding                           = <div class='val'>%u</div></summary></details>\n", features.sparseBinding                          );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidency2Samples                 = <div class='val'>%u</div></summary></details>\n", features.sparseResidency2Samples                );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidency4Samples                 = <div class='val'>%u</div></summary></details>\n", features.sparseResidency4Samples                );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidency8Samples                 = <div class='val'>%u</div></summary></details>\n", features.sparseResidency8Samples                );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidency16Samples                = <div class='val'>%u</div></summary></details>\n", features.sparseResidency16Samples               );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidencyAliased                  = <div class='val'>%u</div></summary></details>\n", features.sparseResidencyAliased                 );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidencyBuffer                   = <div class='val'>%u</div></summary></details>\n", features.sparseResidencyBuffer                  );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidencyImage2D                  = <div class='val'>%u</div></summary></details>\n", features.sparseResidencyImage2D                 );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>sparseResidencyImage3D                  = <div class='val'>%u</div></summary></details>\n", features.sparseResidencyImage3D                 );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>tessellationShader                      = <div class='val'>%u</div></summary></details>\n", features.tessellationShader                     );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>textureCompressionASTC_LDR              = <div class='val'>%u</div></summary></details>\n", features.textureCompressionASTC_LDR             );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>textureCompressionBC                    = <div class='val'>%u</div></summary></details>\n", features.textureCompressionBC                   );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>textureCompressionETC2                  = <div class='val'>%u</div></summary></details>\n", features.textureCompressionETC2                 );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>variableMultisampleRate                 = <div class='val'>%u</div></summary></details>\n", features.variableMultisampleRate                );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>vertexPipelineStoresAndAtomics          = <div class='val'>%u</div></summary></details>\n", features.vertexPipelineStoresAndAtomics         );
+        fprintf(out, "\t\t\t\t\t\t<details><summary>wideLines                               = <div class='val'>%u</div></summary></details>\n", features.wideLines                              );
         fprintf(out, "\t\t\t\t\t</details>\n");
     } else if (human_readable_output) {
         printf("VkPhysicalDeviceFeatures:\n");
         printf("=========================\n");
-        printf("\talphaToOne                              = %u\n", features->alphaToOne                             );
-        printf("\tdepthBiasClamp                          = %u\n", features->depthBiasClamp                         );
-        printf("\tdepthBounds                             = %u\n", features->depthBounds                            );
-        printf("\tdepthClamp                              = %u\n", features->depthClamp                             );
-        printf("\tdrawIndirectFirstInstance               = %u\n", features->drawIndirectFirstInstance              );
-        printf("\tdualSrcBlend                            = %u\n", features->dualSrcBlend                           );
-        printf("\tfillModeNonSolid                        = %u\n", features->fillModeNonSolid                       );
-        printf("\tfragmentStoresAndAtomics                = %u\n", features->fragmentStoresAndAtomics               );
-        printf("\tfullDrawIndexUint32                     = %u\n", features->fullDrawIndexUint32                    );
-        printf("\tgeometryShader                          = %u\n", features->geometryShader                         );
-        printf("\timageCubeArray                          = %u\n", features->imageCubeArray                         );
-        printf("\tindependentBlend                        = %u\n", features->independentBlend                       );
-        printf("\tinheritedQueries                        = %u\n", features->inheritedQueries                       );
-        printf("\tlargePoints                             = %u\n", features->largePoints                            );
-        printf("\tlogicOp                                 = %u\n", features->logicOp                                );
-        printf("\tmultiDrawIndirect                       = %u\n", features->multiDrawIndirect                      );
-        printf("\tmultiViewport                           = %u\n", features->multiViewport                          );
-        printf("\tocclusionQueryPrecise                   = %u\n", features->occlusionQueryPrecise                  );
-        printf("\tpipelineStatisticsQuery                 = %u\n", features->pipelineStatisticsQuery                );
-        printf("\trobustBufferAccess                      = %u\n", features->robustBufferAccess                     );
-        printf("\tsamplerAnisotropy                       = %u\n", features->samplerAnisotropy                      );
-        printf("\tsampleRateShading                       = %u\n", features->sampleRateShading                      );
-        printf("\tshaderClipDistance                      = %u\n", features->shaderClipDistance                     );
-        printf("\tshaderCullDistance                      = %u\n", features->shaderCullDistance                     );
-        printf("\tshaderFloat64                           = %u\n", features->shaderFloat64                          );
-        printf("\tshaderImageGatherExtended               = %u\n", features->shaderImageGatherExtended              );
-        printf("\tshaderInt16                             = %u\n", features->shaderInt16                            );
-        printf("\tshaderInt64                             = %u\n", features->shaderInt64                            );
-        printf("\tshaderSampledImageArrayDynamicIndexing  = %u\n", features->shaderSampledImageArrayDynamicIndexing );
-        printf("\tshaderStorageBufferArrayDynamicIndexing = %u\n", features->shaderStorageBufferArrayDynamicIndexing);
-        printf("\tshaderStorageImageArrayDynamicIndexing  = %u\n", features->shaderStorageImageArrayDynamicIndexing );
-        printf("\tshaderStorageImageExtendedFormats       = %u\n", features->shaderStorageImageExtendedFormats      );
-        printf("\tshaderStorageImageMultisample           = %u\n", features->shaderStorageImageMultisample          );
-        printf("\tshaderStorageImageReadWithoutFormat     = %u\n", features->shaderStorageImageReadWithoutFormat    );
-        printf("\tshaderStorageImageWriteWithoutFormat    = %u\n", features->shaderStorageImageWriteWithoutFormat   );
-        printf("\tshaderTessellationAndGeometryPointSize  = %u\n", features->shaderTessellationAndGeometryPointSize );
-        printf("\tshaderUniformBufferArrayDynamicIndexing = %u\n", features->shaderUniformBufferArrayDynamicIndexing);
-        printf("\tsparseBinding                           = %u\n", features->sparseBinding                          );
-        printf("\tsparseResidency2Samples                 = %u\n", features->sparseResidency2Samples                );
-        printf("\tsparseResidency4Samples                 = %u\n", features->sparseResidency4Samples                );
-        printf("\tsparseResidency8Samples                 = %u\n", features->sparseResidency8Samples                );
-        printf("\tsparseResidency16Samples                = %u\n", features->sparseResidency16Samples               );
-        printf("\tsparseResidencyAliased                  = %u\n", features->sparseResidencyAliased                 );
-        printf("\tsparseResidencyBuffer                   = %u\n", features->sparseResidencyBuffer                  );
-        printf("\tsparseResidencyImage2D                  = %u\n", features->sparseResidencyImage2D                 );
-        printf("\tsparseResidencyImage3D                  = %u\n", features->sparseResidencyImage3D                 );
-        printf("\tshaderResourceMinLod                    = %u\n", features->shaderResourceMinLod                   );
-        printf("\tshaderResourceResidency                 = %u\n", features->shaderResourceResidency                );
-        printf("\ttessellationShader                      = %u\n", features->tessellationShader                     );
-        printf("\ttextureCompressionASTC_LDR              = %u\n", features->textureCompressionASTC_LDR             );
-        printf("\ttextureCompressionBC                    = %u\n", features->textureCompressionBC                   );
-        printf("\ttextureCompressionETC2                  = %u\n", features->textureCompressionETC2                 );
-        printf("\tvariableMultisampleRate                 = %u\n", features->variableMultisampleRate                );
-        printf("\tvertexPipelineStoresAndAtomics          = %u\n", features->vertexPipelineStoresAndAtomics         );
-        printf("\twideLines                               = %u\n", features->wideLines                              );
+        printf("\talphaToOne                              = %u\n", features.alphaToOne                             );
+        printf("\tdepthBiasClamp                          = %u\n", features.depthBiasClamp                         );
+        printf("\tdepthBounds                             = %u\n", features.depthBounds                            );
+        printf("\tdepthClamp                              = %u\n", features.depthClamp                             );
+        printf("\tdrawIndirectFirstInstance               = %u\n", features.drawIndirectFirstInstance              );
+        printf("\tdualSrcBlend                            = %u\n", features.dualSrcBlend                           );
+        printf("\tfillModeNonSolid                        = %u\n", features.fillModeNonSolid                       );
+        printf("\tfragmentStoresAndAtomics                = %u\n", features.fragmentStoresAndAtomics               );
+        printf("\tfullDrawIndexUint32                     = %u\n", features.fullDrawIndexUint32                    );
+        printf("\tgeometryShader                          = %u\n", features.geometryShader                         );
+        printf("\timageCubeArray                          = %u\n", features.imageCubeArray                         );
+        printf("\tindependentBlend                        = %u\n", features.independentBlend                       );
+        printf("\tinheritedQueries                        = %u\n", features.inheritedQueries                       );
+        printf("\tlargePoints                             = %u\n", features.largePoints                            );
+        printf("\tlogicOp                                 = %u\n", features.logicOp                                );
+        printf("\tmultiDrawIndirect                       = %u\n", features.multiDrawIndirect                      );
+        printf("\tmultiViewport                           = %u\n", features.multiViewport                          );
+        printf("\tocclusionQueryPrecise                   = %u\n", features.occlusionQueryPrecise                  );
+        printf("\tpipelineStatisticsQuery                 = %u\n", features.pipelineStatisticsQuery                );
+        printf("\trobustBufferAccess                      = %u\n", features.robustBufferAccess                     );
+        printf("\tsamplerAnisotropy                       = %u\n", features.samplerAnisotropy                      );
+        printf("\tsampleRateShading                       = %u\n", features.sampleRateShading                      );
+        printf("\tshaderClipDistance                      = %u\n", features.shaderClipDistance                     );
+        printf("\tshaderCullDistance                      = %u\n", features.shaderCullDistance                     );
+        printf("\tshaderFloat64                           = %u\n", features.shaderFloat64                          );
+        printf("\tshaderImageGatherExtended               = %u\n", features.shaderImageGatherExtended              );
+        printf("\tshaderInt16                             = %u\n", features.shaderInt16                            );
+        printf("\tshaderInt64                             = %u\n", features.shaderInt64                            );
+        printf("\tshaderSampledImageArrayDynamicIndexing  = %u\n", features.shaderSampledImageArrayDynamicIndexing );
+        printf("\tshaderStorageBufferArrayDynamicIndexing = %u\n", features.shaderStorageBufferArrayDynamicIndexing);
+        printf("\tshaderStorageImageArrayDynamicIndexing  = %u\n", features.shaderStorageImageArrayDynamicIndexing );
+        printf("\tshaderStorageImageExtendedFormats       = %u\n", features.shaderStorageImageExtendedFormats      );
+        printf("\tshaderStorageImageMultisample           = %u\n", features.shaderStorageImageMultisample          );
+        printf("\tshaderStorageImageReadWithoutFormat     = %u\n", features.shaderStorageImageReadWithoutFormat    );
+        printf("\tshaderStorageImageWriteWithoutFormat    = %u\n", features.shaderStorageImageWriteWithoutFormat   );
+        printf("\tshaderTessellationAndGeometryPointSize  = %u\n", features.shaderTessellationAndGeometryPointSize );
+        printf("\tshaderUniformBufferArrayDynamicIndexing = %u\n", features.shaderUniformBufferArrayDynamicIndexing);
+        printf("\tsparseBinding                           = %u\n", features.sparseBinding                          );
+        printf("\tsparseResidency2Samples                 = %u\n", features.sparseResidency2Samples                );
+        printf("\tsparseResidency4Samples                 = %u\n", features.sparseResidency4Samples                );
+        printf("\tsparseResidency8Samples                 = %u\n", features.sparseResidency8Samples                );
+        printf("\tsparseResidency16Samples                = %u\n", features.sparseResidency16Samples               );
+        printf("\tsparseResidencyAliased                  = %u\n", features.sparseResidencyAliased                 );
+        printf("\tsparseResidencyBuffer                   = %u\n", features.sparseResidencyBuffer                  );
+        printf("\tsparseResidencyImage2D                  = %u\n", features.sparseResidencyImage2D                 );
+        printf("\tsparseResidencyImage3D                  = %u\n", features.sparseResidencyImage3D                 );
+        printf("\tshaderResourceMinLod                    = %u\n", features.shaderResourceMinLod                   );
+        printf("\tshaderResourceResidency                 = %u\n", features.shaderResourceResidency                );
+        printf("\ttessellationShader                      = %u\n", features.tessellationShader                     );
+        printf("\ttextureCompressionASTC_LDR              = %u\n", features.textureCompressionASTC_LDR             );
+        printf("\ttextureCompressionBC                    = %u\n", features.textureCompressionBC                   );
+        printf("\ttextureCompressionETC2                  = %u\n", features.textureCompressionETC2                 );
+        printf("\tvariableMultisampleRate                 = %u\n", features.variableMultisampleRate                );
+        printf("\tvertexPipelineStoresAndAtomics          = %u\n", features.vertexPipelineStoresAndAtomics         );
+        printf("\twideLines                               = %u\n", features.wideLines                              );
     }
     if (json_output) {
         printf(",\n");
         printf("\t\"VkPhysicalDeviceFeatures\": {\n");
-        printf("\t\t\"alphaToOne\": %u,\n",                              features->alphaToOne);
-        printf("\t\t\"depthBiasClamp\": %u,\n",                          features->depthBiasClamp);
-        printf("\t\t\"depthBounds\": %u,\n",                             features->depthBounds);
-        printf("\t\t\"depthClamp\": %u,\n",                              features->depthClamp);
-        printf("\t\t\"drawIndirectFirstInstance\": %u,\n",               features->drawIndirectFirstInstance);
-        printf("\t\t\"dualSrcBlend\": %u,\n",                            features->dualSrcBlend);
-        printf("\t\t\"fillModeNonSolid\": %u,\n",                        features->fillModeNonSolid);
-        printf("\t\t\"fragmentStoresAndAtomics\": %u,\n",                features->fragmentStoresAndAtomics);
-        printf("\t\t\"fullDrawIndexUint32\": %u,\n",                     features->fullDrawIndexUint32);
-        printf("\t\t\"geometryShader\": %u,\n",                          features->geometryShader);
-        printf("\t\t\"imageCubeArray\": %u,\n",                          features->imageCubeArray);
-        printf("\t\t\"independentBlend\": %u,\n",                        features->independentBlend);
-        printf("\t\t\"inheritedQueries\": %u,\n",                        features->inheritedQueries);
-        printf("\t\t\"largePoints\": %u,\n",                             features->largePoints);
-        printf("\t\t\"logicOp\": %u,\n",                                 features->logicOp);
-        printf("\t\t\"multiDrawIndirect\": %u,\n",                       features->multiDrawIndirect);
-        printf("\t\t\"multiViewport\": %u,\n",                           features->multiViewport);
-        printf("\t\t\"occlusionQueryPrecise\": %u,\n",                   features->occlusionQueryPrecise);
-        printf("\t\t\"pipelineStatisticsQuery\": %u,\n",                 features->pipelineStatisticsQuery);
-        printf("\t\t\"robustBufferAccess\": %u,\n",                      features->robustBufferAccess);
-        printf("\t\t\"samplerAnisotropy\": %u,\n",                       features->samplerAnisotropy);
-        printf("\t\t\"sampleRateShading\": %u,\n",                       features->sampleRateShading);
-        printf("\t\t\"shaderClipDistance\": %u,\n",                      features->shaderClipDistance);
-        printf("\t\t\"shaderCullDistance\": %u,\n",                      features->shaderCullDistance);
-        printf("\t\t\"shaderFloat64\": %u,\n",                           features->shaderFloat64);
-        printf("\t\t\"shaderImageGatherExtended\": %u,\n",               features->shaderImageGatherExtended);
-        printf("\t\t\"shaderInt16\": %u,\n",                             features->shaderInt16);
-        printf("\t\t\"shaderInt64\": %u,\n",                             features->shaderInt64);
-        printf("\t\t\"shaderResourceMinLod\": %u,\n",                    features->shaderResourceMinLod);
-        printf("\t\t\"shaderResourceResidency\": %u,\n",                 features->shaderResourceResidency);
-        printf("\t\t\"shaderSampledImageArrayDynamicIndexing\": %u,\n",  features->shaderSampledImageArrayDynamicIndexing);
-        printf("\t\t\"shaderStorageBufferArrayDynamicIndexing\": %u,\n", features->shaderStorageBufferArrayDynamicIndexing);
-        printf("\t\t\"shaderStorageImageArrayDynamicIndexing\": %u,\n",  features->shaderStorageImageArrayDynamicIndexing);
-        printf("\t\t\"shaderStorageImageExtendedFormats\": %u,\n",       features->shaderStorageImageExtendedFormats);
-        printf("\t\t\"shaderStorageImageMultisample\": %u,\n",           features->shaderStorageImageMultisample);
-        printf("\t\t\"shaderStorageImageReadWithoutFormat\": %u,\n",     features->shaderStorageImageReadWithoutFormat);
-        printf("\t\t\"shaderStorageImageWriteWithoutFormat\": %u,\n",    features->shaderStorageImageWriteWithoutFormat);
-        printf("\t\t\"shaderTessellationAndGeometryPointSize\": %u,\n",  features->shaderTessellationAndGeometryPointSize);
-        printf("\t\t\"shaderUniformBufferArrayDynamicIndexing\": %u,\n", features->shaderUniformBufferArrayDynamicIndexing);
-        printf("\t\t\"sparseBinding\": %u,\n",                           features->sparseBinding);
-        printf("\t\t\"sparseResidency2Samples\": %u,\n",                 features->sparseResidency2Samples);
-        printf("\t\t\"sparseResidency4Samples\": %u,\n",                 features->sparseResidency4Samples);
-        printf("\t\t\"sparseResidency8Samples\": %u,\n",                 features->sparseResidency8Samples);
-        printf("\t\t\"sparseResidency16Samples\": %u,\n",                features->sparseResidency16Samples);
-        printf("\t\t\"sparseResidencyAliased\": %u,\n",                  features->sparseResidencyAliased);
-        printf("\t\t\"sparseResidencyBuffer\": %u,\n",                   features->sparseResidencyBuffer);
-        printf("\t\t\"sparseResidencyImage2D\": %u,\n",                  features->sparseResidencyImage2D);
-        printf("\t\t\"sparseResidencyImage3D\": %u,\n",                  features->sparseResidencyImage3D);
-        printf("\t\t\"tessellationShader\": %u,\n",                      features->tessellationShader);
-        printf("\t\t\"textureCompressionASTC_LDR\": %u,\n",              features->textureCompressionASTC_LDR);
-        printf("\t\t\"textureCompressionBC\": %u,\n",                    features->textureCompressionBC);
-        printf("\t\t\"textureCompressionETC2\": %u,\n",                  features->textureCompressionETC2);
-        printf("\t\t\"variableMultisampleRate\": %u,\n",                 features->variableMultisampleRate);
-        printf("\t\t\"vertexPipelineStoresAndAtomics\": %u,\n",          features->vertexPipelineStoresAndAtomics);
-        printf("\t\t\"wideLines\": %u\n",                                features->wideLines);
+        printf("\t\t\"alphaToOne\": %u,\n",                              features.alphaToOne);
+        printf("\t\t\"depthBiasClamp\": %u,\n",                          features.depthBiasClamp);
+        printf("\t\t\"depthBounds\": %u,\n",                             features.depthBounds);
+        printf("\t\t\"depthClamp\": %u,\n",                              features.depthClamp);
+        printf("\t\t\"drawIndirectFirstInstance\": %u,\n",               features.drawIndirectFirstInstance);
+        printf("\t\t\"dualSrcBlend\": %u,\n",                            features.dualSrcBlend);
+        printf("\t\t\"fillModeNonSolid\": %u,\n",                        features.fillModeNonSolid);
+        printf("\t\t\"fragmentStoresAndAtomics\": %u,\n",                features.fragmentStoresAndAtomics);
+        printf("\t\t\"fullDrawIndexUint32\": %u,\n",                     features.fullDrawIndexUint32);
+        printf("\t\t\"geometryShader\": %u,\n",                          features.geometryShader);
+        printf("\t\t\"imageCubeArray\": %u,\n",                          features.imageCubeArray);
+        printf("\t\t\"independentBlend\": %u,\n",                        features.independentBlend);
+        printf("\t\t\"inheritedQueries\": %u,\n",                        features.inheritedQueries);
+        printf("\t\t\"largePoints\": %u,\n",                             features.largePoints);
+        printf("\t\t\"logicOp\": %u,\n",                                 features.logicOp);
+        printf("\t\t\"multiDrawIndirect\": %u,\n",                       features.multiDrawIndirect);
+        printf("\t\t\"multiViewport\": %u,\n",                           features.multiViewport);
+        printf("\t\t\"occlusionQueryPrecise\": %u,\n",                   features.occlusionQueryPrecise);
+        printf("\t\t\"pipelineStatisticsQuery\": %u,\n",                 features.pipelineStatisticsQuery);
+        printf("\t\t\"robustBufferAccess\": %u,\n",                      features.robustBufferAccess);
+        printf("\t\t\"samplerAnisotropy\": %u,\n",                       features.samplerAnisotropy);
+        printf("\t\t\"sampleRateShading\": %u,\n",                       features.sampleRateShading);
+        printf("\t\t\"shaderClipDistance\": %u,\n",                      features.shaderClipDistance);
+        printf("\t\t\"shaderCullDistance\": %u,\n",                      features.shaderCullDistance);
+        printf("\t\t\"shaderFloat64\": %u,\n",                           features.shaderFloat64);
+        printf("\t\t\"shaderImageGatherExtended\": %u,\n",               features.shaderImageGatherExtended);
+        printf("\t\t\"shaderInt16\": %u,\n",                             features.shaderInt16);
+        printf("\t\t\"shaderInt64\": %u,\n",                             features.shaderInt64);
+        printf("\t\t\"shaderResourceMinLod\": %u,\n",                    features.shaderResourceMinLod);
+        printf("\t\t\"shaderResourceResidency\": %u,\n",                 features.shaderResourceResidency);
+        printf("\t\t\"shaderSampledImageArrayDynamicIndexing\": %u,\n",  features.shaderSampledImageArrayDynamicIndexing);
+        printf("\t\t\"shaderStorageBufferArrayDynamicIndexing\": %u,\n", features.shaderStorageBufferArrayDynamicIndexing);
+        printf("\t\t\"shaderStorageImageArrayDynamicIndexing\": %u,\n",  features.shaderStorageImageArrayDynamicIndexing);
+        printf("\t\t\"shaderStorageImageExtendedFormats\": %u,\n",       features.shaderStorageImageExtendedFormats);
+        printf("\t\t\"shaderStorageImageMultisample\": %u,\n",           features.shaderStorageImageMultisample);
+        printf("\t\t\"shaderStorageImageReadWithoutFormat\": %u,\n",     features.shaderStorageImageReadWithoutFormat);
+        printf("\t\t\"shaderStorageImageWriteWithoutFormat\": %u,\n",    features.shaderStorageImageWriteWithoutFormat);
+        printf("\t\t\"shaderTessellationAndGeometryPointSize\": %u,\n",  features.shaderTessellationAndGeometryPointSize);
+        printf("\t\t\"shaderUniformBufferArrayDynamicIndexing\": %u,\n", features.shaderUniformBufferArrayDynamicIndexing);
+        printf("\t\t\"sparseBinding\": %u,\n",                           features.sparseBinding);
+        printf("\t\t\"sparseResidency2Samples\": %u,\n",                 features.sparseResidency2Samples);
+        printf("\t\t\"sparseResidency4Samples\": %u,\n",                 features.sparseResidency4Samples);
+        printf("\t\t\"sparseResidency8Samples\": %u,\n",                 features.sparseResidency8Samples);
+        printf("\t\t\"sparseResidency16Samples\": %u,\n",                features.sparseResidency16Samples);
+        printf("\t\t\"sparseResidencyAliased\": %u,\n",                  features.sparseResidencyAliased);
+        printf("\t\t\"sparseResidencyBuffer\": %u,\n",                   features.sparseResidencyBuffer);
+        printf("\t\t\"sparseResidencyImage2D\": %u,\n",                  features.sparseResidencyImage2D);
+        printf("\t\t\"sparseResidencyImage3D\": %u,\n",                  features.sparseResidencyImage3D);
+        printf("\t\t\"tessellationShader\": %u,\n",                      features.tessellationShader);
+        printf("\t\t\"textureCompressionASTC_LDR\": %u,\n",              features.textureCompressionASTC_LDR);
+        printf("\t\t\"textureCompressionBC\": %u,\n",                    features.textureCompressionBC);
+        printf("\t\t\"textureCompressionETC2\": %u,\n",                  features.textureCompressionETC2);
+        printf("\t\t\"variableMultisampleRate\": %u,\n",                 features.variableMultisampleRate);
+        printf("\t\t\"vertexPipelineStoresAndAtomics\": %u,\n",          features.vertexPipelineStoresAndAtomics);
+        printf("\t\t\"wideLines\": %u\n",                                features.wideLines);
         printf("\t}");
+    }
+
+    if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
+        gpu->inst->inst_extensions_count)) {
+        void *place = gpu->features2.pNext;
+        while (place) {
+            struct VkStructureHeader *structure = (struct VkStructureHeader*) place;
+            if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES_KHR && CheckPhysicalDeviceExtensionIncluded(VK_KHR_16BIT_STORAGE_EXTENSION_NAME, gpu->device_extensions, gpu->device_extension_count)) {
+                VkPhysicalDevice16BitStorageFeaturesKHR *b16_store_features = (VkPhysicalDevice16BitStorageFeaturesKHR*)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDevice16BitStorageFeatures</summary>\n");
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>storageBuffer16BitAccess           = <div class='val'>%u</div></summary></details>\n", b16_store_features->storageBuffer16BitAccess          );
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>uniformAndStorageBuffer16BitAccess = <div class='val'>%u</div></summary></details>\n", b16_store_features->uniformAndStorageBuffer16BitAccess);
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>storagePushConstant16              = <div class='val'>%u</div></summary></details>\n", b16_store_features->storagePushConstant16             );
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>storageInputOutput16               = <div class='val'>%u</div></summary></details>\n", b16_store_features->storageInputOutput16              );
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDevice16BitStorageFeatures:\n");
+                    printf("=====================================\n");
+                    printf("\tstorageBuffer16BitAccess           = %u\n", b16_store_features->storageBuffer16BitAccess          );
+                    printf("\tuniformAndStorageBuffer16BitAccess = %u\n", b16_store_features->uniformAndStorageBuffer16BitAccess);
+                    printf("\tstoragePushConstant16              = %u\n", b16_store_features->storagePushConstant16             );
+                    printf("\tstorageInputOutput16               = %u\n", b16_store_features->storageInputOutput16              );
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES_KHR && CheckPhysicalDeviceExtensionIncluded(VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME, gpu->device_extensions, gpu->device_extension_count)) {
+                VkPhysicalDeviceSamplerYcbcrConversionFeaturesKHR *sampler_ycbcr_features = (VkPhysicalDeviceSamplerYcbcrConversionFeaturesKHR*)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceSamplerYcbcrConversionFeatures</summary>\n");
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>samplerYcbcrConversion = <div class='val'>%u</div></summary></details>\n", sampler_ycbcr_features->samplerYcbcrConversion);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceSamplerYcbcrConversionFeatures:\n");
+                    printf("===============================================\n");
+                    printf("\tsamplerYcbcrConversion = %u\n", sampler_ycbcr_features->samplerYcbcrConversion);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTER_FEATURES_KHR && CheckPhysicalDeviceExtensionIncluded(VK_KHR_VARIABLE_POINTERS_EXTENSION_NAME, gpu->device_extensions, gpu->device_extension_count)) {
+                VkPhysicalDeviceVariablePointerFeaturesKHR *var_pointer_features = (VkPhysicalDeviceVariablePointerFeaturesKHR*)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceVariablePointerFeatures</summary>\n");
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>variablePointersStorageBuffer = <div class='val'>%u</div></summary></details>\n", var_pointer_features->variablePointersStorageBuffer);
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>variablePointers              = <div class='val'>%u</div></summary></details>\n", var_pointer_features->variablePointers             );
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceVariablePointerFeatures:\n");
+                    printf("========================================\n");
+                    printf("\tvariablePointersStorageBuffer = %u\n", var_pointer_features->variablePointersStorageBuffer);
+                    printf("\tvariablePointers              = %u\n", var_pointer_features->variablePointers             );
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_FEATURES_EXT && CheckPhysicalDeviceExtensionIncluded(VK_EXT_BLEND_OPERATION_ADVANCED_EXTENSION_NAME, gpu->device_extensions, gpu->device_extension_count)) {
+                VkPhysicalDeviceBlendOperationAdvancedFeaturesEXT *blend_op_adv_features = (VkPhysicalDeviceBlendOperationAdvancedFeaturesEXT*)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceBlendOperationAdvancedFeatures</summary>\n");
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>advancedBlendCoherentOperations = <div class='val'>%u</div></summary></details>\n", blend_op_adv_features->advancedBlendCoherentOperations);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceBlendOperationAdvancedFeatures:\n");
+                    printf("===============================================\n");
+                    printf("\tadvancedBlendCoherentOperations = %u\n", blend_op_adv_features->advancedBlendCoherentOperations);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES_KHR && CheckPhysicalDeviceExtensionIncluded(VK_KHR_MULTIVIEW_EXTENSION_NAME, gpu->device_extensions, gpu->device_extension_count)) {
+                VkPhysicalDeviceMultiviewFeaturesKHR *multiview_features = (VkPhysicalDeviceMultiviewFeaturesKHR*)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceMultiviewFeatures</summary>\n");
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>multiview                   = <div class='val'>%u</div></summary></details>\n", multiview_features->multiview                  );
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>multiviewGeometryShader     = <div class='val'>%u</div></summary></details>\n", multiview_features->multiviewGeometryShader    );
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>multiviewTessellationShader = <div class='val'>%u</div></summary></details>\n", multiview_features->multiviewTessellationShader);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                }
+                else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceMultiviewFeatures:\n");
+                    printf("==================================\n");
+                    printf("\tmultiview                   = %u\n", multiview_features->multiview                  );
+                    printf("\tmultiviewGeometryShader     = %u\n", multiview_features->multiviewGeometryShader    );
+                    printf("\tmultiviewTessellationShader = %u\n", multiview_features->multiviewTessellationShader);
+                }
+            }
+            place = structure->pNext;
+        }
     }
 }
 
@@ -2190,8 +2366,17 @@ static void AppDumpLimits(const VkPhysicalDeviceLimits *limits, FILE *out) {
 }
 
 static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
-    const VkPhysicalDeviceProperties *props = &gpu->props;
-    const uint32_t apiVersion = props->apiVersion;
+     VkPhysicalDeviceProperties props;
+
+    if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
+        gpu->inst->inst_extensions_count)) {
+        const VkPhysicalDeviceProperties *props2_const = &gpu->props2.properties;
+        props = *props2_const;
+    } else {
+        const VkPhysicalDeviceProperties *props_const = &gpu->props;
+        props = *props_const;
+    }
+    const uint32_t apiVersion = props.apiVersion;
     const uint32_t major = VK_VERSION_MAJOR(apiVersion);
     const uint32_t minor = VK_VERSION_MINOR(apiVersion);
     const uint32_t patch = VK_VERSION_PATCH(apiVersion);
@@ -2199,33 +2384,37 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
     if (html_output) {
         fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceProperties</summary>\n");
         fprintf(out, "\t\t\t\t\t\t<details><summary>apiVersion = <div class='val'>0x%" PRIxLEAST32 "</div>  (<div class='val'>%d.%d.%d</div>)</summary></details>\n", apiVersion, major, minor, patch);
-        fprintf(out, "\t\t\t\t\t\t<details><summary>driverVersion = <div class='val'>%u</div> (<div class='val'>0x%" PRIxLEAST32 "</div>)</summary></details>\n", props->driverVersion, props->driverVersion);
-        fprintf(out, "\t\t\t\t\t\t<details><summary>vendorID = <div class='val'>0x%04x</div></summary></details>\n", props->vendorID);
-        fprintf(out, "\t\t\t\t\t\t<details><summary>deviceID = <div class='val'>0x%04x</div></summary></details>\n", props->deviceID);
-        fprintf(out, "\t\t\t\t\t\t<details><summary>deviceType = %s</summary></details>\n", VkPhysicalDeviceTypeString(props->deviceType));
-        fprintf(out, "\t\t\t\t\t\t<details><summary>deviceName = %s</summary></details>\n", props->deviceName);
+        fprintf(out, "\t\t\t\t\t\t<details><summary>driverVersion = <div class='val'>%u</div> (<div class='val'>0x%" PRIxLEAST32 "</div>)</summary></details>\n", props.driverVersion, props.driverVersion);
+        fprintf(out, "\t\t\t\t\t\t<details><summary>vendorID = <div class='val'>0x%04x</div></summary></details>\n", props.vendorID);
+        fprintf(out, "\t\t\t\t\t\t<details><summary>deviceID = <div class='val'>0x%04x</div></summary></details>\n", props.deviceID);
+        fprintf(out, "\t\t\t\t\t\t<details><summary>deviceType = %s</summary></details>\n", VkPhysicalDeviceTypeString(props.deviceType));
+        fprintf(out, "\t\t\t\t\t\t<details><summary>deviceName = %s</summary></details>\n", props.deviceName);
         fprintf(out, "\t\t\t\t\t</details>\n");
     } else if (human_readable_output) {
         printf("VkPhysicalDeviceProperties:\n");
         printf("===========================\n");
         printf("\tapiVersion     = 0x%" PRIxLEAST32 "  (%d.%d.%d)\n", apiVersion, major, minor, patch);
-        printf("\tdriverVersion  = %u (0x%" PRIxLEAST32 ")\n", props->driverVersion, props->driverVersion);
-        printf("\tvendorID       = 0x%04x\n", props->vendorID);
-        printf("\tdeviceID       = 0x%04x\n", props->deviceID);
-        printf("\tdeviceType     = %s\n", VkPhysicalDeviceTypeString(props->deviceType));
-        printf("\tdeviceName     = %s\n", props->deviceName);
+        printf("\tdriverVersion  = %u (0x%" PRIxLEAST32 ")\n", props.driverVersion, props.driverVersion);
+        printf("\tvendorID       = 0x%04x\n", props.vendorID);
+        printf("\tdeviceID       = 0x%04x\n", props.deviceID);
+        printf("\tdeviceType     = %s\n", VkPhysicalDeviceTypeString(props.deviceType));
+        printf("\tdeviceName     = %s\n", props.deviceName);
     }
     if (json_output) {
         printf(",\n");
         printf("\t\"VkPhysicalDeviceProperties\": {\n");
         printf("\t\t\"apiVersion\": %u,\n", apiVersion);
-        printf("\t\t\"deviceID\": %u,\n", props->deviceID);
-        printf("\t\t\"deviceName\": \"%s\",\n", props->deviceName);
-        printf("\t\t\"deviceType\": %u,\n", props->deviceType);
-        printf("\t\t\"driverVersion\": %u", props->driverVersion);
+        printf("\t\t\"deviceID\": %u,\n", props.deviceID);
+        printf("\t\t\"deviceName\": \"%s\",\n", props.deviceName);
+        printf("\t\t\"deviceType\": %u,\n", props.deviceType);
+        printf("\t\t\"driverVersion\": %u", props.driverVersion);
     }
 
-    AppDumpLimits(&gpu->props.limits, out);
+    if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions, gpu->inst->inst_extensions_count)) {
+        AppDumpLimits(&gpu->props2.properties.limits, out);
+    } else {
+        AppDumpLimits(&gpu->props.limits, out);
+    }
 
     // Dump pipeline cache UUIDs to json
     if (json_output) {
@@ -2236,18 +2425,100 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                 printf(",");
             }
             printf("\n");
-            printf("\t\t\t%u", props->pipelineCacheUUID[i]);
+            printf("\t\t\t%u", props.pipelineCacheUUID[i]);
         }
         printf("\n");
         printf("\t\t]");
     }
 
-    AppDumpSparseProps(&gpu->props.sparseProperties, out);
+    if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions, gpu->inst->inst_extensions_count)) {
+        AppDumpSparseProps(&gpu->props2.properties.sparseProperties, out);
+    } else {
+        AppDumpSparseProps(&gpu->props.sparseProperties, out);
+    }
 
     if (json_output) {
         printf(",\n");
-        printf("\t\t\"vendorID\": %u\n", props->vendorID);
+        printf("\t\t\"vendorID\": %u\n", props.vendorID);
         printf("\t}");
+    }
+
+    if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
+        gpu->inst->inst_extensions_count)) {
+        void *place = gpu->props2.pNext;
+        while (place) {
+            struct VkStructureHeader *structure = (struct VkStructureHeader*) place;
+            if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_PROPERTIES_EXT && CheckPhysicalDeviceExtensionIncluded(VK_EXT_BLEND_OPERATION_ADVANCED_EXTENSION_NAME, gpu->device_extensions, gpu->device_extension_count)) {
+                VkPhysicalDeviceBlendOperationAdvancedPropertiesEXT *blend_op_adv_props = (VkPhysicalDeviceBlendOperationAdvancedPropertiesEXT*)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceBlendOperationAdvancedProperties</summary>\n");
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>advancedBlendMaxColorAttachments                = <div class='val'>%u</div></summary></details>\n", blend_op_adv_props->advancedBlendMaxColorAttachments     );
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>advancedBlendIndependentBlend                   = <div class='val'>%u</div></summary></details>\n", blend_op_adv_props->advancedBlendIndependentBlend        );
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>advancedBlendNonPremultipliedSrcColor           = <div class='val'>%u</div></summary></details>\n", blend_op_adv_props->advancedBlendNonPremultipliedSrcColor);
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>advancedBlendNonPremultipliedDstColor           = <div class='val'>%u</div></summary></details>\n", blend_op_adv_props->advancedBlendNonPremultipliedDstColor);
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>advancedBlendCorrelatedOverlap                  = <div class='val'>%u</div></summary></details>\n", blend_op_adv_props->advancedBlendCorrelatedOverlap       );
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>advancedBlendAllOperations                      = <div class='val'>%u</div></summary></details>\n", blend_op_adv_props->advancedBlendAllOperations           );
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceBlendOperationAdvancedProperties:\n");
+                    printf("=================================================\n");
+                    printf("\tadvancedBlendMaxColorAttachments               = %u\n", blend_op_adv_props->advancedBlendMaxColorAttachments     );
+                    printf("\tadvancedBlendIndependentBlend                  = %u\n", blend_op_adv_props->advancedBlendIndependentBlend        );
+                    printf("\tadvancedBlendNonPremultipliedSrcColor          = %u\n", blend_op_adv_props->advancedBlendNonPremultipliedSrcColor);
+                    printf("\tadvancedBlendNonPremultipliedDstColor          = %u\n", blend_op_adv_props->advancedBlendNonPremultipliedDstColor);
+                    printf("\tadvancedBlendCorrelatedOverlap                 = %u\n", blend_op_adv_props->advancedBlendCorrelatedOverlap       );
+                    printf("\tadvancedBlendAllOperations                     = %u\n", blend_op_adv_props->advancedBlendAllOperations           );
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_POINT_CLIPPING_PROPERTIES_KHR && CheckPhysicalDeviceExtensionIncluded(VK_KHR_MAINTENANCE2_EXTENSION_NAME, gpu->device_extensions, gpu->device_extension_count)) {
+                VkPhysicalDevicePointClippingPropertiesKHR *pt_clip_props = (VkPhysicalDevicePointClippingPropertiesKHR*)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDevicePointClippingProperties</summary>\n");
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>pointClippingBehavior               = <div class='val'>%u</div></summary></details>\n", pt_clip_props->pointClippingBehavior);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDevicePointClippingProperties:\n");
+                    printf("========================================\n");
+                    printf("\tpointClippingBehavior               = %u\n", pt_clip_props->pointClippingBehavior);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR && CheckPhysicalDeviceExtensionIncluded(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, gpu->device_extensions, gpu->device_extension_count)) {
+                VkPhysicalDevicePushDescriptorPropertiesKHR *push_desc_props = (VkPhysicalDevicePushDescriptorPropertiesKHR*)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDevicePushDescriptorProperties</summary>\n");
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>maxPushDescriptors                = <div class='val'>%u</div></summary></details>\n", push_desc_props->maxPushDescriptors);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDevicePushDescriptorProperties:\n");
+                    printf("=========================================\n");
+                    printf("\tmaxPushDescriptors               = %u\n", push_desc_props->maxPushDescriptors);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DISCARD_RECTANGLE_PROPERTIES_EXT && CheckPhysicalDeviceExtensionIncluded(VK_EXT_DISCARD_RECTANGLES_EXTENSION_NAME, gpu->device_extensions, gpu->device_extension_count)) {
+                VkPhysicalDeviceDiscardRectanglePropertiesEXT *discard_rect_props = (VkPhysicalDeviceDiscardRectanglePropertiesEXT*)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceDiscardRectangleProperties</summary>\n");
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>maxDiscardRectangles               = <div class='val'>%u</div></summary></details>\n", discard_rect_props->maxDiscardRectangles);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceDiscardRectangleProperties:\n");
+                    printf("=========================================\n");
+                    printf("\tmaxDiscardRectangles               = %u\n", discard_rect_props->maxDiscardRectangles);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_PROPERTIES_KHR && CheckPhysicalDeviceExtensionIncluded(VK_KHR_MULTIVIEW_EXTENSION_NAME, gpu->device_extensions, gpu->device_extension_count)) {
+                VkPhysicalDeviceMultiviewPropertiesKHR *multiview_props = (VkPhysicalDeviceMultiviewPropertiesKHR*)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceMultiviewProperties</summary>\n");
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>maxMultiviewInstanceIndex = <div class='val'>%u</div></summary></details>\n", multiview_props->maxMultiviewInstanceIndex);
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>maxMultiviewViewCount     = <div class='val'>%u</div></summary></details>\n", multiview_props->maxMultiviewViewCount    );
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                }
+                else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceMultiviewProperties:\n");
+                    printf("=========================================\n");
+                    printf("\tmaxMultiviewInstanceIndex = %u\n", multiview_props->maxMultiviewInstanceIndex);
+                    printf("\tmaxMultiviewViewCount     = %u\n", multiview_props->maxMultiviewViewCount    );
+                }
+            }
+            place = structure->pNext;
+        }
     }
 
     fflush(out);
@@ -2328,7 +2599,16 @@ static void AppDumpExtensions(const char *indent, const char *layer_name, const 
 }
 
 static void AppGpuDumpQueueProps(const struct AppGpu *gpu, uint32_t id, FILE *out) {
-    const VkQueueFamilyProperties *props = &gpu->queue_props[id];
+    VkQueueFamilyProperties props;
+
+    if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
+        gpu->inst->inst_extensions_count)) {
+        const VkQueueFamilyProperties *props2_const = &gpu->queue_props2[id].queueFamilyProperties;
+        props = *props2_const;
+    } else {
+        const VkQueueFamilyProperties *props_const = &gpu->queue_props[id];
+        props = *props_const;
+    }
 
     if (html_output) {
         fprintf(out, "\t\t\t\t\t<details><summary>VkQueueFamilyProperties[<div class='val'>%d</div>]</summary>\n", id);
@@ -2340,47 +2620,47 @@ static void AppGpuDumpQueueProps(const struct AppGpu *gpu, uint32_t id, FILE *ou
     }
     if (html_output || human_readable_output) {
         char *sep = "";  // separator character
-        if (props->queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+        if (props.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
             fprintf(out, "GRAPHICS");
             sep = " | ";
         }
-        if (props->queueFlags & VK_QUEUE_COMPUTE_BIT) {
+        if (props.queueFlags & VK_QUEUE_COMPUTE_BIT) {
             fprintf(out, "%sCOMPUTE", sep);
             sep = " | ";
         }
-        if (props->queueFlags & VK_QUEUE_TRANSFER_BIT) {
+        if (props.queueFlags & VK_QUEUE_TRANSFER_BIT) {
             fprintf(out, "%sTRANSFER", sep);
             sep = " | ";
         }
-        if (props->queueFlags & VK_QUEUE_SPARSE_BINDING_BIT) {
+        if (props.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT) {
             fprintf(out, "%sSPARSE", sep);
         }
     }
 
     if (html_output) {
         fprintf(out, "</summary></details>\n");
-        fprintf(out, "\t\t\t\t\t\t<details><summary>queueCount         = <div class='val'>%u</div></summary></details>\n", props->queueCount);
-        fprintf(out, "\t\t\t\t\t\t<details><summary>timestampValidBits = <div class='val'>%u</div></summary></details>\n", props->timestampValidBits);
+        fprintf(out, "\t\t\t\t\t\t<details><summary>queueCount         = <div class='val'>%u</div></summary></details>\n", props.queueCount);
+        fprintf(out, "\t\t\t\t\t\t<details><summary>timestampValidBits = <div class='val'>%u</div></summary></details>\n", props.timestampValidBits);
         fprintf(out, "\t\t\t\t\t\t<details><summary>minImageTransferGranularity = (<div class='val'>%d</div>, <div class='val'>%d</div>, <div class='val'>%d</div>)</summary></details>\n",
-                props->minImageTransferGranularity.width, props->minImageTransferGranularity.height, props->minImageTransferGranularity.depth);
+                props.minImageTransferGranularity.width, props.minImageTransferGranularity.height, props.minImageTransferGranularity.depth);
         fprintf(out, "\t\t\t\t\t</details>\n");
     } else if (human_readable_output) {
         printf("\n");
-        printf("\tqueueCount         = %u\n", props->queueCount);
-        printf("\ttimestampValidBits = %u\n", props->timestampValidBits);
-        printf("\tminImageTransferGranularity = (%d, %d, %d)\n", props->minImageTransferGranularity.width,
-               props->minImageTransferGranularity.height, props->minImageTransferGranularity.depth);
+        printf("\tqueueCount         = %u\n", props.queueCount);
+        printf("\ttimestampValidBits = %u\n", props.timestampValidBits);
+        printf("\tminImageTransferGranularity = (%d, %d, %d)\n", props.minImageTransferGranularity.width,
+               props.minImageTransferGranularity.height, props.minImageTransferGranularity.depth);
     }
     if (json_output) {
         printf("\t\t{\n");
         printf("\t\t\t\"minImageTransferGranularity\": {\n");
-        printf("\t\t\t\t\"depth\": %u,\n", props->minImageTransferGranularity.depth);
-        printf("\t\t\t\t\"height\": %u,\n", props->minImageTransferGranularity.height);
-        printf("\t\t\t\t\"width\": %u\n", props->minImageTransferGranularity.width);
+        printf("\t\t\t\t\"depth\": %u,\n", props.minImageTransferGranularity.depth);
+        printf("\t\t\t\t\"height\": %u,\n", props.minImageTransferGranularity.height);
+        printf("\t\t\t\t\"width\": %u\n", props.minImageTransferGranularity.width);
         printf("\t\t\t},\n");
-        printf("\t\t\t\"queueCount\": %u,\n", props->queueCount);
-        printf("\t\t\t\"queueFlags\": %u,\n", props->queueFlags);
-        printf("\t\t\t\"timestampValidBits\": %u\n", props->timestampValidBits);
+        printf("\t\t\t\"queueCount\": %u,\n", props.queueCount);
+        printf("\t\t\t\"queueFlags\": %u,\n", props.queueFlags);
+        printf("\t\t\t\"timestampValidBits\": %u\n", props.timestampValidBits);
         printf("\t\t}");
     }
 
@@ -2412,26 +2692,35 @@ static char *HumanReadable(const size_t sz) {
 }
 
 static void AppGpuDumpMemoryProps(const struct AppGpu *gpu, FILE *out) {
-    const VkPhysicalDeviceMemoryProperties *props = &gpu->memory_props;
+    VkPhysicalDeviceMemoryProperties props;
+
+    if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
+        gpu->inst->inst_extensions_count)) {
+        const VkPhysicalDeviceMemoryProperties *props2_const = &gpu->memory_props2.memoryProperties;
+        props = *props2_const;
+    } else {
+        const VkPhysicalDeviceMemoryProperties *props_const = &gpu->memory_props;
+        props = *props_const;
+    }
 
     if (html_output) {
         fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceMemoryProperties</summary>\n");
-        fprintf(out, "\t\t\t\t\t\t<details><summary>memoryHeapCount = <div class='val'>%u</div></summary>", props->memoryHeapCount);
-        if (props->memoryHeapCount > 0) {
+        fprintf(out, "\t\t\t\t\t\t<details><summary>memoryHeapCount = <div class='val'>%u</div></summary>", props.memoryHeapCount);
+        if (props.memoryHeapCount > 0) {
             fprintf(out, "\n");
         }
     } else if (human_readable_output) {
         printf("VkPhysicalDeviceMemoryProperties:\n");
         printf("=================================\n");
-        printf("\tmemoryHeapCount       = %u\n", props->memoryHeapCount);
+        printf("\tmemoryHeapCount       = %u\n", props.memoryHeapCount);
     }
     if (json_output) {
         printf(",\n");
         printf("\t\"VkPhysicalDeviceMemoryProperties\": {\n");
         printf("\t\t\"memoryHeaps\": [");
     }
-    for (uint32_t i = 0; i < props->memoryHeapCount; ++i) {
-        const VkDeviceSize memSize = props->memoryHeaps[i].size;
+    for (uint32_t i = 0; i < props.memoryHeapCount; ++i) {
+        const VkDeviceSize memSize = props.memoryHeaps[i].size;
         char *mem_size_human_readable = HumanReadable((const size_t)memSize);
 
         if (html_output) {
@@ -2445,7 +2734,7 @@ static void AppGpuDumpMemoryProps(const struct AppGpu *gpu, FILE *out) {
         }
         free(mem_size_human_readable);
 
-        const VkMemoryHeapFlags heap_flags = props->memoryHeaps[i].flags;
+        const VkMemoryHeapFlags heap_flags = props.memoryHeaps[i].flags;
         if (html_output) {
             fprintf(out, "\t\t\t\t\t\t\t\t<details open><summary>flags</summary>\n");
             fprintf(out, "\t\t\t\t\t\t\t\t\t<details><summary>");
@@ -2469,44 +2758,44 @@ static void AppGpuDumpMemoryProps(const struct AppGpu *gpu, FILE *out) {
         }
     }
     if (html_output) {
-        if (props->memoryHeapCount > 0) {
+        if (props.memoryHeapCount > 0) {
             fprintf(out, "\t\t\t\t\t\t");
         }
         fprintf(out, "</details>\n");
     }
     if (json_output) {
-        if (props->memoryHeapCount > 0) {
+        if (props.memoryHeapCount > 0) {
             printf("\n\t\t");
         }
         printf("]");
     }
 
     if (html_output) {
-        fprintf(out, "\t\t\t\t\t\t<details><summary>memoryTypeCount = <div class='val'>%u</div></summary>", props->memoryTypeCount);
-        if (props->memoryTypeCount > 0) {
+        fprintf(out, "\t\t\t\t\t\t<details><summary>memoryTypeCount = <div class='val'>%u</div></summary>", props.memoryTypeCount);
+        if (props.memoryTypeCount > 0) {
             fprintf(out, "\n");
         }
     } else if (human_readable_output) {
-        printf("\tmemoryTypeCount       = %u\n", props->memoryTypeCount);
+        printf("\tmemoryTypeCount       = %u\n", props.memoryTypeCount);
     }
     if (json_output) {
         printf(",\n");
         printf("\t\t\"memoryTypes\": [");
     }
-    for (uint32_t i = 0; i < props->memoryTypeCount; ++i) {
+    for (uint32_t i = 0; i < props.memoryTypeCount; ++i) {
         if (html_output) {
             fprintf(out, "\t\t\t\t\t\t\t<details><summary>memoryTypes[<div class='val'>%u</div>]</summary>\n", i);
-            fprintf(out, "\t\t\t\t\t\t\t\t<details><summary>heapIndex = <div class='val'>%u</div></summary></details>\n", props->memoryTypes[i].heapIndex);
-            fprintf(out, "\t\t\t\t\t\t\t\t<details open><summary>propertyFlags = <div class='val'>0x%" PRIxLEAST32 "</div></summary>", props->memoryTypes[i].propertyFlags);
-            if (props->memoryTypes[i].propertyFlags == 0) {
+            fprintf(out, "\t\t\t\t\t\t\t\t<details><summary>heapIndex = <div class='val'>%u</div></summary></details>\n", props.memoryTypes[i].heapIndex);
+            fprintf(out, "\t\t\t\t\t\t\t\t<details open><summary>propertyFlags = <div class='val'>0x%" PRIxLEAST32 "</div></summary>", props.memoryTypes[i].propertyFlags);
+            if (props.memoryTypes[i].propertyFlags == 0) {
                 fprintf(out, "</details>\n");
             } else {
                 fprintf(out, "\n");
             }
         } else if (human_readable_output) {
             printf("\tmemoryTypes[%u] :\n", i);
-            printf("\t\theapIndex     = %u\n", props->memoryTypes[i].heapIndex);
-            printf("\t\tpropertyFlags = 0x%" PRIxLEAST32 ":\n", props->memoryTypes[i].propertyFlags);
+            printf("\t\theapIndex     = %u\n", props.memoryTypes[i].heapIndex);
+            printf("\t\tpropertyFlags = 0x%" PRIxLEAST32 ":\n", props.memoryTypes[i].propertyFlags);
         }
         if (json_output) {
             if (i > 0) {
@@ -2514,20 +2803,20 @@ static void AppGpuDumpMemoryProps(const struct AppGpu *gpu, FILE *out) {
             }
             printf("\n");
             printf("\t\t\t{\n");
-            printf("\t\t\t\t\"heapIndex\": %u,\n", props->memoryTypes[i].heapIndex);
-            printf("\t\t\t\t\"propertyFlags\": %u\n", props->memoryTypes[i].propertyFlags);
+            printf("\t\t\t\t\"heapIndex\": %u,\n", props.memoryTypes[i].heapIndex);
+            printf("\t\t\t\t\"propertyFlags\": %u\n", props.memoryTypes[i].propertyFlags);
             printf("\t\t\t}");
         }
 
         // Print each named flag to html or std output if it is set
-        const VkFlags flags = props->memoryTypes[i].propertyFlags;
+        const VkFlags flags = props.memoryTypes[i].propertyFlags;
         if (html_output) {
             if (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)     fprintf(out, "\t\t\t\t\t\t\t\t\t<details><summary><div class='type'>VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT</div></summary></details>\n");
             if (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)     fprintf(out, "\t\t\t\t\t\t\t\t\t<details><summary><div class='type'>VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT</div></summary></details>\n");
             if (flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)    fprintf(out, "\t\t\t\t\t\t\t\t\t<details><summary><div class='type'>VK_MEMORY_PROPERTY_HOST_COHERENT_BIT</div></summary></details>\n");
             if (flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT)      fprintf(out, "\t\t\t\t\t\t\t\t\t<details><summary><div class='type'>VK_MEMORY_PROPERTY_HOST_CACHED_BIT</div></summary></details>\n");
             if (flags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT) fprintf(out, "\t\t\t\t\t\t\t\t\t<details><summary><div class='type'>VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT</div></summary></details>\n");
-            if (props->memoryTypes[i].propertyFlags > 0)         fprintf(out, "\t\t\t\t\t\t\t\t</details>\n");
+            if (props.memoryTypes[i].propertyFlags > 0)         fprintf(out, "\t\t\t\t\t\t\t\t</details>\n");
             fprintf(out, "\t\t\t\t\t\t\t</details>\n");
         } else if (human_readable_output) {
             if (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)     printf("\t\t\tVK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT\n");
@@ -2538,14 +2827,14 @@ static void AppGpuDumpMemoryProps(const struct AppGpu *gpu, FILE *out) {
         }
     }
     if (html_output) {
-        if (props->memoryTypeCount > 0) {
+        if (props.memoryTypeCount > 0) {
             fprintf(out, "\t\t\t\t\t\t");
         }
         fprintf(out, "</details>\n");
         fprintf(out, "\t\t\t\t\t</details>\n");
     }
     if (json_output) {
-        if (props->memoryTypeCount > 0) {
+        if (props.memoryTypeCount > 0) {
             printf("\n\t\t");
         }
         printf("]\n");
@@ -2616,6 +2905,159 @@ static void AppGpuDump(const struct AppGpu *gpu, FILE *out) {
     }
 }
 
+static void AppGroupDump(const VkPhysicalDeviceGroupProperties *group, const uint32_t id, const struct AppInstance *inst,
+                         FILE *out) {
+    if (html_output) {
+        fprintf(out, "\t\t\t\t<details><summary>Device Group Properties (Group %u)</summary>\n", id);
+        fprintf(out, "\t\t\t\t\t<details><summary>physicalDeviceCount = <div class='val'>%u</div></summary>\n",
+                group->physicalDeviceCount);
+    } else if (human_readable_output) {
+        printf("\tDevice Group Properties (Group %u) :\n", id);
+        printf("\t\tphysicalDeviceCount = %u\n", group->physicalDeviceCount);
+    }
+
+    // Keep a record of all physical device properties to give the user clearer information as output.
+    VkPhysicalDeviceProperties *props = malloc(sizeof(props[0]) * group->physicalDeviceCount);
+    if (!props) {
+        ERR_EXIT(VK_ERROR_OUT_OF_HOST_MEMORY);
+    }
+    for (uint32_t i = 0; i < group->physicalDeviceCount; ++i) {
+        vkGetPhysicalDeviceProperties(group->physicalDevices[i], &props[i]);
+    }
+
+    // Output information to the user.
+    for (uint32_t i = 0; i < group->physicalDeviceCount; ++i) {
+        if (html_output) {
+            fprintf(out, "\t\t\t\t\t\t<details><summary>%s (ID: <div class='val'>%d</div>)</summary></details>\n",
+                    props[i].deviceName, i);
+        } else if (human_readable_output) {
+            printf("\n\t\t\t%s (ID: %d)\n", props[i].deviceName, i);
+        }
+    }
+
+    if (html_output) {
+        fprintf(out, "\t\t\t\t\t</details>\n");
+    }
+
+    if (html_output) {
+        fprintf(out, "\t\t\t\t\t<details><summary>subsetAllocation = <div class='val'>%u</div></summary></details>\n",
+                group->subsetAllocation);
+    } else if (human_readable_output) {
+        printf("\n\t\tsubsetAllocation = %u\n", group->subsetAllocation);
+    }
+
+    if (html_output) {
+        fprintf(out, "\t\t\t\t</details>\n");
+    }
+
+    // Build create info for logical device made from all physical devices in this group.
+    const char *extensions_list = VK_KHR_DEVICE_GROUP_EXTENSION_NAME;
+
+    VkDeviceGroupDeviceCreateInfoKHR dg_ci = {.sType = VK_STRUCTURE_TYPE_DEVICE_GROUP_DEVICE_CREATE_INFO_KHR,
+                                              .pNext = NULL,
+                                              .physicalDeviceCount = group->physicalDeviceCount,
+                                              .pPhysicalDevices = group->physicalDevices};
+
+    VkDeviceQueueCreateInfo q_ci = {
+        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .pNext = NULL, .queueFamilyIndex = 0, .queueCount = 1};
+
+    VkDeviceCreateInfo device_ci = {.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+                                    .pNext = &dg_ci,
+                                    .queueCreateInfoCount = 1,
+                                    .pQueueCreateInfos = &q_ci,
+                                    .enabledExtensionCount = 1,
+                                    .ppEnabledExtensionNames = &extensions_list};
+
+    VkDevice logical_device = VK_NULL_HANDLE;
+
+    VkResult err = vkCreateDevice(group->physicalDevices[0], &device_ci, NULL, &logical_device);
+
+    if (!err) {
+        if (html_output) {
+            fprintf(out, "\t\t\t\t<details><summary>Device Group Present Capabilities (Group %d)</summary>\n", id);
+        } else if (human_readable_output) {
+            printf("\n\tDevice Group Present Capabilities (Group %d) :\n", id);
+        }
+
+        VkDeviceGroupPresentCapabilitiesKHR group_capabilities = {.sType = VK_STRUCTURE_TYPE_DEVICE_GROUP_PRESENT_CAPABILITIES_KHR,
+                                                                  .pNext = NULL};
+
+        // If the KHR_device_group extension is present, write the capabilities of the logical device into a struct for later output
+        // to user.
+        PFN_vkGetDeviceGroupPresentCapabilitiesKHR vkGetDeviceGroupPresentCapabilitiesKHR =
+            (PFN_vkGetDeviceGroupPresentCapabilitiesKHR)vkGetInstanceProcAddr(inst->instance,
+                                                                              "vkGetDeviceGroupPresentCapabilitiesKHR");
+        vkGetDeviceGroupPresentCapabilitiesKHR(logical_device, &group_capabilities);
+
+        for (uint32_t i = 0; i < group->physicalDeviceCount; i++) {
+            if (html_output) {
+                fprintf(out, "\t\t\t\t\t<details><summary>%s (ID: <div class='val'>%d</div>)</summary></details>\n",
+                        props[i].deviceName, i);
+                fprintf(out, "\t\t\t\t\t<details><summary>Can present images from the following devices:</summary>\n");
+                if (group_capabilities.presentMask[i] != 0) {
+                    for (uint32_t j = 0; j < group->physicalDeviceCount; ++j) {
+                        uint32_t mask = 1 << j;
+                        if (group_capabilities.presentMask[i] & mask) {
+                            fprintf(out, "\t\t\t\t\t\t<details><summary>%s (ID: <div class='val'>%d</div>)</summary></details>\n",
+                                    props[j].deviceName, j);
+                        }
+                    }
+                } else {
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>None</summary></details>\n");
+                }
+                fprintf(out, "\t\t\t\t\t</details>\n");
+            } else if (human_readable_output) {
+                printf("\n\t\t%s (ID: %d)\n", props[i].deviceName, i);
+                printf("\t\tCan present images from the following devices:\n");
+                if (group_capabilities.presentMask[i] != 0) {
+                    for (uint32_t j = 0; j < group->physicalDeviceCount; ++j) {
+                        uint32_t mask = 1 << j;
+                        if (group_capabilities.presentMask[i] & mask) {
+                            printf("\t\t\t%s (ID: %d)\n", props[j].deviceName, j);
+                        }
+                    }
+                } else {
+                    printf("\t\t\tNone\n");
+                }
+                printf("\n");
+            }
+        }
+
+        if (html_output) {
+            fprintf(out, "\t\t\t\t\t<details><summary>Present modes</summary>\n");
+            if (group_capabilities.modes & VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_BIT_KHR)
+                fprintf(out, "\t\t\t\t\t\t<details><summary>VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_BIT_KHR</summary></details>\n");
+            if (group_capabilities.modes & VK_DEVICE_GROUP_PRESENT_MODE_REMOTE_BIT_KHR)
+                fprintf(out, "\t\t\t\t\t\t<details><summary>VK_DEVICE_GROUP_PRESENT_MODE_REMOTE_BIT_KHR</summary></details>\n");
+            if (group_capabilities.modes & VK_DEVICE_GROUP_PRESENT_MODE_SUM_BIT_KHR)
+                fprintf(out, "\t\t\t\t\t\t<details><summary>VK_DEVICE_GROUP_PRESENT_MODE_SUM_BIT_KHR</summary></details>\n");
+            if (group_capabilities.modes & VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_MULTI_DEVICE_BIT_KHR)
+                fprintf(
+                    out,
+                    "\t\t\t\t\t\t<details><summary>VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_MULTI_DEVICE_BIT_KHR</summary></details>\n");
+            fprintf(out, "\t\t\t\t\t</details>\n");
+        } else if (human_readable_output) {
+            printf("\t\tPresent modes:\n");
+            if (group_capabilities.modes & VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_BIT_KHR)
+                printf("\t\t\tVK_DEVICE_GROUP_PRESENT_MODE_LOCAL_BIT_KHR\n");
+            if (group_capabilities.modes & VK_DEVICE_GROUP_PRESENT_MODE_REMOTE_BIT_KHR)
+                printf("\t\t\tVK_DEVICE_GROUP_PRESENT_MODE_REMOTE_BIT_KHR\n");
+            if (group_capabilities.modes & VK_DEVICE_GROUP_PRESENT_MODE_SUM_BIT_KHR)
+                printf("\t\t\tVK_DEVICE_GROUP_PRESENT_MODE_SUM_BIT_KHR\n");
+            if (group_capabilities.modes & VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_MULTI_DEVICE_BIT_KHR)
+                printf("\t\t\tVK_DEVICE_GROUP_PRESENT_MODE_LOCAL_MULTI_DEVICE_BIT_KHR\n");
+        }
+
+        if (html_output) {
+            fprintf(out, "\t\t\t\t</details>\n");
+        }
+    }
+
+    // Clean up after ourselves.
+    free(props);
+    vkDestroyDevice(logical_device, NULL);
+}
+
 #ifdef _WIN32
 // Enlarges the console window to have a large scrollback size.
 static void ConsoleEnlarge() {
@@ -2650,9 +3092,20 @@ int main(int argc, char **argv) {
 #ifdef _WIN32
     if (ConsoleIsExclusive()) ConsoleEnlarge();
 #endif
+    PFN_vkEnumerateInstanceVersion enumerate_instance_version =
+        (PFN_vkEnumerateInstanceVersion)vkGetInstanceProcAddr(NULL, "vkEnumerateInstanceVersion");
 
-    for (int i = 1; i < argc; ++i) {
-        // Check for html option
+    uint32_t instance_version = VK_API_VERSION_1_0;
+
+    if (enumerate_instance_version != NULL) {
+        enumerate_instance_version(&instance_version);
+    }
+
+    const uint32_t vulkan_major = VK_VERSION_MAJOR(instance_version);
+    const uint32_t vulkan_minor = VK_VERSION_MINOR(instance_version);
+    const uint32_t vulkan_patch = VK_VERSION_PATCH(VK_HEADER_VERSION);
+
+    for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--html") == 0) {
             out = fopen("vulkaninfo.html", "w");
             human_readable_output = false;
@@ -2661,10 +3114,6 @@ int main(int argc, char **argv) {
         }
         CheckForJsonOption(argv[i]);
     }
-
-    const uint32_t vulkan_major = VK_VERSION_MAJOR(VK_API_VERSION_1_0);
-    const uint32_t vulkan_minor = VK_VERSION_MINOR(VK_API_VERSION_1_0);
-    const uint32_t vulkan_patch = VK_VERSION_PATCH(VK_HEADER_VERSION);
 
     if (html_output) {
         PrintHtmlHeader(out);
@@ -2675,7 +3124,7 @@ int main(int argc, char **argv) {
         printf("===========\n\n");
     }
     if (html_output || human_readable_output) {
-        fprintf(out, "Vulkan API Version: ");
+        fprintf(out, "Vulkan Instance Version: ");
     }
     if (html_output) {
         fprintf(out, "<div class='val'>%d.%d.%d</div></summary></details>\n", vulkan_major, vulkan_minor, vulkan_patch);
@@ -2931,6 +3380,47 @@ int main(int argc, char **argv) {
         printf("\n");
     }
     //---------
+
+    if (CheckExtensionEnabled(VK_KHR_DEVICE_GROUP_CREATION_EXTENSION_NAME, inst.inst_extensions, inst.inst_extensions_count)) {
+        PFN_vkEnumeratePhysicalDeviceGroupsKHR vkEnumeratePhysicalDeviceGroupsKHR =
+            (PFN_vkEnumeratePhysicalDeviceGroupsKHR)vkGetInstanceProcAddr(inst.instance, "vkEnumeratePhysicalDeviceGroupsKHR");
+
+        uint32_t group_count;
+        err = vkEnumeratePhysicalDeviceGroupsKHR(inst.instance, &group_count, NULL);
+        if (err) {
+            ERR_EXIT(err);
+        }
+
+        VkPhysicalDeviceGroupProperties *groups = malloc(sizeof(groups[0]) * group_count);
+        if (!groups) {
+            ERR_EXIT(VK_ERROR_OUT_OF_HOST_MEMORY);
+        }
+
+        err = vkEnumeratePhysicalDeviceGroupsKHR(inst.instance, &group_count, groups);
+        if (err) {
+            ERR_EXIT(err);
+        }
+
+        if (html_output) {
+            fprintf(out, "\t\t\t<details><summary>Groups</summary>\n");
+        } else if (human_readable_output) {
+            printf("\nGroups :\n");
+            printf("========\n");
+        }
+
+        for (uint32_t i = 0; i < group_count; ++i) {
+            AppGroupDump(&groups[i], i, &inst, out);
+            if (human_readable_output) {
+                printf("\n\n");
+            }
+        }
+
+        if (html_output) {
+            fprintf(out, "\t\t\t</details>\n");
+        }
+
+        free(groups);
+    }
 
     for (uint32_t i = 0; i < gpu_count; ++i) {
         if (json_output && selected_gpu != i) {

@@ -15,9 +15,9 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "components/account_id/account_id.h"
 #include "components/policy/proto/cloud_policy.pb.h"
 #include "components/policy/proto/device_management_backend.pb.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "crypto/rsa_private_key.h"
 
 #if !defined(OS_ANDROID) && !defined(OS_IOS)
@@ -29,6 +29,7 @@ namespace policy {
 // A helper class for testing that provides a straightforward interface for
 // constructing policy blobs for use in testing. NB: This uses fake data and
 // hard-coded signing keys by default, so should not be used in production code.
+// TODO: Add "ForTesting" suffix to trigger presubmit checks.
 class PolicyBuilder {
  public:
   // Constants used as dummy data for filling the PolicyData protobuf.
@@ -129,7 +130,8 @@ class PolicyBuilder {
 
   static std::vector<std::string> GetUserAffiliationIds();
 
-  static AccountId GetFakeAccountId();
+  // Created using dummy data used for filling the PolicyData protobuf.
+  static AccountId GetFakeAccountIdForTesting();
 
  private:
   enterprise_management::PolicyFetchResponse policy_;
@@ -150,7 +152,7 @@ class PolicyBuilder {
 
 // Type-parameterized PolicyBuilder extension that allows for building policy
 // blobs carrying protobuf payloads.
-template<typename PayloadProto>
+template <typename PayloadProto>
 class TypedPolicyBuilder : public PolicyBuilder {
  public:
   TypedPolicyBuilder();
@@ -176,12 +178,34 @@ class TypedPolicyBuilder : public PolicyBuilder {
   DISALLOW_COPY_AND_ASSIGN(TypedPolicyBuilder);
 };
 
+// PolicyBuilder extension that allows for building policy blobs carrying string
+// payloads.
+class StringPolicyBuilder : public PolicyBuilder {
+ public:
+  StringPolicyBuilder();
+  void set_payload(std::string payload) { payload_ = std::move(payload); }
+  const std::string& payload() const { return payload_; }
+  void clear_payload() { payload_.clear(); }
+
+  // PolicyBuilder:
+  void Build() override;
+
+ private:
+  std::string payload_;
+
+  DISALLOW_COPY_AND_ASSIGN(StringPolicyBuilder);
+};
+
 typedef TypedPolicyBuilder<enterprise_management::CloudPolicySettings>
     UserPolicyBuilder;
 
 #if !defined(OS_ANDROID) && !defined(OS_IOS)
-typedef TypedPolicyBuilder<enterprise_management::ExternalPolicyData>
-    ComponentPolicyBuilder;
+using ComponentCloudPolicyBuilder =
+    TypedPolicyBuilder<enterprise_management::ExternalPolicyData>;
+#endif
+
+#if defined(OS_CHROMEOS)
+using ComponentActiveDirectoryPolicyBuilder = StringPolicyBuilder;
 #endif
 
 }  // namespace policy

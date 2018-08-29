@@ -14,13 +14,12 @@
 #include "third_party/blink/public/platform/web_input_event.h"
 #include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr.h"
 #include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr_controller.h"
-#include "ui/gfx/transform.h"
 
 namespace vr {
 
 namespace {
 
-constexpr float kDisplacementScaleFactor = 300.0f;
+constexpr float kDisplacementScaleFactor = 129.0f;
 
 // A slop represents a small rectangular region around the first touch point of
 // a gesture.
@@ -75,7 +74,8 @@ gvr::ControllerButton PlatformToGvrButton(PlatformController::ButtonType type) {
 
 }  // namespace
 
-VrController::VrController(gvr_context* gvr_context) {
+VrController::VrController(gvr_context* gvr_context)
+    : previous_button_states_{0} {
   DVLOG(1) << __FUNCTION__ << "=" << this;
   CHECK(gvr_context != nullptr) << "invalid gvr_context";
   controller_api_ = std::make_unique<gvr::ControllerApi>();
@@ -153,12 +153,10 @@ device::mojom::XRInputSourceStatePtr VrController::GetInputSourceState() {
   state->source_id = 1;
 
   // Set the primary button state.
-  state->primary_input_pressed =
-      controller_state_->GetButtonState(GVR_CONTROLLER_BUTTON_CLICK);
+  state->primary_input_pressed = ButtonState(GVR_CONTROLLER_BUTTON_CLICK);
 
-  if (ButtonUpHappened(GVR_CONTROLLER_BUTTON_CLICK)) {
+  if (ButtonUpHappened(GVR_CONTROLLER_BUTTON_CLICK))
     state->primary_input_clicked = true;
-  }
 
   state->description = device::mojom::XRInputSourceDescription::New();
 
@@ -248,14 +246,16 @@ gfx::Quaternion VrController::Orientation() const {
 }
 
 gfx::Point3F VrController::Position() const {
-  gvr::Vec3f position = controller_state_->GetPosition();
-  return gfx::Point3F(position.x, position.y, position.z);
+  const gvr::Vec3f& position = controller_state_->GetPosition();
+  return gfx::Point3F(position.x + head_offset_.x(),
+                      position.y + head_offset_.y(),
+                      position.z + head_offset_.z());
 }
 
 void VrController::GetTransform(gfx::Transform* out) const {
   *out = gfx::Transform(Orientation());
-  gvr::Vec3f position = controller_state_->GetPosition();
-  out->matrix().postTranslate(position.x, position.y, position.z);
+  const gfx::Point3F& position = Position();
+  out->matrix().postTranslate(position.x(), position.y(), position.z());
 }
 
 void VrController::GetRelativePointerTransform(gfx::Transform* out) const {
@@ -294,11 +294,17 @@ bool VrController::TouchUpHappened() {
 }
 
 bool VrController::ButtonDownHappened(gvr::ControllerButton button) {
-  return controller_state_->GetButtonDown(button);
+  // Workaround for GVR sometimes not reporting GetButtonDown when it should.
+  bool detected_down =
+      !previous_button_states_[static_cast<int>(button)] && ButtonState(button);
+  return controller_state_->GetButtonDown(button) || detected_down;
 }
 
 bool VrController::ButtonUpHappened(gvr::ControllerButton button) {
-  return controller_state_->GetButtonUp(button);
+  // Workaround for GVR sometimes not reporting GetButtonUp when it should.
+  bool detected_up =
+      previous_button_states_[static_cast<int>(button)] && !ButtonState(button);
+  return controller_state_->GetButtonUp(button) || detected_up;
 }
 
 bool VrController::ButtonState(gvr::ControllerButton button) const {
@@ -309,11 +315,23 @@ bool VrController::IsConnected() {
   return controller_state_->GetConnectionState() == gvr::kControllerConnected;
 }
 
-void VrController::UpdateState(const gvr::Mat4f& head_direction) {
+void VrController::UpdateState(const gfx::Transform& head_pose) {
+  gfx::Transform inv_pose;
+  if (head_pose.GetInverse(&inv_pose)) {
+    head_offset_.SetPoint(0, 0, 0);
+    inv_pose.TransformPoint(&head_offset_);
+  }
+
+  gvr::Mat4f gvr_head_pose;
+  TransformToGvrMat(head_pose, &gvr_head_pose);
   controller_api_->ApplyArmModel(handedness_, gvr::kArmModelBehaviorFollowGaze,
-                                 head_direction);
+                                 gvr_head_pose);
   const int32_t old_status = controller_state_->GetApiStatus();
   const int32_t old_connection_state = controller_state_->GetConnectionState();
+  for (int button = 0; button < GVR_CONTROLLER_BUTTON_COUNT; ++button) {
+    previous_button_states_[button] =
+        ButtonState(static_cast<gvr_controller_button>(button));
+  }
   // Read current controller state.
   controller_state_->Update(*controller_api_);
   // Print new API status and connection state, if they changed.
@@ -380,8 +398,7 @@ std::unique_ptr<GestureList> VrController::DetectGestures() {
 }
 
 void VrController::UpdateGestureFromTouchInfo(blink::WebGestureEvent* gesture) {
-  gesture->SetTimeStampSeconds(
-      (GetLastTouchTimestamp() - base::TimeTicks()).InSecondsF());
+  gesture->SetTimeStamp(GetLastTouchTimestamp());
   switch (state_) {
     // User has not put finger on touch pad.
     case WAITING:

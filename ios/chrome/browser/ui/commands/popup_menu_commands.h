@@ -25,9 +25,9 @@ typedef NS_ENUM(NSInteger, PopupMenuCommandType) {
 // Shows the popup for the tab grid button.
 - (void)showTabGridButtonPopup;
 // Shows the popup for the search button.
-- (void)searchButtonPopup;
+- (void)showSearchButtonPopup;
 // Dismisses the currently presented popup.
-- (void)dismissPopupMenu;
+- (void)dismissPopupMenuAnimated:(BOOL)animated;
 
 @end
 

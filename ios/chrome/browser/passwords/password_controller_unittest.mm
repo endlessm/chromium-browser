@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "base/json/json_reader.h"
-#include "base/mac/bind_objc_block.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -957,8 +956,7 @@ TEST_F(PasswordControllerTest, SuggestionUpdateTests) {
     {
       "Should show all suggestions when focusing empty username field",
       @[(@"var evt = document.createEvent('Events');"
-          "evt.initEvent('focus', true, true, window, 1);"
-          "username_.dispatchEvent(evt);"),
+         "username_.focus();"),
         @""],
       @[@"user0 ••••••••", @"abc ••••••••", showAll],
       @"[]=, onkeyup=false, onchange=false"
@@ -966,8 +964,7 @@ TEST_F(PasswordControllerTest, SuggestionUpdateTests) {
     {
       "Should show password suggestions when focusing password field",
       @[(@"var evt = document.createEvent('Events');"
-          "evt.initEvent('focus', true, true, window, 1);"
-          "password_.dispatchEvent(evt);"),
+         "password_.focus();"),
         @""],
       @[@"user0 ••••••••", @"abc ••••••••", showAll],
       @"[]=, onkeyup=false, onchange=false"
@@ -975,9 +972,7 @@ TEST_F(PasswordControllerTest, SuggestionUpdateTests) {
     {
       "Should not filter suggestions when focusing username field with input",
       @[(@"username_.value='ab';"
-          "var evt = document.createEvent('Events');"
-          "evt.initEvent('focus', true, true, window, 1);"
-          "username_.dispatchEvent(evt);"),
+         "username_.focus();"),
         @""],
       @[@"user0 ••••••••", @"abc ••••••••", showAll],
       @"ab[]=, onkeyup=false, onchange=false"
@@ -1001,6 +996,10 @@ TEST_F(PasswordControllerTest, SuggestionUpdateTests) {
       // Pump the run loop so that the host can respond.
       WaitForBackgroundTasks();
     }
+    // Wait until suggestions are received.
+    EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^{
+      return [GetSuggestionValues() count] > 0;
+    }));
 
     EXPECT_NSEQ(data.expected_suggestions, GetSuggestionValues());
     EXPECT_NSEQ(data.expected_result,

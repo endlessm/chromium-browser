@@ -57,6 +57,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/OptSpecifier.h"
@@ -89,14 +90,14 @@ Driver::Driver(StringRef ClangExecutable, StringRef DefaultTargetTriple,
     : Opts(createDriverOptTable()), Diags(Diags), VFS(std::move(VFS)),
       Mode(GCCMode), SaveTemps(SaveTempsNone), BitcodeEmbed(EmbedNone),
       LTOMode(LTOK_None), ClangExecutable(ClangExecutable),
-      SysRoot(DEFAULT_SYSROOT), 
-      DriverTitle("clang LLVM compiler"), CCPrintOptionsFilename(nullptr),
-      CCPrintHeadersFilename(nullptr), CCLogDiagnosticsFilename(nullptr),
-      CCCPrintBindings(false), CCPrintHeaders(false), CCLogDiagnostics(false),
+      SysRoot(DEFAULT_SYSROOT), DriverTitle("clang LLVM compiler"),
+      CCPrintOptionsFilename(nullptr), CCPrintHeadersFilename(nullptr),
+      CCLogDiagnosticsFilename(nullptr), CCCPrintBindings(false),
+      CCPrintOptions(false), CCPrintHeaders(false), CCLogDiagnostics(false),
       CCGenDiagnostics(false), DefaultTargetTriple(DefaultTargetTriple),
-      CCCGenericGCCName(""), Saver(Alloc),
-      CheckInputsExist(true), CCCUsePCH(true),
-      GenReproducer(false), SuppressMissingInputWarning(false) {
+      CCCGenericGCCName(""), Saver(Alloc), CheckInputsExist(true),
+      CCCUsePCH(true), GenReproducer(false),
+      SuppressMissingInputWarning(false) {
 
   // Provide a sane fallback if no VFS is specified.
   if (!this->VFS)
@@ -129,7 +130,8 @@ Driver::Driver(StringRef ClangExecutable, StringRef DefaultTargetTriple,
 
 void Driver::ParseDriverMode(StringRef ProgramName,
                              ArrayRef<const char *> Args) {
-  ClangNameParts = ToolChain::getTargetAndModeFromProgramName(ProgramName);
+  if (ClangNameParts.isEmpty())
+    ClangNameParts = ToolChain::getTargetAndModeFromProgramName(ProgramName);
   setDriverModeFromOption(ClangNameParts.DriverMode);
 
   for (const char *ArgPtr : Args) {
@@ -283,11 +285,12 @@ phases::ID Driver::getFinalPhase(const DerivedArgList &DAL,
 }
 
 static Arg *MakeInputArg(DerivedArgList &Args, OptTable &Opts,
-                         StringRef Value) {
+                         StringRef Value, bool Claim = true) {
   Arg *A = new Arg(Opts.getOption(options::OPT_INPUT), Value,
                    Args.getBaseArgs().MakeIndex(Value), Value.data());
   Args.AddSynthesizedArg(A);
-  A->claim();
+  if (Claim)
+    A->claim();
   return A;
 }
 
@@ -355,7 +358,7 @@ DerivedArgList *Driver::TranslateInputArgs(const InputArgList &Args) const {
     if (A->getOption().matches(options::OPT__DASH_DASH)) {
       A->claim();
       for (StringRef Val : A->getValues())
-        DAL->append(MakeInputArg(*DAL, *Opts, Val));
+        DAL->append(MakeInputArg(*DAL, *Opts, Val, false));
       continue;
     }
 
@@ -380,7 +383,7 @@ DerivedArgList *Driver::TranslateInputArgs(const InputArgList &Args) const {
   return DAL;
 }
 
-/// \brief Compute target triple from args.
+/// Compute target triple from args.
 ///
 /// This routine provides the logic to compute a target triple from various
 /// args passed to the driver and the default triple string.
@@ -396,7 +399,7 @@ static llvm::Triple computeTargetTriple(const Driver &D,
 
   // Handle Apple-specific options available here.
   if (Target.isOSBinFormatMachO()) {
-    // If an explict Darwin arch name is given, that trumps all.
+    // If an explicit Darwin arch name is given, that trumps all.
     if (!DarwinArchName.empty()) {
       tools::darwin::setTripleTypeForMachOArchName(Target, DarwinArchName);
       return Target;
@@ -479,7 +482,7 @@ static llvm::Triple computeTargetTriple(const Driver &D,
   return Target;
 }
 
-// \brief Parse the LTO options and record the type of LTO compilation
+// Parse the LTO options and record the type of LTO compilation
 // based on which -f(no-)?lto(=.*)? option occurs last.
 void Driver::setLTOMode(const llvm::opt::ArgList &Args) {
   LTOMode = LTOK_None;
@@ -535,24 +538,46 @@ void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
                                               InputList &Inputs) {
 
   //
-  // CUDA
+  // CUDA/HIP
   //
-  // We need to generate a CUDA toolchain if any of the inputs has a CUDA type.
-  if (llvm::any_of(Inputs, [](std::pair<types::ID, const llvm::opt::Arg *> &I) {
+  // We need to generate a CUDA toolchain if any of the inputs has a CUDA
+  // or HIP type. However, mixed CUDA/HIP compilation is not supported.
+  bool IsCuda =
+      llvm::any_of(Inputs, [](std::pair<types::ID, const llvm::opt::Arg *> &I) {
         return types::isCuda(I.first);
-      })) {
+      });
+  bool IsHIP =
+      llvm::any_of(Inputs,
+                   [](std::pair<types::ID, const llvm::opt::Arg *> &I) {
+                     return types::isHIP(I.first);
+                   }) ||
+      C.getInputArgs().hasArg(options::OPT_hip_link);
+  if (IsCuda && IsHIP) {
+    Diag(clang::diag::err_drv_mix_cuda_hip);
+    return;
+  }
+  if (IsCuda || IsHIP) {
     const ToolChain *HostTC = C.getSingleOffloadToolChain<Action::OFK_Host>();
     const llvm::Triple &HostTriple = HostTC->getTriple();
-    llvm::Triple CudaTriple(HostTriple.isArch64Bit() ? "nvptx64-nvidia-cuda"
-                                                     : "nvptx-nvidia-cuda");
-    // Use the CUDA and host triples as the key into the ToolChains map, because
-    // the device toolchain we create depends on both.
+    StringRef DeviceTripleStr;
+    auto OFK = IsHIP ? Action::OFK_HIP : Action::OFK_Cuda;
+    if (IsHIP) {
+      // HIP is only supported on amdgcn.
+      DeviceTripleStr = "amdgcn-amd-amdhsa";
+    } else {
+      // CUDA is only supported on nvptx.
+      DeviceTripleStr = HostTriple.isArch64Bit() ? "nvptx64-nvidia-cuda"
+                                                 : "nvptx-nvidia-cuda";
+    }
+    llvm::Triple CudaTriple(DeviceTripleStr);
+    // Use the CUDA/HIP and host triples as the key into the ToolChains map,
+    // because the device toolchain we create depends on both.
     auto &CudaTC = ToolChains[CudaTriple.str() + "/" + HostTriple.str()];
     if (!CudaTC) {
       CudaTC = llvm::make_unique<toolchains::CudaToolChain>(
-          *this, CudaTriple, *HostTC, C.getInputArgs(), Action::OFK_Cuda);
+          *this, CudaTriple, *HostTC, C.getInputArgs(), OFK);
     }
-    C.addOffloadDeviceToolChain(CudaTC.get(), Action::OFK_Cuda);
+    C.addOffloadDeviceToolChain(CudaTC.get(), OFK);
   }
 
   //
@@ -875,11 +900,14 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
                                               : std::move(*CLOptions));
   if (HasConfigFile)
     for (auto *Opt : *CLOptions) {
+      if (Opt->getOption().matches(options::OPT_config))
+        continue;
+      unsigned Index = Args.MakeIndex(Opt->getSpelling());
       const Arg *BaseArg = &Opt->getBaseArg();
       if (BaseArg == Opt)
         BaseArg = nullptr;
       Arg *Copy = new llvm::opt::Arg(Opt->getOption(), Opt->getSpelling(),
-                                     Args.size(), BaseArg);
+                                     Index, BaseArg);
       Copy->getValues() = Opt->getValues();
       if (Opt->isClaimed())
         Copy->claim();
@@ -1111,8 +1139,9 @@ bool Driver::getCrashDiagnosticFile(StringRef ReproCrashFilename,
 // When clang crashes, produce diagnostic information including the fully
 // preprocessed source file(s).  Request that the developer attach the
 // diagnostic information to a bug report.
-void Driver::generateCompilationDiagnostics(Compilation &C,
-                                            const Command &FailingCommand) {
+void Driver::generateCompilationDiagnostics(
+    Compilation &C, const Command &FailingCommand,
+    StringRef AdditionalInformation, CompilationDiagnosticReport *Report) {
   if (C.getArgs().hasArg(options::OPT_fno_crash_diagnostics))
     return;
 
@@ -1238,6 +1267,8 @@ void Driver::generateCompilationDiagnostics(Compilation &C,
   SmallString<128> ReproCrashFilename;
   for (const char *TempFile : TempFiles) {
     Diag(clang::diag::note_drv_command_failed_diag_msg) << TempFile;
+    if (Report)
+      Report->TemporaryFiles.push_back(TempFile);
     if (ReproCrashFilename.empty()) {
       ReproCrashFilename = TempFile;
       llvm::sys::path::replace_extension(ReproCrashFilename, ".crash");
@@ -1266,6 +1297,11 @@ void Driver::generateCompilationDiagnostics(Compilation &C,
     ScriptOS << "# Original command: ";
     Cmd.Print(ScriptOS, "\n", /*Quote=*/true);
     Cmd.Print(ScriptOS, "\n", /*Quote=*/true, &CrashInfo);
+    if (!AdditionalInformation.empty())
+      ScriptOS << "\n# Additional information: " << AdditionalInformation
+               << "\n";
+    if (Report)
+      Report->TemporaryFiles.push_back(Script);
     Diag(clang::diag::note_drv_command_failed_diag_msg) << Script;
   }
 
@@ -1581,7 +1617,13 @@ bool Driver::HandleImmediateArgs(const Compilation &C) {
   }
 
   if (Arg *A = C.getArgs().getLastArg(options::OPT_print_prog_name_EQ)) {
-    llvm::outs() << GetProgramPath(A->getValue(), TC) << "\n";
+    StringRef ProgName = A->getValue();
+
+    // Null program name cannot have a path.
+    if (! ProgName.empty())
+      llvm::outs() << GetProgramPath(ProgName, TC);
+
+    llvm::outs() << "\n";
     return false;
   }
 
@@ -1713,7 +1755,7 @@ void Driver::PrintActions(const Compilation &C) const {
     PrintActions1(C, A, Ids);
 }
 
-/// \brief Check whether the given input tree contains any compilation or
+/// Check whether the given input tree contains any compilation or
 /// assembly actions.
 static bool ContainsCompileOrAssembleAction(const Action *A) {
   if (isa<CompileJobAction>(A) || isa<BackendJobAction>(A) ||
@@ -1814,7 +1856,7 @@ void Driver::BuildUniversalActions(Compilation &C, const ToolChain &TC,
   }
 }
 
-/// \brief Check that the file referenced by Value exists. If it doesn't,
+/// Check that the file referenced by Value exists. If it doesn't,
 /// issue a diagnostic and return false.
 static bool DiagnoseInputExistence(const Driver &D, const DerivedArgList &Args,
                                    StringRef Value, types::ID Ty) {
@@ -2109,7 +2151,7 @@ class OffloadingActionBuilder final {
     }
   };
 
-  /// \brief CUDA action builder. It injects device code in the host backend
+  /// CUDA action builder. It injects device code in the host backend
   /// action.
   class CudaActionBuilder final : public DeviceActionBuilder {
     /// Flags to signal if the user requested host-only or device-only
@@ -2249,9 +2291,10 @@ class OffloadingActionBuilder final {
         assert(!GpuArchList.empty() &&
                "We should have at least one GPU architecture.");
 
-        // If the host input is not CUDA, we don't need to bother about this
-        // input.
-        if (IA->getType() != types::TY_CUDA) {
+        // If the host input is not CUDA or HIP, we don't need to bother about
+        // this input.
+        if (IA->getType() != types::TY_CUDA &&
+            IA->getType() != types::TY_HIP) {
           // The builder will ignore this input.
           IsActive = false;
           return ABRT_Inactive;
@@ -2264,9 +2307,12 @@ class OffloadingActionBuilder final {
           return ABRT_Success;
 
         // Replicate inputs for each GPU architecture.
-        for (unsigned I = 0, E = GpuArchList.size(); I != E; ++I)
-          CudaDeviceActions.push_back(C.MakeAction<InputAction>(
-              IA->getInputArg(), types::TY_CUDA_DEVICE));
+        auto Ty = IA->getType() == types::TY_HIP ? types::TY_HIP_DEVICE
+                                                 : types::TY_CUDA_DEVICE;
+        for (unsigned I = 0, E = GpuArchList.size(); I != E; ++I) {
+          CudaDeviceActions.push_back(
+              C.MakeAction<InputAction>(IA->getInputArg(), Ty));
+        }
 
         return ABRT_Success;
       }
@@ -2314,11 +2360,13 @@ class OffloadingActionBuilder final {
 
       const ToolChain *HostTC = C.getSingleOffloadToolChain<Action::OFK_Host>();
       assert(HostTC && "No toolchain for host compilation.");
-      if (HostTC->getTriple().isNVPTX()) {
-        // We do not support targeting NVPTX for host compilation. Throw
+      if (HostTC->getTriple().isNVPTX() ||
+          HostTC->getTriple().getArch() == llvm::Triple::amdgcn) {
+        // We do not support targeting NVPTX/AMDGCN for host compilation. Throw
         // an error and abort pipeline construction early so we don't trip
         // asserts that assume device-side compilation.
-        C.getDriver().Diag(diag::err_drv_cuda_nvptx_host);
+        C.getDriver().Diag(diag::err_drv_cuda_host_arch)
+            << HostTC->getTriple().getArchName();
         return true;
       }
 
@@ -2883,6 +2931,9 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
     // this compilation, warn the user about it.
     phases::ID InitialPhase = PL[0];
     if (InitialPhase > FinalPhase) {
+      if (InputArg->isClaimed())
+        continue;
+
       // Claim here to avoid the more general unused warning.
       InputArg->claim();
 
@@ -3371,11 +3422,26 @@ class ToolSelector final {
   const Tool *combineBackendCompile(ArrayRef<JobActionInfo> ActionInfo,
                                     const ActionList *&Inputs,
                                     ActionList &CollapsedOffloadAction) {
-    if (ActionInfo.size() < 2 || !canCollapsePreprocessorAction())
+    if (ActionInfo.size() < 2)
       return nullptr;
     auto *BJ = dyn_cast<BackendJobAction>(ActionInfo[0].JA);
     auto *CJ = dyn_cast<CompileJobAction>(ActionInfo[1].JA);
     if (!BJ || !CJ)
+      return nullptr;
+
+    // Check if the initial input (to the compile job or its predessor if one
+    // exists) is LLVM bitcode. In that case, no preprocessor step is required
+    // and we can still collapse the compile and backend jobs when we have
+    // -save-temps. I.e. there is no need for a separate compile job just to
+    // emit unoptimized bitcode.
+    bool InputIsBitcode = true;
+    for (size_t i = 1; i < ActionInfo.size(); i++)
+      if (ActionInfo[i].JA->getType() != types::TY_LLVM_BC &&
+          ActionInfo[i].JA->getType() != types::TY_LTO_BC) {
+        InputIsBitcode = false;
+        break;
+      }
+    if (!InputIsBitcode && !canCollapsePreprocessorAction())
       return nullptr;
 
     // Get compiler tool.
@@ -3383,7 +3449,7 @@ class ToolSelector final {
     if (!T)
       return nullptr;
 
-    if (T->canEmitIR() && (SaveTemps || EmbedBitcode))
+    if (T->canEmitIR() && ((SaveTemps && !InputIsBitcode) || EmbedBitcode))
       return nullptr;
 
     Inputs = &CJ->getInputs();
@@ -3694,9 +3760,12 @@ InputInfo Driver::BuildJobsForActionNoCache(
           UI.DependentToolChain->getTriple().normalize(),
           /*CreatePrefixForHost=*/true);
       auto CurI = InputInfo(
-          UA, GetNamedOutputPath(C, *UA, BaseInput, UI.DependentBoundArch,
-                                 /*AtTopLevel=*/false, MultipleArchs,
-                                 OffloadingPrefix),
+          UA,
+          GetNamedOutputPath(C, *UA, BaseInput, UI.DependentBoundArch,
+                             /*AtTopLevel=*/false,
+                             MultipleArchs ||
+                                 UI.DependentOffloadKind == Action::OFK_HIP,
+                             OffloadingPrefix),
           BaseInput);
       // Save the unbundling result.
       UnbundlingResults.push_back(CurI);
@@ -3769,7 +3838,7 @@ const char *Driver::getDefaultImageName() const {
   return Target.isOSWindows() ? "a.exe" : "a.out";
 }
 
-/// \brief Create output filename based on ArgValue, which could either be a
+/// Create output filename based on ArgValue, which could either be a
 /// full filename, filename without extension, or a directory. If ArgValue
 /// does not provide a filename, then use BaseName, and use the extension
 /// suitable for FileType.

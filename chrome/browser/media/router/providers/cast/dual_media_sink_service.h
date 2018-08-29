@@ -15,6 +15,8 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/sequence_checker.h"
+#include "chrome/browser/media/router/discovery/mdns/cast_media_sink_service.h"
+#include "chrome/browser/media/router/discovery/mdns/cast_media_sink_service_impl.h"
 #include "chrome/browser/media/router/media_sinks_observer.h"
 #include "chrome/common/media_router/discovery/media_sink_internal.h"
 #include "chrome/common/media_router/media_source.h"
@@ -25,6 +27,7 @@ namespace media_router {
 class CastAppDiscoveryService;
 class CastMediaSinkService;
 class DialMediaSinkService;
+class DialMediaSinkServiceImpl;
 
 // This class uses DialMediaSinkService and CastMediaSinkService to discover
 // sinks used by the Cast MediaRouteProvider. It also encapsulates the setup
@@ -47,18 +50,20 @@ class DualMediaSinkService {
   static DualMediaSinkService* GetInstance();
   static void SetInstanceForTest(DualMediaSinkService* instance_for_test);
 
-  CastAppDiscoveryService* cast_app_discovery_service() {
-    return cast_app_discovery_service_.get();
-  }
-
   // Returns the current list of sinks, keyed by provider name.
   const base::flat_map<std::string, std::vector<MediaSinkInternal>>&
   current_sinks() {
     return current_sinks_;
   }
 
-  DialMediaSinkService* dial_media_sink_service() {
-    return dial_media_sink_service_.get();
+  // Used by DialMediaRouteProvider only.
+  DialMediaSinkServiceImpl* GetDialMediaSinkServiceImpl();
+
+  // Used by CastMediaRouteProvider only.
+  MediaSinkServiceBase* GetCastMediaSinkServiceImpl();
+
+  CastAppDiscoveryService* cast_app_discovery_service() {
+    return cast_app_discovery_service_.get();
   }
 
   // Adds |callback| to be notified when the list of discovered sinks changes.
@@ -88,18 +93,20 @@ class DualMediaSinkService {
   friend class MediaRouterDesktopTestBase;
   FRIEND_TEST_ALL_PREFIXES(MediaRouterDesktopTest, ProvideSinks);
 
-  friend struct std::default_delete<DualMediaSinkService>;
-
   static DualMediaSinkService* instance_for_test_;
+
+  friend struct std::default_delete<DualMediaSinkService>;
 
   DualMediaSinkService();
 
   void OnSinksDiscovered(const std::string& provider_name,
                          std::vector<MediaSinkInternal> sinks);
 
+  // Note: Dual discovery logic assumes |dial_media_sink_service_| outlives
+  // |cast_media_sink_service_|.
+  std::unique_ptr<DialMediaSinkService> dial_media_sink_service_;
   std::unique_ptr<CastMediaSinkService> cast_media_sink_service_;
   std::unique_ptr<CastAppDiscoveryService> cast_app_discovery_service_;
-  std::unique_ptr<DialMediaSinkService> dial_media_sink_service_;
 
   OnSinksDiscoveredProviderCallbackList sinks_discovered_callbacks_;
   base::flat_map<std::string, std::vector<MediaSinkInternal>> current_sinks_;

@@ -101,6 +101,9 @@ class ScopedTaskEnvironment {
   // Returns a TaskRunner that schedules tasks on the main thread.
   scoped_refptr<base::SingleThreadTaskRunner> GetMainThreadTaskRunner();
 
+  // Returns whether the main thread's TaskRunner has pending tasks.
+  bool MainThreadHasPendingTask() const;
+
   // Runs tasks until both the (Thread|Sequenced)TaskRunnerHandle and the
   // TaskScheduler's non-delayed queues are empty.
   void RunUntilIdle();
@@ -117,10 +120,19 @@ class ScopedTaskEnvironment {
   // Short for FastForwardBy(TimeDelta::Max()).
   void FastForwardUntilNoTasksRemain();
 
-  // Returns a TickClock whose time is updated by
-  // FastForward(By|UntilNoTasksRemain).
+  // Only valid for instances with a MOCK_TIME MainThreadType.  Returns a
+  // TickClock whose time is updated by FastForward(By|UntilNoTasksRemain).
   const TickClock* GetMockTickClock();
   std::unique_ptr<TickClock> DeprecatedGetMockTickClock();
+
+  // Only valid for instances with a MOCK_TIME MainThreadType.
+  // Returns the number of pending tasks of the main thread's TaskRunner.
+  size_t GetPendingMainThreadTaskCount() const;
+
+  // Only valid for instances with a MOCK_TIME MainThreadType.
+  // Returns the delay until the next delayed pending task of the main thread's
+  // TaskRunner.
+  TimeDelta NextMainThreadPendingTaskDelay() const;
 
  private:
   class TestTaskTracker;

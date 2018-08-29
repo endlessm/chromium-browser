@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "base/path_service.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/first_run/first_run.h"
@@ -131,8 +132,6 @@ Profile::Delegate::~Delegate() {
 
 // static
 const char Profile::kProfileKey[] = "__PROFILE__";
-// This must be a string which can never be a valid domain.
-const char Profile::kNoHostedDomainFound[] = "NO_HOSTED_DOMAIN";
 
 // static
 void Profile::RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
@@ -156,7 +155,10 @@ void Profile::RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(extensions::pref_names::kAlertsInitialized,
                                 false);
 #endif
-  registry->RegisterStringPref(prefs::kSelectFileLastDirectory, std::string());
+  base::FilePath home;
+  base::PathService::Get(base::DIR_HOME, &home);
+  registry->RegisterStringPref(prefs::kSelectFileLastDirectory,
+                               home.MaybeAsASCII());
 #if !defined(OS_ANDROID)
   registry->RegisterDictionaryPref(prefs::kPartitionDefaultZoomLevel);
   registry->RegisterDictionaryPref(prefs::kPartitionPerHostZoomLevels);
@@ -179,6 +181,8 @@ void Profile::RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterStringPref(prefs::kApplicationLocaleBackup, std::string());
   registry->RegisterStringPref(prefs::kApplicationLocaleAccepted,
                                std::string());
+  registry->RegisterListPref(prefs::kAllowedLocales,
+                             std::make_unique<base::ListValue>());
 #endif
 
 #if defined(OS_ANDROID)
@@ -216,6 +220,10 @@ void Profile::RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
 
   registry->RegisterDictionaryPref(prefs::kWebShareVisitedTargets);
   registry->RegisterDictionaryPref(prefs::kExcludedSchemes);
+
+  // Instead of registering new prefs here, please create a static method and
+  // invoke it from RegisterProfilePrefs() in
+  // chrome/browser/prefs/browser_prefs.cc.
 }
 
 std::string Profile::GetDebugName() {

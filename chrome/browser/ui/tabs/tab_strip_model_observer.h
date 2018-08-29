@@ -55,15 +55,20 @@ class TabStripModelObserver {
 
   // The specified WebContents at |index| is being closed (and eventually
   // destroyed). |tab_strip_model| is the TabStripModel that contained the tab.
+  // TODO(erikchen): |index| is not used outside of tests. Do not use it. It
+  // will be removed soon. https://crbug.com/842194.
   virtual void TabClosingAt(TabStripModel* tab_strip_model,
                             content::WebContents* contents,
                             int index);
 
-  // The specified WebContents at |index| is being detached, perhaps to
+  // The specified WebContents at |previous_index| has been detached, perhaps to
   // be inserted in another TabStripModel. The implementer should take whatever
-  // action is necessary to deal with the WebContents no longer being
-  // present.
-  virtual void TabDetachedAt(content::WebContents* contents, int index);
+  // action is necessary to deal with the WebContents no longer being present.
+  // |previous_index| cannot be used to index into the current state of the
+  // TabStripModel.
+  virtual void TabDetachedAt(content::WebContents* contents,
+                             int previous_index,
+                             bool was_active);
 
   // The active WebContents is about to change from |old_contents|.
   // This gives observers a chance to prepare for an impending switch before it
@@ -92,6 +97,8 @@ class TabStripModelObserver {
   // selected tabs, anchor tab or active tab change. |old_model| is a snapshot
   // of the selection model before the change. See also ActiveTabChanged for
   // details.
+  // TODO(erikchen): |old_model| is not used outside of tests. Do not use it. It
+  // will be removed soon. https://crbug.com/842194.
   virtual void TabSelectionChanged(TabStripModel* tab_strip_model,
                                    const ui::ListSelectionModel& old_model);
 

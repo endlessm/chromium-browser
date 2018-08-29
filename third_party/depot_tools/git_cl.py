@@ -1519,13 +1519,14 @@ class Changelist(object):
         new_description += foot + '\n'
     self.UpdateDescription(new_description, force)
 
-  def RunHook(self, committing, may_prompt, verbose, change):
+  def RunHook(self, committing, may_prompt, verbose, change, parallel):
     """Calls sys.exit() if the hook fails; returns a HookResults otherwise."""
     try:
       return presubmit_support.DoPresubmitChecks(change, committing,
           verbose=verbose, output_stream=sys.stdout, input_stream=sys.stdin,
           default_presubmit=None, may_prompt=may_prompt,
-          gerrit_obj=self._codereview_impl.GetGerritObjForPresubmit())
+          gerrit_obj=self._codereview_impl.GetGerritObjForPresubmit(),
+          parallel=parallel)
     except presubmit_support.PresubmitFailure as e:
       DieWithError('%s\nMaybe your depot_tools is out of date?' % e)
 
@@ -1589,9 +1590,9 @@ class Changelist(object):
                                             change)
         change.SetDescriptionText(change_description.description)
       hook_results = self.RunHook(committing=False,
-                                may_prompt=not options.force,
-                                verbose=options.verbose,
-                                change=change)
+                                  may_prompt=not options.force,
+                                  verbose=options.verbose,
+                                  change=change, parallel=options.parallel)
       if not hook_results.should_continue():
         return 1
       if not options.reviewers and hook_results.reviewers:
@@ -2715,7 +2716,7 @@ class _GerritChangelistImpl(_ChangelistCodereviewBase):
       raise
     return data
 
-  def CMDLand(self, force, bypass_hooks, verbose):
+  def CMDLand(self, force, bypass_hooks, verbose, parallel):
     if git_common.is_dirty_git_tree('land'):
       return 1
     detail = self._GetChangeDetail(['CURRENT_REVISION', 'LABELS'])
@@ -2748,7 +2749,8 @@ class _GerritChangelistImpl(_ChangelistCodereviewBase):
           committing=True,
           may_prompt=not force,
           verbose=verbose,
-          change=self.GetChange(self.GetCommonAncestorWithUpstream(), None))
+          change=self.GetChange(self.GetCommonAncestorWithUpstream(), None),
+          parallel=parallel)
       if not hook_results.should_continue():
         return 1
 
@@ -3041,7 +3043,7 @@ class _GerritChangelistImpl(_ChangelistCodereviewBase):
     if options.send_mail:
       refspec_opts.append('ready')
       refspec_opts.append('notify=ALL')
-    elif not self.GetIssue():
+    elif not self.GetIssue() and options.squash:
       refspec_opts.append('wip')
     else:
       refspec_opts.append('notify=NONE')
@@ -4186,7 +4188,7 @@ def get_cl_statuses(changes, fine_grained, max_processes=None):
       return (cl, cl.GetStatus())
     except:
       # See http://crbug.com/629863.
-      logging.exception('failed to fetch status for %s:', cl)
+      logging.exception('failed to fetch status for cl %s:', cl.GetIssue())
       raise
 
   threads_count = len(changes)
@@ -4793,6 +4795,9 @@ def CMDpresubmit(parser, args):
                     help='Run checks even if tree is dirty')
   parser.add_option('--all', action='store_true',
                     help='Run checks against all files, not just modified ones')
+  parser.add_option('--parallel', action='store_true',
+                    help='Run all tests specified by input_api.RunTests in all '
+                         'PRESUBMIT files in parallel.')
   auth.add_auth_options(parser)
   options, args = parser.parse_args(args)
   auth_config = auth.extract_auth_config_from_options(options)
@@ -4827,7 +4832,8 @@ def CMDpresubmit(parser, args):
       committing=not options.upload,
       may_prompt=False,
       verbose=options.verbose,
-      change=change)
+      change=change,
+      parallel=options.parallel)
   return 0
 
 
@@ -5009,6 +5015,9 @@ def CMDupload(parser, args):
                     help='Sends your change to the CQ after an approval. Only '
                          'works on repos that have the Auto-Submit label '
                          'enabled')
+  parser.add_option('--parallel', action='store_true',
+                    help='Run all tests specified by input_api.RunTests in all '
+                         'PRESUBMIT files in parallel.')
 
   # TODO: remove Rietveld flags
   parser.add_option('--private', action='store_true',
@@ -5116,6 +5125,9 @@ def CMDland(parser, args):
                     help="external contributor for patch (appended to " +
                          "description and used as author for git). Should be " +
                          "formatted as 'First Last <email@example.com>'")
+  parser.add_option('--parallel', action='store_true',
+                    help='Run all tests specified by input_api.RunTests in all '
+                         'PRESUBMIT files in parallel.')
   auth.add_auth_options(parser)
   (options, args) = parser.parse_args(args)
   auth_config = auth.extract_auth_config_from_options(options)
@@ -5143,7 +5155,7 @@ def CMDland(parser, args):
                  '  If you would rather have `git cl land` upload '
                  'automatically for you, see http://crbug.com/642759')
   return cl._codereview_impl.CMDLand(options.force, options.bypass_hooks,
-                                     options.verbose)
+                                     options.verbose, options.parallel)
 
 
 def PushToGitWithAutoRebase(remote, branch, original_description,

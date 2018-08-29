@@ -57,6 +57,7 @@ def getInfoVMTest():
     ret.append(config_lib.VMTestConfig(
         constants.VM_SUITE_TEST_TYPE,
         test_suite=suite,
+        warn_only=True,
         timeout=12 * 60 * 60))
   return ret
 
@@ -197,7 +198,7 @@ class HWTestList(object):
     # hwtest times and shows flakes clearer.
     default_dict = dict(pool=constants.HWTEST_PFQ_POOL, file_bugs=True,
                         priority=constants.HWTEST_PFQ_PRIORITY,
-                        retry=False, max_retries=None, minimum_duts=4)
+                        retry=False, max_retries=None, minimum_duts=1)
     # Allows kwargs overrides to default_dict for pfq.
     default_dict.update(kwargs)
     suite_list = self.DefaultListNonCanary(**default_dict)
@@ -464,7 +465,7 @@ def remove_images(unsupported_images):
 
 TRADITIONAL_VM_TESTS_SUPPORTED = [
     config_lib.VMTestConfig(constants.VM_SUITE_TEST_TYPE,
-                            test_suite='smoke', retry=True),
+                            test_suite='smoke'),
     config_lib.VMTestConfig(constants.SIMPLE_AU_TEST_TYPE),
     config_lib.VMTestConfig(constants.CROS_VM_TEST_TYPE)]
 
@@ -482,6 +483,7 @@ _arm_internal_release_boards = frozenset([
     'bob',
     'capri',
     'capri-zfpga',
+    'cheza',
     'cobblepot',
     'daisy',
     'daisy_skate',
@@ -543,7 +545,6 @@ _x86_internal_release_boards = frozenset([
     'betty',
     'betty-arc64',
     'betty-arcnext',
-    'bettyvirgl',
     'buddy',
     'candy',
     'caroline',
@@ -597,6 +598,7 @@ _x86_internal_release_boards = frozenset([
     'nautilus',
     'newbie',
     'ninja',
+    'nocturne',
     'novato',
     'novato-arc64',
     'octopus',
@@ -738,7 +740,6 @@ _vmtest_boards = frozenset([
     'betty',         # amd64 Chrome OS VM board with 32 bit arm/x86 ARC++ ABI.
     'betty-arc64',   # Chrome OS VM board with 64 bit x86_64 ARC++ ABI.
     'betty-arcnext', # Like betty but with the next version of ARC++.
-    'bettyvirgl',    # Virtualized GL version. Needs special hardware to run.
     'newbie',        # AOSP variant of betty.
     'novato',        # Like betty but with GMSCore but not the Play Store
     'novato-arc64',  # 64 bit x86_64 ARC++ ABI
@@ -1050,7 +1051,6 @@ def GeneralTemplates(site_config, ge_build_config):
       archive_build_debug=True,
       images=['base', 'recovery', 'test', 'factory_install'],
       git_sync=True,
-      trybot_list=True,
       description='Full Builds',
       image_test=True,
       doc='http://www.chromium.org/chromium-os/build/builder-overview#'
@@ -1069,7 +1069,6 @@ def GeneralTemplates(site_config, ge_build_config):
       overlays=constants.PUBLIC_OVERLAYS,
       prebuilts=constants.PUBLIC,
       manifest_version=True,
-      trybot_list=True,
       description='Commit Queue',
       upload_standalone_images=False,
       images=['base', 'test'],
@@ -1080,8 +1079,7 @@ def GeneralTemplates(site_config, ge_build_config):
       # This only applies to vmtest enabled boards like betty and novato.
       vm_tests=[config_lib.VMTestConfig(
           constants.VM_SUITE_TEST_TYPE,
-          test_suite='smoke',
-          retry=True)],
+          test_suite='smoke')],
       vm_tests_override=TRADITIONAL_VM_TESTS_SUPPORTED,
   )
 
@@ -1430,7 +1428,6 @@ def GeneralTemplates(site_config, ge_build_config):
       uprev=True,
       overlays=constants.BOTH_OVERLAYS,
       push_overlays=constants.BOTH_OVERLAYS,
-      trybot_list=False,
       doc='http://www.chromium.org/chromium-os/build/builder-overview#'
           'TOC-Chrome-PFQ',
       active_waterfall=waterfall.WATERFALL_RELEASE)
@@ -1491,7 +1488,7 @@ def GeneralTemplates(site_config, ge_build_config):
       description='Run Unittests repeatedly to look for flake.',
 
       builder_class_name='test_builders.UnittestStressBuilder',
-      active_waterfall=waterfall.WATERFALL_TRYBOT,
+      active_waterfall=waterfall.WATERFALL_SWARMING,
 
       # Make this available, so we can stress a previous build.
       manifest_version=True,
@@ -1538,7 +1535,6 @@ def GeneralTemplates(site_config, ge_build_config):
                 hw_test_list.SharedPoolCanary()),
       paygen=True,
       signer_tests=True,
-      trybot_list=True,
       hwqual=True,
       description="Release Builds (canary) (internal)",
       chrome_sdk=True,
@@ -1553,7 +1549,6 @@ def GeneralTemplates(site_config, ge_build_config):
       'release_afdo',
       site_config.templates.release,
       suite_scheduling=False,
-      trybot_list=False,
       hw_tests=(
           hw_test_list.DefaultList(pool=constants.HWTEST_SUITES_POOL) +
           hw_test_list.AFDOList()
@@ -1635,7 +1630,6 @@ def GeneralTemplates(site_config, ge_build_config):
       paygen=False,
       signer_tests=False,
       sign_types=['factory'],
-      trybot_list=False,
       upload_hw_test_artifacts=False,
       upload_symbols=False,
   )
@@ -1659,7 +1653,6 @@ def GeneralTemplates(site_config, ge_build_config):
       upload_symbols=False,
       useflags=append_useflags(['chromeless_tty']),
       signer_tests=False,
-      trybot_list=False,
       paygen=False,
       image_test=False,
       sign_types=['firmware'],
@@ -1703,7 +1696,7 @@ def GeneralTemplates(site_config, ge_build_config):
       # This is the actual work we want to do.
       paygen=True,
       upload_hw_test_artifacts=False,
-      active_waterfall=waterfall.WATERFALL_TRYBOT,
+      active_waterfall=waterfall.WATERFALL_SWARMING,
   )
 
   site_config.AddTemplate(
@@ -1866,7 +1859,6 @@ def ToolchainBuilders(site_config, boards_dict, ge_build_config):
       manifest=constants.OFFICIAL_MANIFEST,
       manifest_version=True,
       git_sync=False,
-      trybot_list=False,
       description="Toolchain Builds (internal)",
   )
   site_config.AddTemplate(
@@ -1970,6 +1962,7 @@ def ToolchainBuilders(site_config, boards_dict, ge_build_config):
       boards=['grunt'],
   )
 
+
 def PreCqBuilders(site_config, boards_dict, ge_build_config):
   """Create all build configs associated with the PreCQ.
 
@@ -1987,7 +1980,8 @@ def PreCqBuilders(site_config, boards_dict, ge_build_config):
       'pre_cq',
       site_config.templates.paladin,
       display_label=config_lib.DISPLAY_LABEL_PRECQ,
-      active_waterfall=waterfall.WATERFALL_TRYBOT,
+      luci_builder=config_lib.LUCI_BUILDER_PRECQ,
+      active_waterfall=waterfall.WATERFALL_SWARMING,
       build_type=constants.PRE_CQ_TYPE,
       pre_cq=True,
       archive=False,
@@ -2041,10 +2035,8 @@ def PreCqBuilders(site_config, boards_dict, ge_build_config):
       boards=[],
       display_label=config_lib.DISPLAY_LABEL_UTILITY,
       build_type=constants.PRE_CQ_LAUNCHER_TYPE,
-      active_waterfall=waterfall.WATERFALL_INTERNAL,
-      buildslave_type=constants.GCE_WIMPY_BUILD_SLAVE_TYPE,
+      active_waterfall=waterfall.WATERFALL_SWARMING,
       description='Launcher for Pre-CQ builders',
-      trybot_list=False,
       manifest_version=False,
       doc='http://www.chromium.org/chromium-os/build/builder-overview#'
           'TOC-Pre-CQ',
@@ -2182,6 +2174,20 @@ def PreCqBuilders(site_config, boards_dict, ge_build_config):
           'chromeos/chromeos-admin/+/HEAD/puppet/README.md',
   )
 
+  site_config.AddWithoutTemplate(
+      'chromeos-infra-unittests-pre-cq',
+      site_config.templates.pre_cq,
+      site_config.templates.internal,
+      site_config.templates.no_hwtest_builder,
+      site_config.templates.no_unittest_builder,
+      site_config.templates.no_vmtest_builder,
+      boards=[],
+      builder_class_name='infra_builders.InfraUnittestsPreCqBuilder',
+      use_sdk=True,
+      build_timeout=60 * 60,
+      description='Run unittests for infra repositories',
+  )
+
 
 def AndroidPfqBuilders(site_config, boards_dict, ge_build_config):
   """Create all build configs associated with the Android PFQ.
@@ -2245,7 +2251,6 @@ def AndroidPfqBuilders(site_config, boards_dict, ge_build_config):
       'master_android_pfq_mixin',
       site_config.templates.internal,
       site_config.templates.no_vmtest_builder,
-      buildslave_type=constants.GCE_WIMPY_BUILD_SLAVE_TYPE,
       boards=[],
       master=True,
       push_overlays=constants.BOTH_OVERLAYS,
@@ -2276,18 +2281,19 @@ def AndroidPfqBuilders(site_config, boards_dict, ge_build_config):
       buildslave_type=constants.GCE_BEEFY_BUILD_SLAVE_TYPE,
   )
 
-  _pi_hwtest_boards = frozenset([])
-  _pi_no_hwtest_boards = frozenset([
-      'betty-arcnext',
-      'caroline-arcnext',
-      'kevin-arcnext',
-  ])
+  _pi_no_hwtest_boards = frozenset([])
   _pi_no_hwtest_experimental_boards = frozenset([
       'eve-arcnext',
   ])
+  _pi_hwtest_boards = frozenset([
+      'caroline-arcnext',
+      'kevin-arcnext',
+  ])
+  _pi_hwtest_experimental_boards = frozenset([])
   _pi_vmtest_boards = frozenset([])
-
-
+  _pi_vmtest_experimental_boards = frozenset([
+      'betty-arcnext',
+  ])
 
   # Android NYC master.
   nyc_master_config = site_config.Add(
@@ -2297,7 +2303,6 @@ def AndroidPfqBuilders(site_config, boards_dict, ge_build_config):
   )
 
   _nyc_hwtest_boards = frozenset([
-      'caroline',
       'cyan',
       'samus',
       'veyron_jaq',
@@ -2305,6 +2310,7 @@ def AndroidPfqBuilders(site_config, boards_dict, ge_build_config):
   ])
   _nyc_no_hwtest_boards = frozenset([
       'bob',
+      'caroline',
       'coral',
       'hana',
       'reef',
@@ -2374,9 +2380,30 @@ def AndroidPfqBuilders(site_config, boards_dict, ge_build_config):
       ) +
       site_config.AddForBoards(
           'pi-android-pfq',
+          _pi_hwtest_experimental_boards,
+          board_configs,
+          site_config.templates.pi_android_pfq,
+          important=False,
+          active_waterfall=waterfall.WATERFALL_INTERNAL,
+          hw_tests=hw_test_list.SharedPoolAndroidPFQ(),
+      ) +
+      site_config.AddForBoards(
+          'pi-android-pfq',
           _pi_vmtest_boards,
           board_configs,
           site_config.templates.pi_android_pfq,
+          active_waterfall=waterfall.WATERFALL_INTERNAL,
+          vm_tests=[config_lib.VMTestConfig(constants.VM_SUITE_TEST_TYPE,
+                                            test_suite='smoke'),
+                    config_lib.VMTestConfig(constants.SIMPLE_AU_TEST_TYPE)],
+      ) +
+      site_config.AddForBoards(
+          'pi-android-pfq',
+          _pi_vmtest_experimental_boards,
+          board_configs,
+          site_config.templates.pi_android_pfq,
+          important=False,
+          active_waterfall=waterfall.WATERFALL_INTERNAL,
           vm_tests=[config_lib.VMTestConfig(constants.VM_SUITE_TEST_TYPE,
                                             test_suite='smoke'),
                     config_lib.VMTestConfig(constants.SIMPLE_AU_TEST_TYPE)],
@@ -2517,6 +2544,7 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
       'sentry',
       'stout',
       'tatl',
+      'terra',
       'tidus',
       'tricky',
       'veyron_jaq',
@@ -2543,9 +2571,10 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
       'auron',
       'auron_paine',
       'betty-arcnext',
-      'bettyvirgl',
+      'cheza', #contact: philipchen@
       'eve-campfire', # contact:yueherngl@
       'nami',
+      'nocturne', # contact:moragues@
       'octopus',
       'tael',
       'atlas',
@@ -2567,9 +2596,9 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
       'macchiato-ground', # contact:jemele@
       'octavius', # contact:dpjacques@
       'romer', # contact:michaelho@
-      'terra', # contact:yunlian@ (Testing thinlto)
       'whirlwind', # contact:mxt@ (crbug.com/794242, crbug.com/819287)
       'wooten', # contact:icoolidge@
+      'nyan_blaze', # contact: xixuan@
   ])
 
   assert not (_paladin_experimental_boards & _paladin_important_boards), (
@@ -2627,7 +2656,6 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
       site_config.templates.paladin,
       site_config.templates.internal_paladin,
       boards=[],
-      buildslave_type=constants.GCE_WIMPY_BUILD_SLAVE_TYPE,
       master=True,
       slave_configs=[],
       binhost_test=True,
@@ -2638,7 +2666,6 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
       # build_internals/masters/master.chromeos/board_config.py.
       # TODO(mtennant): Fix this.  There should be some amount of auto-
       # configuration in the board_config.py code.
-      trybot_list=False,
       auto_reboot=True,  # TODO(dgarrett): Disable chroot.img stable.
   )
 
@@ -2765,22 +2792,24 @@ def CqBuilders(site_config, boards_dict, ge_build_config):
   # pylint: disable=bad-continuation
   # pylint: disable=bad-whitespace
   _paladin_hwtest_assignments = frozenset([
-    # bvt-inline        bvt-cq           bvt-arc           family
-    ('link',           None,             None),            # ivybridge
-    (None,             None,             None),            # daisy (Exynos5250)
-    ('wolf',           'peppy',          None),            # slippy (HSW)
-    ('peach_pit',      None,             None),            # peach (Exynos5420)
-    ('winky',          'kip',            'quawks'),        # rambi (BYT)
-    ('nyan_big',       'nyan_kitty',     None),            # nyan (K1)
-    ('auron_paine',    'tidus',          'auron_yuna'),    # auron (BDW)
-    ('veyron_mighty',  'veyron_speedy',  'veyron_minnie'), # pinky (RK3288)
-    ('wizpig',         'edgar',          'cyan'),          # strago (BSW)
-    ('cave',           'sentry',         'caroline'),      # glados (SKL)
-    ('elm',            None,             'hana'),          # oak (MTK8173)
-    ('bob',            None,             'kevin'),         # gru (RK3399)
-    ('reef',           None,             None),            # reef (APL)
-    ('coral',          None,             None),            # coral (APL)
-    (None,             'eve',            'soraka'),        # poppy (KBL)
+    # bvt-inline      bvt-cq           bvt-arc           family
+    ('link',          None,            None),            # ivybridge
+    (None,            None,            None),            # daisy (Exynos5250)
+    ('wolf',          'peppy',         None),            # slippy (HSW)
+    ('peach_pit',     None,            None),            # peach (Exynos5420)
+    ('winky',         'kip',           'quawks'),        # rambi (BYT)
+    ('nyan_big',      'nyan_kitty',    None),            # nyan (K1)
+    ('auron_paine',   'tidus',         'auron_yuna'),    # auron (BDW)
+    ('veyron_mighty', 'veyron_speedy', 'veyron_minnie'), # pinky (RK3288)
+    ('wizpig',        'edgar',         'cyan'),          # strago (BSW)
+    ('cave',          'sentry',        None),            # glados (SKL)
+    ('elm',           None,            'hana'),          # oak (MTK8173)
+    ('bob',           None,            'kevin'),         # gru (RK3399)
+    ('reef',          None,            None),            # reef (APL)
+    ('coral',         None,            None),            # coral (APL)
+    (None,            'eve',           'soraka'),        # poppy (KBL)
+    (None,            None,            'kevin-arcnext'), # gru + arcnext
+    (None,            None,            'caroline-arcnext'), # arcnext
   ])
 
   sharded_hw_tests = hw_test_list.DefaultListCQ()
@@ -2911,7 +2940,6 @@ def IncrementalBuilders(site_config, boards_dict, ge_build_config):
       site_config.templates.incremental,
       site_config.templates.beaglebone,
       boards=['beaglebone'],
-      trybot_list=True,
       description='Incremental Beaglebone Builder',
   )
 
@@ -3075,6 +3103,7 @@ def InformationalBuilders(site_config, boards_dict, ge_build_config):
 
   _chrome_informational_hwtest_boards = frozenset([
       'caroline',
+      'eve',
       'peach_pit',
       'reks',
       'tricky',
@@ -3122,11 +3151,11 @@ def InformationalBuilders(site_config, boards_dict, ge_build_config):
       site_config.templates.asan,
       site_config.templates.incremental,
       site_config.templates.no_hwtest_builder,
+      display_label=config_lib.DISPLAY_LABEL_INFORMATIONAL,
       boards=['amd64-generic'],
       description='Build with Address Sanitizer (Clang)',
       # THESE IMAGES CAN DAMAGE THE LAB and cannot be used for hardware testing.
       disk_layout='4gb-rootfs',
-      trybot_list=True,
   )
 
   site_config.Add(
@@ -3143,11 +3172,12 @@ def InformationalBuilders(site_config, boards_dict, ge_build_config):
       site_config.templates.asan,
       site_config.templates.incremental,
       site_config.templates.no_hwtest_builder,
+      site_config.templates.internal,
+      display_label=config_lib.DISPLAY_LABEL_INFORMATIONAL,
       boards=['betty'],
       description='Build with Address Sanitizer (Clang)',
       # THESE IMAGES CAN DAMAGE THE LAB and cannot be used for hardware testing.
       disk_layout='4gb-rootfs',
-      trybot_list=True,
   )
 
   site_config.Add(
@@ -3166,7 +3196,6 @@ def InformationalBuilders(site_config, boards_dict, ge_build_config):
       description='Build for fuzzing testing',
       # THESE IMAGES CAN DAMAGE THE LAB and cannot be used for hardware testing.
       disk_layout='4gb-rootfs',
-      trybot_list=True,
   )
 
   site_config.Add(
@@ -3191,7 +3220,6 @@ def InformationalBuilders(site_config, boards_dict, ge_build_config):
       _chrome_perf_boards,
       internal_board_configs,
       site_config.templates.chrome_perf,
-      trybot_list=True,
   )
 
   site_config.AddForBoards(
@@ -3448,7 +3476,6 @@ def ReleaseBuilders(site_config, boards_dict, ge_build_config):
       'master-release',
       site_config.templates.release,
       boards=[],
-      buildslave_type=constants.GCE_WIMPY_BUILD_SLAVE_TYPE,
       master=True,
       slave_configs=[],
       sync_chrome=False,
@@ -3629,14 +3656,6 @@ def ReleaseBuilders(site_config, boards_dict, ge_build_config):
 
   _AdjustReleaseConfigs()
 
-  def _EnableThinLTO():
-    """Enable thinlto in release builders for selected boards."""
-    for board in _x86_internal_release_boards:
-      config_name = GetReleaseConfigName(board)
-      site_config[config_name].apply(useflags=append_useflags(['thinlto']))
-
-  _EnableThinLTO()
-
 
 def PayloadBuilders(site_config, boards_dict):
   """Create <board>-payloads configs for all payload generating boards.
@@ -3797,16 +3816,20 @@ def ApplyCustomOverrides(site_config, ge_build_config):
           'vm_tests':[],
       },
 
-      'terra-paladin': {
-          'useflags': append_useflags(['thinlto']),
-      },
-
       'terra-release': {
           'useflags': append_useflags(['cfi']),
       },
 
       'caroline-release': {
           'useflags': append_useflags(['cfi']),
+      },
+
+      'elm-release': {
+          'useflags': append_useflags(['thinlto']),
+      },
+
+      'peach_pit-release': {
+          'useflags': append_useflags(['thinlto']),
       },
 
       'chell-chrome-pfq': {
@@ -3822,6 +3845,14 @@ def ApplyCustomOverrides(site_config, ge_build_config):
       },
 
       'cyan-chrome-pfq': {
+          'hw_tests': hw_test_list.SharedPoolAndroidPFQ(),
+      },
+
+      'caroline-arcnext-chrome-pfq': {
+          'hw_tests': hw_test_list.SharedPoolAndroidPFQ(),
+      },
+
+      'kevin-arcnext-chrome-pfq': {
           'hw_tests': hw_test_list.SharedPoolAndroidPFQ(),
       },
 
@@ -3841,10 +3872,6 @@ def ApplyCustomOverrides(site_config, ge_build_config):
           'hw_tests': hw_test_list.SharedPoolPFQ(),
       },
 
-      'terra-chrome-pfq': {
-          'useflags': append_useflags(['thinlto'])
-      },
-
       'tricky-chrome-pfq': {
           'hw_tests': hw_test_list.SharedPoolPFQ(),
       },
@@ -3856,15 +3883,23 @@ def ApplyCustomOverrides(site_config, ge_build_config):
       # After factory and firmware branches are created, the configuation of
       # this project should be removed.
       # --- start from here ---
+      'cheza-release': {
+          'sign_types': ['recovery', 'factory'],
+      },
+
       'poppy-release': {
           'sign_types': ['recovery', 'accessory_rwsig', 'factory'],
       },
 
-      'soraka-release': {
+      'nautilus-release': {
           'sign_types': ['recovery', 'accessory_rwsig', 'factory'],
       },
 
-      'nautilus-release': {
+      'nami-release': {
+          'sign_types': ['recovery', 'factory'],
+      },
+
+      'meowth-release': {
           'sign_types': ['recovery', 'accessory_rwsig', 'factory'],
       },
       # --- end from here ---
@@ -3881,32 +3916,6 @@ def ApplyCustomOverrides(site_config, ge_build_config):
     #   assert config[k] != v, ('Unnecessary override: %s: %s' %
     #                           (config_name, k))
     site_config[config_name].apply(**overrides)
-
-
-def EnrollBoardsForCWPBasedAFDO(site_config):
-  """Enroll selected boards in the AFDO experiment.
-
-  The 14 *-release builders will compile chrome with field profiles. Each of
-  them represent a uarch or SoC.
-
-  All boards except them are still built with profiles trained by a set of
-  benchmarks. Only those selected boards are switched from benchmarks to
-  profiles collected directly from field.
-
-  A roughtly 8% decrease in Chrome CPU usage is expected.
-
-  Args:
-    site_config: config_lib.SiteConfig containing builds to have their
-                 waterfall values updated.
-  """
-  cwp_afdo_boards = ['cyan', 'auron_yuna', 'snappy', 'falco', 'parrot_ivb',
-                     'eve', 'kip', 'cave', 'elm', 'kevin',
-                     'nyan_blaze', 'veyron_minnie', 'daisy']
-
-  for board in cwp_afdo_boards:
-    config_name = board + '-release'
-    site_config[config_name].apply(useflags=append_useflags(['afdo_chrome_exp1',
-                                                             'afdo_use']))
 
 
 def SpecialtyBuilders(site_config, boards_dict, ge_build_config):
@@ -3953,12 +3962,12 @@ def SpecialtyBuilders(site_config, boards_dict, ge_build_config):
       boards=[
           'arm-generic', 'amd64-generic'
       ],
+      display_label=config_lib.DISPLAY_LABEL_UTILITY,
       build_type=constants.CHROOT_BUILDER_TYPE,
       active_waterfall=waterfall.WATERFALL_EXTERNAL,
       buildslave_type=constants.GCE_BEEFY_BUILD_SLAVE_TYPE,
       builder_class_name='sdk_builders.ChrootSdkBuilder',
       use_sdk=False,
-      trybot_list=True,
       prebuilts=constants.PUBLIC,
       build_timeout=18 * 60 * 60,
       description='Build the SDK and all the cross-compilers',
@@ -3977,7 +3986,7 @@ def SpecialtyBuilders(site_config, boards_dict, ge_build_config):
       build_type=constants.GENERIC_TYPE,
       boards=[],
       builder_class_name='alert_builders.SomDispatcherBuilder',
-      active_waterfall=constants.WATERFALL_INTERNAL,
+      active_waterfall=constants.WATERFALL_SWARMING,
       buildslave_type=constants.GCE_BEEFY_BUILD_SLAVE_TYPE,
   )
 
@@ -3993,8 +4002,7 @@ def SpecialtyBuilders(site_config, boards_dict, ge_build_config):
       build_type=constants.GENERIC_TYPE,
       boards=[],
       builder_class_name='config_builders.UpdateConfigBuilder',
-      active_waterfall=waterfall.WATERFALL_INFRA,
-      buildslave_type=constants.GCE_WIMPY_BUILD_SLAVE_TYPE,
+      active_waterfall=constants.WATERFALL_SWARMING,
       binhost_test=True,
   )
 
@@ -4016,7 +4024,7 @@ def SpecialtyBuilders(site_config, boards_dict, ge_build_config):
       build_type=None,
       builder_class_name='release_builders.CreateBranchBuilder',
       description='Used for creating/deleting branches (TPMs only)',
-      active_waterfall=waterfall.WATERFALL_TRYBOT,
+      active_waterfall=waterfall.WATERFALL_SWARMING,
       # This very weird tryjob is only run locally. It should never upload
       # build artifacts.
       archive=False,
@@ -4032,7 +4040,7 @@ def SpecialtyBuilders(site_config, boards_dict, ge_build_config):
       builder_class_name='test_builders.ManifestVersionedSyncBuilder',
       chroot_replace=True,
       description='Sync tryjob to help with cbuildbot development',
-      active_waterfall=waterfall.WATERFALL_TRYBOT,
+      active_waterfall=waterfall.WATERFALL_SWARMING,
   )
 
 
@@ -4185,6 +4193,7 @@ def TryjobMirrors(site_config):
     tryjob_config.apply(
         name=tryjob_name,
         display_label=config_lib.DISPLAY_LABEL_TRYJOB,
+        luci_builder=config_lib.LUCI_BUILDER_TRY,
         # Generally make tryjobs safer.
         chroot_replace=True,
         debug=True,
@@ -4193,7 +4202,7 @@ def TryjobMirrors(site_config):
         push_overlays=None,
         # Force uprev. This is so patched in changes are always built.
         uprev=True,
-        active_waterfall=waterfall.WATERFALL_TRYBOT,
+        active_waterfall=waterfall.WATERFALL_SWARMING,
         gs_path=config_lib.GS_PATH_DEFAULT,
     )
 
@@ -4274,8 +4283,6 @@ def GetConfig():
 
   # Assign waterfalls to builders that don't have them yet.
   InsertWaterfallDefaults(site_config, ge_build_config)
-
-  EnrollBoardsForCWPBasedAFDO(site_config)
 
   ApplyCustomOverrides(site_config, ge_build_config)
 

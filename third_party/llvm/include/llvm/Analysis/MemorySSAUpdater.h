@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 //
 // \file
-// \brief An automatic updater for MemorySSA that handles arbitrary insertion,
+// An automatic updater for MemorySSA that handles arbitrary insertion,
 // deletion, and moves.  It performs phi insertion where necessary, and
 // automatically updates the MemorySSA IR to be correct.
 // While updating loads or removing instructions is often easy enough to not
@@ -33,6 +33,7 @@
 #define LLVM_ANALYSIS_MEMORYSSAUPDATER_H
 
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/MemorySSA.h"
 #include "llvm/IR/BasicBlock.h"
@@ -61,6 +62,7 @@ private:
   MemorySSA *MSSA;
   SmallVector<MemoryPhi *, 8> InsertedPHIs;
   SmallPtrSet<BasicBlock *, 8> VisitedBlocks;
+  SmallSet<AssertingVH<MemoryPhi>, 8> NonOptPhis;
 
 public:
   MemorySSAUpdater(MemorySSA *MSSA) : MSSA(MSSA) {}
@@ -94,7 +96,7 @@ public:
   // the edge cases right, and the above calls already operate in near-optimal
   // time bounds.
 
-  /// \brief Create a MemoryAccess in MemorySSA at a specified point in a block,
+  /// Create a MemoryAccess in MemorySSA at a specified point in a block,
   /// with a specified clobbering definition.
   ///
   /// Returns the new MemoryAccess.
@@ -111,7 +113,7 @@ public:
                                        const BasicBlock *BB,
                                        MemorySSA::InsertionPlace Point);
 
-  /// \brief Create a MemoryAccess in MemorySSA before or after an existing
+  /// Create a MemoryAccess in MemorySSA before or after an existing
   /// MemoryAccess.
   ///
   /// Returns the new MemoryAccess.
@@ -128,7 +130,7 @@ public:
                                           MemoryAccess *Definition,
                                           MemoryAccess *InsertPt);
 
-  /// \brief Remove a MemoryAccess from MemorySSA, including updating all
+  /// Remove a MemoryAccess from MemorySSA, including updating all
   /// definitions and uses.
   /// This should be called when a memory instruction that has a MemoryAccess
   /// associated with it is erased from the program.  For example, if a store or

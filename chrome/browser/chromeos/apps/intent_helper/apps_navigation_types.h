@@ -21,6 +21,9 @@ enum class AppType {
 
   // An Android app.
   ARC,
+
+  // A Progressive Web App.
+  PWA,
 };
 
 // Describes the possible ways for the intent picker to be closed.
@@ -101,7 +104,7 @@ using AppsNavigationCallback =
 
 // Callback to allow app-platform-specific code to asynchronously provide a list
 // of apps which can handle the navigation.
-using QueryAppsCallback =
+using GetAppsCallback =
     base::OnceCallback<void(std::vector<IntentPickerAppInfo> apps)>;
 
 }  // namespace chromeos

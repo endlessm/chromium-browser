@@ -41,7 +41,8 @@ class ChromeKeyboardUI : public keyboard::KeyboardUI,
  public:
   class TestApi {
    public:
-    static void SetOverrideVirtualKeyboardUrl(base::Optional<GURL> url);
+    // Use an empty |url| to clear the override.
+    static void SetOverrideVirtualKeyboardUrl(const GURL& url);
 
    private:
     DISALLOW_IMPLICIT_CONSTRUCTORS(TestApi);
@@ -80,7 +81,7 @@ class ChromeKeyboardUI : public keyboard::KeyboardUI,
 
   const aura::Window* GetKeyboardRootWindow() const;
 
-  virtual content::WebContents* CreateWebContents();
+  virtual std::unique_ptr<content::WebContents> CreateWebContents();
 
  private:
   friend class TestApi;
@@ -119,7 +120,7 @@ class ChromeKeyboardUI : public keyboard::KeyboardUI,
 
   // The BrowserContext to use for creating the WebContents hosting the
   // keyboard.
-  content::BrowserContext* browser_context_;
+  content::BrowserContext* const browser_context_;
 
   const GURL default_url_;
 

@@ -96,6 +96,7 @@ extern const base::Feature kContentFullscreen;
 
 #if defined(OS_CHROMEOS)
 extern const base::Feature kCrostini;
+extern const base::Feature kUsageTimeLimitPolicy;
 #endif
 
 #if defined(OS_WIN)
@@ -105,6 +106,9 @@ extern const base::Feature kDesktopIOSPromotion;
 extern const base::Feature kDesktopPWAWindowing;
 
 extern const base::Feature kDesktopPWAsLinkCapturing;
+
+extern const base::Feature kDisallowUnsafeHttpDownloads;
+extern const char kDisallowUnsafeHttpDownloadsParamName[];
 
 #if !defined(OS_ANDROID)
 extern const base::Feature kDoodlesOnLocalNtp;
@@ -118,11 +122,6 @@ extern const base::Feature kDownloadsForeground;
 extern const base::Feature kDownloadsLocationChange;
 #endif
 
-#if defined(OS_CHROMEOS)
-extern const base::Feature kEnableUnifiedMultiDeviceSettings;
-extern const base::Feature kEnableUnifiedMultiDeviceSetup;
-#endif
-
 extern const base::Feature kExpectCTReporting;
 
 extern const base::Feature kExperimentalAppBanners;
@@ -131,7 +130,7 @@ extern const base::Feature kExperimentalAppBanners;
 extern const base::Feature kExperimentalCrostiniUI;
 #endif
 
-extern const base::Feature kExperimentalKeyboardLockUI;
+extern const base::Feature kExternalExtensionDefaultButtonControl;
 
 // Android expects this string from Java code, so it is always needed.
 // TODO(crbug.com/731802): Use #if BUILDFLAG(ENABLE_VR_BROWSING) instead.
@@ -139,7 +138,6 @@ extern const base::Feature kExperimentalKeyboardLockUI;
 extern const base::Feature kVrBrowsing;
 #endif
 #if BUILDFLAG(ENABLE_VR)
-extern const base::Feature kVrBrowserKeyboard;
 extern const base::Feature kVrBrowsingExperimentalFeatures;
 extern const base::Feature kVrBrowsingExperimentalRendering;
 
@@ -197,8 +195,6 @@ extern const base::Feature kMacFullSizeContentView;
 extern const base::Feature kMacSystemShareMenu;
 #endif
 
-extern const base::Feature kMaterialDesignBookmarks;
-
 #if defined(OS_MACOSX)
 extern const base::Feature kMacMaterialDesignDownloadShelf;
 #endif
@@ -208,11 +204,11 @@ extern const base::Feature kMaterialDesignExtensions;
 extern const base::Feature kAcknowledgeNtpOverrideOnDeactivate;
 #endif
 
-extern const base::Feature kMaterialDesignIncognitoNTP;
-
-#if !defined(OS_ANDROID)
-extern const base::Feature kMediaRemoting;
+#if defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+extern const base::Feature kWarnBeforeQuitting;
 #endif
+
+extern const base::Feature kMaterialDesignIncognitoNTP;
 
 extern const base::Feature kModalPermissionPrompts;
 
@@ -234,6 +230,12 @@ extern const base::Feature kNetworkPrediction;
 #if defined(OS_POSIX)
 extern const base::Feature kNtlmV2Enabled;
 #endif
+
+extern const base::Feature kNtpBackgrounds;
+
+extern const base::Feature kNtpIcons;
+
+extern const base::Feature kNtpUIMd;
 
 extern const base::Feature kOfflinePageDownloadSuggestionsFeature;
 
@@ -270,10 +272,6 @@ extern const base::Feature kNewPrintPreview;
 extern const base::Feature kNupPrinting;
 #endif
 
-#if BUILDFLAG(ENABLE_PRINT_PREVIEW) && !defined(OS_WIN) && !defined(OS_MACOSX)
-extern const base::Feature kPrintPdfAsImage;
-#endif
-
 extern const base::Feature kPushMessagingBackgroundMode;
 
 #if !defined(OS_ANDROID)
@@ -292,7 +290,7 @@ extern const base::Feature kShowAllDialogsWithViewsToolkit;
 extern const base::Feature kShowTrustedPublisherURL;
 #endif
 
-extern const base::Feature kSimplifiedFullscreenUI;
+extern const base::Feature kSiteSettings;
 
 #if defined(OS_ANDROID)
 extern const base::Feature kSiteNotificationChannels;
@@ -308,8 +306,6 @@ extern const base::Feature kNativeSmb;
 #endif
 
 extern const base::Feature kSoundContentSetting;
-
-extern const base::Feature kSupervisedUserCreation;
 
 extern const base::Feature kSupervisedUserCommittedInterstitials;
 
@@ -330,6 +326,8 @@ extern const base::Feature kAdaptiveScreenBrightnessLogging;
 
 extern const base::Feature kUserActivityEventLogging;
 #endif
+
+extern const base::Feature kUseSameCacheForMedia;
 
 #if !defined(OS_ANDROID)
 extern const base::Feature kVoiceSearchOnLocalNtp;
@@ -352,13 +350,13 @@ extern const base::Feature kCrosCompUpdates;
 
 extern const base::Feature kCrOSComponent;
 
-extern const base::Feature kCrOSContainer;
-
 extern const base::Feature kInstantTethering;
 
 extern const base::Feature kEasyUnlockPromotions;
 
 extern const base::Feature kTPMFirmwareUpdate;
+
+extern const base::Feature kCrOSEnableUSMUserService;
 #endif  // defined(OS_CHROMEOS)
 
 #if defined(OS_WIN)

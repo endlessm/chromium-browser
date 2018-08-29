@@ -7,7 +7,6 @@
 
 #include "ash/public/interfaces/login_screen.mojom.h"
 #include "base/macros.h"
-#include "components/password_manager/public/interfaces/sync_password_data.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
 
@@ -26,7 +25,6 @@ class LoginScreenClient : public ash::mojom::LoginScreenClient {
     virtual void HandleAuthenticateUser(
         const AccountId& account_id,
         const std::string& hashed_password,
-        const password_manager::SyncPasswordData& sync_password_data,
         bool authenticated_by_pin,
         AuthenticateUserCallback callback) = 0;
     virtual void HandleAttemptUnlock(const AccountId& account_id) = 0;
@@ -59,12 +57,10 @@ class LoginScreenClient : public ash::mojom::LoginScreenClient {
   ash::mojom::LoginScreenPtr& login_screen();
 
   // ash::mojom::LoginScreenClient:
-  void AuthenticateUser(
-      const AccountId& account_id,
-      const std::string& hashed_password,
-      const password_manager::SyncPasswordData& sync_password_data,
-      bool authenticated_by_pin,
-      AuthenticateUserCallback callback) override;
+  void AuthenticateUser(const AccountId& account_id,
+                        const std::string& password,
+                        bool authenticated_by_pin,
+                        AuthenticateUserCallback callback) override;
   void AttemptUnlock(const AccountId& account_id) override;
   void HardlockPod(const AccountId& account_id) override;
   void RecordClickOnLockIcon(const AccountId& account_id) override;
@@ -76,20 +72,29 @@ class LoginScreenClient : public ash::mojom::LoginScreenClient {
   void LoginAsGuest() override;
   void OnMaxIncorrectPasswordAttempted(const AccountId& account_id) override;
   void FocusLockScreenApps(bool reverse) override;
-  void ShowGaiaSignin() override;
+  void ShowGaiaSignin(const base::Optional<AccountId>& account_id) override;
   void OnRemoveUserWarningShown() override;
   void RemoveUser(const AccountId& account_id) override;
   void LaunchPublicSession(const AccountId& account_id,
                            const std::string& locale,
                            const std::string& input_method) override;
+  void RequestPublicSessionKeyboardLayouts(const AccountId& account_id,
+                                           const std::string& locale) override;
 
  private:
+  void SetPublicSessionKeyboardLayout(
+      const AccountId& account_id,
+      const std::string& locale,
+      std::unique_ptr<base::ListValue> keyboard_layouts);
+
   // Lock screen mojo service in ash.
   ash::mojom::LoginScreenPtr login_screen_;
 
   // Binds this object to the client interface.
   mojo::Binding<ash::mojom::LoginScreenClient> binding_;
   Delegate* delegate_ = nullptr;
+
+  base::WeakPtrFactory<LoginScreenClient> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(LoginScreenClient);
 };

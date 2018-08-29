@@ -44,18 +44,18 @@
 #include "chrome/browser/ui/startup/obsolete_system_infobar_delegate.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/test/test_browser_ui.h"
-#include "chrome/common/chrome_switches.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/infobars/core/infobar.h"
 #include "components/nacl/common/buildflags.h"
-#include "content/public/common/content_switches.h"
 #include "extensions/browser/extension_dialog_auto_confirm.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/test_extension_registry_observer.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "services/service_manager/sandbox/switches.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/ui_features.h"
 
@@ -241,7 +241,7 @@ void InfoBarUiTest::ShowUi(const std::string& name) {
   switch (expected_identifiers_.back()) {
     case IBD::APP_BANNER_INFOBAR_DELEGATE:
       banners::AppBannerInfoBarDelegateDesktop::Create(
-          GetWebContents(), nullptr, nullptr, content::Manifest());
+          GetWebContents(), nullptr, nullptr, blink::Manifest());
       break;
 
     case IBD::HUNG_PLUGIN_INFOBAR_DELEGATE:
@@ -337,7 +337,9 @@ void InfoBarUiTest::ShowUi(const std::string& name) {
       InstallationErrorInfoBarDelegate::Create(
           GetInfoBarService(),
           extensions::CrxInstallError(
-              extensions::CrxInstallError::ERROR_OFF_STORE, msg));
+              extensions::CrxInstallErrorType::OTHER,
+              extensions::CrxInstallErrorDetail::OFFSTORE_INSTALL_DISALLOWED,
+              msg));
       break;
     }
 
@@ -352,7 +354,7 @@ void InfoBarUiTest::ShowUi(const std::string& name) {
     case IBD::BAD_FLAGS_INFOBAR_DELEGATE:
       chrome::ShowBadFlagsInfoBar(GetWebContents(),
                                   IDS_BAD_FLAGS_WARNING_MESSAGE,
-                                  switches::kNoSandbox);
+                                  service_manager::switches::kNoSandbox);
       break;
 
     case IBD::DEFAULT_BROWSER_INFOBAR_DELEGATE:
@@ -388,6 +390,12 @@ void InfoBarUiTest::ShowUi(const std::string& name) {
 #if defined(USE_AURA)
       ADD_FAILURE() << "This infobar is not supported on this toolkit.";
 #else
+#if BUILDFLAG(MAC_VIEWS_BROWSER)
+      if (!views_mode_controller::IsViewsBrowserCocoa()) {
+        ADD_FAILURE() << "This infobar is unsupported in the MacViews browser.";
+        return;
+      }
+#endif
       ChromeTranslateClient::CreateForWebContents(GetWebContents());
       ChromeTranslateClient* translate_client =
           ChromeTranslateClient::FromWebContents(GetWebContents());
@@ -569,6 +577,11 @@ IN_PROC_BROWSER_TEST_F(InfoBarUiTest, InvokeUi_page_info) {
 
 #if !defined(USE_AURA)
 IN_PROC_BROWSER_TEST_F(InfoBarUiTest, InvokeUi_translate) {
+#if BUILDFLAG(MAC_VIEWS_BROWSER)
+  // The translate infobar is not supported in Mac Views mode.
+  if (!views_mode_controller::IsViewsBrowserCocoa())
+    return;
+#endif
   ShowAndVerifyUi();
 }
 #endif

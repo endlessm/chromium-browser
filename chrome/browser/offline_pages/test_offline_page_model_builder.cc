@@ -15,7 +15,7 @@
 #include "components/offline_pages/core/archive_manager.h"
 #include "components/offline_pages/core/model/offline_page_model_taskified.h"
 #include "components/offline_pages/core/offline_page_metadata_store_sql.h"
-#include "components/offline_pages/core/system_download_manager_stub.h"
+#include "components/offline_pages/core/stub_system_download_manager.h"
 #include "content/public/browser/browser_context.h"
 
 namespace {
@@ -37,10 +37,10 @@ std::unique_ptr<KeyedService> BuildTestOfflinePageModel(
   base::FilePath private_archives_dir =
       context->GetPath().Append(chrome::kOfflinePageArchivesDirname);
   base::FilePath public_archives_dir("/sdcard/Download");
-  // If PathService::Get returns false, the temporary_archives_dir will be
+  // If base::PathService::Get returns false, the temporary_archives_dir will be
   // empty, and no temporary pages will be saved during this chrome lifecycle.
   base::FilePath temporary_archives_dir;
-  if (PathService::Get(base::DIR_CACHE, &temporary_archives_dir)) {
+  if (base::PathService::Get(base::DIR_CACHE, &temporary_archives_dir)) {
     temporary_archives_dir =
         temporary_archives_dir.Append(chrome::kOfflinePageArchivesDirname);
   }
@@ -48,7 +48,7 @@ std::unique_ptr<KeyedService> BuildTestOfflinePageModel(
       new ArchiveManager(temporary_archives_dir, private_archives_dir,
                          public_archives_dir, task_runner));
   std::unique_ptr<SystemDownloadManager> stub_download_manager(
-      new SystemDownloadManagerStub(kDownloadId, true));
+      new StubSystemDownloadManager(kDownloadId, true));
 
   return std::unique_ptr<KeyedService>(new OfflinePageModelTaskified(
       std::move(metadata_store), std::move(archive_manager),

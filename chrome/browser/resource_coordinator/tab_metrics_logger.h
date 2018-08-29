@@ -10,6 +10,8 @@
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "ui/base/page_transition_types.h"
 
+class Browser;
+
 namespace base {
 class TimeDelta;
 }  // namespace base
@@ -17,6 +19,11 @@ class TimeDelta;
 namespace content {
 class WebContents;
 }  // namespace content
+
+namespace tab_ranker {
+struct MRUFeatures;
+struct TabFeatures;
+}  // namespace tab_ranker
 
 // Logs metrics for a tab and its WebContents when requested.
 // Must be used on the UI thread.
@@ -31,6 +38,8 @@ class TabMetricsLogger {
     int mouse_event_count = 0;
     // Number of touch events.
     int touch_event_count = 0;
+    // Number of times this tab has been reactivated.
+    int num_reactivations = 0;
   };
 
   // The state of a tab.
@@ -45,13 +54,6 @@ class TabMetricsLogger {
     PageMetrics page_metrics = {};
   };
 
-  // Index in most-recently-used order and total number of tabs.
-  struct MRUMetrics {
-    int index = 0;  // Zero-based, so this indicates how many of the |total|
-                    // tabs are more recently used than this tab.
-    int total = 0;
-  };
-
   TabMetricsLogger();
   ~TabMetricsLogger();
 
@@ -64,13 +66,13 @@ class TabMetricsLogger {
   // shown after being inactive.
   void LogBackgroundTabShown(ukm::SourceId ukm_source_id,
                              base::TimeDelta inactive_duration,
-                             const MRUMetrics& mru_metrics);
+                             const tab_ranker::MRUFeatures& mru_metrics);
 
   // Logs TabManager.Background.ForegroundedOrClosed UKM for a tab that was
   // closed after being inactive.
   void LogBackgroundTabClosed(ukm::SourceId ukm_source_id,
                               base::TimeDelta inactive_duration,
-                              const MRUMetrics& mru_metrics);
+                              const tab_ranker::MRUFeatures& mru_metrics);
 
   // Logs TabManager.TabLifetime UKM for a closed tab.
   void LogTabLifetime(ukm::SourceId ukm_source_id,
@@ -80,15 +82,18 @@ class TabMetricsLogger {
   static metrics::TabMetricsEvent::ContentType GetContentTypeFromMimeType(
       const std::string& mime_type);
 
-  // Returns the ProtocolHandlerScheme enumerator matching the string.
-  // The enumerator value is used in the UKM entry, since UKM entries can't
-  // store strings.
-  static metrics::TabMetricsEvent::ProtocolHandlerScheme
-  GetSchemeValueFromString(const std::string& scheme);
-
   // Returns the site engagement score for the WebContents, rounded down to 10s
   // to limit granularity. Returns -1 if site engagement service is disabled.
   static int GetSiteEngagementScore(const content::WebContents* web_contents);
+
+  // Creates TabFeatures for logging or scoring tabs.
+  // A common function for populating these features ensures that the same
+  // values are used for logging training examples to UKM and for locally
+  // scoring tabs.
+  static tab_ranker::TabFeatures GetTabFeatures(
+      const Browser* browser,
+      const TabMetrics& tab_metrics,
+      base::TimeDelta inactive_duration);
 
  private:
   // A counter to be incremented and logged with each UKM entry, used to

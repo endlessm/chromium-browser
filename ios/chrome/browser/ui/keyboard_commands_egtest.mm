@@ -9,7 +9,9 @@
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/browser_view_controller.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_controller.h"
-#import "ios/chrome/browser/ui/table_view/table_container_constants.h"
+#import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
+#import "ios/chrome/browser/ui/table_view/table_view_navigation_controller_constants.h"
+#import "ios/chrome/browser/ui/tools_menu/public/tools_menu_constants.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
@@ -118,6 +120,12 @@ using chrome_test_util::SettingsDoneButton;
   BOOL success = chrome_test_util::ClearBookmarks();
   GREYAssert(success, @"Not all bookmarks were removed.");
 
+  // Load a webpage because the NTP is not always bookmarkable.
+  web::test::SetUpFileBasedHttpServer();
+  GURL URL = web::test::HttpServer::MakeUrl(
+      "http://ios/testing/data/http_server_files/pony.html");
+  [ChromeEarlGrey loadURL:URL];
+
   // Bookmark page
   if (IsIPadIdiom()) {
     id<GREYMatcher> bookmarkMatcher =
@@ -126,9 +134,21 @@ using chrome_test_util::SettingsDoneButton;
         performAction:grey_tap()];
   } else {
     [ChromeEarlGreyUI openToolsMenu];
-    id<GREYMatcher> bookmarkMatcher = grey_accessibilityLabel(@"Add Bookmark");
-    [[EarlGrey selectElementWithMatcher:bookmarkMatcher]
-        performAction:grey_tap()];
+    if (IsUIRefreshPhase1Enabled()) {
+      [[[EarlGrey
+          selectElementWithMatcher:grey_allOf(grey_accessibilityID(
+                                                  kToolsMenuAddToBookmarks),
+                                              grey_sufficientlyVisible(), nil)]
+             usingSearchAction:grey_scrollInDirection(kGREYDirectionDown, 200)
+          onElementWithMatcher:grey_accessibilityID(
+                                   kPopupMenuToolsMenuTableViewId)]
+          performAction:grey_tap()];
+
+    } else {
+      [[EarlGrey
+          selectElementWithMatcher:grey_accessibilityLabel(@"Add Bookmark")]
+          performAction:grey_tap()];
+    }
   }
 
   // Tap on the HUD.
@@ -172,7 +192,7 @@ using chrome_test_util::SettingsDoneButton;
   // a11y ID for the dismiss button depends on the UIRefresh experiment.
   id<GREYMatcher> exitMatcher = nil;
   if (IsUIRefreshPhase1Enabled()) {
-    exitMatcher = grey_accessibilityID(kTableContainerDismissButtonId);
+    exitMatcher = grey_accessibilityID(kTableViewNavigationDismissButtonId);
   } else {
     exitMatcher = grey_accessibilityID(@"Exit");
   }
@@ -190,10 +210,16 @@ using chrome_test_util::SettingsDoneButton;
   [self verifyKeyboardCommandsAreRegistered];
 
   UIResponder* firstResponder = GetFirstResponder();
-  GREYAssert(
-      [firstResponder isKindOfClass:NSClassFromString(@"WKContentView")],
-      @"Expected first responder to be a WKContentView. Instead, is a %@",
-      NSStringFromClass([firstResponder class]));
+  if (@available(iOS 11.3, *)) {
+    GREYAssert([firstResponder isKindOfClass:NSClassFromString(@"WKWebView")],
+               @"Expected first responder to be a WKWebView. Instead, is a %@",
+               NSStringFromClass([firstResponder class]));
+  } else {
+    GREYAssert(
+        [firstResponder isKindOfClass:NSClassFromString(@"WKContentView")],
+        @"Expected first responder to be a WKContentView. Instead, is a %@",
+        NSStringFromClass([firstResponder class]));
+  }
 }
 
 @end

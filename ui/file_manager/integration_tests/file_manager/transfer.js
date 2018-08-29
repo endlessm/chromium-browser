@@ -40,6 +40,11 @@ function copyBetweenVolumes(targetFile,
       chrome.test.assertTrue(result);
       remoteCall.waitForFiles(appId, srcContents).then(this.next);
     },
+    // Set focus on the file list.
+    function() {
+      remoteCall.callRemoteTestUtil(
+          'focus', appId, ['#file-list:not([hidden])'], this.next);
+    },
     // Select the source file.
     function() {
       remoteCall.callRemoteTestUtil(
@@ -97,67 +102,73 @@ function copyBetweenVolumes(targetFile,
 }
 
 /**
- * Tests copy from drive's root to local's downloads.
+ * Tests copying from Drive to Downloads.
  */
-testcase.transferFromDriveToDownloads = copyBetweenVolumes.bind(
-    null,
-    ENTRIES.hello,
-    'drive',
-    BASIC_DRIVE_ENTRY_SET,
-    'downloads',
-    BASIC_LOCAL_ENTRY_SET);
+testcase.transferFromDriveToDownloads = function() {
+  copyBetweenVolumes(
+      ENTRIES.hello,
+      'drive',
+      BASIC_DRIVE_ENTRY_SET,
+      'downloads',
+      BASIC_LOCAL_ENTRY_SET);
+};
 
 /**
- * Tests copy from local's downloads to drive's root.
+ * Tests copying from Downloads to Drive.
  */
-testcase.transferFromDownloadsToDrive = copyBetweenVolumes.bind(
-    null,
-    ENTRIES.hello,
-    'downloads',
-    BASIC_LOCAL_ENTRY_SET,
-    'drive',
-    BASIC_DRIVE_ENTRY_SET);
+testcase.transferFromDownloadsToDrive = function() {
+  copyBetweenVolumes(
+      ENTRIES.hello,
+      'downloads',
+      BASIC_LOCAL_ENTRY_SET,
+      'drive',
+      BASIC_DRIVE_ENTRY_SET);
+};
 
 /**
- * Tests copy from drive's shared_with_me to local's downloads.
+ * Tests copying from Drive shared with me to Downloads.
  */
-testcase.transferFromSharedToDownloads = copyBetweenVolumes.bind(
-    null,
-    ENTRIES.testSharedDocument,
-    'drive_shared_with_me',
-    SHARED_WITH_ME_ENTRY_SET,
-    'downloads',
-    BASIC_LOCAL_ENTRY_SET);
+testcase.transferFromSharedToDownloads = function() {
+  copyBetweenVolumes(
+      ENTRIES.testSharedDocument,
+      'drive_shared_with_me',
+      SHARED_WITH_ME_ENTRY_SET,
+      'downloads',
+      BASIC_LOCAL_ENTRY_SET);
+};
 
 /**
- * Tests copy from drive's shared_with_me to drive's root.
+ * Tests copying from Drive shared with me to Drive.
  */
-testcase.transferFromSharedToDrive = copyBetweenVolumes.bind(
-    null,
-    ENTRIES.testSharedDocument,
-    'drive_shared_with_me',
-    SHARED_WITH_ME_ENTRY_SET,
-    'drive',
-    BASIC_DRIVE_ENTRY_SET);
+testcase.transferFromSharedToDrive = function() {
+  copyBetweenVolumes(
+      ENTRIES.testSharedDocument,
+      'drive_shared_with_me',
+      SHARED_WITH_ME_ENTRY_SET,
+      'drive',
+      BASIC_DRIVE_ENTRY_SET);
+};
 
 /**
- * Tests copy from drive's offline to local's downloads.
+ * Tests copying from Drive offline to Downloads.
  */
-testcase.transferFromOfflineToDownloads = copyBetweenVolumes.bind(
-    null,
-    ENTRIES.testDocument,
-    'drive_offline',
-    OFFLINE_ENTRY_SET,
-    'downloads',
-    BASIC_LOCAL_ENTRY_SET);
+testcase.transferFromOfflineToDownloads = function() {
+  copyBetweenVolumes(
+      ENTRIES.testDocument,
+      'drive_offline',
+      OFFLINE_ENTRY_SET,
+      'downloads',
+      BASIC_LOCAL_ENTRY_SET);
+};
 
 /**
- * Tests copy from drive's offline to drive's root.
+ * Tests copying from Drive offline to Drive.
  */
-testcase.transferFromOfflineToDrive = copyBetweenVolumes.bind(
-    null,
-    ENTRIES.testDocument,
-    'drive_offline',
-    OFFLINE_ENTRY_SET,
-    'drive',
-    BASIC_DRIVE_ENTRY_SET);
+testcase.transferFromOfflineToDrive = function() {
+  copyBetweenVolumes(
+      ENTRIES.testDocument,
+      'drive_offline',
+      OFFLINE_ENTRY_SET,
+      'drive',
+      BASIC_DRIVE_ENTRY_SET);
+};

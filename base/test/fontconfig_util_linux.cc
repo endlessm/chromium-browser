@@ -29,30 +29,6 @@ const char kFontsConfTemplate[] = R"(<?xml version="1.0"?>
   <!-- GCS-synced fonts. -->
   <dir>$2</dir>
 
-  <!-- System fonts.  TODO(thomasanderson): Remove these. -->
-  <dir>/usr/share/fonts/truetype/msttcorefonts</dir>
-
-  <!-- The rejectfont element is used to exclude entire directories.  Then
-       acceptfont can be used to add specific fonts back.  Use this feature to
-       whitelist specific fonts from msttcorefonts while we transition to using
-       our own fonts. -->
-  <selectfont>
-    <rejectfont>
-      <glob>/usr/share/fonts/truetype/msttcorefonts/*</glob>
-    </rejectfont>
-
-    <!-- Do not add more fonts to this list. -->
-    <acceptfont>
-      <glob>/usr/share/fonts/truetype/msttcorefonts/Comic_Sans_MS.ttf</glob>
-    </acceptfont>
-    <acceptfont>
-      <glob>/usr/share/fonts/truetype/msttcorefonts/Comic_Sans_MS_Bold.ttf</glob>
-    </acceptfont>
-    <acceptfont>
-      <glob>/usr/share/fonts/truetype/msttcorefonts/Impact.ttf</glob>
-    </acceptfont>
-  </selectfont>
-
   <!-- Default properties. -->
   <match target="font">
     <edit name="embeddedbitmap" mode="append_last">
@@ -435,28 +411,6 @@ void SetUpFontconfig() {
 
 void TearDownFontconfig() {
   FcFini();
-}
-
-bool LoadFontIntoFontconfig(const FilePath& path) {
-  if (!PathExists(path)) {
-    LOG(ERROR) << "You are missing " << path.value() << ". Try re-running "
-               << "build/install-build-deps.sh. "
-               << "Please make sure that "
-               << "third_party/test_fonts/ has downloaded "
-               << "and extracted the test_fonts."
-               << "Also see "
-               << "https://chromium.googlesource.com/chromium/src/+/master/"
-               << "docs/layout_tests_linux.md";
-    return false;
-  }
-
-  if (!FcConfigAppFontAddFile(
-          NULL, reinterpret_cast<const FcChar8*>(path.value().c_str()))) {
-    LOG(ERROR) << "Failed to load font " << path.value();
-    return false;
-  }
-
-  return true;
 }
 
 bool LoadConfigFileIntoFontconfig(const FilePath& path) {

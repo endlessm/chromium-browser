@@ -10,6 +10,9 @@
 #include <utility>
 #include <vector>
 
+#include "ash/events/event_rewriter_controller.h"
+#include "ash/public/interfaces/constants.mojom.h"
+#include "ash/public/interfaces/event_rewriter_controller.mojom.h"
 #include "ash/shell.h"
 #include "ash/sticky_keys/sticky_keys_controller.h"
 #include "base/bind.h"
@@ -34,7 +37,7 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/accessibility/magnification_manager.h"
-#include "chrome/browser/chromeos/accessibility/spoken_feedback_event_rewriter.h"
+#include "chrome/browser/chromeos/accessibility/spoken_feedback_event_rewriter_delegate.h"
 #include "chrome/browser/chromeos/app_mode/arc/arc_kiosk_app_manager.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_launch_error.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
@@ -43,21 +46,16 @@
 #include "chrome/browser/chromeos/arc/voice_interaction/voice_interaction_controller_client.h"
 #include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/chromeos/boot_times_recorder.h"
-#include "chrome/browser/chromeos/dbus/chrome_component_updater_service_provider_delegate.h"
-#include "chrome/browser/chromeos/dbus/chrome_console_service_provider_delegate.h"
-#include "chrome/browser/chromeos/dbus/chrome_display_power_service_provider_delegate.h"
 #include "chrome/browser/chromeos/dbus/chrome_proxy_resolution_service_provider_delegate.h"
 #include "chrome/browser/chromeos/dbus/chrome_virtual_file_request_service_provider_delegate.h"
+#include "chrome/browser/chromeos/dbus/component_updater_service_provider.h"
 #include "chrome/browser/chromeos/dbus/finch_features_service_provider_delegate.h"
 #include "chrome/browser/chromeos/dbus/kiosk_info_service_provider.h"
 #include "chrome/browser/chromeos/dbus/screen_lock_service_provider.h"
 #include "chrome/browser/chromeos/dbus/vm_applications_service_provider_delegate.h"
 #include "chrome/browser/chromeos/display/quirks_manager_delegate_impl.h"
-#include "chrome/browser/chromeos/events/event_rewriter_controller.h"
 #include "chrome/browser/chromeos/events/event_rewriter_delegate_impl.h"
-#include "chrome/browser/chromeos/events/keyboard_driven_event_rewriter.h"
 #include "chrome/browser/chromeos/extensions/default_app_order.h"
-#include "chrome/browser/chromeos/extensions/extension_volume_observer.h"
 #include "chrome/browser/chromeos/external_metrics.h"
 #include "chrome/browser/chromeos/input_method/input_method_configuration.h"
 #include "chrome/browser/chromeos/language_preferences.h"
@@ -95,7 +93,7 @@
 #include "chrome/browser/chromeos/system/input_device_settings.h"
 #include "chrome/browser/chromeos/ui/low_disk_notification.h"
 #include "chrome/browser/chromeos/upgrade_detector_chromeos.h"
-#include "chrome/browser/component_updater/cros_component_installer.h"
+#include "chrome/browser/component_updater/cros_component_installer_chromeos.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
@@ -117,6 +115,7 @@
 #include "chromeos/cert_loader.h"
 #include "chromeos/chromeos_paths.h"
 #include "chromeos/chromeos_switches.h"
+#include "chromeos/components/drivefs/drive_file_stream_service_provider_delegate.h"
 #include "chromeos/cryptohome/async_method_caller.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/cryptohome/homedir_methods.h"
@@ -125,10 +124,8 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_policy_controller.h"
 #include "chromeos/dbus/services/chrome_features_service_provider.h"
-#include "chromeos/dbus/services/component_updater_service_provider.h"
-#include "chromeos/dbus/services/console_service_provider.h"
 #include "chromeos/dbus/services/cros_dbus_service.h"
-#include "chromeos/dbus/services/display_power_service_provider.h"
+#include "chromeos/dbus/services/drive_file_stream_service_provider.h"
 #include "chromeos/dbus/services/liveness_service_provider.h"
 #include "chromeos/dbus/services/proxy_resolution_service_provider.h"
 #include "chromeos/dbus/services/virtual_file_request_service_provider.h"
@@ -143,6 +140,7 @@
 #include "chromeos/network/portal_detector/network_portal_detector_stub.h"
 #include "chromeos/system/statistics_provider.h"
 #include "chromeos/tpm/tpm_token_loader.h"
+#include "components/account_id/account_id.h"
 #include "components/browser_sync/browser_sync_switches.h"
 #include "components/device_event_log/device_event_log.h"
 #include "components/metrics/metrics_service.h"
@@ -150,7 +148,6 @@
 #include "components/prefs/pref_service.h"
 #include "components/quirks/quirks_manager.h"
 #include "components/session_manager/core/session_manager.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_names.h"
@@ -189,10 +186,6 @@
 #include "components/rlz/rlz_tracker.h"
 #endif
 
-#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
-#include "chrome/browser/chromeos/assistant/assistant_client.h"
-#endif
-
 namespace chromeos {
 
 namespace {
@@ -221,8 +214,7 @@ void InitializeNetworkPortalDetector() {
     network_portal_detector::SetNetworkPortalDetector(
         new NetworkPortalDetectorImpl(
             g_browser_process->system_network_context_manager()
-                ->GetURLLoaderFactory(),
-            true));
+                ->GetURLLoaderFactory()));
   }
 }
 
@@ -278,7 +270,7 @@ void RegisterStubPathOverridesIfNecessary() {
 
   base::FilePath user_data_dir;
   if (base::SysInfo::IsRunningOnChromeOS() ||
-      !PathService::Get(chrome::DIR_USER_DATA, &user_data_dir)) {
+      !base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir)) {
     return;
   }
 
@@ -317,9 +309,7 @@ class DBusPreEarlyInit {
   DISALLOW_COPY_AND_ASSIGN(DBusPreEarlyInit);
 };
 
-// Wrapper class for initializing dbus related services and shutting them
-// down. This gets instantiated in a scoped_ptr so that shutdown methods in the
-// destructor will get called if and only if this has been instantiated.
+// Wrapper class for initializing D-Bus services and shutting them down.
 class DBusServices {
  public:
   explicit DBusServices(const content::MainFunctionParams& parameters) {
@@ -333,40 +323,6 @@ class DBusServices {
           DBusThreadManager::Get()->GetPowerManagerClient());
     }
 
-    CrosDBusService::ServiceProviderList service_providers;
-    CrosDBusService::ServiceProviderList display_service_providers;
-
-    if (GetAshConfig() != ash::Config::MASH) {
-      // TODO(lannm): This will eventually be served by mus-ws.
-      display_service_providers.push_back(
-          std::make_unique<DisplayPowerServiceProvider>(
-              std::make_unique<ChromeDisplayPowerServiceProviderDelegate>()));
-    }
-    // TODO(derat): Remove this provider once all callers are using
-    // |liveness_service_| instead: https://crbug.com/644322
-    service_providers.push_back(
-        std::make_unique<LivenessServiceProvider>(kLibCrosServiceInterface));
-    // TODO(derat): Remove this provider once session_manager is using
-    // |screen_lock_service_| instead: https://crbug.com/827680
-    service_providers.push_back(std::make_unique<ScreenLockServiceProvider>(
-        kLibCrosServiceInterface, kLockScreen));
-
-    display_service_providers.push_back(
-        std::make_unique<ConsoleServiceProvider>(
-            &console_service_provider_delegate_));
-
-    // TODO(derat): Remove this provider once all callers are using
-    // |kiosk_info_service_| instead: https://crbug.com/703229
-    service_providers.push_back(std::make_unique<KioskInfoService>(
-        kLibCrosServiceInterface, kGetKioskAppRequiredPlatforVersion));
-    cros_dbus_service_ = CrosDBusService::Create(
-        kLibCrosServiceName, dbus::ObjectPath(kLibCrosServicePath),
-        std::move(service_providers));
-
-    display_service_ = CrosDBusService::Create(
-        kDisplayServiceName, dbus::ObjectPath(kDisplayServicePath),
-        std::move(display_service_providers));
-
     proxy_resolution_service_ = CrosDBusService::Create(
         kNetworkProxyServiceName, dbus::ObjectPath(kNetworkProxyServicePath),
         CrosDBusService::CreateServiceProviderList(
@@ -377,22 +333,17 @@ class DBusServices {
     kiosk_info_service_ = CrosDBusService::Create(
         kKioskAppServiceName, dbus::ObjectPath(kKioskAppServicePath),
         CrosDBusService::CreateServiceProviderList(
-            std::make_unique<KioskInfoService>(
-                kKioskAppServiceInterface,
-                kKioskAppServiceGetRequiredPlatformVersionMethod)));
+            std::make_unique<KioskInfoService>()));
 
     liveness_service_ = CrosDBusService::Create(
         kLivenessServiceName, dbus::ObjectPath(kLivenessServicePath),
         CrosDBusService::CreateServiceProviderList(
-            std::make_unique<LivenessServiceProvider>(
-                kLivenessServiceInterface)));
+            std::make_unique<LivenessServiceProvider>()));
 
     screen_lock_service_ = CrosDBusService::Create(
         kScreenLockServiceName, dbus::ObjectPath(kScreenLockServicePath),
         CrosDBusService::CreateServiceProviderList(
-            std::make_unique<ScreenLockServiceProvider>(
-                kScreenLockServiceInterface,
-                kScreenLockServiceShowLockScreenMethod)));
+            std::make_unique<ScreenLockServiceProvider>()));
 
     virtual_file_request_service_ = CrosDBusService::Create(
         kVirtualFileRequestServiceName,
@@ -407,8 +358,7 @@ class DBusServices {
         dbus::ObjectPath(kComponentUpdaterServicePath),
         CrosDBusService::CreateServiceProviderList(
             std::make_unique<ComponentUpdaterServiceProvider>(
-                std::make_unique<
-                    ChromeComponentUpdaterServiceProviderDelegate>())));
+                g_browser_process->platform_part()->cros_component_manager())));
 
     finch_features_service_ = CrosDBusService::Create(
         kChromeFeaturesServiceName,
@@ -423,6 +373,14 @@ class DBusServices {
         CrosDBusService::CreateServiceProviderList(
             std::make_unique<VmApplicationsServiceProvider>(
                 std::make_unique<VmApplicationsServiceProviderDelegate>())));
+
+    drive_file_stream_service_ = CrosDBusService::Create(
+        drivefs::kDriveFileStreamServiceName,
+        dbus::ObjectPath(drivefs::kDriveFileStreamServicePath),
+        CrosDBusService::CreateServiceProviderList(
+            std::make_unique<DriveFileStreamServiceProvider>(
+                std::make_unique<
+                    drivefs::DriveFileStreamServiceProviderDelegate>())));
 
     // Initialize PowerDataCollector after DBusThreadManager is initialized.
     PowerDataCollector::Initialize();
@@ -460,8 +418,6 @@ class DBusServices {
     LoginState::Shutdown();
     CertLoader::Shutdown();
     TPMTokenLoader::Shutdown();
-    cros_dbus_service_.reset();
-    display_service_.reset();
     proxy_resolution_service_.reset();
     kiosk_info_service_.reset();
     liveness_service_.reset();
@@ -469,6 +425,7 @@ class DBusServices {
     component_updater_service_.reset();
     finch_features_service_.reset();
     vm_applications_service_.reset();
+    drive_file_stream_service_.reset();
     PowerDataCollector::Shutdown();
     if (GetAshConfig() != ash::Config::MASH)
       PowerPolicyController::Shutdown();
@@ -476,20 +433,7 @@ class DBusServices {
     bluez::BluezDBusManager::Shutdown();
   }
 
-  void ServiceManagerConnectionStarted(
-      content::ServiceManagerConnection* connection) {
-    console_service_provider_delegate_.Connect(connection->GetConnector());
-  }
-
  private:
-  // Hosts providers for the "org.chromium.LibCrosService" D-Bus service owned
-  // by Chrome. The name of this service was chosen for historical reasons that
-  // are irrelevant now.
-  // TODO(derat): Move these providers into more-specific services that are
-  // split between different processes: http://crbug.com/692246
-  std::unique_ptr<CrosDBusService> cros_dbus_service_;
-
-  std::unique_ptr<CrosDBusService> display_service_;
   std::unique_ptr<CrosDBusService> proxy_resolution_service_;
   std::unique_ptr<CrosDBusService> kiosk_info_service_;
   std::unique_ptr<CrosDBusService> liveness_service_;
@@ -498,8 +442,7 @@ class DBusServices {
   std::unique_ptr<CrosDBusService> component_updater_service_;
   std::unique_ptr<CrosDBusService> finch_features_service_;
   std::unique_ptr<CrosDBusService> vm_applications_service_;
-
-  ChromeConsoleServiceProviderDelegate console_service_provider_delegate_;
+  std::unique_ptr<CrosDBusService> drive_file_stream_service_;
 
   DISALLOW_COPY_AND_ASSIGN(DBusServices);
 };
@@ -602,8 +545,9 @@ class SystemTokenCertDBInitializer {
 // ChromeBrowserMainPartsChromeos ----------------------------------------------
 
 ChromeBrowserMainPartsChromeos::ChromeBrowserMainPartsChromeos(
-    const content::MainFunctionParams& parameters)
-    : ChromeBrowserMainPartsLinux(parameters) {}
+    const content::MainFunctionParams& parameters,
+    std::unique_ptr<ui::DataPack> data_pack)
+    : ChromeBrowserMainPartsLinux(parameters, std::move(data_pack)) {}
 
 ChromeBrowserMainPartsChromeos::~ChromeBrowserMainPartsChromeos() {
   // To be precise, logout (browser shutdown) is not yet done, but the
@@ -672,18 +616,16 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopStart() {
   // device_event_log must be initialized after the message loop.
   device_event_log::Initialize(0 /* default max entries */);
 
+  // This has to be initialized before DBusServices
+  // (ComponentUpdaterServiceProvider).
+  g_browser_process->platform_part()->InitializeCrosComponentManager();
+
   dbus_services_.reset(new internal::DBusServices(parameters()));
 
   // Need to be done after LoginState has been initialized in DBusServices().
   memory_kills_monitor_ = memory::MemoryKillsMonitor::Initialize();
 
   ChromeBrowserMainPartsLinux::PostMainMessageLoopStart();
-}
-
-void ChromeBrowserMainPartsChromeos::ServiceManagerConnectionStarted(
-    content::ServiceManagerConnection* connection) {
-  ChromeBrowserMainPartsLinux::ServiceManagerConnectionStarted(connection);
-  dbus_services_->ServiceManagerConnectionStarted(connection);
 }
 
 // Threads are initialized between MainMessageLoopStart and MainMessageLoopRun.
@@ -718,7 +660,8 @@ void ChromeBrowserMainPartsChromeos::PreMainMessageLoopRun() {
       load_oem_statistics);
 
   base::FilePath downloads_directory;
-  CHECK(PathService::Get(chrome::DIR_DEFAULT_DOWNLOADS, &downloads_directory));
+  CHECK(base::PathService::Get(chrome::DIR_DEFAULT_DOWNLOADS,
+                               &downloads_directory));
 
   DeviceOAuth2TokenServiceFactory::Initialize();
 
@@ -729,11 +672,6 @@ void ChromeBrowserMainPartsChromeos::PreMainMessageLoopRun() {
   arc_service_launcher_ = std::make_unique<arc::ArcServiceLauncher>();
   arc_voice_interaction_controller_client_ =
       std::make_unique<arc::VoiceInteractionControllerClient>();
-
-#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
-  if (chromeos::switches::IsAssistantEnabled())
-    assistant_client_ = std::make_unique<assistant::AssistantClient>();
-#endif
 
   chromeos::ResourceReporter::GetInstance()->StartMonitoring(
       task_manager::TaskManagerInterface::GetTaskManager());
@@ -882,8 +820,6 @@ void ChromeBrowserMainPartsChromeos::PreProfileInit() {
     VLOG(1) << "Relaunching browser for user: " << account_id.Serialize()
             << " with hash: " << user_id_hash;
   }
-
-  g_browser_process->platform_part()->InitializeCrosComponentManager();
 }
 
 class GuestLanguageSetCallbackData {
@@ -1007,9 +943,6 @@ void ChromeBrowserMainPartsChromeos::PostProfileInit() {
   if (user_manager::UserManager::Get()->IsLoggedInAsGuest())
     SetGuestLocale(profile());
 
-  // This observer uses the intialized profile to dispatch extension events.
-  extension_volume_observer_ = std::make_unique<ExtensionVolumeObserver>();
-
   renderer_freezer_ = std::make_unique<RendererFreezer>(
       std::make_unique<FreezerCgroupProcessManager>());
 
@@ -1054,19 +987,29 @@ void ChromeBrowserMainPartsChromeos::PreBrowserStart() {
 }
 
 void ChromeBrowserMainPartsChromeos::PostBrowserStart() {
+  // Enable the KeyboardDrivenEventRewriter if the OEM manifest flag is on.
+  if (system::InputDeviceSettings::Get()->ForceKeyboardDrivenUINavigation()) {
+    content::ServiceManagerConnection* connection =
+        content::ServiceManagerConnection::GetForProcess();
+    ash::mojom::EventRewriterControllerPtr event_rewriter_controller_ptr;
+    connection->GetConnector()->BindInterface(ash::mojom::kServiceName,
+                                              &event_rewriter_controller_ptr);
+    event_rewriter_controller_ptr->SetKeyboardDrivenEventRewriterEnabled(true);
+  }
+
+  // Construct a delegate to connect ChromeVox and SpokenFeedbackEventRewriter.
+  spoken_feedback_event_rewriter_delegate_ =
+      std::make_unique<SpokenFeedbackEventRewriterDelegate>();
+
   if (chromeos::GetAshConfig() != ash::Config::MASH) {
     // TODO(mash): Support EventRewriterController; see crbug.com/647781
-    keyboard_event_rewriters_.reset(new EventRewriterController());
-    keyboard_event_rewriters_->AddEventRewriter(
-        std::unique_ptr<ui::EventRewriter>(new KeyboardDrivenEventRewriter()));
-    keyboard_event_rewriters_->AddEventRewriter(
-        std::unique_ptr<ui::EventRewriter>(new SpokenFeedbackEventRewriter()));
+    ash::EventRewriterController* event_rewriter_controller =
+        ash::Shell::Get()->event_rewriter_controller();
     event_rewriter_delegate_ = std::make_unique<EventRewriterDelegateImpl>();
-    keyboard_event_rewriters_->AddEventRewriter(
+    event_rewriter_controller->AddEventRewriter(
         std::make_unique<ui::EventRewriterChromeOS>(
             event_rewriter_delegate_.get(),
             ash::Shell::Get()->sticky_keys_controller()));
-    keyboard_event_rewriters_->Init();
   }
 
   // In classic ash must occur after ash::ShellPort is initialized. Triggers a
@@ -1103,10 +1046,6 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
 
   arc_voice_interaction_controller_client_.reset();
 
-#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
-  assistant_client_.reset();
-#endif
-
   // Unregister CrosSettings observers before CrosSettings is destroyed.
   shutdown_policy_forwarder_.reset();
 
@@ -1132,13 +1071,11 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   // We should remove observers attached to D-Bus clients before
   // DBusThreadManager is shut down.
   network_pref_state_observer_.reset();
-  extension_volume_observer_.reset();
   power_metrics_reporter_.reset();
   renderer_freezer_.reset();
   wake_on_wifi_manager_.reset();
   network_throttling_observer_.reset();
   ScreenLocker::ShutDownClass();
-  keyboard_event_rewriters_.reset();
   low_disk_notification_.reset();
   user_activity_controller_.reset();
   adaptive_screen_brightness_manager_.reset();
@@ -1219,13 +1156,15 @@ void ChromeBrowserMainPartsChromeos::PostMainMessageLoopRun() {
   g_browser_process->platform_part()->ShutdownSessionManager();
   // Ash needs to be closed before UserManager is destroyed.
   g_browser_process->platform_part()->DestroyChromeUserManager();
-
-  g_browser_process->platform_part()->ShutdownCrosComponentManager();
 }
 
 void ChromeBrowserMainPartsChromeos::PostDestroyThreads() {
   // Destroy DBus services immediately after threads are stopped.
   dbus_services_.reset();
+
+  // This has to be destroyed after DBusServices
+  // (ComponentUpdaterServiceProvider).
+  g_browser_process->platform_part()->ShutdownCrosComponentManager();
 
   dbus_pre_early_init_.reset();
 

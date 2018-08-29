@@ -5,17 +5,16 @@
 #include "ash/wm/overview/scoped_transform_overview_window.h"
 
 #include <algorithm>
-#include <memory>
-#include <vector>
 
 #include "ash/public/cpp/ash_features.h"
-#include "ash/public/cpp/ash_switches.h"
+#include "ash/shell.h"
+#include "ash/wm/overview/cleanup_animation_observer.h"
 #include "ash/wm/overview/overview_utils.h"
 #include "ash/wm/overview/overview_window_animation_observer.h"
 #include "ash/wm/overview/scoped_overview_animation_settings.h"
 #include "ash/wm/overview/window_grid.h"
+#include "ash/wm/overview/window_selector.h"
 #include "ash/wm/overview/window_selector_item.h"
-#include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/window_mirror_view.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_transient_descendant_iterator.h"
@@ -28,12 +27,15 @@
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_observer.h"
 #include "ui/compositor/paint_recorder.h"
+#include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/safe_integer_conversions.h"
 #include "ui/gfx/transform_util.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/coordinate_conversion.h"
+#include "ui/wm/core/shadow_controller.h"
 #include "ui/wm/core/shadow_types.h"
+#include "ui/wm/core/window_animations.h"
 #include "ui/wm/core/window_util.h"
 
 namespace ash {
@@ -183,21 +185,20 @@ ScopedTransformOverviewWindow::ScopedTransformOverviewWindow(
       overview_started_(false),
       original_opacity_(window->layer()->GetTargetOpacity()),
       weak_ptr_factory_(this) {
-  if (IsNewOverviewUi())
-    type_ = GetWindowDimensionsType(window);
+  type_ = GetWindowDimensionsType(window);
 }
 
 ScopedTransformOverviewWindow::~ScopedTransformOverviewWindow() = default;
 
 void ScopedTransformOverviewWindow::RestoreWindow(bool reset_transform) {
-  ::wm::SetShadowElevation(window_, original_shadow_elevation_);
-
+  Shell::Get()->shadow_controller()->UpdateShadowForWindow(window_);
   wm::GetWindowState(window_)->set_ignored_by_shelf(ignored_by_shelf_);
   if (minimized_widget_) {
     mask_.reset();
-    // TODO(oshima): Use unminimize animation instead of hiding animation.
-    minimized_widget_->CloseNow();
-    minimized_widget_.reset();
+    // Fade out the minimized widget. This animation continues past the
+    // lifetime of |this|.
+    FadeOutWidgetOnExit(std::move(minimized_widget_),
+                        OVERVIEW_ANIMATION_EXIT_OVERVIEW_MODE_FADE_OUT);
     return;
   }
 
@@ -233,15 +234,13 @@ void ScopedTransformOverviewWindow::BeginScopedAnimation(
   // Remove the mask before animating because masks affect animation
   // performance. Observe the animation and add the mask after animating if the
   // animation type is layouting selector items.
-  if (IsNewOverviewUi()) {
-    mask_.reset();
-    selector_item_->SetShadowBounds(base::nullopt);
-    selector_item_->DisableBackdrop();
+  mask_.reset();
+  selector_item_->SetShadowBounds(base::nullopt);
+  selector_item_->DisableBackdrop();
 
-    if (window_->GetProperty(aura::client::kShowStateKey) !=
-        ui::SHOW_STATE_MINIMIZED) {
-      window_->layer()->SetMaskLayer(original_mask_layer_);
-    }
+  if (window_->GetProperty(aura::client::kShowStateKey) !=
+      ui::SHOW_STATE_MINIMIZED) {
+    window_->layer()->SetMaskLayer(original_mask_layer_);
   }
 
   for (auto* window : wm::GetTransientTreeIterator(GetOverviewWindow())) {
@@ -264,10 +263,9 @@ void ScopedTransformOverviewWindow::BeginScopedAnimation(
     animation_settings->push_back(std::move(settings));
   }
 
-  if (IsNewOverviewUi() &&
-      animation_type == OVERVIEW_ANIMATION_LAY_OUT_SELECTOR_ITEMS) {
-    if (animation_settings->size() > 0u)
-      animation_settings->front()->AddObserver(this);
+  if (animation_type == OVERVIEW_ANIMATION_LAY_OUT_SELECTOR_ITEMS &&
+      animation_settings->size() > 0u) {
+    animation_settings->front()->AddObserver(this);
   }
 }
 
@@ -452,10 +450,6 @@ gfx::Rect ScopedTransformOverviewWindow::ShrinkRectToFitPreservingAspectRatio(
   gfx::Rect new_bounds(bounds.x() + horizontal_offset,
                        bounds.y() + vertical_offset, width, height);
 
-  if (!IsNewOverviewUi()) {
-    DCHECK_EQ(ScopedTransformOverviewWindow::GridWindowFillMode::kNormal,
-              type());
-  }
   switch (type()) {
     case ScopedTransformOverviewWindow::GridWindowFillMode::kLetterBoxed:
     case ScopedTransformOverviewWindow::GridWindowFillMode::kPillarBoxed: {
@@ -513,8 +507,7 @@ void ScopedTransformOverviewWindow::Close() {
 }
 
 void ScopedTransformOverviewWindow::PrepareForOverview() {
-  original_shadow_elevation_ = window_->GetProperty(::wm::kShadowElevationKey);
-  ::wm::SetShadowElevation(window_, ::wm::kShadowElevationNone);
+  Shell::Get()->shadow_controller()->UpdateShadowForWindow(window_);
 
   DCHECK(!overview_started_);
   overview_started_ = true;
@@ -568,9 +561,6 @@ ScopedTransformOverviewWindow::GetOverviewWindowForMinimizedState() const {
 }
 
 void ScopedTransformOverviewWindow::UpdateWindowDimensionsType() {
-  if (!IsNewOverviewUi())
-    return;
-
   type_ = GetWindowDimensionsType(window_);
   window_selector_bounds_.reset();
 }
@@ -580,7 +570,6 @@ void ScopedTransformOverviewWindow::CancelAnimationsListener() {
 }
 
 void ScopedTransformOverviewWindow::OnImplicitAnimationsCompleted() {
-  DCHECK(IsNewOverviewUi());
   CreateAndApplyMaskAndShadow();
   selector_item_->OnDragAnimationCompleted();
 }
@@ -614,14 +603,17 @@ void ScopedTransformOverviewWindow::CreateMirrorWindowForMinimizedState() {
   }
   minimized_widget_->SetBounds(bounds);
   minimized_widget_->Show();
+
+  minimized_widget_->SetOpacity(0.f);
+  ScopedOverviewAnimationSettings animation_settings(
+      OVERVIEW_ANIMATION_ENTER_OVERVIEW_MODE_TABLET_FADE_IN,
+      minimized_widget_->GetNativeWindow());
+  minimized_widget_->SetOpacity(1.f);
 }
 
 void ScopedTransformOverviewWindow::CreateAndApplyMaskAndShadow() {
   // Add the mask which gives the window selector items rounded corners, and add
   // the shadow around the window.
-  if (!IsNewOverviewUi())
-    return;
-
   ui::Layer* layer = minimized_widget_
                          ? minimized_widget_->GetContentsView()->layer()
                          : window_->layer();

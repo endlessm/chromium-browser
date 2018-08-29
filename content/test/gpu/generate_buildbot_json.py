@@ -36,6 +36,8 @@ LINUX_QUADRO_P400_STABLE_DRIVER = '10de:1cb3-384.90'
 
 # Intel HD 630 (both Windows and Linux).
 INTEL_HD_630 = '8086:5912'
+WIN10_INTEL_HD_630_STABLE_DRIVER = '8086:5912-23.20.16.4877'
+WIN10_INTEL_HD_630_EXPERIMENTAL_DRIVER = '8086:5912-24.20.100.6025'
 
 # "Types" of waterfalls and bots. A bot's type is the union of its own
 # type and the type of its waterfall. Predicates can apply to these
@@ -270,7 +272,7 @@ FYI_WATERFALL = {
     'GPU FYI Linux Builder (dbg)' : {},
     'GPU FYI Linux Ozone Builder' : {},
     'GPU FYI Linux dEQP Builder' : {},
-},
+  },
 
   'testers': {
     'Win7 FYI Release (NVIDIA)': {
@@ -285,18 +287,6 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'win',
       'use_gpu_trigger_script': True,
-    },
-    'Win7 FYI Debug (NVIDIA)': {
-      'swarming_dimensions': [
-        {
-          'gpu': WIN7_NVIDIA_QUADRO_P400_STABLE_DRIVER,
-          'os': 'Windows-2008ServerR2-SP1',
-          'pool': 'Chrome-GPU',
-        },
-      ],
-      'build_config': 'Debug',
-      'swarming': True,
-      'os_type': 'win',
     },
     'Win10 FYI dEQP Release (NVIDIA)': {
       'swarming_dimensions': [
@@ -390,10 +380,10 @@ FYI_WATERFALL = {
       'os_type': 'win',
       'type': Types.DEQP,
     },
-    'Win10 FYI Release (Intel HD 630)': {
+    'Win10 FYI Exp Release (Intel HD 630)': {
       'swarming_dimensions': [
         {
-          'gpu': INTEL_HD_630,
+          'gpu': WIN10_INTEL_HD_630_EXPERIMENTAL_DRIVER,
           'os': 'Windows-10',
           'pool': 'Chrome-GPU',
         },
@@ -401,6 +391,31 @@ FYI_WATERFALL = {
       'build_config': 'Release',
       'swarming': True,
       'os_type': 'win',
+    },
+    'Win10 FYI Release (Intel HD 630)': {
+      'swarming_dimensions': [
+        {
+          'gpu': WIN10_INTEL_HD_630_STABLE_DRIVER,
+          'os': 'Windows-10',
+          'pool': 'Chrome-GPU',
+        },
+      ],
+      'build_config': 'Release',
+      'swarming': True,
+      'os_type': 'win',
+    },
+    'Win10 FYI dEQP Release (Intel HD 630)': {
+      'swarming_dimensions': [
+        {
+          'gpu': WIN10_INTEL_HD_630_STABLE_DRIVER,
+          'os': 'Windows-10',
+          'pool': 'Chrome-GPU',
+        },
+      ],
+      'build_config': 'Release',
+      'swarming': True,
+      'os_type': 'win',
+      'type': Types.DEQP,
     },
     'Win7 FYI x64 Release (NVIDIA)': {
       'swarming_dimensions': [
@@ -411,18 +426,6 @@ FYI_WATERFALL = {
         },
       ],
       'build_config': 'Release_x64',
-      'swarming': True,
-      'os_type': 'win',
-    },
-    'Win7 FYI x64 Debug (NVIDIA)': {
-      'swarming_dimensions': [
-        {
-          'gpu': WIN7_NVIDIA_QUADRO_P400_STABLE_DRIVER,
-          'os': 'Windows-2008ServerR2-SP1',
-          'pool': 'Chrome-GPU',
-        },
-      ],
-      'build_config': 'Debug_x64',
       'swarming': True,
       'os_type': 'win',
     },
@@ -681,6 +684,19 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'linux',
     },
+    'Linux FYI dEQP Release (Intel HD 630)': {
+      'swarming_dimensions': [
+        {
+          'gpu': INTEL_HD_630,
+          'os': 'Ubuntu',
+          'pool': 'Chrome-GPU',
+        },
+      ],
+      'build_config': 'Release',
+      'swarming': True,
+      'os_type': 'linux',
+      'type': Types.DEQP,
+    },
     'Linux FYI Release (AMD R7 240)': {
       'swarming_dimensions': [
         {
@@ -846,6 +862,34 @@ FYI_WATERFALL = {
       'swarming': True,
       'os_type': 'android',
     },
+    'Android FYI 32 dEQP Vk Release (Nexus 5X)': {
+      'swarming_dimensions': [
+        {
+          'device_type': 'bullhead',
+          'device_os': 'O',
+          'os': 'Android',
+          'pool': 'Chrome-GPU',
+        },
+      ],
+      'build_config': 'android-chromium',
+      'swarming': True,
+      'os_type': 'android',
+      'type': Types.DEQP,
+    },
+    'Android FYI 64 dEQP Vk Release (Nexus 5X)': {
+      'swarming_dimensions': [
+        {
+          'device_type': 'bullhead',
+          'device_os': 'O',
+          'os': 'Android',
+          'pool': 'Chrome-GPU',
+        },
+      ],
+      'build_config': 'android-chromium',
+      'swarming': True,
+      'os_type': 'android',
+      'type': Types.DEQP,
+    },
 
     # The following "optional" testers don't actually exist on the
     # waterfall. They are present here merely to specify additional
@@ -870,7 +914,7 @@ FYI_WATERFALL = {
     'Optional Win10 Release (Intel HD 630)': {
       'swarming_dimensions': [
         {
-          'gpu': INTEL_HD_630,
+          'gpu': WIN10_INTEL_HD_630_STABLE_DRIVER,
           'os': 'Windows-10',
           'pool': 'Chrome-GPU',
         },
@@ -1021,7 +1065,6 @@ V8_FYI_WATERFALL = {
         "jingle_unittests",
         "media_unittests",
         "media_blink_unittests",
-        "mojo_common_unittests",
         "mojo_unittests",
         "nacl_loader_unittests",
         "net_unittests",
@@ -1156,6 +1199,11 @@ COMMON_GTESTS = {
             'gpu': '1002:6613',
             'os': 'Windows-2008ServerR2-SP1'
           },
+          # Intel Win 10
+          {
+            'gpu': WIN10_INTEL_HD_630_STABLE_DRIVER,
+            'os': 'Windows-10',
+          },
         ],
       },
     ],
@@ -1184,6 +1232,11 @@ COMMON_GTESTS = {
           # Linux NVIDIA Quadro P400
           {
             'gpu': LINUX_QUADRO_P400_STABLE_DRIVER,
+            'os': 'Ubuntu'
+          },
+          # Linux Intel HD 630
+          {
+            'gpu': INTEL_HD_630,
             'os': 'Ubuntu'
           },
           # Mac Intel
@@ -1244,12 +1297,11 @@ COMMON_GTESTS = {
       'shards': 4,
     },
     'test': 'angle_deqp_gles2_tests',
-    # Only pass the display type to desktop. The Android runner doesn't support
-    # passing args to the executable but only one display type is supported on
-    # Android anyways.
+    'args': [
+      '--deqp-egl-display-type=angle-gles'
+    ],
     'desktop_args': [
       '--test-launcher-batch-limit=400',
-      '--deqp-egl-display-type=angle-gles'
     ],
     'android_args': [
       '--enable-xml-result-parsing',
@@ -1277,6 +1329,13 @@ COMMON_GTESTS = {
             'gpu': LINUX_QUADRO_P400_STABLE_DRIVER,
             'os': 'Ubuntu'
           },
+          # Qualcomm Android Adreno 418
+          {
+            'device_type': 'bullhead',
+            'device_os': 'O',
+            'os': 'Android',
+            'pool': 'Chrome-GPU',
+          },
         ],
       },
     ],
@@ -1287,14 +1346,20 @@ COMMON_GTESTS = {
         ],
       },
     ],
-    'desktop_swarming': {
+    'swarming': {
       'shards': 4,
     },
     'test': 'angle_deqp_gles2_tests',
     'args': [
-      '--test-launcher-batch-limit=400',
       '--deqp-egl-display-type=angle-vulkan'
-    ]
+    ],
+    'desktop_args': [
+      '--test-launcher-batch-limit=400',
+    ],
+    'android_args': [
+      '--enable-xml-result-parsing',
+      '--shard-timeout=500'
+    ],
   },
 
   'angle_deqp_gles3_gles_tests': {
@@ -1529,6 +1594,16 @@ COMMON_GTESTS = {
     ]
   },
   'angle_unittests': {
+    'disabled_tester_configs': [
+      {
+        'names': [
+          # On Android, these are already run on the main waterfall.
+          # Run them on the one-off Android FYI bots, though.
+          'Android Release (Nexus 5X)',
+          'Android FYI Release (Nexus 5X)',
+        ],
+      },
+    ],
     'desktop_args': [
       '--use-gpu-in-tests',
       # ANGLE test retries deliberately disabled to prevent flakiness.
@@ -1542,6 +1617,8 @@ COMMON_GTESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          'Android FYI 32 Vk Release (Nexus 5X)',
+          'Android FYI 64 Vk Release (Nexus 5X)',
           # On Android, these are already run on the main waterfall.
           # Run them on the one-off Android FYI bots, though.
           'Android Release (Nexus 5X)',
@@ -1578,6 +1655,8 @@ COMMON_GTESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          'Android FYI 32 Vk Release (Nexus 5X)',
+          'Android FYI 64 Vk Release (Nexus 5X)',
           # On Android, these are already run on the main waterfall.
           # Run them on the one-off Android FYI bots, though.
           'Android Release (Nexus 5X)',
@@ -1605,6 +1684,8 @@ COMMON_GTESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          'Android FYI 32 Vk Release (Nexus 5X)',
+          'Android FYI 64 Vk Release (Nexus 5X)',
         ],
       },
     ],
@@ -1810,6 +1891,7 @@ COMMON_GTESTS = {
       {
         'names': [
           'Win10 FYI Release (Intel HD 630)',
+          'Win10 FYI Exp Release (Intel HD 630)',
         ],
       },
     ],
@@ -1831,7 +1913,7 @@ COMMON_GTESTS = {
             'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
           },
           {
-            'gpu': INTEL_HD_630,
+            'gpu': WIN10_INTEL_HD_630_STABLE_DRIVER,
             'os': 'Windows-10',
           }
         ],
@@ -1896,6 +1978,8 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          'Android FYI 32 Vk Release (Nexus 5X)',
+          'Android FYI 64 Vk Release (Nexus 5X)',
         ],
       },
     ],
@@ -1911,6 +1995,8 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          'Android FYI 32 Vk Release (Nexus 5X)',
+          'Android FYI 64 Vk Release (Nexus 5X)',
         ],
       },
     ],
@@ -1927,6 +2013,8 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          'Android FYI 32 Vk Release (Nexus 5X)',
+          'Android FYI 64 Vk Release (Nexus 5X)',
         ],
       },
     ],
@@ -1942,6 +2030,8 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          'Android FYI 32 Vk Release (Nexus 5X)',
+          'Android FYI 64 Vk Release (Nexus 5X)',
         ],
       },
     ],
@@ -1964,6 +2054,8 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          'Android FYI 32 Vk Release (Nexus 5X)',
+          'Android FYI 64 Vk Release (Nexus 5X)',
 
           # The Mac ASAN swarming runs on two different GPU types so we can't
           # have one expected vendor ID / device ID
@@ -1993,6 +2085,8 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          'Android FYI 32 Vk Release (Nexus 5X)',
+          'Android FYI 64 Vk Release (Nexus 5X)',
         ],
       },
     ],
@@ -2035,6 +2129,8 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          'Android FYI 32 Vk Release (Nexus 5X)',
+          'Android FYI 64 Vk Release (Nexus 5X)',
         ],
       },
     ],
@@ -2053,6 +2149,8 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          'Android FYI 32 Vk Release (Nexus 5X)',
+          'Android FYI 64 Vk Release (Nexus 5X)',
         ],
       },
     ],
@@ -2068,6 +2166,8 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          'Android FYI 32 Vk Release (Nexus 5X)',
+          'Android FYI 64 Vk Release (Nexus 5X)',
         ],
       },
     ],
@@ -2083,6 +2183,8 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          'Android FYI 32 Vk Release (Nexus 5X)',
+          'Android FYI 64 Vk Release (Nexus 5X)',
         ],
       },
     ],
@@ -2125,6 +2227,8 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          # TODO(jdarpinian): Re-enable when http://crbug.com/841789 is fixed.
+          'Win10 FYI Exp Release (Intel HD 630)',
         ],
       },
     ],
@@ -2152,6 +2256,8 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
       {
         'names': [
           'Linux FYI Ozone (Intel)',
+          # TODO(jdarpinian): Re-enable when http://crbug.com/841789 is fixed.
+          'Win10 FYI Exp Release (Intel HD 630)',
         ],
       },
     ],
@@ -2260,10 +2366,6 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
         'names': [
           'Linux FYI Ozone (Intel)',
 
-          # http://crbug.com/599451: this test is currently too slow
-          # to run on x64 in Debug mode. Need to shard the tests.
-          'Win7 FYI x64 Debug (NVIDIA)',
-
           # The Mac NVIDIA Retina bots don't have the capacity to run
           # this test suite on mac_optional_gpu_tests_rel.
           'Optional Mac Retina Release (NVIDIA)',
@@ -2298,7 +2400,7 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
          # the Debug bots, which is too long.
         'build_configs': ['Release'],
         'predicate': Predicates.FYI_ONLY,
-        # Only run on the NVIDIA Release and Intel Release Linux bots.
+        # Run on the NVIDIA Release Windows/Linux and Intel Release Linux bots
         'swarming_dimension_sets': [
           {
             'gpu': LINUX_QUADRO_P400_STABLE_DRIVER,
@@ -2312,47 +2414,6 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
             'gpu': '8086:1912',
             'os': 'Ubuntu'
           },
-        ],
-        'disabled_instrumentation_types': ['tsan'],
-      },
-    ],
-    'disabled_tester_configs': [
-      {
-        'names': [
-          'Linux FYI Ozone (Intel)',
-        ],
-      },
-    ],
-    'target_name': 'webgl_conformance',
-    'extra_browser_args': [
-      '--use-gl=angle',
-      '--use-angle=gl',
-      '--use-cmd-decoder=passthrough',
-    ],
-    'args': [
-      '--webgl-conformance-version=2.0.1',
-      # The current working directory when run via isolate is
-      # out/Debug or out/Release. Reference this file relatively to
-      # it.
-      '--read-abbreviated-json-results-from=' + \
-      '../../content/test/data/gpu/webgl2_conformance_tests_output.json',
-    ],
-    'asan_args': ['--is-asan'],
-    'swarming': {
-      # These tests currently take about an hour and fifteen minutes
-      # to run serially.
-      'shards': 20,
-    },
-  },
-  'webgl2_conformance_gl_tests': {
-    'tester_configs': [
-      {
-         # The WebGL 2.0 conformance tests take over an hour to run on
-         # the Debug bots, which is too long.
-        'build_configs': ['Release'],
-        'predicate': Predicates.FYI_ONLY,
-        # Only run on the NVIDIA Release Windows bots.
-        'swarming_dimension_sets': [
           {
             'gpu': NVIDIA_QUADRO_P400_ALL_DRIVERS,
             'os': WIN10_NVIDIA_QUADRO_P400_STABLE_OS,
@@ -2370,8 +2431,9 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
     ],
     'target_name': 'webgl_conformance',
     'extra_browser_args': [
+      '--use-gl=angle',
       '--use-angle=gl',
-      '--use-cmd-decoder=validating',
+      '--use-cmd-decoder=passthrough',
     ],
     'args': [
       '--webgl-conformance-version=2.0.1',
@@ -2424,6 +2486,36 @@ TELEMETRY_GPU_INTEGRATION_TESTS = {
       # to run. Split them into roughly 5-minute shards.
       'shards': 20,
     },
+  },
+  'viz_screenshot_sync': {
+    'target_name': 'screenshot_sync',
+    'args': [
+      '--dont-restore-color-profile-after-test',
+    ],
+    'extra_browser_args': [
+      # This test confirms that GPU compositing is working with OOP-D.
+      '--enable-features=VizDisplayCompositor',
+    ],
+    'tester_configs': [
+      {
+        'predicate': Predicates.DEFAULT,
+        'disabled_instrumentation_types': ['tsan'],
+        'os_types': ['win', 'linux'],
+      },
+    ],
+    'disabled_tester_configs': [
+      {
+        'names': [
+          'Linux FYI Ozone (Intel)',
+          # TODO(crbug.com/825906): Enable test on Win7 FYI bots when OOP-D +
+          # passthrough command decoder bug is fixed.
+          'Win7 FYI Release (NVIDIA)',
+          'Win7 FYI Release (AMD)',
+          'Win7 FYI Debug (AMD)',
+          'Win7 FYI x64 Release (NVIDIA)',
+        ],
+      },
+    ],
   },
 }
 
@@ -2482,7 +2574,6 @@ NON_TELEMETRY_ISOLATED_SCRIPT_TESTS = {
         ],
       },
     ],
-    'compile_target': 'command_buffer_perftests',
     'isolate_name': 'command_buffer_perftests',
     'args': [
       '--use-cmd-decoder=validating',
@@ -2505,7 +2596,6 @@ NON_TELEMETRY_ISOLATED_SCRIPT_TESTS = {
         ],
       },
     ],
-    'compile_target': 'command_buffer_perftests',
     'isolate_name': 'command_buffer_perftests',
     'args': [
       '--use-cmd-decoder=passthrough',
@@ -2732,11 +2822,6 @@ def generate_gtest(waterfall, tester_name, tester_config, test, test_config):
   # from the result.
   remove_tester_configs_from_result(result)
 
-  # This flag only has an effect on the Linux bots that run tests
-  # locally (as opposed to via Swarming), which are only those couple
-  # on the chromium.gpu.fyi waterfall. Still, there is no harm in
-  # specifying it everywhere.
-  result['use_xvfb'] = False
   add_common_test_properties(result, tester_config)
   return result
 
@@ -2757,7 +2842,7 @@ def generate_gtests(waterfall, tester_name, tester_config, test_dictionary):
 
 def generate_isolated_test(waterfall, tester_name, tester_config, test,
                            test_config, extra_browser_args, isolate_name,
-                           override_compile_targets, prefix_args):
+                           prefix_args):
   if not should_run_on_tester(waterfall, tester_name, tester_config,
                               test_config):
     return None
@@ -2805,8 +2890,6 @@ def generate_isolated_test(waterfall, tester_name, tester_config, test,
     'name': step_name,
     'swarming': swarming,
   }
-  if override_compile_targets != None:
-    result['override_compile_targets'] = override_compile_targets
   if 'non_precommit_args' in test_config:
     result['non_precommit_args'] = test_config['non_precommit_args']
   if 'precommit_args' in test_config:
@@ -2830,7 +2913,6 @@ def generate_telemetry_test(waterfall, tester_name, tester_config,
   return generate_isolated_test(waterfall, tester_name, tester_config, test,
                                 test_config, extra_browser_args,
                                 'telemetry_gpu_integration_test',
-                                ['telemetry_gpu_integration_test'],
                                 prefix_args)
 
 def generate_telemetry_tests(waterfall, tester_name, tester_config,
@@ -2845,15 +2927,11 @@ def generate_telemetry_tests(waterfall, tester_name, tester_config,
 
 def generate_non_telemetry_isolated_test(waterfall, tester_name, tester_config,
                                          test, test_config):
-  override_compile_targets = None
-  if 'compile_target' in test_config:
-    override_compile_targets = [test_config['compile_target']]
   isolate_name = test
   if 'isolate_name' in test_config:
     isolate_name = test_config['isolate_name']
   return generate_isolated_test(waterfall, tester_name, tester_config, test,
-                                test_config, None, isolate_name,
-                                override_compile_targets, [])
+                                test_config, None, isolate_name, [])
 
 def generate_non_telemetry_isolated_tests(waterfall, tester_name, tester_config,
                                           test_dictionary):

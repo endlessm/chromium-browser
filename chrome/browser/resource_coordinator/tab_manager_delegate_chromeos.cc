@@ -46,7 +46,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_widget_host.h"
-#include "content/public/browser/zygote_host_linux.h"
+#include "services/service_manager/zygote/zygote_host_linux.h"
 #include "ui/wm/public/activation_client.h"
 
 using base::ProcessHandle;
@@ -297,7 +297,8 @@ void TabManagerDelegate::OnBrowserSetLastActive(Browser* browser) {
   if (!contents)
     return;
 
-  base::ProcessHandle pid = contents->GetMainFrame()->GetProcess()->GetHandle();
+  base::ProcessHandle pid =
+      contents->GetMainFrame()->GetProcess()->GetProcess().Handle();
   AdjustFocusedTabScore(pid);
 }
 
@@ -380,6 +381,7 @@ void TabManagerDelegate::OnFocusTabScoreAdjustmentTimeout() {
           << " for focused tab " << pid;
   std::map<int, int> dict;
   dict[pid] = chrome::kLowestRendererOomScore;
+  DCHECK(GetDebugDaemonClient());
   GetDebugDaemonClient()->SetOomScoreAdj(dict, base::Bind(&OnSetOomScoreAdj));
 }
 
@@ -419,7 +421,7 @@ void TabManagerDelegate::Observe(int type,
     case content::NOTIFICATION_RENDERER_PROCESS_TERMINATED: {
       content::RenderProcessHost* host =
           content::Source<content::RenderProcessHost>(source).ptr();
-      oom_score_map_.erase(host->GetHandle());
+      oom_score_map_.erase(host->GetProcess().Handle());
       // Coming here we know that a renderer was just killed and memory should
       // come back into the pool. However - the memory pressure observer did
       // not yet update its status and therefore we ask it to redo the
@@ -442,7 +444,7 @@ void TabManagerDelegate::Observe(int type,
             content::Source<content::RenderWidgetHost>(source)
                 .ptr()
                 ->GetProcess();
-        AdjustFocusedTabScore(render_host->GetHandle());
+        AdjustFocusedTabScore(render_host->GetProcess().Handle());
       }
       // Do not handle the "else" case when it changes to invisible because
       // 1. The behavior is a bit awkward in that when switching from tab A to

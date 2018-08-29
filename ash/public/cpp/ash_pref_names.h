@@ -28,10 +28,20 @@ ASH_PUBLIC_EXPORT extern const char kAccessibilityCursorHighlightEnabled[];
 ASH_PUBLIC_EXPORT extern const char kAccessibilityFocusHighlightEnabled[];
 ASH_PUBLIC_EXPORT extern const char kAccessibilitySelectToSpeakEnabled[];
 ASH_PUBLIC_EXPORT extern const char kAccessibilitySwitchAccessEnabled[];
+ASH_PUBLIC_EXPORT extern const char kAccessibilityDictationEnabled[];
 ASH_PUBLIC_EXPORT extern const char kShouldAlwaysShowAccessibilityMenu[];
 
 ASH_PUBLIC_EXPORT extern const char kDockedMagnifierEnabled[];
 ASH_PUBLIC_EXPORT extern const char kDockedMagnifierScale[];
+
+ASH_PUBLIC_EXPORT extern const char kDisplayMixedMirrorModeParams[];
+ASH_PUBLIC_EXPORT extern const char kDisplayPowerState[];
+ASH_PUBLIC_EXPORT extern const char kDisplayProperties[];
+ASH_PUBLIC_EXPORT extern const char kDisplayRotationLock[];
+ASH_PUBLIC_EXPORT extern const char kDisplayTouchAssociations[];
+ASH_PUBLIC_EXPORT extern const char kDisplayTouchPortAssociations[];
+ASH_PUBLIC_EXPORT extern const char kExternalDisplayMirrorInfo[];
+ASH_PUBLIC_EXPORT extern const char kSecondaryDisplays[];
 
 ASH_PUBLIC_EXPORT extern const char kHasSeenStylus[];
 ASH_PUBLIC_EXPORT extern const char kShownPaletteWelcomeBubble[];

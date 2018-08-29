@@ -20,6 +20,7 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/ink_drop_host_view.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/checkbox.h"
@@ -154,6 +155,12 @@ views::Widget* IntentPickerBubbleView::ShowBubble(
   intent_picker_bubble_->SetArrowPaintType(
       views::BubbleBorder::PAINT_TRANSPARENT);
   intent_picker_bubble_->GetDialogClientView()->Layout();
+  // TODO(aleventhal) Should not need to be focusable as only descendant widgets
+  // are interactive; however, it does call RequestFocus(). If it is going to be
+  // focusable, it needs an accessible name so that it can pass accessibility
+  // checks. Use the same accessible name as the icon.
+  intent_picker_bubble_->GetViewAccessibility().OverrideName(
+      l10n_util::GetStringUTF16(IDS_TOOLTIP_INTENT_PICKER_ICON));
   intent_picker_bubble_->SetFocusBehavior(View::FocusBehavior::ALWAYS);
   intent_picker_bubble_->GetIntentPickerLabelButtonAt(0)->MarkAsSelected(
       nullptr);
@@ -278,6 +285,7 @@ void IntentPickerBubbleView::Init() {
   remember_selection_checkbox_ = new views::Checkbox(l10n_util::GetStringUTF16(
       IDS_INTENT_PICKER_BUBBLE_VIEW_REMEMBER_SELECTION));
   layout->AddView(remember_selection_checkbox_);
+  UpdateCheckboxState();
 
   layout->AddPaddingRow(0, kTitlePadding);
 }
@@ -408,11 +416,24 @@ void IntentPickerBubbleView::SetSelectedAppIndex(int index,
   GetIntentPickerLabelButtonAt(selected_app_tag_)->MarkAsUnselected(nullptr);
   selected_app_tag_ = index;
   GetIntentPickerLabelButtonAt(selected_app_tag_)->MarkAsSelected(event);
+  UpdateCheckboxState();
 }
 
 size_t IntentPickerBubbleView::CalculateNextAppIndex(int delta) {
   size_t size = GetScrollViewSize();
   return static_cast<size_t>((selected_app_tag_ + size + delta) % size);
+}
+
+void IntentPickerBubbleView::UpdateCheckboxState() {
+  // TODO(crbug.com/826982): allow PWAs to have their decision persisted when
+  // there is a central Chrome OS apps registry to store persistence.
+  const bool should_enable =
+      app_info_[selected_app_tag_].type != chromeos::AppType::PWA;
+
+  // Reset the checkbox state to the default unchecked if becomes disabled.
+  if (!should_enable)
+    remember_selection_checkbox_->SetChecked(false);
+  remember_selection_checkbox_->SetEnabled(should_enable);
 }
 
 gfx::ImageSkia IntentPickerBubbleView::GetAppImageForTesting(size_t index) {

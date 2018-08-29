@@ -5,6 +5,7 @@
 #include "chrome/browser/net/system_network_context_manager.h"
 
 #include <string>
+#include <utility>
 
 #include "base/feature_list.h"
 #include "base/lazy_instance.h"
@@ -16,6 +17,7 @@
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/net/default_network_context_params.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "chrome/browser/ssl/ssl_config_service_manager.h"
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/policy_constants.h"
@@ -27,30 +29,75 @@
 #include "net/net_buildflags.h"
 #include "services/network/network_service.h"
 #include "services/network/public/cpp/features.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace {
 
 // Called on IOThread to disable QUIC for HttpNetworkSessions not using the
 // network service. Note that re-enabling QUIC dynamically is not supported for
 // simpliciy and requires a browser restart.
-void DisableQuicOnIOThread(
-    IOThread* io_thread,
-    safe_browsing::SafeBrowsingService* safe_browsing_service) {
+void DisableQuicOnIOThread(IOThread* io_thread) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
   if (!base::FeatureList::IsEnabled(network::features::kNetworkService))
     content::GetNetworkServiceImpl()->DisableQuic();
   io_thread->DisableQuic();
-
-  // Safebrowsing isn't yet using the IOThread's NetworkService, so must be
-  // handled separately.
-  safe_browsing_service->DisableQuicOnIOThread();
 }
 
 }  // namespace
 
 base::LazyInstance<SystemNetworkContextManager>::Leaky
     g_system_network_context_manager = LAZY_INSTANCE_INITIALIZER;
+
+// SharedURLLoaderFactory backed by a SystemNetworkContextManager and its
+// network context. Transparently handles crashes.
+class SystemNetworkContextManager::URLLoaderFactoryForSystem
+    : public network::SharedURLLoaderFactory {
+ public:
+  explicit URLLoaderFactoryForSystem(SystemNetworkContextManager* manager)
+      : manager_(manager) {}
+
+  // mojom::URLLoaderFactory implementation:
+
+  void CreateLoaderAndStart(network::mojom::URLLoaderRequest request,
+                            int32_t routing_id,
+                            int32_t request_id,
+                            uint32_t options,
+                            const network::ResourceRequest& url_request,
+                            network::mojom::URLLoaderClientPtr client,
+                            const net::MutableNetworkTrafficAnnotationTag&
+                                traffic_annotation) override {
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+    if (!manager_)
+      return;
+    manager_->GetURLLoaderFactory()->CreateLoaderAndStart(
+        std::move(request), routing_id, request_id, options, url_request,
+        std::move(client), traffic_annotation);
+  }
+
+  void Clone(network::mojom::URLLoaderFactoryRequest request) override {
+    if (!manager_)
+      return;
+    manager_->GetURLLoaderFactory()->Clone(std::move(request));
+  }
+
+  // SharedURLLoaderFactory implementation:
+  std::unique_ptr<network::SharedURLLoaderFactoryInfo> Clone() override {
+    NOTREACHED() << "This isn't supported. SharedURLLoaderFactory can only be"
+                    " used on the UI thread.";
+    return nullptr;
+  }
+
+  void Shutdown() { manager_ = nullptr; }
+
+ private:
+  friend class base::RefCounted<URLLoaderFactoryForSystem>;
+  ~URLLoaderFactoryForSystem() override {}
+
+  SystemNetworkContextManager* manager_;
+
+  DISALLOW_COPY_AND_ASSIGN(URLLoaderFactoryForSystem);
+};
 
 network::mojom::NetworkContext* SystemNetworkContextManager::GetContext() {
   if (!base::FeatureList::IsEnabled(network::features::kNetworkService)) {
@@ -74,11 +121,23 @@ network::mojom::NetworkContext* SystemNetworkContextManager::GetContext() {
 
 network::mojom::URLLoaderFactory*
 SystemNetworkContextManager::GetURLLoaderFactory() {
-  if (!url_loader_factory_ || url_loader_factory_.encountered_error()) {
-    GetContext()->CreateURLLoaderFactory(
-        mojo::MakeRequest(&url_loader_factory_), 0);
+  // Create the URLLoaderFactory as needed.
+  if (url_loader_factory_ && !url_loader_factory_.encountered_error()) {
+    return url_loader_factory_.get();
   }
+
+  network::mojom::URLLoaderFactoryParamsPtr params =
+      network::mojom::URLLoaderFactoryParams::New();
+  params->process_id = network::mojom::kBrowserProcessId;
+  params->is_corb_enabled = false;
+  GetContext()->CreateURLLoaderFactory(mojo::MakeRequest(&url_loader_factory_),
+                                       std::move(params));
   return url_loader_factory_.get();
+}
+
+scoped_refptr<network::SharedURLLoaderFactory>
+SystemNetworkContextManager::GetSharedURLLoaderFactory() {
+  return shared_url_loader_factory_;
 }
 
 void SystemNetworkContextManager::SetUp(
@@ -96,7 +155,9 @@ void SystemNetworkContextManager::SetUp(
   *is_quic_allowed = is_quic_allowed_;
 }
 
-SystemNetworkContextManager::SystemNetworkContextManager() {
+SystemNetworkContextManager::SystemNetworkContextManager()
+    : ssl_config_service_manager_(SSLConfigServiceManager::CreateDefaultManager(
+          g_browser_process->local_state())) {
   const base::Value* value =
       g_browser_process->policy_service()
           ->GetPolicies(policy::PolicyNamespace(policy::POLICY_DOMAIN_CHROME,
@@ -104,9 +165,12 @@ SystemNetworkContextManager::SystemNetworkContextManager() {
           .GetValue(policy::key::kQuicAllowed);
   if (value)
     value->GetAsBoolean(&is_quic_allowed_);
+  shared_url_loader_factory_ = new URLLoaderFactoryForSystem(this);
 }
 
-SystemNetworkContextManager::~SystemNetworkContextManager() {}
+SystemNetworkContextManager::~SystemNetworkContextManager() {
+  shared_url_loader_factory_->Shutdown();
+}
 
 void SystemNetworkContextManager::DisableQuic() {
   is_quic_allowed_ = false;
@@ -115,21 +179,26 @@ void SystemNetworkContextManager::DisableQuic() {
   // Profiles will also have QUIC disabled (because both IOThread's
   // NetworkService and the network service, if enabled will disable QUIC).
 
-  if (base::FeatureList::IsEnabled(network::features::kNetworkService))
-    content::GetNetworkService()->DisableQuic();
+  content::GetNetworkService()->DisableQuic();
 
   IOThread* io_thread = g_browser_process->io_thread();
   // Nothing more to do if IOThread has already been shut down.
   if (!io_thread)
     return;
 
-  safe_browsing::SafeBrowsingService* safe_browsing_service =
-      g_browser_process->safe_browsing_service();
-
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,
-      base::BindOnce(&DisableQuicOnIOThread, io_thread,
-                     base::Unretained(safe_browsing_service)));
+      base::BindOnce(&DisableQuicOnIOThread, io_thread));
+}
+
+void SystemNetworkContextManager::AddSSLConfigToNetworkContextParams(
+    network::mojom::NetworkContextParams* network_context_params) {
+  ssl_config_service_manager_->AddToNetworkContextParams(
+      network_context_params);
+}
+
+void SystemNetworkContextManager::FlushSSLConfigManagerForTesting() {
+  ssl_config_service_manager_->FlushForTesting();
 }
 
 void SystemNetworkContextManager::FlushProxyConfigMonitorForTesting() {

@@ -8,9 +8,12 @@
 
 #include "base/logging.h"
 #include "base/mac/foundation_util.h"
+#include "components/bookmarks/browser/bookmark_model.h"
+#include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
 #import "ios/chrome/browser/passwords/password_form_filler.h"
 #import "ios/chrome/browser/ui/activity_services/activity_type_util.h"
 #import "ios/chrome/browser/ui/activity_services/appex_constants.h"
+#import "ios/chrome/browser/ui/activity_services/bookmark_activity.h"
 #import "ios/chrome/browser/ui/activity_services/chrome_activity_item_source.h"
 #import "ios/chrome/browser/ui/activity_services/print_activity.h"
 #import "ios/chrome/browser/ui/activity_services/reading_list_activity.h"
@@ -57,7 +60,9 @@ NSString* const kActivityServicesSnackbarCategory =
 - (NSArray*)activityItemsForData:(ShareToData*)data;
 // Returns an array of UIActivity objects that can handle the given |data|.
 - (NSArray*)applicationActivitiesForData:(ShareToData*)data
-                              dispatcher:(id<BrowserCommands>)dispatcher;
+                              dispatcher:(id<BrowserCommands>)dispatcher
+                           bookmarkModel:
+                               (bookmarks::BookmarkModel*)bookmarkModel;
 // Processes |extensionItems| returned from App Extension invocation returning
 // the |activityType|. Calls shareDelegate_ with the processed returned items
 // and |result| of activity. Returns whether caller should reset UI.
@@ -132,15 +137,18 @@ NSString* const kActivityServicesSnackbarCategory =
 
   dispatcher_ = dispatcher;
 
+  bookmarks::BookmarkModel* bookmarkModel =
+      ios::BookmarkModelFactory::GetForBrowserState(browserState);
   DCHECK(!activityViewController_);
   activityViewController_ = [[UIActivityViewController alloc]
       initWithActivityItems:[self activityItemsForData:data]
       applicationActivities:[self applicationActivitiesForData:data
-                                                    dispatcher:dispatcher]];
+                                                    dispatcher:dispatcher
+                                                 bookmarkModel:bookmarkModel]];
 
   // Reading List and Print activities refer to iOS' version of these.
   // Chrome-specific implementations of these two activities are provided below
-  // in applicationActivitiesForData:dispatcher:
+  // in applicationActivitiesForData:dispatcher:bookmarkModel:
   NSArray* excludedActivityTypes = @[
     UIActivityTypeAddToReadingList, UIActivityTypePrint,
     UIActivityTypeSaveToCameraRoll
@@ -237,19 +245,31 @@ NSString* const kActivityServicesSnackbarCategory =
 }
 
 - (NSArray*)applicationActivitiesForData:(ShareToData*)data
-                              dispatcher:(id<BrowserCommands>)dispatcher {
+                              dispatcher:(id<BrowserCommands>)dispatcher
+                           bookmarkModel:
+                               (bookmarks::BookmarkModel*)bookmarkModel {
   NSMutableArray* applicationActivities = [NSMutableArray array];
-  if (data.isPagePrintable) {
-    PrintActivity* printActivity = [[PrintActivity alloc] init];
-    printActivity.dispatcher = dispatcher;
-    [applicationActivities addObject:printActivity];
-  }
   if (data.shareURL.SchemeIsHTTPOrHTTPS()) {
     ReadingListActivity* readingListActivity =
         [[ReadingListActivity alloc] initWithURL:data.shareURL
                                            title:data.title
                                       dispatcher:dispatcher];
     [applicationActivities addObject:readingListActivity];
+
+    if (IsUIRefreshPhase1Enabled() && bookmarkModel) {
+      BOOL bookmarked = bookmarkModel->loaded() &&
+                        bookmarkModel->IsBookmarked(data.visibleURL);
+      BookmarkActivity* bookmarkActivity =
+          [[BookmarkActivity alloc] initWithURL:data.visibleURL
+                                     bookmarked:bookmarked
+                                     dispatcher:dispatcher];
+      [applicationActivities addObject:bookmarkActivity];
+    }
+  }
+  if (data.isPagePrintable) {
+    PrintActivity* printActivity = [[PrintActivity alloc] init];
+    printActivity.dispatcher = dispatcher;
+    [applicationActivities addObject:printActivity];
   }
   return applicationActivities;
 }

@@ -81,6 +81,7 @@
 <translation id="2381405137052800939">基本</translation>
 <translation id="2386793615875593361">已选择 1 张</translation>
 <translation id="2435457462613246316">显示密码</translation>
+<translation id="2481538920734869610">添加帐号</translation>
 <translation id="2523363575747517183">该网站屡次尝试打开其他应用。</translation>
 <translation id="2529021024822217800">全部打开</translation>
 <translation id="2572712655377361602">设备政策已禁用对您的照片的访问权限</translation>
@@ -112,6 +113,7 @@
 <translation id="2909437209446960244">最近打开的标签页</translation>
 <translation id="291754862089661335">将 QR 码或条形码放到此框内</translation>
 <translation id="2921219216347069551">无法分享网页</translation>
+<translation id="2923448633003185837">粘贴并转到</translation>
 <translation id="292639812446257861">标记为未读</translation>
 <translation id="2933759065870693102">闪光灯</translation>
 <translation id="2969979262385602596">登录失败，请稍后重试。</translation>
@@ -131,6 +133,7 @@
 <translation id="3252394070589632019"><ph name="VALUE" />，<ph name="ADDITIONAL_INFO" />，第 <ph name="INDEX" /> 项建议（共 <ph name="NUM_SUGGESTIONS" /> 项）</translation>
 <translation id="3268451620468152448">打开的标签页</translation>
 <translation id="3277021493514034324">已复制网站地址</translation>
+<translation id="3290875554372353449">选择帐号</translation>
 <translation id="3324193307694657476">地址第2行</translation>
 <translation id="3329904751041170572">无法连接到服务器。</translation>
 <translation id="3335947283844343239">重新打开关闭的标签页</translation>
@@ -151,6 +154,7 @@
 <translation id="3588820906588687999">在新标签页中打开图片</translation>
 <translation id="3603009562372709545">复制链接网址</translation>
 <translation id="3607167657931203000">自动填充数据</translation>
+<translation id="3609785682760573515">正在同步…</translation>
 <translation id="3628119975092896051">您的阅读清单可供离线访问。要将某个网页添加到该清单中，请依次点按<ph name="SHARE_OPENING_ICON" />。</translation>
 <translation id="3638472932233958418">预先加载网页</translation>
 <translation id="3691593122358196899">已将书签添加到“<ph name="FOLDER_TITLE" />”</translation>
@@ -171,6 +175,7 @@
 <translation id="4049507953662678203">请确保已连接到网络，然后重试。</translation>
 <translation id="4084682180776658562">已保存的书签</translation>
 <translation id="411254640334432676">下载失败。</translation>
+<translation id="4112644173421521737">搜索</translation>
 <translation id="4121993058175073134">要发送净导出数据，请在“设置”应用中指定您的电子邮件帐号。</translation>
 <translation id="4124987746317609294">时间范围</translation>
 <translation id="4172051516777682613">一律显示</translation>
@@ -185,7 +190,7 @@
 <translation id="4359125752503270327">此页面将在其他应用中打开。</translation>
 <translation id="4370827530403103842">同步功能无法正常运行。点按即可修复此问题。</translation>
 <translation id="4375040482473363939">QR 码搜索</translation>
-<translation id="4378154925671717803">电话</translation>
+<translation id="4378154925671717803">电话机</translation>
 <translation id="441868831736628555">隐私权声明</translation>
 <translation id="4460091562821778167">每次都询问我要使用哪款应用</translation>
 <translation id="4496373720959965247">添加标签页并在网页之间切换</translation>
@@ -338,10 +343,12 @@
 <translation id="7159472599653637159">请求移动版网站</translation>
 <translation id="7167621057293532233">数据类型</translation>
 <translation id="7175593937868963913">邮件内容</translation>
+<translation id="7180611975245234373">刷新</translation>
 <translation id="7189598951263744875">分享...</translation>
 <translation id="7203585745079012652">说出答案</translation>
 <translation id="722055596168483966">对 Google 服务进行个性化设置</translation>
 <translation id="7272437679830969316">无法验证您的身份。未复制密码。</translation>
+<translation id="7285236536143823449">立即启用</translation>
 <translation id="7291368939935408496">正在准备密码…</translation>
 <translation id="7336264872878993241">已下载<ph name="PERCENT" />%</translation>
 <translation id="7346909386216857016">知道了</translation>
@@ -356,6 +363,7 @@
 <translation id="750493650310597496">未选中任何项</translation>
 <translation id="7514365320538308">下载</translation>
 <translation id="7537586195939242955">抱歉，目前无法将您的票证添加到 Passbook。</translation>
+<translation id="7554791636758816595">新标签页</translation>
 <translation id="7561196759112975576">永远</translation>
 <translation id="7603852183842204213">拦截了弹出式窗口（<ph name="NUMBER_OF_BLOCKED_POPUPS" /> 个）</translation>
 <translation id="7605594153474022051">同步功能无法正常运行</translation>

@@ -11,7 +11,6 @@
 #include "base/bind_helpers.h"
 #include "base/files/file_util.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/synchronization/waitable_event.h"
@@ -52,13 +51,13 @@ class TestExtensionPrefs::IncrementalClock : public base::Clock {
 
   ~IncrementalClock() override {}
 
-  base::Time Now() override {
+  base::Time Now() const override {
     current_time_ += base::TimeDelta::FromSeconds(10);
     return current_time_;
   }
 
  private:
-  base::Time current_time_;
+  mutable base::Time current_time_;
 
   DISALLOW_COPY_AND_ASSIGN(IncrementalClock);
 };

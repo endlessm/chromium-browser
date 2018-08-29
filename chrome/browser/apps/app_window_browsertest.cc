@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
 #include "chrome/browser/apps/app_browsertest_util.h"
@@ -21,6 +20,7 @@
 
 #if defined(OS_MACOSX)
 #include "base/mac/mac_util.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 #endif
 
 using extensions::AppWindowGeometryCache;
@@ -163,6 +163,8 @@ IN_PROC_BROWSER_TEST_F(AppWindowAPITest, MAYBE_TestMinimize) {
 #if defined(OS_MACOSX)
   if (base::mac::IsOS10_10())
     return;  // Fails when swarmed. http://crbug.com/660582
+  if (!views_mode_controller::IsViewsBrowserCocoa())
+    return;  // Fails in Views mode: https://crbug.com/834908
 #endif
   ASSERT_TRUE(RunAppWindowAPITest("testMinimize")) << message_;
 }
@@ -196,10 +198,18 @@ IN_PROC_BROWSER_TEST_F(AppWindowAPITest, MAYBE_TestDeprecatedBounds) {
 }
 
 IN_PROC_BROWSER_TEST_F(AppWindowAPITest, MAYBE_TestInitialBounds) {
+#if defined(OS_MACOSX)
+  if (!views_mode_controller::IsViewsBrowserCocoa())
+    return;  // Fails in Views mode: https://crbug.com/834908
+#endif
   ASSERT_TRUE(RunAppWindowAPITest("testInitialBounds")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(AppWindowAPITest, MAYBE_TestInitialConstraints) {
+#if defined(OS_MACOSX)
+  if (!views_mode_controller::IsViewsBrowserCocoa())
+    return;  // Fails in Views mode: https://crbug.com/834908
+#endif
   ASSERT_TRUE(RunAppWindowAPITest("testInitialConstraints")) << message_;
 }
 

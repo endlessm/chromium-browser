@@ -196,28 +196,6 @@ CommandUtil.forceDefaultHandler = function(node, commandId) {
 };
 
 /**
- * Default command.
- * @type {Command}
- */
-CommandUtil.defaultCommand = /** @type {Command} */ ({
-  /**
-   * @param {!Event} event Command event.
-   * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
-   */
-  execute: function(event, fileManager) {
-    fileManager.document.execCommand(event.command.id);
-  },
-  /**
-   * @param {!Event} event Command event.
-   * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
-   */
-  canExecute: function(event, fileManager) {
-    event.canExecute = fileManager.document.queryCommandEnabled(
-        event.command.id);
-  }
-});
-
-/**
  * Creates the volume switch command with index.
  * @param {number} index Volume index from 1 to 9.
  * @return {Command} Volume switch command.
@@ -570,7 +548,7 @@ CommandHandler.COMMANDS_['format'] = /** @type {Command} */ ({
     if (!root)
       root = directoryModel.getCurrentDirEntry();
 
-    var volumeInfo = fileManager.volumeManager.getVolumeInfo(root);
+    var volumeInfo = fileManager.volumeManager.getVolumeInfo(assert(root));
     if (volumeInfo) {
       fileManager.ui.confirmDialog.show(
           loadTimeData.getString('FORMATTING_WARNING'),
@@ -749,6 +727,23 @@ CommandHandler.COMMANDS_['new-window'] = /** @type {Command} */ ({
     event.canExecute =
         fileManager.getCurrentDirectoryEntry() &&
         (fileManager.dialogType === DialogType.FULL_PAGE);
+  }
+});
+
+CommandHandler.COMMANDS_['select-all'] = /** @type {Command} */ ({
+  /**
+   * @param {!Event} event Command event.
+   * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+   */
+  execute: function(event, fileManager) {
+    fileManager.directoryModel.getFileListSelection().selectAll();
+  },
+  /**
+   * @param {!Event} event Command event.
+   * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+   */
+  canExecute: function(event, fileManager) {
+    event.canExecute = fileManager.directoryModel.getFileList().length > 0;
   }
 });
 
@@ -1030,8 +1025,34 @@ CommandHandler.COMMANDS_['paste-into-folder'] = /** @type {Command} */ ({
   }
 });
 
-CommandHandler.COMMANDS_['cut'] = CommandUtil.defaultCommand;
-CommandHandler.COMMANDS_['copy'] = CommandUtil.defaultCommand;
+/**
+ * Cut/Copy command.
+ * @type {Command}
+ * @private
+ */
+CommandHandler.cutCopyCommand_ = /** @type {Command} */ ({
+  /**
+   * @param {!Event} event Command event.
+   * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+   */
+  execute: function(event, fileManager) {
+    // Cancel check-select-mode on cut/copy.  Any further selection of a dir
+    // should start a new selection rather than add to the existing selection.
+    fileManager.directoryModel.getFileListSelection().setCheckSelectMode(false);
+    fileManager.document.execCommand(event.command.id);
+  },
+  /**
+   * @param {!Event} event Command event.
+   * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+   */
+  canExecute: function(event, fileManager) {
+    event.canExecute =
+        fileManager.document.queryCommandEnabled(event.command.id);
+  }
+});
+
+CommandHandler.COMMANDS_['cut'] = CommandHandler.cutCopyCommand_;
+CommandHandler.COMMANDS_['copy'] = CommandHandler.cutCopyCommand_;
 
 /**
  * Initiates file renaming.
@@ -1047,8 +1068,9 @@ CommandHandler.COMMANDS_['rename'] = /** @type {Command} */ ({
         event.target instanceof DirectoryItem) {
       var isRemovableRoot = false;
       var entry = CommandUtil.getCommandEntry(event.target);
+      var volumeInfo = null;
       if (entry) {
-        var volumeInfo = fileManager.volumeManager.getVolumeInfo(entry);
+        volumeInfo = fileManager.volumeManager.getVolumeInfo(entry);
         // Checks whether the target is actually external drive or just a folder
         // inside the drive.
         if (volumeInfo &&
@@ -1327,8 +1349,9 @@ CommandHandler.COMMANDS_['search'] = /** @type {Command} */ ({
     // Cancel item selection.
     fileManager.directoryModel.clearSelection();
 
-    // Focus the search box.
+    // Focus and unhide the search box.
     var element = fileManager.document.querySelector('#search-box input');
+    element.hidden = false;
     element.focus();
     element.select();
   },
@@ -1497,6 +1520,41 @@ CommandHandler.COMMANDS_['share'] = /** @type {Command} */ ({
       event.command.setHidden(actionsModel && !action);
   }
 });
+
+/**
+ * Opens the file in Drive for the user to manage sharing permissions etc.
+ * @type {Command}
+ */
+CommandHandler.COMMANDS_['manage-in-drive'] = /** @type {Command} */ ({
+  /**
+   * @param {!Event} event Command event.
+   * @param {!CommandHandlerDeps} fileManager The file manager instance.
+   */
+  execute: function(event, fileManager) {
+    var actionsModel =
+        fileManager.actionsController.getActionsModelFor(event.target);
+    var action = actionsModel ?
+        actionsModel.getAction(ActionsModel.InternalActionId.MANAGE_IN_DRIVE) :
+        null;
+    if (action)
+      action.execute();
+  },
+  /**
+   * @param {!Event} event Command event.
+   * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+   */
+  canExecute: function(event, fileManager) {
+    var actionsModel =
+        fileManager.actionsController.getActionsModelFor(event.target);
+    var action = actionsModel ?
+        actionsModel.getAction(ActionsModel.InternalActionId.MANAGE_IN_DRIVE) :
+        null;
+    event.canExecute = action && action.canExecute();
+    if (actionsModel)
+      event.command.setHidden(!action);
+  }
+});
+
 
 /**
  * Creates a shortcut of the selected folder (single only).
@@ -1758,6 +1816,25 @@ CommandHandler.COMMANDS_['open-gear-menu'] = /** @type {Command} */ ({
   canExecute: function(event, fileManager) {
     event.canExecute = CommandUtil.canExecuteAlways;
   }
+});
+
+/**
+ * Focus the first button visible on action bar (at the top).
+ * @type {Command}
+ */
+CommandHandler.COMMANDS_['focus-action-bar'] = /** @type {Command} */ ({
+  /**
+   * @param {!Event} event Command event.
+   * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+   */
+  execute: function(event, fileManager) {
+    fileManager.ui.actionbar.querySelector('button:not([hidden])').focus();
+  },
+  /**
+   * @param {!Event} event Command event.
+   * @param {!CommandHandlerDeps} fileManager CommandHandlerDeps to use.
+   */
+  canExecute: CommandUtil.canExecuteAlways
 });
 
 /**

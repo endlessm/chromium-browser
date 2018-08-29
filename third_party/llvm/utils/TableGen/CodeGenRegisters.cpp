@@ -713,7 +713,7 @@ struct TupleExpander : SetTheory::Expander {
 //===----------------------------------------------------------------------===//
 
 static void sortAndUniqueRegisters(CodeGenRegister::Vec &M) {
-  std::sort(M.begin(), M.end(), deref<llvm::less>());
+  llvm::sort(M.begin(), M.end(), deref<llvm::less>());
   M.erase(std::unique(M.begin(), M.end(), deref<llvm::equal>()), M.end());
 }
 
@@ -985,7 +985,7 @@ CodeGenRegisterClass::getMatchingSubClassWithSubRegs(
   for (auto &RC : RegClasses)
     if (SuperRegRCsBV[RC.EnumValue])
       SuperRegRCs.emplace_back(&RC);
-  std::sort(SuperRegRCs.begin(), SuperRegRCs.end(), SizeOrder);
+  llvm::sort(SuperRegRCs.begin(), SuperRegRCs.end(), SizeOrder);
   assert(SuperRegRCs.front() == BiggestSuperRegRC && "Biggest class wasn't first");
 
   // Find all the subreg classes and order them by size too.
@@ -996,11 +996,11 @@ CodeGenRegisterClass::getMatchingSubClassWithSubRegs(
     if (SuperRegClassesBV.any())
       SuperRegClasses.push_back(std::make_pair(&RC, SuperRegClassesBV));
   }
-  std::sort(SuperRegClasses.begin(), SuperRegClasses.end(),
-            [&](const std::pair<CodeGenRegisterClass *, BitVector> &A,
-                const std::pair<CodeGenRegisterClass *, BitVector> &B) {
-              return SizeOrder(A.first, B.first);
-            });
+  llvm::sort(SuperRegClasses.begin(), SuperRegClasses.end(),
+             [&](const std::pair<CodeGenRegisterClass *, BitVector> &A,
+                 const std::pair<CodeGenRegisterClass *, BitVector> &B) {
+               return SizeOrder(A.first, B.first);
+             });
 
   // Find the biggest subclass and subreg class such that R:subidx is in the
   // subreg class for all R in subclass.
@@ -1061,7 +1061,7 @@ void CodeGenRegisterClass::buildRegUnitSet(const CodeGenRegBank &RegBank,
     if (!RU.Artificial)
       TmpUnits.push_back(*UnitI);
   }
-  std::sort(TmpUnits.begin(), TmpUnits.end());
+  llvm::sort(TmpUnits.begin(), TmpUnits.end());
   std::unique_copy(TmpUnits.begin(), TmpUnits.end(),
                    std::back_inserter(RegUnits));
 }
@@ -1080,7 +1080,7 @@ CodeGenRegBank::CodeGenRegBank(RecordKeeper &Records,
   // Read in the user-defined (named) sub-register indices.
   // More indices will be synthesized later.
   std::vector<Record*> SRIs = Records.getAllDerivedDefinitions("SubRegIndex");
-  std::sort(SRIs.begin(), SRIs.end(), LessRecord());
+  llvm::sort(SRIs.begin(), SRIs.end(), LessRecord());
   for (unsigned i = 0, e = SRIs.size(); i != e; ++i)
     getSubRegIdx(SRIs[i]);
   // Build composite maps from ComposedOf fields.
@@ -1089,7 +1089,7 @@ CodeGenRegBank::CodeGenRegBank(RecordKeeper &Records,
 
   // Read in the register definitions.
   std::vector<Record*> Regs = Records.getAllDerivedDefinitions("Register");
-  std::sort(Regs.begin(), Regs.end(), LessRecordRegister());
+  llvm::sort(Regs.begin(), Regs.end(), LessRecordRegister());
   // Assign the enumeration values.
   for (unsigned i = 0, e = Regs.size(); i != e; ++i)
     getReg(Regs[i]);
@@ -1100,7 +1100,7 @@ CodeGenRegBank::CodeGenRegBank(RecordKeeper &Records,
 
   for (Record *R : Tups) {
     std::vector<Record *> TupRegs = *Sets.expand(R);
-    std::sort(TupRegs.begin(), TupRegs.end(), LessRecordRegister());
+    llvm::sort(TupRegs.begin(), TupRegs.end(), LessRecordRegister());
     for (Record *RC : TupRegs)
       getReg(RC);
   }
@@ -1593,11 +1593,12 @@ static void computeUberWeights(std::vector<UberRegSet> &UberSets,
     if (Weight > MaxWeight)
       MaxWeight = Weight;
     if (I->Weight != MaxWeight) {
-      DEBUG(
-        dbgs() << "UberSet " << I - UberSets.begin() << " Weight " << MaxWeight;
-        for (auto &Unit : I->Regs)
-          dbgs() << " " << Unit->getName();
-        dbgs() << "\n");
+      LLVM_DEBUG(dbgs() << "UberSet " << I - UberSets.begin() << " Weight "
+                        << MaxWeight;
+                 for (auto &Unit
+                      : I->Regs) dbgs()
+                 << " " << Unit->getName();
+                 dbgs() << "\n");
       // Update the set weight.
       I->Weight = MaxWeight;
     }
@@ -1764,8 +1765,8 @@ void CodeGenRegBank::pruneUnitSets() {
           && (SubSet.Units.size() + 3 > SuperSet.Units.size())
           && UnitWeight == RegUnits[SuperSet.Units[0]].Weight
           && UnitWeight == RegUnits[SuperSet.Units.back()].Weight) {
-        DEBUG(dbgs() << "UnitSet " << SubIdx << " subsumed by " << SuperIdx
-              << "\n");
+        LLVM_DEBUG(dbgs() << "UnitSet " << SubIdx << " subsumed by " << SuperIdx
+                          << "\n");
         // We can pick any of the set names for the merged set. Go for the
         // shortest one to avoid picking the name of one of the classes that are
         // artificially created by tablegen. So "FPR128_lo" instead of
@@ -1818,29 +1819,26 @@ void CodeGenRegBank::computeRegUnitSets() {
       RegUnitSets.pop_back();
   }
 
-  DEBUG(dbgs() << "\nBefore pruning:\n";
-        for (unsigned USIdx = 0, USEnd = RegUnitSets.size();
-             USIdx < USEnd; ++USIdx) {
-          dbgs() << "UnitSet " << USIdx << " " << RegUnitSets[USIdx].Name
-                 << ":";
-          for (auto &U : RegUnitSets[USIdx].Units)
-            printRegUnitName(U);
-          dbgs() << "\n";
-        });
+  LLVM_DEBUG(dbgs() << "\nBefore pruning:\n"; for (unsigned USIdx = 0,
+                                                   USEnd = RegUnitSets.size();
+                                                   USIdx < USEnd; ++USIdx) {
+    dbgs() << "UnitSet " << USIdx << " " << RegUnitSets[USIdx].Name << ":";
+    for (auto &U : RegUnitSets[USIdx].Units)
+      printRegUnitName(U);
+    dbgs() << "\n";
+  });
 
   // Iteratively prune unit sets.
   pruneUnitSets();
 
-  DEBUG(dbgs() << "\nBefore union:\n";
-        for (unsigned USIdx = 0, USEnd = RegUnitSets.size();
-             USIdx < USEnd; ++USIdx) {
-          dbgs() << "UnitSet " << USIdx << " " << RegUnitSets[USIdx].Name
-                 << ":";
-          for (auto &U : RegUnitSets[USIdx].Units)
-            printRegUnitName(U);
-          dbgs() << "\n";
-        }
-        dbgs() << "\nUnion sets:\n");
+  LLVM_DEBUG(dbgs() << "\nBefore union:\n"; for (unsigned USIdx = 0,
+                                                 USEnd = RegUnitSets.size();
+                                                 USIdx < USEnd; ++USIdx) {
+    dbgs() << "UnitSet " << USIdx << " " << RegUnitSets[USIdx].Name << ":";
+    for (auto &U : RegUnitSets[USIdx].Units)
+      printRegUnitName(U);
+    dbgs() << "\n";
+  } dbgs() << "\nUnion sets:\n");
 
   // Iterate over all unit sets, including new ones added by this loop.
   unsigned NumRegUnitSubSets = RegUnitSets.size();
@@ -1880,11 +1878,11 @@ void CodeGenRegBank::computeRegUnitSets() {
       if (SetI != std::prev(RegUnitSets.end()))
         RegUnitSets.pop_back();
       else {
-        DEBUG(dbgs() << "UnitSet " << RegUnitSets.size()-1
-              << " " << RegUnitSets.back().Name << ":";
-              for (auto &U : RegUnitSets.back().Units)
-                printRegUnitName(U);
-              dbgs() << "\n";);
+        LLVM_DEBUG(dbgs() << "UnitSet " << RegUnitSets.size() - 1 << " "
+                          << RegUnitSets.back().Name << ":";
+                   for (auto &U
+                        : RegUnitSets.back().Units) printRegUnitName(U);
+                   dbgs() << "\n";);
       }
     }
   }
@@ -1892,15 +1890,14 @@ void CodeGenRegBank::computeRegUnitSets() {
   // Iteratively prune unit sets after inferring supersets.
   pruneUnitSets();
 
-  DEBUG(dbgs() << "\n";
-        for (unsigned USIdx = 0, USEnd = RegUnitSets.size();
-             USIdx < USEnd; ++USIdx) {
-          dbgs() << "UnitSet " << USIdx << " " << RegUnitSets[USIdx].Name
-                 << ":";
-          for (auto &U : RegUnitSets[USIdx].Units)
-            printRegUnitName(U);
-          dbgs() << "\n";
-        });
+  LLVM_DEBUG(
+      dbgs() << "\n"; for (unsigned USIdx = 0, USEnd = RegUnitSets.size();
+                           USIdx < USEnd; ++USIdx) {
+        dbgs() << "UnitSet " << USIdx << " " << RegUnitSets[USIdx].Name << ":";
+        for (auto &U : RegUnitSets[USIdx].Units)
+          printRegUnitName(U);
+        dbgs() << "\n";
+      });
 
   // For each register class, list the UnitSets that are supersets.
   RegClassUnitSets.resize(RegClasses.size());
@@ -1918,20 +1915,20 @@ void CodeGenRegBank::computeRegUnitSets() {
     if (RCRegUnits.empty())
       continue;
 
-    DEBUG(dbgs() << "RC " << RC.getName() << " Units: \n";
-          for (auto U : RCRegUnits)
-            printRegUnitName(U);
-          dbgs() << "\n  UnitSetIDs:");
+    LLVM_DEBUG(dbgs() << "RC " << RC.getName() << " Units: \n";
+               for (auto U
+                    : RCRegUnits) printRegUnitName(U);
+               dbgs() << "\n  UnitSetIDs:");
 
     // Find all supersets.
     for (unsigned USIdx = 0, USEnd = RegUnitSets.size();
          USIdx != USEnd; ++USIdx) {
       if (isRegUnitSubSet(RCRegUnits, RegUnitSets[USIdx].Units)) {
-        DEBUG(dbgs() << " " << USIdx);
+        LLVM_DEBUG(dbgs() << " " << USIdx);
         RegClassUnitSets[RCIdx].push_back(USIdx);
       }
     }
-    DEBUG(dbgs() << "\n");
+    LLVM_DEBUG(dbgs() << "\n");
     assert(!RegClassUnitSets[RCIdx].empty() && "missing unit set for regclass");
   }
 

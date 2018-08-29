@@ -14,15 +14,14 @@ import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 
-import org.chromium.base.SysUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchFieldTrial;
 import org.chromium.chrome.browser.help.HelpAndFeedback;
-import org.chromium.chrome.browser.physicalweb.PhysicalWeb;
 import org.chromium.chrome.browser.preferences.ChromeBaseCheckBoxPreference;
 import org.chromium.chrome.browser.preferences.ManagedPreferenceDelegate;
+import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.preferences.PreferenceUtils;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -39,11 +38,11 @@ public class PrivacyPreferences extends PreferenceFragment
     private static final String PREF_SAFE_BROWSING_SCOUT_REPORTING =
             "safe_browsing_scout_reporting";
     private static final String PREF_SAFE_BROWSING = "safe_browsing";
+    private static final String PREF_CAN_MAKE_PAYMENT = "can_make_payment";
     private static final String PREF_CONTEXTUAL_SEARCH = "contextual_search";
     private static final String PREF_NETWORK_PREDICTIONS = "network_predictions";
     private static final String PREF_DO_NOT_TRACK = "do_not_track";
     private static final String PREF_USAGE_AND_CRASH_REPORTING = "usage_and_crash_reports";
-    private static final String PREF_PHYSICAL_WEB = "physical_web";
     private static final String PREF_CLEAR_BROWSING_DATA = "clear_browsing_data";
 
     private ManagedPreferenceDelegate mManagedPreferenceDelegate;
@@ -106,9 +105,9 @@ public class PrivacyPreferences extends PreferenceFragment
         safeBrowsingPref.setOnPreferenceChangeListener(this);
         safeBrowsingPref.setManagedPreferenceDelegate(mManagedPreferenceDelegate);
 
-        if (!PhysicalWeb.featureIsEnabled() || SysUtils.isLowEndDevice()) {
-            preferenceScreen.removePreference(findPreference(PREF_PHYSICAL_WEB));
-        }
+        ChromeBaseCheckBoxPreference canMakePaymentPref =
+                (ChromeBaseCheckBoxPreference) findPreference(PREF_CAN_MAKE_PAYMENT);
+        canMakePaymentPref.setOnPreferenceChangeListener(this);
 
         updateSummaries();
     }
@@ -129,6 +128,9 @@ public class PrivacyPreferences extends PreferenceFragment
             recordNetworkPredictionEnablingUMA((boolean) newValue);
         } else if (PREF_NAVIGATION_ERROR.equals(key)) {
             PrefServiceBridge.getInstance().setResolveNavigationErrorEnabled((boolean) newValue);
+        } else if (PREF_CAN_MAKE_PAYMENT.equals(key)) {
+            PrefServiceBridge.getInstance().setBoolean(
+                    Pref.CAN_MAKE_PAYMENT_ENABLED, (boolean) newValue);
         }
 
         return true;
@@ -184,6 +186,13 @@ public class PrivacyPreferences extends PreferenceFragment
             safeBrowsingPref.setChecked(prefServiceBridge.isSafeBrowsingEnabled());
         }
 
+        CheckBoxPreference canMakePaymentPref =
+                (CheckBoxPreference) findPreference(PREF_CAN_MAKE_PAYMENT);
+        if (canMakePaymentPref != null) {
+            canMakePaymentPref.setChecked(
+                    prefServiceBridge.getBoolean(Pref.CAN_MAKE_PAYMENT_ENABLED));
+        }
+
         Preference doNotTrackPref = findPreference(PREF_DO_NOT_TRACK);
         if (doNotTrackPref != null) {
             doNotTrackPref.setSummary(prefServiceBridge.isDoNotTrackEnabled() ? textOn : textOff);
@@ -195,12 +204,6 @@ public class PrivacyPreferences extends PreferenceFragment
             contextualPref.setSummary(isContextualSearchEnabled ? textOn : textOff);
         }
 
-        Preference physicalWebPref = findPreference(PREF_PHYSICAL_WEB);
-        if (physicalWebPref != null) {
-            physicalWebPref.setSummary(privacyPrefManager.isPhysicalWebEnabled()
-                    ? textOn : textOff);
-        }
-
         Preference usageAndCrashPref = findPreference(PREF_USAGE_AND_CRASH_REPORTING);
         if (usageAndCrashPref != null) {
             usageAndCrashPref.setSummary(
@@ -210,29 +213,26 @@ public class PrivacyPreferences extends PreferenceFragment
     }
 
     private ManagedPreferenceDelegate createManagedPreferenceDelegate() {
-        return new ManagedPreferenceDelegate() {
-            @Override
-            public boolean isPreferenceControlledByPolicy(Preference preference) {
-                String key = preference.getKey();
-                PrefServiceBridge prefs = PrefServiceBridge.getInstance();
-                if (PREF_NAVIGATION_ERROR.equals(key)) {
-                    return prefs.isResolveNavigationErrorManaged();
-                }
-                if (PREF_SEARCH_SUGGESTIONS.equals(key)) {
-                    return prefs.isSearchSuggestManaged();
-                }
-                if (PREF_SAFE_BROWSING_EXTENDED_REPORTING.equals(key)
-                        || PREF_SAFE_BROWSING_SCOUT_REPORTING.equals(key)) {
-                    return prefs.isSafeBrowsingExtendedReportingManaged();
-                }
-                if (PREF_SAFE_BROWSING.equals(key)) {
-                    return prefs.isSafeBrowsingManaged();
-                }
-                if (PREF_NETWORK_PREDICTIONS.equals(key)) {
-                    return prefs.isNetworkPredictionManaged();
-                }
-                return false;
+        return preference -> {
+            String key = preference.getKey();
+            PrefServiceBridge prefs = PrefServiceBridge.getInstance();
+            if (PREF_NAVIGATION_ERROR.equals(key)) {
+                return prefs.isResolveNavigationErrorManaged();
             }
+            if (PREF_SEARCH_SUGGESTIONS.equals(key)) {
+                return prefs.isSearchSuggestManaged();
+            }
+            if (PREF_SAFE_BROWSING_EXTENDED_REPORTING.equals(key)
+                    || PREF_SAFE_BROWSING_SCOUT_REPORTING.equals(key)) {
+                return prefs.isSafeBrowsingExtendedReportingManaged();
+            }
+            if (PREF_SAFE_BROWSING.equals(key)) {
+                return prefs.isSafeBrowsingManaged();
+            }
+            if (PREF_NETWORK_PREDICTIONS.equals(key)) {
+                return prefs.isNetworkPredictionManaged();
+            }
+            return false;
         };
     }
 

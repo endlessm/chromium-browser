@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "ash/system/message_center/arc/arc_notification_surface.h"
 #include "base/command_line.h"
 #include "base/memory/singleton.h"
 #include "chrome/browser/profiles/profile.h"
@@ -17,11 +18,13 @@
 #include "components/exo/shell_surface.h"
 #include "components/exo/surface.h"
 #include "components/exo/wm_helper.h"
-#include "ui/arc/notification/arc_notification_surface.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/controls/native/native_view_host.h"
+
+using ash::ArcNotificationSurface;
+using ash::ArcNotificationSurfaceManager;
 
 namespace {
 
@@ -195,10 +198,6 @@ void ArcAccessibilityHelperBridge::Shutdown() {
 
   arc_bridge_service_->accessibility_helper()->RemoveObserver(this);
   arc_bridge_service_->accessibility_helper()->SetHost(nullptr);
-
-  auto* surface_manager = ArcNotificationSurfaceManager::Get();
-  if (surface_manager)
-    surface_manager->RemoveObserver(this);
 }
 
 void ArcAccessibilityHelperBridge::OnConnectionReady() {
@@ -216,6 +215,12 @@ void ArcAccessibilityHelperBridge::OnConnectionReady() {
   auto* surface_manager = ArcNotificationSurfaceManager::Get();
   if (surface_manager)
     surface_manager->AddObserver(this);
+}
+
+void ArcAccessibilityHelperBridge::OnConnectionClosed() {
+  auto* surface_manager = ArcNotificationSurfaceManager::Get();
+  if (surface_manager)
+    surface_manager->RemoveObserver(this);
 }
 
 void ArcAccessibilityHelperBridge::OnAccessibilityEventDeprecated(
@@ -245,23 +250,8 @@ void ArcAccessibilityHelperBridge::OnAccessibilityEvent(
 
       // This bridge must receive OnNotificationStateChanged call for the
       // notification_key before this receives an accessibility event for it.
-      // TODO(yawano): change this to DCHECK once we remove backward
-      //               compatibility logic.
-      if (notification_keys_.find(notification_key) !=
-          notification_keys_.end()) {
-        tree_source = GetFromNotificationKey(notification_key);
-        DCHECK(tree_source);
-      } else {
-        // Backward compatibility logic.
-        // TODO(yawano): remove this once this becomes unnecessary.
-        if (event_data->event_type ==
-            arc::mojom::AccessibilityEventType::WINDOW_STATE_CHANGED) {
-          tree_source = CreateFromNotificationKey(notification_key);
-          backward_compat_notification_keys_[notification_key]++;
-        } else {
-          tree_source = GetFromNotificationKey(notification_key);
-        }
-      }
+      tree_source = GetFromNotificationKey(notification_key);
+      DCHECK(tree_source);
     } else {
       if (event_data->task_id == kNoTaskId)
         return;
@@ -283,40 +273,21 @@ void ArcAccessibilityHelperBridge::OnAccessibilityEvent(
 
     tree_source->NotifyAccessibilityEvent(event_data.get());
 
-    if (is_notification_event) {
-      switch (event_data->event_type) {
-        case arc::mojom::AccessibilityEventType::VIEW_TEXT_SELECTION_CHANGED: {
-          // If text selection changed event is dispatched from Android, it
-          // means that user is trying to type a text in Android notification.
-          // Dispatch text selection changed event to notification content view
-          // as the view can take necessary actions, e.g. activate itself, etc.
-          auto* surface_manager = ArcNotificationSurfaceManager::Get();
-          if (!surface_manager)
-            break;
-
-          ArcNotificationSurface* surface = surface_manager->GetArcSurface(
-              event_data->notification_key.value());
-          if (!surface)
-            break;
-
+    if (is_notification_event &&
+        event_data->event_type ==
+            arc::mojom::AccessibilityEventType::VIEW_TEXT_SELECTION_CHANGED) {
+      // If text selection changed event is dispatched from Android, it
+      // means that user is trying to type a text in Android notification.
+      // Dispatch text selection changed event to notification content view
+      // as the view can take necessary actions, e.g. activate itself, etc.
+      auto* surface_manager = ArcNotificationSurfaceManager::Get();
+      if (surface_manager) {
+        ArcNotificationSurface* surface = surface_manager->GetArcSurface(
+            event_data->notification_key.value());
+        if (surface) {
           surface->GetAttachedHost()->NotifyAccessibilityEvent(
               ax::mojom::Event::kTextSelectionChanged, true);
-          break;
         }
-        case arc::mojom::AccessibilityEventType::WINDOW_STATE_CHANGED: {
-          // TODO(yawano): Move this to OnNotificationStateChanged. This can be
-          // moved there if we don't need to care about backward compat.
-          ui::AXTreeData tree_data;
-          if (!tree_source->GetTreeData(&tree_data))
-            break;
-
-          DCHECK(event_data->notification_key.has_value());
-          UpdateTreeIdOfNotificationSurface(
-              event_data->notification_key.value(), tree_data.tree_id);
-          break;
-        }
-        default:
-          break;
       }
     }
 
@@ -335,12 +306,19 @@ void ArcAccessibilityHelperBridge::OnNotificationStateChanged(
     const std::string& notification_key,
     arc::mojom::AccessibilityNotificationStateType state) {
   switch (state) {
-    case arc::mojom::AccessibilityNotificationStateType::SURFACE_CREATED:
-      CreateFromNotificationKey(notification_key);
-      notification_keys_.insert(notification_key);
+    case arc::mojom::AccessibilityNotificationStateType::SURFACE_CREATED: {
+      AXTreeSourceArc* tree_source =
+          CreateFromNotificationKey(notification_key);
+
+      ui::AXTreeData tree_data;
+      if (!tree_source->GetTreeData(&tree_data)) {
+        NOTREACHED();
+        return;
+      }
+      UpdateTreeIdOfNotificationSurface(notification_key, tree_data.tree_id);
       break;
+    }
     case arc::mojom::AccessibilityNotificationStateType::SURFACE_REMOVED:
-      notification_keys_.erase(notification_key);
       notification_key_to_tree_.erase(notification_key);
       UpdateTreeIdOfNotificationSurface(notification_key, kInvalidTreeId);
       break;
@@ -469,6 +447,14 @@ void ArcAccessibilityHelperBridge::OnAction(
           arc::mojom::AccessibilityActionType::CUSTOM_ACTION;
       action_data->custom_action_id = data.custom_action_id;
       break;
+    case ax::mojom::Action::kSetAccessibilityFocus:
+      action_data->action_type =
+          arc::mojom::AccessibilityActionType::ACCESSIBILITY_FOCUS;
+      break;
+    case ax::mojom::Action::kClearAccessibilityFocus:
+      action_data->action_type =
+          arc::mojom::AccessibilityActionType::CLEAR_ACCESSIBILITY_FOCUS;
+      break;
     default:
       return;
   }
@@ -596,24 +582,6 @@ void ArcAccessibilityHelperBridge::OnNotificationSurfaceAdded(
   if (surface->IsAttached()) {
     surface->GetAttachedHost()->NotifyAccessibilityEvent(
         ax::mojom::Event::kChildrenChanged, false);
-  }
-}
-
-void ArcAccessibilityHelperBridge::OnNotificationSurfaceRemoved(
-    ArcNotificationSurface* surface) {
-  const std::string& notification_key = surface->GetNotificationKey();
-
-  auto it = backward_compat_notification_keys_.find(notification_key);
-  if (it == backward_compat_notification_keys_.end())
-    return;
-
-  it->second--;
-
-  DCHECK(it->second >= 0);
-
-  if (it->second == 0) {
-    notification_key_to_tree_.erase(notification_key);
-    backward_compat_notification_keys_.erase(notification_key);
   }
 }
 

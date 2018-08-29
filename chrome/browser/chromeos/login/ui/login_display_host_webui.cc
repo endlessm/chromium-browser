@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "ash/accessibility/focus_ring_controller.h"
-#include "ash/public/cpp/ash_switches.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/shell.h"
 #include "ash/system/tray/system_tray.h"
@@ -25,7 +25,6 @@
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
@@ -42,7 +41,7 @@
 #include "chrome/browser/chromeos/login/signin/token_handle_util.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/ui/input_events_blocker.h"
-#include "chrome/browser/chromeos/login/ui/login_display_host_views.h"
+#include "chrome/browser/chromeos/login/ui/login_display_host_mojo.h"
 #include "chrome/browser/chromeos/login/ui/login_display_webui.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_view.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
@@ -54,8 +53,10 @@
 #include "chrome/browser/chromeos/system/input_device_settings.h"
 #include "chrome/browser/chromeos/system/timezone_resolver_manager.h"
 #include "chrome/browser/chromeos/system/timezone_util.h"
+#include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/ash_util.h"
+#include "chrome/browser/ui/ash/system_tray_client.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
@@ -71,10 +72,10 @@
 #include "chromeos/settings/cros_settings_provider.h"
 #include "chromeos/settings/timezone_settings.h"
 #include "chromeos/timezone/timezone_resolver.h"
+#include "components/account_id/account_id.h"
 #include "components/language/core/common/locale_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/notification_service.h"
@@ -202,9 +203,9 @@ void ShowLoginWizardFinish(
   if (chromeos::LoginDisplayHost::default_host()) {
     // Tests may have already allocated an instance for us to use.
     display_host = chromeos::LoginDisplayHost::default_host();
-  } else if (ash::switches::IsUsingViewsLogin() &&
+  } else if (ash::features::IsViewsLoginEnabled() &&
              ShouldShowSigninScreen(first_screen)) {
-    display_host = new chromeos::LoginDisplayHostViews();
+    display_host = new chromeos::LoginDisplayHostMojo();
   } else {
     display_host = new chromeos::LoginDisplayHostWebUI();
   }
@@ -368,7 +369,7 @@ class LoginDisplayHostWebUI::KeyboardDrivenOobeKeyHandler
   // ui::EventHandler
   void OnKeyEvent(ui::KeyEvent* event) override {
     if (event->key_code() == ui::VKEY_F6) {
-      ash::Shell::Get()->GetPrimarySystemTray()->CloseBubble();
+      SystemTrayClient::Get()->SetPrimaryTrayVisible(false);
       event->StopPropagation();
     }
   }
@@ -1148,9 +1149,15 @@ void LoginDisplayHostWebUI::StartVoiceInteractionOobe() {
   login_view_->set_should_emit_login_prompt_visible(false);
 }
 
-void LoginDisplayHostWebUI::UpdateGaiaDialogVisibility(bool visible) {}
+void LoginDisplayHostWebUI::UpdateGaiaDialogVisibility(
+    bool visible,
+    const base::Optional<AccountId>& account) {
+  NOTREACHED();
+}
 
-void LoginDisplayHostWebUI::UpdateGaiaDialogSize(int width, int height) {}
+void LoginDisplayHostWebUI::UpdateGaiaDialogSize(int width, int height) {
+  NOTREACHED();
+}
 
 const user_manager::UserList LoginDisplayHostWebUI::GetUsers() {
   return user_manager::UserList();

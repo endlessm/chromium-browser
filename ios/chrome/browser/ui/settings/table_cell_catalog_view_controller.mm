@@ -4,10 +4,13 @@
 
 #import "ios/chrome/browser/ui/settings/table_cell_catalog_view_controller.h"
 
+#import "ios/chrome/browser/ui/table_view/cells/table_view_accessory_item.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_text_button_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_url_item.h"
 #import "ios/chrome/browser/ui/table_view/table_view_model.h"
+#include "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -24,7 +27,10 @@ typedef NS_ENUM(NSInteger, ItemType) {
   ItemTypeText = kItemTypeEnumZero,
   ItemTypeTextHeader,
   ItemTypeTextFooter,
+  ItemTypeTextButton,
   ItemTypeURLNoMetadata,
+  ItemTypeTextAccessoryImage,
+  ItemTypeTextAccessoryNoImage,
   ItemTypeURLWithTimestamp,
   ItemTypeURLWithSize,
 };
@@ -33,7 +39,9 @@ typedef NS_ENUM(NSInteger, ItemType) {
 @implementation TableCellCatalogViewController
 
 - (instancetype)init {
-  if ((self = [super initWithStyle:UITableViewStyleGrouped])) {
+  if ((self = [super
+           initWithTableViewStyle:UITableViewStyleGrouped
+                      appBarStyle:ChromeTableViewControllerStyleWithAppBar])) {
   }
   return self;
 }
@@ -66,7 +74,27 @@ typedef NS_ENUM(NSInteger, ItemType) {
   TableViewTextItem* textItem =
       [[TableViewTextItem alloc] initWithType:ItemTypeText];
   textItem.text = @"Simple Text Cell";
+  textItem.textAlignment = NSTextAlignmentCenter;
+  textItem.textColor = TextItemColorBlack;
   [model addItem:textItem toSectionWithIdentifier:SectionIdentifierText];
+
+  TableViewAccessoryItem* textAccessoryItem =
+      [[TableViewAccessoryItem alloc] initWithType:ItemTypeTextAccessoryImage];
+  textAccessoryItem.title = @"Text Accessory with History Image";
+  textAccessoryItem.image = [UIImage imageNamed:@"show_history"];
+  [model addItem:textAccessoryItem
+      toSectionWithIdentifier:SectionIdentifierText];
+
+  textAccessoryItem = [[TableViewAccessoryItem alloc]
+      initWithType:ItemTypeTextAccessoryNoImage];
+  textAccessoryItem.title = @"Text Accessory No Image";
+  [model addItem:textAccessoryItem
+      toSectionWithIdentifier:SectionIdentifierText];
+
+  TableViewTextItem* textItemDefault =
+      [[TableViewTextItem alloc] initWithType:ItemTypeText];
+  textItemDefault.text = @"Simple Text Cell with Defaults";
+  [model addItem:textItemDefault toSectionWithIdentifier:SectionIdentifierText];
 
   textHeaderFooterItem =
       [[TableViewTextHeaderFooterItem alloc] initWithType:ItemTypeTextFooter];
@@ -74,25 +102,33 @@ typedef NS_ENUM(NSInteger, ItemType) {
   [model setFooter:textHeaderFooterItem
       forSectionWithIdentifier:SectionIdentifierText];
 
+  TableViewTextButtonItem* textActionButtonItem =
+      [[TableViewTextButtonItem alloc] initWithType:ItemTypeTextButton];
+  textActionButtonItem.text = @"Hello, you should do something.";
+  textActionButtonItem.buttonText = @"Do something";
+  [model setFooter:textActionButtonItem
+      forSectionWithIdentifier:SectionIdentifierText];
+
   // SectionIdentifierURL.
   TableViewURLItem* item =
       [[TableViewURLItem alloc] initWithType:ItemTypeURLNoMetadata];
-  item.favicon = [UIImage imageNamed:@"default_favicon"];
   item.title = @"Google Design";
-  item.URL = @"design.google.com";
+  item.URL = GURL("https://design.google.com");
+  [model addItem:item toSectionWithIdentifier:SectionIdentifierURL];
+
+  item = [[TableViewURLItem alloc] initWithType:ItemTypeURLNoMetadata];
+  item.URL = GURL("https://notitle.google.com");
   [model addItem:item toSectionWithIdentifier:SectionIdentifierURL];
 
   item = [[TableViewURLItem alloc] initWithType:ItemTypeURLWithTimestamp];
-  item.favicon = [UIImage imageNamed:@"default_favicon"];
   item.title = @"Google";
-  item.URL = @"google.com";
+  item.URL = GURL("https://www.google.com");
   item.metadata = @"3:42 PM";
   [model addItem:item toSectionWithIdentifier:SectionIdentifierURL];
 
   item = [[TableViewURLItem alloc] initWithType:ItemTypeURLWithSize];
-  item.favicon = [UIImage imageNamed:@"default_favicon"];
   item.title = @"World Series 2017: Houston Astros Defeat Someone Else";
-  item.URL = @"m.bbc.com";
+  item.URL = GURL("https://m.bbc.com");
   item.metadata = @"176 KB";
   [model addItem:item toSectionWithIdentifier:SectionIdentifierURL];
 }

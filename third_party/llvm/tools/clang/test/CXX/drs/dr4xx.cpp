@@ -318,8 +318,8 @@ namespace dr420 { // dr420: yes
     q->~id<int>();
     p->id<int>::~id<int>();
     q->id<int>::~id<int>();
-    p->template id<int>::~id<int>(); // expected-error {{expected unqualified-id}}
-    q->template id<int>::~id<int>(); // expected-error {{expected unqualified-id}}
+    p->template id<int>::~id<int>(); // expected-error {{'template' keyword not permitted here}} expected-error {{base type 'int' is not a struct}}
+    q->template id<int>::~id<int>(); // expected-error {{'template' keyword not permitted here}} expected-error {{base type 'int' is not a struct}}
     p->A::template id<int>::~id<int>();
     q->A::template id<int>::~id<int>();
   }
@@ -796,24 +796,9 @@ namespace dr468 { // dr468: yes c++11
 }
 
 namespace dr469 { // dr469: no
-  // FIXME: The core issue here didn't really answer the question. We don't
-  // deduce 'const T' from a function or reference type in a class template...
-  template<typename T> struct X; // expected-note 2{{here}}
+  template<typename T> struct X; // expected-note {{here}}
   template<typename T> struct X<const T> {};
   X<int&> x; // expected-error {{undefined}}
-  X<int()> y; // expected-error {{undefined}}
-
-  // ... but we do in a function template. GCC and EDG fail deduction of 'f'
-  // and the second 'h'.
-  template<typename T> void f(const T *);
-  template<typename T> void g(T *, const T * = 0);
-  template<typename T> void h(T *) { T::error; }
-  template<typename T> void h(const T *);
-  void i() {
-    f(&i);
-    g(&i);
-    h(&i);
-  }
 }
 
 namespace dr470 { // dr470: yes

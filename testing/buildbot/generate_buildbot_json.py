@@ -282,6 +282,36 @@ class BBJSONGenerator(object):
       return []
     return exception.get('key_removals', {}).get(tester_name, [])
 
+  def maybe_fixup_args_array(self, arr):
+    # The incoming array of strings may be an array of command line
+    # arguments. To make it easier to turn on certain features per-bot
+    # or per-test-suite, look specifically for any --enable-features
+    # flags, and merge them into comma-separated lists. (This might
+    # need to be extended to handle other arguments in the future,
+    # too.)
+    enable_str = '--enable-features='
+    enable_str_len = len(enable_str)
+    enable_features_args = []
+    idx = 0
+    first_idx = -1
+    while idx < len(arr):
+      flag = arr[idx]
+      delete_current_entry = False
+      if flag.startswith(enable_str):
+        arg = flag[enable_str_len:]
+        enable_features_args.extend(arg.split(','))
+        if first_idx < 0:
+          first_idx = idx
+        else:
+          delete_current_entry = True
+      if delete_current_entry:
+        del arr[idx]
+      else:
+        idx += 1
+    if first_idx >= 0:
+      arr[first_idx] = enable_str + ','.join(enable_features_args)
+    return arr
+
   def dictionary_merge(self, a, b, path=None, update=True):
     """http://stackoverflow.com/questions/7204805/
         python-dictionaries-of-dictionaries-merge
@@ -296,9 +326,12 @@ class BBJSONGenerator(object):
         elif a[key] == b[key]:
           pass # same leaf value
         elif isinstance(a[key], list) and isinstance(b[key], list):
+          # Args arrays are lists of strings. Just concatenate them,
+          # and don't sort them, in order to keep some needed
+          # arguments adjacent (like --time-out-ms [arg], etc.)
           if all(isinstance(x, str)
                  for x in itertools.chain(a[key], b[key])):
-            a[key] = sorted(a[key] + b[key])
+            a[key] = self.maybe_fixup_args_array(a[key] + b[key])
           else:
             # TODO(kbr): this only works properly if the two arrays are
             # the same length, which is currently always the case in the
@@ -324,10 +357,9 @@ class BBJSONGenerator(object):
     return a
 
   def initialize_args_for_test(self, generated_test, tester_config):
-    if 'args' in tester_config:
-      if 'args' not in generated_test:
-        generated_test['args'] = []
-      generated_test['args'].extend(tester_config['args'])
+    if 'args' in tester_config or 'args' in generated_test:
+      generated_test['args'] = self.maybe_fixup_args_array(
+        generated_test.get('args', []) + tester_config.get('args', []))
 
   def initialize_swarming_dictionary_for_test(self, generated_test,
                                               tester_config):
@@ -412,8 +444,8 @@ class BBJSONGenerator(object):
       if 'args' not in result:
         result['args'] = []
       result['args'].append('--gs-results-bucket=chromium-result-details')
-      if result['swarming']['can_use_on_swarming_builders'] and not \
-         tester_config.get('skip_merge_script', False):
+      if (result['swarming']['can_use_on_swarming_builders'] and not
+          tester_config.get('skip_merge_script', False)):
         result['merge'] = {
           'args': [
             '--bucket',
@@ -421,7 +453,7 @@ class BBJSONGenerator(object):
             '--test-name',
             test_name
           ],
-          'script': '//build/android/pylib/results/presentation/' \
+          'script': '//build/android/pylib/results/presentation/'
             'test_results_presentation.py',
         } # pragma: no cover
       if not tester_config.get('skip_cipd_packages', False):
@@ -518,8 +550,8 @@ class BBJSONGenerator(object):
       if isinstance(value, list):
         for entry in value:
           if isinstance(self.test_suites[entry], list):
-            raise BBGenErr('Composition test suites may not refer to other ' \
-                           'composition test suites (error found while ' \
+            raise BBGenErr('Composition test suites may not refer to other '
+                           'composition test suites (error found while '
                            'processing %s)' % name)
 
   def resolve_composition_test_suites(self):
@@ -558,9 +590,13 @@ class BBJSONGenerator(object):
           suite_type, waterfall_name, bot_name),
       cause=cause)
 
+  def unknown_bot(self, bot_name, waterfall_name):
+    return BBGenErr(
+      'Unknown bot name "%s" on waterfall "%s"' % (bot_name, waterfall_name))
+
   def unknown_test_suite(self, suite_name, bot_name, waterfall_name):
     return BBGenErr(
-      'Test suite %s from machine %s on waterfall %s not present in ' \
+      'Test suite %s from machine %s on waterfall %s not present in '
       'test_suites.pyl' % (suite_name, bot_name, waterfall_name))
 
   def unknown_test_suite_type(self, suite_type, bot_name, waterfall_name):
@@ -608,9 +644,38 @@ class BBJSONGenerator(object):
         self.write_file(self.pyl_file_path(file_path),
                         self.generate_waterfall_json(waterfall))
 
+  def get_valid_bot_names(self):
+    # Extract bot names from infra/config/global/luci-milo.cfg.
+    bot_names = set()
+    for l in self.read_file(os.path.join(
+        '..', '..', 'infra', 'config', 'global', 'luci-milo.cfg')).splitlines():
+      if (not 'name: "buildbucket/luci.chromium.' in l and
+          not 'name: "buildbot/chromium.' in l):
+        continue
+      # l looks like `name: "buildbucket/luci.chromium.try/win_chromium_dbg_ng"`
+      # Extract win_chromium_dbg_ng part.
+      bot_names.add(l[l.rindex('/') + 1:l.rindex('"')])
+    return bot_names
+
   def check_input_file_consistency(self):
     self.load_configuration_files()
     self.check_composition_test_suites()
+
+    # All bots should exist.
+    bot_names = self.get_valid_bot_names()
+    for waterfall in self.waterfalls:
+      for bot_name in waterfall['machines']:
+        if bot_name not in bot_names:
+          if waterfall['name'] in ['chromium.android.fyi', 'chromium.fyi',
+                                   'chromium.lkgr', 'client.v8.chromium']:
+            # TODO(thakis): Remove this once these bots move to luci.
+            continue  # pragma: no cover
+          if waterfall['name'] in ['tryserver.webrtc']:
+            # These waterfalls have their bot configs in a different repo.
+            # so we don't know about their bot names.
+            continue  # pragma: no cover
+          raise self.unknown_bot(bot_name, waterfall['name'])
+
     # All test suites must be referenced.
     suites_seen = set()
     generator_map = self.get_test_generator_map()
@@ -650,12 +715,12 @@ class BBJSONGenerator(object):
         # name.
         all_bots.add(bot_name + ' ' + waterfall['name'])
     for exception in self.exceptions.itervalues():
-      for removal in exception.get('remove_from', []):
+      removals = (exception.get('remove_from', []) +
+                  exception.get('remove_gtest_from', []) +
+                  exception.get('modifications', {}).keys())
+      for removal in removals:
         if removal not in all_bots:
           missing_bots.add(removal)
-      for mod in exception.get('modifications', {}).iterkeys():
-        if mod not in all_bots:
-          missing_bots.add(mod)
     if missing_bots:
       raise BBGenErr('The following nonexistent machines were referenced in '
                      'the test suite exceptions: ' + str(missing_bots))

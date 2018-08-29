@@ -6,7 +6,6 @@
 
 #include <algorithm>
 
-#include "ash/components/resources/grit/ash_components_resources.h"
 #include "ash/components/shortcut_viewer/keyboard_shortcut_viewer_metadata.h"
 #include "ash/components/shortcut_viewer/vector_icons/vector_icons.h"
 #include "ash/components/shortcut_viewer/views/keyboard_shortcut_item_list_view.h"
@@ -14,9 +13,9 @@
 #include "ash/components/shortcut_viewer/views/ksv_search_box_view.h"
 #include "ash/components/strings/grit/ash_components_strings.h"
 #include "ash/public/cpp/app_list/internal_app_id_constants.h"
+#include "ash/public/cpp/resources/grit/ash_public_unscaled_resources.h"
 #include "ash/public/cpp/shelf_item.h"
 #include "ash/public/cpp/window_properties.h"
-#include "ash/resources/grit/ash_resources.h"
 #include "base/bind.h"
 #include "base/i18n/string_search.h"
 #include "base/metrics/user_metrics.h"
@@ -29,6 +28,8 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/search_box/search_box_view_base.h"
+#include "ui/display/display.h"
+#include "ui/display/screen.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
@@ -55,7 +56,7 @@ void SetupSearchIllustrationView(views::View* illustration_view,
                                  int message_id) {
   constexpr int kSearchIllustrationIconSize = 150;
   constexpr SkColor kSearchIllustrationIconColor =
-      SkColorSetARGBMacro(0xFF, 0xDA, 0xDC, 0xE0);
+      SkColorSetARGB(0xFF, 0xDA, 0xDC, 0xE0);
 
   illustration_view->set_owned_by_client();
   constexpr int kTopPadding = 98;
@@ -71,7 +72,7 @@ void SetupSearchIllustrationView(views::View* illustration_view,
   illustration_view->AddChildView(image_view);
 
   constexpr SkColor kSearchIllustrationTextColor =
-      SkColorSetARGBMacro(0xFF, 0x20, 0x21, 0x24);
+      SkColorSetARGB(0xFF, 0x20, 0x21, 0x24);
   views::Label* text = new views::Label(l10n_util::GetStringUTF16(message_id));
   text->SetEnabledColor(kSearchIllustrationTextColor);
   constexpr int kLabelFontSizeDelta = 1;
@@ -96,11 +97,12 @@ KeyboardShortcutView::~KeyboardShortcutView() {
 }
 
 // static
-views::Widget* KeyboardShortcutView::Show(gfx::NativeWindow context) {
+views::Widget* KeyboardShortcutView::Toggle(gfx::NativeWindow context) {
   if (g_ksv_view) {
-    // If there is a KeyboardShortcutView window open already, just activate
-    // it.
-    g_ksv_view->GetWidget()->Activate();
+    if (g_ksv_view->GetWidget()->IsActive())
+      g_ksv_view->GetWidget()->Close();
+    else
+      g_ksv_view->GetWidget()->Activate();
   } else {
     base::RecordAction(
         base::UserMetricsAction("KeyboardShortcutViewer.CreateWindow"));
@@ -108,7 +110,9 @@ views::Widget* KeyboardShortcutView::Show(gfx::NativeWindow context) {
     constexpr gfx::Size kKSVWindowSize(800, 512);
     gfx::Rect window_bounds(kKSVWindowSize);
     if (context) {
-      window_bounds = context->GetRootWindow()->GetBoundsInScreen();
+      window_bounds = display::Screen::GetScreen()
+                          ->GetDisplayNearestWindow(context->GetRootWindow())
+                          .work_area();
       window_bounds.ClampToCenteredSize(kKSVWindowSize);
     }
     views::Widget::CreateWindowWithContextAndBounds(new KeyboardShortcutView(),
@@ -123,7 +127,7 @@ views::Widget* KeyboardShortcutView::Show(gfx::NativeWindow context) {
     const ash::ShelfID shelf_id(app_list::kInternalAppIdKeyboardShortcutViewer);
     window->SetProperty(ash::kShelfIDKey,
                         new std::string(shelf_id.Serialize()));
-    window->SetProperty<int>(ash::kShelfItemTypeKey, ash::TYPE_DIALOG);
+    window->SetProperty<int>(ash::kShelfItemTypeKey, ash::TYPE_APP);
 
     // We don't want the KSV window to have a title (per design), however the
     // shelf uses the window title to set the shelf item's tooltip text. The
@@ -134,7 +138,7 @@ views::Widget* KeyboardShortcutView::Show(gfx::NativeWindow context) {
     window->SetTitle(l10n_util::GetStringUTF16(IDS_KSV_TITLE));
     gfx::ImageSkia* icon =
         ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
-            IDR_KEYBOARD_SHORTCUT_VIEWER_LOGO_192);
+            IDR_SHORTCUT_VIEWER_LOGO_192);
     // The new gfx::ImageSkia instance is owned by the window itself.
     window->SetProperty(aura::client::kWindowIconKey,
                         new gfx::ImageSkia(*icon));

@@ -11,6 +11,7 @@
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
+#include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -185,7 +186,7 @@ class TestInterstitialPage : public content::InterstitialPageDelegate {
   explicit TestInterstitialPage(WebContents* tab) {
     base::ScopedAllowBlockingForTesting allow_blocking;
     base::FilePath file_path;
-    bool success = PathService::Get(chrome::DIR_TEST_DATA, &file_path);
+    bool success = base::PathService::Get(chrome::DIR_TEST_DATA, &file_path);
     EXPECT_TRUE(success);
     file_path = file_path.AppendASCII("focus/typical_page.html");
     success = base::ReadFileToString(file_path, &html_contents_);
@@ -231,7 +232,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_ClickingMovesFocus) {
   // It seems we have to wait a little bit for the widgets to spin up before
   // we can start clicking on them.
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
+      FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated(),
       base::TimeDelta::FromMilliseconds(kActionDelayMs));
   content::RunMessageLoop();
 #endif  // defined(OS_POSIX)
@@ -684,8 +685,8 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, NavigateFromOmniboxIntoNewTab) {
   EXPECT_FALSE(IsViewFocused(VIEW_ID_OMNIBOX));
 }
 
-// Flaky on Mac and ChromeOS (http://crbug.com/665296).
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+// Flaky on Mac, ChromeOS and Win (http://crbug.com/665296).
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_WIN)
 #define MAYBE_FocusOnNavigate DISABLED_FocusOnNavigate
 #else
 #define MAYBE_FocusOnNavigate FocusOnNavigate

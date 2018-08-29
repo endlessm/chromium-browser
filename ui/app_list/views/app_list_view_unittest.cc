@@ -13,6 +13,8 @@
 #include <vector>
 
 #include "ash/app_list/model/search/search_box_model.h"
+#include "ash/public/cpp/app_list/answer_card_contents_registry.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
@@ -20,8 +22,6 @@
 #include "base/test/icu_test_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/app_list/answer_card_contents_registry.h"
-#include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/pagination_model.h"
 #include "ui/app_list/test/app_list_test_model.h"
 #include "ui/app_list/test/app_list_test_view_delegate.h"
@@ -82,17 +82,12 @@ void CheckView(views::View* subview) {
 
 class TestStartPageSearchResult : public TestSearchResult {
  public:
-  TestStartPageSearchResult() : menu_model_(nullptr) {
+  TestStartPageSearchResult() {
     set_display_type(ash::SearchResultDisplayType::kRecommendation);
   }
-  ~TestStartPageSearchResult() override {}
-
-  ui::MenuModel* GetContextMenuModel() override { return &menu_model_; }
+  ~TestStartPageSearchResult() override = default;
 
  private:
-  // A fake menu mode for context menu test.
-  ui::SimpleMenuModel menu_model_;
-
   DISALLOW_COPY_AND_ASSIGN(TestStartPageSearchResult);
 };
 
@@ -281,16 +276,17 @@ class AppListViewFocusTest : public views::ViewsTestBase,
     SearchModel::SearchResults* results =
         delegate_->GetSearchModel()->results();
     results->DeleteAll();
-    double relevance = result_types.size();
+    double display_score = result_types.size();
     for (const auto& data : result_types) {
-      // Set the relevance of the results in each group in decreasing order (so
-      // the earlier groups have higher relevance, and therefore appear first).
-      relevance -= 0.5;
+      // Set the display score of the results in each group in decreasing order
+      // (so the earlier groups have higher display score, and therefore appear
+      // first).
+      display_score -= 0.5;
       for (int i = 0; i < data.second; ++i) {
         std::unique_ptr<TestSearchResult> result =
             std::make_unique<TestSearchResult>();
         result->set_display_type(data.first);
-        result->set_relevance(relevance);
+        result->set_display_score(display_score);
         if (data.first == ash::SearchResultDisplayType::kCard)
           result->set_answer_card_contents_token(fake_answer_card_token_);
         results->Add(std::move(result));

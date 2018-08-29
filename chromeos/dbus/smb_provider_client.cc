@@ -63,11 +63,22 @@ class SmbProviderClientImpl : public SmbProviderClient {
   ~SmbProviderClientImpl() override {}
 
   void Mount(const base::FilePath& share_path,
+             const std::string& workgroup,
+             const std::string& username,
+             base::ScopedFD password_fd,
              MountCallback callback) override {
     smbprovider::MountOptionsProto options;
     options.set_path(share_path.value());
-    CallMethod(smbprovider::kMountMethod, options,
-               &SmbProviderClientImpl::HandleMountCallback, &callback);
+    options.set_workgroup(workgroup);
+    options.set_username(username);
+
+    dbus::MethodCall method_call(smbprovider::kSmbProviderInterface,
+                                 smbprovider::kMountMethod);
+    dbus::MessageWriter writer(&method_call);
+    writer.AppendProtoAsArrayOfBytes(options);
+    writer.AppendFileDescriptor(password_fd.release());
+    CallMethod(&method_call, &SmbProviderClientImpl::HandleMountCallback,
+               &callback);
   }
 
   void Remount(const base::FilePath& share_path,
@@ -225,7 +236,7 @@ class SmbProviderClientImpl : public SmbProviderClient {
     options.set_mount_id(mount_id);
     options.set_source_path(source_path.value());
     options.set_target_path(target_path.value());
-    CallDefaultMethod(smbprovider::kCopyEntryMethod, options, &callback);
+    CallCopyEntryMethod(options, std::move(callback));
   }
 
   void GetDeleteList(int32_t mount_id,
@@ -246,6 +257,16 @@ class SmbProviderClientImpl : public SmbProviderClient {
                &SmbProviderClientImpl::HandleProtoCallback<
                    smbprovider::DirectoryEntryListProto>,
                &callback);
+  }
+
+  void SetupKerberos(const std::string& account_id,
+                     SetupKerberosCallback callback) override {
+    dbus::MethodCall method_call(smbprovider::kSmbProviderInterface,
+                                 smbprovider::kSetupKerberosMethod);
+    dbus::MessageWriter writer(&method_call);
+    writer.AppendString(account_id);
+    CallMethod(&method_call,
+               &SmbProviderClientImpl::HandleSetupKerberosCallback, &callback);
   }
 
  protected:
@@ -305,6 +326,21 @@ class SmbProviderClientImpl : public SmbProviderClient {
         base::BindOnce(&SmbProviderClientImpl::HandleDefaultCallback,
                        GetWeakPtr(), method_call->GetMember(),
                        std::move(*callback)));
+  }
+
+  // Calls the CopyEntry D-Bus method with no timeout, passing the |protobuf| as
+  // an argument. Uses the default callback handler to process |callback|.
+  void CallCopyEntryMethod(const google::protobuf::MessageLite& protobuf,
+                           StatusCallback callback) {
+    dbus::MethodCall method_call(smbprovider::kSmbProviderInterface,
+                                 smbprovider::kCopyEntryMethod);
+    dbus::MessageWriter writer(&method_call);
+    writer.AppendProtoAsArrayOfBytes(protobuf);
+    proxy_->CallMethod(
+        &method_call, dbus::ObjectProxy::TIMEOUT_INFINITE,
+        base::BindOnce(&SmbProviderClientImpl::HandleDefaultCallback,
+                       GetWeakPtr(), method_call.GetMember(),
+                       std::move(callback)));
   }
 
   // Handles D-Bus callback for mount.
@@ -406,6 +442,19 @@ class SmbProviderClientImpl : public SmbProviderClient {
     }
 
     std::move(callback).Run(smbprovider::ERROR_OK, delete_list);
+  }
+
+  // Handles D-Bus callback for SetupKerberos.
+  void HandleSetupKerberosCallback(SetupKerberosCallback callback,
+                                   dbus::Response* response) {
+    dbus::MessageReader reader(response);
+    bool result;
+    if (!reader.PopBool(&result)) {
+      LOG(ERROR) << "SetupKerberos: parse failure.";
+      std::move(callback).Run(false /* success */);
+    }
+
+    std::move(callback).Run(result);
   }
 
   // Default callback handler for D-Bus calls.

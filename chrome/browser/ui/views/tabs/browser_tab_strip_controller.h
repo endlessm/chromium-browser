@@ -65,7 +65,6 @@ class BrowserTabStripController : public TabStripController,
                              ui::MenuSourceType source_type) override;
   int HasAvailableDragActions() const override;
   void OnDropIndexUpdate(int index, bool drop_before) override;
-  void PerformDrop(bool drop_before, int index, const GURL& url) override;
   bool IsCompatibleWith(TabStrip* other) const override;
   void CreateNewTab() override;
   void CreateNewTabWithLocation(const base::string16& loc) override;
@@ -73,7 +72,6 @@ class BrowserTabStripController : public TabStripController,
   void StackedLayoutMaybeChanged() override;
   void OnStartedDraggingTabs() override;
   void OnStoppedDraggingTabs() override;
-  void CheckFileSupported(const GURL& url) override;
   SkColor GetToolbarTopSeparatorColor() const override;
   base::string16 GetAccessibleTabName(const Tab* tab) const override;
   Profile* GetProfile() const override;
@@ -83,7 +81,9 @@ class BrowserTabStripController : public TabStripController,
                      content::WebContents* contents,
                      int model_index,
                      bool is_active) override;
-  void TabDetachedAt(content::WebContents* contents, int model_index) override;
+  void TabDetachedAt(content::WebContents* contents,
+                     int model_index,
+                     bool was_active) override;
   void ActiveTabChanged(content::WebContents* old_contents,
                         content::WebContents* new_contents,
                         int index,
@@ -139,11 +139,6 @@ class BrowserTabStripController : public TabStripController,
   // Resets the tabstrips stacked layout (true or false) from prefs.
   void UpdateStackedLayout();
 
-  // Notifies the tabstrip whether |url| is supported once a MIME type request
-  // has completed.
-  void OnFindURLMimeTypeCompleted(const GURL& url,
-                                  const std::string& mime_type);
-
   TabStripModel* model_;
 
   TabStrip* tabstrip_;
@@ -162,8 +157,6 @@ class BrowserTabStripController : public TabStripController,
   std::unique_ptr<ImmersiveRevealedLock> immersive_reveal_lock_;
 
   PrefChangeRegistrar local_pref_registrar_;
-
-  base::WeakPtrFactory<BrowserTabStripController> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserTabStripController);
 };

@@ -26,7 +26,7 @@ AutocompleteClassifier::AutocompleteClassifier(
 
 AutocompleteClassifier::~AutocompleteClassifier() {
   // We should only reach here after Shutdown() has been called.
-  DCHECK(!controller_.get());
+  DCHECK(!controller_);
 }
 
 void AutocompleteClassifier::Shutdown() {
@@ -36,20 +36,11 @@ void AutocompleteClassifier::Shutdown() {
 // static
 int AutocompleteClassifier::DefaultOmniboxProviders() {
   return
-#if defined(OS_ANDROID) || defined(OS_IOS)
-      // The Physical Web currently is only implemented on mobile devices.
-      AutocompleteProvider::TYPE_PHYSICAL_WEB |
-#else
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
       // Custom search engines cannot be used on mobile.
       AutocompleteProvider::TYPE_KEYWORD |
 #endif
-#if defined(OS_IOS)
-      (base::FeatureList::IsEnabled(omnibox::kZeroSuggestProviderIOS)
-           ? AutocompleteProvider::TYPE_ZERO_SUGGEST
-           : 0) |
-#else
       AutocompleteProvider::TYPE_ZERO_SUGGEST |
-#endif
       (base::FeatureList::IsEnabled(omnibox::kEnableClipboardProvider)
            ? AutocompleteProvider::TYPE_CLIPBOARD_URL
            : 0) |

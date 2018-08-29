@@ -2246,10 +2246,6 @@ IN_PROC_BROWSER_TEST_F(SBNavigationObserverBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(SBNavigationObserverBrowserTest,
                        VerifyNumberOfRecentNavigationsToCollect) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeatureWithParameters(
-      kAppendRecentNavigationEvents, {{"recent_navigation_count", "3"}});
-
   EXPECT_EQ(0, CountOfRecentNavigationsToAppend(
                    /*sber=*/false, /*incognito=*/false,
                    SafeBrowsingNavigationObserverManager::SUCCESS));
@@ -2289,13 +2285,13 @@ IN_PROC_BROWSER_TEST_F(SBNavigationObserverBrowserTest,
           /*sber=*/false, /*incognito=*/true,
           SafeBrowsingNavigationObserverManager::NAVIGATION_EVENT_NOT_FOUND));
 
-  EXPECT_EQ(3, CountOfRecentNavigationsToAppend(
+  EXPECT_EQ(5, CountOfRecentNavigationsToAppend(
                    /*sber=*/true, /*incognito=*/false,
                    SafeBrowsingNavigationObserverManager::SUCCESS));
   EXPECT_EQ(0, CountOfRecentNavigationsToAppend(
                    /*sber=*/true, /*incognito=*/true,
                    SafeBrowsingNavigationObserverManager::SUCCESS));
-  EXPECT_EQ(3,
+  EXPECT_EQ(5,
             CountOfRecentNavigationsToAppend(
                 /*sber=*/true, /*incognito=*/false,
                 SafeBrowsingNavigationObserverManager::SUCCESS_LANDING_PAGE));
@@ -2311,14 +2307,14 @@ IN_PROC_BROWSER_TEST_F(SBNavigationObserverBrowserTest,
       0, CountOfRecentNavigationsToAppend(
              /*sber=*/true, /*incognito=*/true,
              SafeBrowsingNavigationObserverManager::SUCCESS_LANDING_REFERRER));
-  EXPECT_EQ(3, CountOfRecentNavigationsToAppend(
+  EXPECT_EQ(5, CountOfRecentNavigationsToAppend(
                    /*sber=*/true, /*incognito=*/false,
                    SafeBrowsingNavigationObserverManager::INVALID_URL));
   EXPECT_EQ(0, CountOfRecentNavigationsToAppend(
                    /*sber=*/true, /*incognito=*/true,
                    SafeBrowsingNavigationObserverManager::INVALID_URL));
   EXPECT_EQ(
-      3,
+      5,
       CountOfRecentNavigationsToAppend(
           /*sber=*/true, /*incognito=*/false,
           SafeBrowsingNavigationObserverManager::NAVIGATION_EVENT_NOT_FOUND));
@@ -2332,8 +2328,6 @@ IN_PROC_BROWSER_TEST_F(SBNavigationObserverBrowserTest,
 IN_PROC_BROWSER_TEST_F(SBNavigationObserverBrowserTest,
                        AppendRecentNavigationsToEmptyReferrerChain) {
   base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeatureWithParameters(
-      kAppendRecentNavigationEvents, {{"recent_navigation_count", "3"}});
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL(kSingleFrameTestURL));
   GURL initial_url = embedded_test_server()->GetURL(kSingleFrameTestURL);
@@ -2384,9 +2378,6 @@ IN_PROC_BROWSER_TEST_F(SBNavigationObserverBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(SBNavigationObserverBrowserTest,
                        AppendRecentNavigationsToIncompleteReferrerChain) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeatureWithParameters(
-      kAppendRecentNavigationEvents, {{"recent_navigation_count", "3"}});
   ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL(kSingleFrameTestURL));
   GURL initial_url = embedded_test_server()->GetURL(kSingleFrameTestURL);
@@ -2447,6 +2438,34 @@ IN_PROC_BROWSER_TEST_F(SBNavigationObserverBrowserTest,
                            std::vector<GURL>(),  // server redirects
                            ReferrerChainEntry::BROWSER_INITIATED,
                            referrer_chain.Get(3));
+}
+
+IN_PROC_BROWSER_TEST_F(SBNavigationObserverBrowserTest,
+                       NavigateBackwardForward) {
+  ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL(kSingleFrameTestURL));
+  GURL initial_url = embedded_test_server()->GetURL(kSingleFrameTestURL);
+  ClickTestLink("complete_referrer_chain", 2, initial_url);
+  auto* nav_list = navigation_event_list();
+  ASSERT_TRUE(nav_list);
+  EXPECT_EQ(3U, nav_list->Size());
+
+  // Simulates back.
+  ASSERT_TRUE(content::ExecuteScript(
+      browser()->tab_strip_model()->GetActiveWebContents(),
+      "window.history.back();"));
+  base::RunLoop().RunUntilIdle();
+
+  // Simulates forward.
+  ASSERT_TRUE(content::ExecuteScript(
+      browser()->tab_strip_model()->GetActiveWebContents(),
+      "window.history.forward();"));
+  base::RunLoop().RunUntilIdle();
+
+  nav_list = navigation_event_list();
+  ASSERT_TRUE(nav_list);
+  // Verifies navigations caused by back/forward are ignored.
+  EXPECT_EQ(3U, nav_list->Size());
 }
 
 }  // namespace safe_browsing

@@ -9,9 +9,7 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/callback.h"
 #include "chrome/browser/android/download/download_location_dialog_bridge.h"
-#include "chrome/browser/download/download_confirmation_result.h"
 #include "chrome/browser/download/download_location_dialog_type.h"
-#include "chrome/browser/download/download_target_determiner_delegate.h"
 #include "ui/gfx/native_widget_types.h"
 
 class DownloadLocationDialogBridgeImpl : public DownloadLocationDialogBridge {
@@ -21,10 +19,10 @@ class DownloadLocationDialogBridgeImpl : public DownloadLocationDialogBridge {
 
   // DownloadLocationDialogBridge implementation.
   void ShowDialog(gfx::NativeWindow native_window,
+                  int64_t total_bytes,
                   DownloadLocationDialogType dialog_type,
                   const base::FilePath& suggested_path,
-                  const DownloadTargetDeterminerDelegate::ConfirmationCallback&
-                      callback) override;
+                  LocationCallback location_callback) override;
 
   void OnComplete(
       JNIEnv* env,
@@ -35,10 +33,13 @@ class DownloadLocationDialogBridgeImpl : public DownloadLocationDialogBridge {
                   const base::android::JavaParamRef<jobject>& obj) override;
 
  private:
-  jboolean is_dialog_showing_;
+  // Called when the download location is selected by the user.
+  void CompleteLocationSelection(DownloadLocationDialogResult result,
+                                 base::FilePath file_path);
+
+  bool is_dialog_showing_;
   base::android::ScopedJavaGlobalRef<jobject> java_obj_;
-  DownloadTargetDeterminerDelegate::ConfirmationCallback
-      dialog_complete_callback_;
+  LocationCallback location_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(DownloadLocationDialogBridgeImpl);
 };

@@ -56,10 +56,8 @@ bool QuickUnlockStorage::IsPinAuthenticationAvailable() const {
   return HasStrongAuth() && pin_storage_prefs_->IsPinAuthenticationAvailable();
 }
 
-bool QuickUnlockStorage::TryAuthenticatePin(const std::string& pin,
-                                            Key::KeyType key_type) {
-  return HasStrongAuth() &&
-         pin_storage_prefs()->TryAuthenticatePin(pin, key_type);
+bool QuickUnlockStorage::TryAuthenticatePin(const Key& key) {
+  return HasStrongAuth() && pin_storage_prefs()->TryAuthenticatePin(key);
 }
 
 std::string QuickUnlockStorage::CreateAuthToken(
@@ -77,6 +75,12 @@ std::string QuickUnlockStorage::GetAuthToken() {
   if (GetAuthTokenExpired())
     return "";
   return *auth_token_->Identifier();
+}
+
+UserContext* QuickUnlockStorage::GetUserContext(const std::string& auth_token) {
+  if (GetAuthToken() != auth_token)
+    return nullptr;
+  return auth_token_->user_context();
 }
 
 void QuickUnlockStorage::Shutdown() {

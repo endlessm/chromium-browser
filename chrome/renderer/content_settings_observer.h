@@ -55,6 +55,7 @@ class ContentSettingsObserver
   // must outlive this |ContentSettingsObserver|.
   void SetContentSettingRules(
       const RendererContentSettingRules* content_setting_rules);
+  const RendererContentSettingRules* GetContentSettingRules();
 
   bool IsPluginTemporarilyAllowed(const std::string& identifier);
 
@@ -89,6 +90,7 @@ class ContentSettingsObserver
                                    const blink::WebSecurityOrigin& context,
                                    const blink::WebURL& url) override;
   bool AllowAutoplay(bool default_value) override;
+  bool AllowPopupsAndRedirects(bool default_value) override;
   void PassiveInsecureContentFound(const blink::WebURL&) override;
   void PersistClientHints(
       const blink::WebEnabledClientHints& enabled_client_hints,

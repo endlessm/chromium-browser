@@ -9,11 +9,11 @@
 #include <vector>
 
 #include "ash/app_list/model/app_list_model.h"
+#include "ash/public/cpp/app_list/app_list_features.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/app_list/app_list_features.h"
 #include "ui/app_list/test/app_list_test_view_delegate.h"
 #include "ui/app_list/test/test_search_result.h"
 #include "ui/app_list/views/app_list_main_view.h"
@@ -125,18 +125,18 @@ TEST_P(SearchResultPageViewTest, ResultsSorted) {
   // container view.
   TestSearchResult* tile_result = new TestSearchResult();
   tile_result->set_display_type(ash::SearchResultDisplayType::kTile);
-  tile_result->set_relevance(1.0);
+  tile_result->set_display_score(1.0);
   results->Add(base::WrapUnique(tile_result));
   {
     TestSearchResult* list_result = new TestSearchResult();
     list_result->set_display_type(ash::SearchResultDisplayType::kList);
-    list_result->set_relevance(0.5);
+    list_result->set_display_score(0.5);
     results->Add(base::WrapUnique(list_result));
   }
   {
     TestSearchResult* list_result = new TestSearchResult();
     list_result->set_display_type(ash::SearchResultDisplayType::kList);
-    list_result->set_relevance(0.3);
+    list_result->set_display_score(0.3);
     results->Add(base::WrapUnique(list_result));
   }
 
@@ -150,7 +150,7 @@ TEST_P(SearchResultPageViewTest, ResultsSorted) {
   // displayed first.
   // TODO(warx): fullscreen launcher should always have tile list view to be
   // displayed first over list view.
-  tile_result->set_relevance(0.4);
+  tile_result->set_display_score(0.4);
 
   results->NotifyItemsChanged(0, 1);
   RunPendingMessages();

@@ -14,7 +14,6 @@
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
-#include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
@@ -58,8 +57,6 @@ MockRenderProcessHost::MockRenderProcessHost(BrowserContext* browser_context)
       child_identity_(mojom::kRendererServiceName,
                       BrowserContext::GetServiceUserIdFor(browser_context),
                       base::StringPrintf("%d", id_)),
-      shared_bitmap_allocation_notifier_impl_(
-          viz::ServerSharedBitmapManager::current()),
       weak_ptr_factory_(this) {
   // Child process security operations can't be unit tested unless we add
   // ourselves as an existing child process.
@@ -89,13 +86,13 @@ void MockRenderProcessHost::SimulateRenderProcessExit(
     base::TerminationStatus status,
     int exit_code) {
   has_connection_ = false;
-  RenderProcessHost::RendererClosedDetails details(status, exit_code);
+  ChildProcessTerminationInfo termination_info{status, exit_code};
   NotificationService::current()->Notify(
       NOTIFICATION_RENDERER_PROCESS_CLOSED, Source<RenderProcessHost>(this),
-      Details<RenderProcessHost::RendererClosedDetails>(&details));
+      Details<ChildProcessTerminationInfo>(&termination_info));
 
   for (auto& observer : observers_)
-    observer.RenderProcessExited(this, details.status, details.exit_code);
+    observer.RenderProcessExited(this, termination_info);
 
   // Send every routing ID a FrameHostMsg_RenderProcessGone message. To ensure a
   // predictable order for unittests which may assert against the order, we sort
@@ -112,7 +109,8 @@ void MockRenderProcessHost::SimulateRenderProcessExit(
 
   for (auto& entry_pair : sorted_listeners_) {
     entry_pair.second->OnMessageReceived(FrameHostMsg_RenderProcessGone(
-        entry_pair.first, static_cast<int>(details.status), details.exit_code));
+        entry_pair.first, static_cast<int>(termination_info.status),
+        termination_info.exit_code));
   }
 }
 
@@ -165,7 +163,7 @@ int MockRenderProcessHost::VisibleClientCount() const {
   return count;
 }
 
-unsigned int MockRenderProcessHost::GetFrameDepthForTesting() const {
+unsigned int MockRenderProcessHost::GetFrameDepth() const {
   NOTIMPLEMENTED();
   return 0u;
 }
@@ -208,12 +206,14 @@ bool MockRenderProcessHost::FastShutdownStarted() const {
   return fast_shutdown_started_;
 }
 
-base::ProcessHandle MockRenderProcessHost::GetHandle() const {
+const base::Process& MockRenderProcessHost::GetProcess() const {
   // Return the current-process handle for the IPC::GetPlatformFileForTransit
   // function.
-  if (process_handle)
-    return *process_handle;
-  return base::GetCurrentProcessHandle();
+  if (process.IsValid())
+    return process;
+
+  static const base::Process current_process(base::Process::Current());
+  return current_process;
 }
 
 bool MockRenderProcessHost::IsReady() const {
@@ -412,11 +412,16 @@ bool MockRenderProcessHost::HostHasNotBeenUsed() {
   return IsUnused() && listeners_.IsEmpty() && GetKeepAliveRefCount() == 0;
 }
 
+void MockRenderProcessHost::BindCacheStorage(
+    blink::mojom::CacheStorageRequest request,
+    const url::Origin& origin) {
+  cache_storage_request_ = std::move(request);
+}
+
 void MockRenderProcessHost::FilterURL(bool empty_allowed, GURL* url) {
   RenderProcessHostImpl::FilterURL(this, empty_allowed, url);
 }
 
-#if BUILDFLAG(ENABLE_WEBRTC)
 void MockRenderProcessHost::EnableAudioDebugRecordings(
     const base::FilePath& file) {
 }
@@ -436,11 +441,6 @@ MockRenderProcessHost::StartRtpDump(
 }
 
 void MockRenderProcessHost::SetWebRtcEventLogOutput(int lid, bool enabled) {}
-
-#endif
-
-void MockRenderProcessHost::ResumeDeferredNavigation(
-    const GlobalRequestID& request_id) {}
 
 bool MockRenderProcessHost::OnMessageReceived(const IPC::Message& msg) {
   IPC::Listener* listener = listeners_.Lookup(msg.routing_id());
@@ -489,36 +489,6 @@ void MockRenderProcessHostFactory::Remove(MockRenderProcessHost* host) const {
       break;
     }
   }
-}
-
-viz::SharedBitmapAllocationNotifierImpl*
-MockRenderProcessHost::GetSharedBitmapAllocationNotifier() {
-  return &shared_bitmap_allocation_notifier_impl_;
-}
-
-std::string GetInputMessageTypes(MockRenderProcessHost* process) {
-  std::vector<std::string> result;
-  for (size_t i = 0; i < process->sink().message_count(); ++i) {
-    const IPC::Message* message = process->sink().GetMessageAt(i);
-    InputMsg_HandleInputEvent::Param params;
-    if (message->type() != InputMsg_HandleInputEvent::ID ||
-        !InputMsg_HandleInputEvent::Read(message, &params)) {
-      result.push_back("*");
-      break;
-    }
-    const blink::WebInputEvent* event = std::get<0>(params);
-    result.push_back(blink::WebInputEvent::GetName(event->GetType()));
-  }
-  process->sink().ClearMessages();
-  return base::JoinString(result, " ");
-}
-
-ScopedMockRenderProcessHostFactory::ScopedMockRenderProcessHostFactory() {
-  RenderProcessHostImpl::set_render_process_host_factory(this);
-}
-
-ScopedMockRenderProcessHostFactory::~ScopedMockRenderProcessHostFactory() {
-  RenderProcessHostImpl::set_render_process_host_factory(nullptr);
 }
 
 }  // namespace content

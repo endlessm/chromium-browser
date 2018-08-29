@@ -8,75 +8,75 @@
 // DO NOT MODIFY!
 
 // clang-format off
-#include "v8_test_object.h"
+#include "third_party/blink/renderer/bindings/tests/results/core/v8_test_object.h"
 
 #include "base/memory/scoped_refptr.h"
-#include "bindings/core/v8/binding_security.h"
-#include "bindings/core/v8/dictionary.h"
-#include "bindings/core/v8/exception_state.h"
-#include "bindings/core/v8/idl_types.h"
-#include "bindings/core/v8/native_value_traits_impl.h"
-#include "bindings/core/v8/script_call_stack.h"
-#include "bindings/core/v8/script_promise.h"
-#include "bindings/core/v8/script_value.h"
-#include "bindings/core/v8/serialization/serialized_script_value.h"
-#include "bindings/core/v8/serialization/serialized_script_value_factory.h"
-#include "bindings/core/v8/serialization/transferables.h"
-#include "bindings/core/v8/v8_abstract_event_listener.h"
-#include "bindings/core/v8/v8_array_buffer.h"
-#include "bindings/core/v8/v8_array_buffer_view.h"
-#include "bindings/core/v8/v8_attr.h"
-#include "bindings/core/v8/v8_document.h"
-#include "bindings/core/v8/v8_document_fragment.h"
-#include "bindings/core/v8/v8_document_type.h"
-#include "bindings/core/v8/v8_dom_configuration.h"
-#include "bindings/core/v8/v8_element.h"
-#include "bindings/core/v8/v8_event_listener_helper.h"
-#include "bindings/core/v8/v8_event_target.h"
-#include "bindings/core/v8/v8_float32_array.h"
-#include "bindings/core/v8/v8_html_collection.h"
-#include "bindings/core/v8/v8_html_element.h"
-#include "bindings/core/v8/v8_int32_array.h"
-#include "bindings/core/v8/v8_iterator.h"
-#include "bindings/core/v8/v8_node.h"
-#include "bindings/core/v8/v8_node_filter_condition.h"
-#include "bindings/core/v8/v8_shadow_root.h"
-#include "bindings/core/v8/v8_test_callback_interface.h"
-#include "bindings/core/v8/v8_test_dictionary.h"
-#include "bindings/core/v8/v8_test_interface.h"
-#include "bindings/core/v8/v8_test_interface_empty.h"
-#include "bindings/core/v8/v8_test_interface_garbage_collected.h"
-#include "bindings/core/v8/v8_test_node.h"
-#include "bindings/core/v8/v8_test_object.h"
-#include "bindings/core/v8/v8_uint8_array.h"
-#include "bindings/core/v8/v8_window.h"
-#include "bindings/core/v8/v8_xpath_ns_resolver.h"
-#include "core/dom/class_collection.h"
-#include "core/dom/tag_collection.h"
-#include "core/execution_context/execution_context.h"
-#include "core/frame/deprecation.h"
-#include "core/frame/use_counter.h"
-#include "core/html/custom/ce_reactions_scope.h"
-#include "core/html/custom/v0_custom_element_processing_stack.h"
-#include "core/html/forms/html_data_list_options_collection.h"
-#include "core/html/forms/html_form_controls_collection.h"
-#include "core/html/html_collection.h"
-#include "core/html/html_table_rows_collection.h"
-#include "core/html_names.h"
-#include "core/imagebitmap/image_bitmap.h"
-#include "core/inspector/console_message.h"
-#include "core/inspector/script_arguments.h"
-#include "core/origin_trials/origin_trials.h"
-#include "core/typed_arrays/array_buffer_view_helpers.h"
-#include "core/typed_arrays/dom_array_buffer_base.h"
-#include "core/typed_arrays/flexible_array_buffer_view.h"
-#include "platform/bindings/runtime_call_stats.h"
-#include "platform/bindings/script_state.h"
-#include "platform/bindings/v8_dom_activity_logger.h"
-#include "platform/bindings/v8_object_constructor.h"
-#include "platform/bindings/v8_private_property.h"
-#include "platform/runtime_enabled_features.h"
-#include "platform/wtf/get_ptr.h"
+#include "third_party/blink/renderer/bindings/core/v8/binding_security.h"
+#include "third_party/blink/renderer/bindings/core/v8/dictionary.h"
+#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
+#include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_call_stack.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_value.h"
+#include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
+#include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value_factory.h"
+#include "third_party/blink/renderer/bindings/core/v8/serialization/transferables.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_abstract_event_listener.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_array_buffer.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_array_buffer_view.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_attr.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_document.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_document_fragment.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_document_type.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_dom_configuration.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_element.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_event_listener_helper.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_event_target.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_float32_array.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_html_collection.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_html_element.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_int32_array.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_iterator.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_node.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_node_filter.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_shadow_root.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_callback_interface.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_dictionary.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_interface.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_interface_empty.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_interface_garbage_collected.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_node.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_test_object.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_uint8_array.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_window.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_xpath_ns_resolver.h"
+#include "third_party/blink/renderer/core/dom/class_collection.h"
+#include "third_party/blink/renderer/core/dom/tag_collection.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/deprecation.h"
+#include "third_party/blink/renderer/core/frame/use_counter.h"
+#include "third_party/blink/renderer/core/html/custom/ce_reactions_scope.h"
+#include "third_party/blink/renderer/core/html/custom/v0_custom_element_processing_stack.h"
+#include "third_party/blink/renderer/core/html/forms/html_data_list_options_collection.h"
+#include "third_party/blink/renderer/core/html/forms/html_form_controls_collection.h"
+#include "third_party/blink/renderer/core/html/html_collection.h"
+#include "third_party/blink/renderer/core/html/html_table_rows_collection.h"
+#include "third_party/blink/renderer/core/html_names.h"
+#include "third_party/blink/renderer/core/imagebitmap/image_bitmap.h"
+#include "third_party/blink/renderer/core/inspector/console_message.h"
+#include "third_party/blink/renderer/core/inspector/script_arguments.h"
+#include "third_party/blink/renderer/core/origin_trials/origin_trials.h"
+#include "third_party/blink/renderer/core/typed_arrays/array_buffer_view_helpers.h"
+#include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer_base.h"
+#include "third_party/blink/renderer/core/typed_arrays/flexible_array_buffer_view.h"
+#include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
+#include "third_party/blink/renderer/platform/bindings/script_state.h"
+#include "third_party/blink/renderer/platform/bindings/v8_dom_activity_logger.h"
+#include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
+#include "third_party/blink/renderer/platform/bindings/v8_private_property.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/wtf/get_ptr.h"
 
 namespace blink {
 
@@ -842,21 +842,6 @@ static void nodeFilterAttributeAttributeGetter(const v8::FunctionCallbackInfo<v8
   V8SetReturnValue(info, ToV8(WTF::GetPtr(impl->nodeFilterAttribute()), info.Holder(), info.GetIsolate()));
 }
 
-static void nodeFilterAttributeAttributeSetter(v8::Local<v8::Value> v8Value, const v8::FunctionCallbackInfo<v8::Value>& info) {
-  v8::Isolate* isolate = info.GetIsolate();
-  ALLOW_UNUSED_LOCAL(isolate);
-
-  v8::Local<v8::Object> holder = info.Holder();
-  ALLOW_UNUSED_LOCAL(holder);
-
-  TestObject* impl = V8TestObject::ToImpl(holder);
-
-  // Prepare the value to be set.
-  V8NodeFilterCondition* cppValue = V8NodeFilter::ToImplWithTypeCheck(info.GetIsolate(), v8Value);
-
-  impl->setNodeFilterAttribute(cppValue);
-}
-
 static void serializedScriptValueAttributeAttributeGetter(const v8::FunctionCallbackInfo<v8::Value>& info) {
   v8::Local<v8::Object> holder = info.Holder();
 
@@ -1523,7 +1508,7 @@ static void testEnumAttributeAttributeSetter(v8::Local<v8::Value> v8Value, const
       "EnumValue2",
       "EnumValue3",
   };
-  if (!IsValidEnum(cppValue, validValues, WTF_ARRAY_LENGTH(validValues), "TestEnum", dummyExceptionState)) {
+  if (!IsValidEnum(cppValue, validValues, arraysize(validValues), "TestEnum", dummyExceptionState)) {
     ExecutionContext::ForCurrentRealm(info)->AddConsoleMessage(
         ConsoleMessage::Create(kJSMessageSource, kWarningMessageLevel,
                                dummyExceptionState.Message()));
@@ -1567,7 +1552,7 @@ static void testEnumOrNullAttributeAttributeSetter(v8::Local<v8::Value> v8Value,
       "EnumValue2",
       "EnumValue3",
   };
-  if (!IsValidEnum(cppValue, validValues, WTF_ARRAY_LENGTH(validValues), "TestEnum", dummyExceptionState)) {
+  if (!IsValidEnum(cppValue, validValues, arraysize(validValues), "TestEnum", dummyExceptionState)) {
     ExecutionContext::ForCurrentRealm(info)->AddConsoleMessage(
         ConsoleMessage::Create(kJSMessageSource, kWarningMessageLevel,
                                dummyExceptionState.Message()));
@@ -2178,7 +2163,7 @@ static void checkSecurityForNodeReadonlyDocumentAttributeAttributeGetter(const v
 
   // Perform a security check for the returned object.
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kGetterContext, "TestObject", "checkSecurityForNodeReadonlyDocumentAttribute");
-  if (!BindingSecurity::ShouldAllowAccessTo(CurrentDOMWindow(info.GetIsolate()), WTF::GetPtr(impl->checkSecurityForNodeReadonlyDocumentAttribute()), exceptionState)) {
+  if (!BindingSecurity::ShouldAllowAccessTo(CurrentDOMWindow(info.GetIsolate()), WTF::GetPtr(impl->checkSecurityForNodeReadonlyDocumentAttribute()), BindingSecurity::ErrorReportOption::kDoNotReport)) {
     UseCounter::Count(CurrentExecutionContext(info.GetIsolate()),
                       WebFeature::kCrossOriginTestObjectCheckSecurityForNodeReadonlyDocumentAttribute);
     V8SetReturnValueNull(info);
@@ -5283,7 +5268,7 @@ static void voidMethodNullableSequenceLongArgMethod(const v8::FunctionCallbackIn
     return;
   }
 
-  Optional<Vector<int32_t>> longSequenceArg;
+  base::Optional<Vector<int32_t>> longSequenceArg;
   if (!info[0]->IsNullOrUndefined()) {
     longSequenceArg = NativeValueTraits<IDLSequence<IDLLong>>::NativeValue(info.GetIsolate(), info[0], exceptionState);
     if (exceptionState.HadException())
@@ -5338,7 +5323,7 @@ static void voidMethodTestInterfaceEmptyFrozenArrayMethodMethod(const v8::Functi
 static void nullableLongMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
-  Optional<int32_t> result = impl->nullableLongMethod();
+  base::Optional<int32_t> result = impl->nullableLongMethod();
   if (!result)
     V8SetReturnValueNull(info);
   else
@@ -5360,7 +5345,7 @@ static void nullableTestInterfaceMethodMethod(const v8::FunctionCallbackInfo<v8:
 static void nullableLongSequenceMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
-  Optional<Vector<int32_t>> result = impl->nullableLongSequenceMethod();
+  base::Optional<Vector<int32_t>> result = impl->nullableLongSequenceMethod();
   if (!result)
     V8SetReturnValueNull(info);
   else
@@ -5581,10 +5566,10 @@ static void voidMethodTestCallbackInterfaceArgMethod(const v8::FunctionCallbackI
   }
 
   V8TestCallbackInterface* testCallbackInterfaceArg;
-  if (info[0]->IsFunction()) {
+  if (info[0]->IsObject()) {
     testCallbackInterfaceArg = V8TestCallbackInterface::Create(info[0].As<v8::Object>());
   } else {
-    V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("voidMethodTestCallbackInterfaceArg", "TestObject", "The callback provided as parameter 1 is not a function."));
+    V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("voidMethodTestCallbackInterfaceArg", "TestObject", "The callback provided as parameter 1 is not an object."));
     return;
   }
 
@@ -5595,12 +5580,12 @@ static void voidMethodOptionalTestCallbackInterfaceArgMethod(const v8::FunctionC
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
   V8TestCallbackInterface* optionalTestCallbackInterfaceArg;
-  if (info[0]->IsFunction()) {
+  if (info[0]->IsObject()) {
     optionalTestCallbackInterfaceArg = V8TestCallbackInterface::Create(info[0].As<v8::Object>());
-  } else if (info[0]->IsNullOrUndefined()) {
+  } else if (info[0]->IsUndefined()) {
     optionalTestCallbackInterfaceArg = nullptr;
   } else {
-    V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("voidMethodOptionalTestCallbackInterfaceArg", "TestObject", "The callback provided as parameter 1 is not a function."));
+    V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("voidMethodOptionalTestCallbackInterfaceArg", "TestObject", "The callback provided as parameter 1 is not an object."));
     return;
   }
 
@@ -5616,12 +5601,12 @@ static void voidMethodTestCallbackInterfaceOrNullArgMethod(const v8::FunctionCal
   }
 
   V8TestCallbackInterface* testCallbackInterfaceArg;
-  if (info[0]->IsFunction()) {
+  if (info[0]->IsObject()) {
     testCallbackInterfaceArg = V8TestCallbackInterface::Create(info[0].As<v8::Object>());
-  } else if (0 < info.Length() && info[0]->IsNullOrUndefined()) {
+  } else if (info[0]->IsNullOrUndefined()) {
     testCallbackInterfaceArg = nullptr;
   } else {
-    V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("voidMethodTestCallbackInterfaceOrNullArg", "TestObject", "The callback provided as parameter 1 is not a function."));
+    V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("voidMethodTestCallbackInterfaceOrNullArg", "TestObject", "The callback provided as parameter 1 is not an object."));
     return;
   }
 
@@ -5654,7 +5639,7 @@ static void voidMethodTestEnumArgMethod(const v8::FunctionCallbackInfo<v8::Value
       "EnumValue2",
       "EnumValue3",
   };
-  if (!IsValidEnum(testEnumTypeArg, validTestEnumTypeArgValues, WTF_ARRAY_LENGTH(validTestEnumTypeArgValues), "TestEnum", exceptionState)) {
+  if (!IsValidEnum(testEnumTypeArg, validTestEnumTypeArgValues, arraysize(validTestEnumTypeArgValues), "TestEnum", exceptionState)) {
     return;
   }
 
@@ -5682,7 +5667,7 @@ static void voidMethodTestMultipleEnumArgMethod(const v8::FunctionCallbackInfo<v
       "EnumValue2",
       "EnumValue3",
   };
-  if (!IsValidEnum(testEnumTypeArg, validTestEnumTypeArgValues, WTF_ARRAY_LENGTH(validTestEnumTypeArgValues), "TestEnum", exceptionState)) {
+  if (!IsValidEnum(testEnumTypeArg, validTestEnumTypeArgValues, arraysize(validTestEnumTypeArgValues), "TestEnum", exceptionState)) {
     return;
   }
 
@@ -5695,7 +5680,7 @@ static void voidMethodTestMultipleEnumArgMethod(const v8::FunctionCallbackInfo<v
       "EnumValue2",
       "EnumValue3",
   };
-  if (!IsValidEnum(testEnumTypeArg2, validTestEnumTypeArg2Values, WTF_ARRAY_LENGTH(validTestEnumTypeArg2Values), "TestEnum2", exceptionState)) {
+  if (!IsValidEnum(testEnumTypeArg2, validTestEnumTypeArg2Values, arraysize(validTestEnumTypeArg2Values), "TestEnum2", exceptionState)) {
     return;
   }
 
@@ -5719,7 +5704,7 @@ static void testDictionaryMethodMethod(const v8::FunctionCallbackInfo<v8::Value>
 static void nullableTestDictionaryMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
-  Optional<TestDictionary> result;
+  base::Optional<TestDictionary> result;
   impl->nullableTestDictionaryMethod(result);
   if (!result)
     V8SetReturnValueNull(info);
@@ -5734,7 +5719,7 @@ static void staticTestDictionaryMethodMethod(const v8::FunctionCallbackInfo<v8::
 }
 
 static void staticNullableTestDictionaryMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
-  Optional<TestDictionary> result;
+  base::Optional<TestDictionary> result;
   TestObject::staticNullableTestDictionaryMethod(result);
   if (!result)
     V8SetReturnValueNull(info);
@@ -5876,8 +5861,13 @@ static void voidMethodNodeFilterArgMethod(const v8::FunctionCallbackInfo<v8::Val
     return;
   }
 
-  V8NodeFilterCondition* nodeFilterArg;
-  nodeFilterArg = V8NodeFilterCondition::CreateOrNull(info[0], ScriptState::Current(info.GetIsolate()));
+  V8NodeFilter* nodeFilterArg;
+  if (info[0]->IsObject()) {
+    nodeFilterArg = V8NodeFilter::Create(info[0].As<v8::Object>());
+  } else {
+    V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("voidMethodNodeFilterArg", "TestObject", "The callback provided as parameter 1 is not an object."));
+    return;
+  }
 
   impl->voidMethodNodeFilterArg(nodeFilterArg);
 }
@@ -6655,6 +6645,7 @@ static void overloadedMethodA2Method(const v8::FunctionCallbackInfo<v8::Value>& 
 
 static void overloadedMethodAMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(2, info.Length())) {
     case 1:
       if (true) {
@@ -6673,7 +6664,6 @@ static void overloadedMethodAMethod(const v8::FunctionCallbackInfo<v8::Value>& i
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedMethodA");
-
   if (isArityError) {
     if (info.Length() < 1) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
@@ -6726,6 +6716,7 @@ static void overloadedMethodB2Method(const v8::FunctionCallbackInfo<v8::Value>& 
 
 static void overloadedMethodBMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(2, info.Length())) {
     case 1:
       if (info[0]->IsNumber()) {
@@ -6752,7 +6743,6 @@ static void overloadedMethodBMethod(const v8::FunctionCallbackInfo<v8::Value>& i
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedMethodB");
-
   if (isArityError) {
     if (info.Length() < 1) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
@@ -6790,10 +6780,15 @@ static void overloadedMethodC2Method(const v8::FunctionCallbackInfo<v8::Value>& 
 
 static void overloadedMethodCMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 1:
       if (V8TestInterfaceEmpty::hasInstance(info[0], info.GetIsolate())) {
         overloadedMethodC2Method(info);
+        return;
+      }
+      if (info[0]->IsNumber()) {
+        overloadedMethodC1Method(info);
         return;
       }
       if (true) {
@@ -6806,7 +6801,6 @@ static void overloadedMethodCMethod(const v8::FunctionCallbackInfo<v8::Value>& i
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedMethodC");
-
   if (isArityError) {
     if (info.Length() < 1) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
@@ -6844,10 +6838,27 @@ static void overloadedMethodD2Method(const v8::FunctionCallbackInfo<v8::Value>& 
 
 static void overloadedMethodDMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 1:
       if (info[0]->IsArray()) {
         overloadedMethodD2Method(info);
+        return;
+      }
+      {
+        ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext,
+                                      "TestObject", "overloadedMethodD");
+        if (HasCallableIteratorSymbol(info.GetIsolate(), info[0], exceptionState)) {
+          overloadedMethodD2Method(info);
+          return;
+        }
+        if (exceptionState.HadException()) {
+          exceptionState.RethrowV8Exception(exceptionState.GetException());
+          return;
+        }
+      }
+      if (info[0]->IsNumber()) {
+        overloadedMethodD1Method(info);
         return;
       }
       if (true) {
@@ -6860,7 +6871,6 @@ static void overloadedMethodDMethod(const v8::FunctionCallbackInfo<v8::Value>& i
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedMethodD");
-
   if (isArityError) {
     if (info.Length() < 1) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
@@ -6898,6 +6908,7 @@ static void overloadedMethodE2Method(const v8::FunctionCallbackInfo<v8::Value>& 
 
 static void overloadedMethodEMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 1:
       if (IsUndefinedOrNull(info[0])) {
@@ -6906,6 +6917,10 @@ static void overloadedMethodEMethod(const v8::FunctionCallbackInfo<v8::Value>& i
       }
       if (V8TestInterfaceEmpty::hasInstance(info[0], info.GetIsolate())) {
         overloadedMethodE2Method(info);
+        return;
+      }
+      if (info[0]->IsNumber()) {
+        overloadedMethodE1Method(info);
         return;
       }
       if (true) {
@@ -6918,7 +6933,6 @@ static void overloadedMethodEMethod(const v8::FunctionCallbackInfo<v8::Value>& i
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedMethodE");
-
   if (isArityError) {
     if (info.Length() < 1) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
@@ -6964,6 +6978,7 @@ static void overloadedMethodF2Method(const v8::FunctionCallbackInfo<v8::Value>& 
 
 static void overloadedMethodFMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 0:
       if (true) {
@@ -6994,7 +7009,6 @@ static void overloadedMethodFMethod(const v8::FunctionCallbackInfo<v8::Value>& i
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedMethodF");
-
   if (isArityError) {
   }
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
@@ -7032,6 +7046,7 @@ static void overloadedMethodG2Method(const v8::FunctionCallbackInfo<v8::Value>& 
 
 static void overloadedMethodGMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 0:
       if (true) {
@@ -7052,6 +7067,10 @@ static void overloadedMethodGMethod(const v8::FunctionCallbackInfo<v8::Value>& i
         overloadedMethodG2Method(info);
         return;
       }
+      if (info[0]->IsNumber()) {
+        overloadedMethodG1Method(info);
+        return;
+      }
       if (true) {
         overloadedMethodG1Method(info);
         return;
@@ -7062,7 +7081,6 @@ static void overloadedMethodGMethod(const v8::FunctionCallbackInfo<v8::Value>& i
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedMethodG");
-
   if (isArityError) {
   }
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
@@ -7096,6 +7114,7 @@ static void overloadedMethodH2Method(const v8::FunctionCallbackInfo<v8::Value>& 
 
 static void overloadedMethodHMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 1:
       if (V8TestInterface::hasInstance(info[0], info.GetIsolate())) {
@@ -7112,7 +7131,6 @@ static void overloadedMethodHMethod(const v8::FunctionCallbackInfo<v8::Value>& i
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedMethodH");
-
   if (isArityError) {
     if (info.Length() < 1) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
@@ -7148,6 +7166,7 @@ static void overloadedMethodI2Method(const v8::FunctionCallbackInfo<v8::Value>& 
 
 static void overloadedMethodIMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 1:
       if (info[0]->IsNumber()) {
@@ -7168,7 +7187,6 @@ static void overloadedMethodIMethod(const v8::FunctionCallbackInfo<v8::Value>& i
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedMethodI");
-
   if (isArityError) {
     if (info.Length() < 1) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
@@ -7208,8 +7226,13 @@ static void overloadedMethodJ2Method(const v8::FunctionCallbackInfo<v8::Value>& 
 
 static void overloadedMethodJMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 1:
+      if (IsUndefinedOrNull(info[0])) {
+        overloadedMethodJ2Method(info);
+        return;
+      }
       if (info[0]->IsObject()) {
         overloadedMethodJ2Method(info);
         return;
@@ -7224,7 +7247,6 @@ static void overloadedMethodJMethod(const v8::FunctionCallbackInfo<v8::Value>& i
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedMethodJ");
-
   if (isArityError) {
     if (info.Length() < 1) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
@@ -7261,6 +7283,7 @@ static void overloadedMethodK2Method(const v8::FunctionCallbackInfo<v8::Value>& 
 
 static void overloadedMethodKMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 1:
       if (info[0]->IsFunction()) {
@@ -7277,7 +7300,6 @@ static void overloadedMethodKMethod(const v8::FunctionCallbackInfo<v8::Value>& i
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedMethodK");
-
   if (isArityError) {
     if (info.Length() < 1) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
@@ -7325,6 +7347,7 @@ static void overloadedMethodL2Method(const v8::FunctionCallbackInfo<v8::Value>& 
 
 static void overloadedMethodLMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(2, info.Length())) {
     case 1:
       if (info[0]->IsNumber()) {
@@ -7359,7 +7382,6 @@ static void overloadedMethodLMethod(const v8::FunctionCallbackInfo<v8::Value>& i
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedMethodL");
-
   if (isArityError) {
     if (info.Length() < 1) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
@@ -7386,10 +7408,10 @@ static void overloadedMethodN2Method(const v8::FunctionCallbackInfo<v8::Value>& 
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
   V8TestCallbackInterface* testCallbackInterfaceArg;
-  if (info[0]->IsFunction()) {
+  if (info[0]->IsObject()) {
     testCallbackInterfaceArg = V8TestCallbackInterface::Create(info[0].As<v8::Object>());
   } else {
-    V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("overloadedMethodN", "TestObject", "The callback provided as parameter 1 is not a function."));
+    V8ThrowException::ThrowTypeError(info.GetIsolate(), ExceptionMessages::FailedToExecute("overloadedMethodN", "TestObject", "The callback provided as parameter 1 is not an object."));
     return;
   }
 
@@ -7398,6 +7420,7 @@ static void overloadedMethodN2Method(const v8::FunctionCallbackInfo<v8::Value>& 
 
 static void overloadedMethodNMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 1:
       if (V8TestInterface::hasInstance(info[0], info.GetIsolate())) {
@@ -7414,7 +7437,6 @@ static void overloadedMethodNMethod(const v8::FunctionCallbackInfo<v8::Value>& i
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedMethodN");
-
   if (isArityError) {
     if (info.Length() < 1) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
@@ -7495,6 +7517,7 @@ static void promiseOverloadMethod3Method(const v8::FunctionCallbackInfo<v8::Valu
 
 static void promiseOverloadMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(2, info.Length())) {
     case 0:
       if (true) {
@@ -7518,7 +7541,6 @@ static void promiseOverloadMethodMethod(const v8::FunctionCallbackInfo<v8::Value
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "promiseOverloadMethod");
   ExceptionToRejectPromiseScope rejectPromiseScope(info, exceptionState);
-
   if (isArityError) {
     if (info.Length() >= 0) {
       exceptionState.ThrowTypeError(ExceptionMessages::InvalidArity("[0, 2]", info.Length()));
@@ -7555,6 +7577,7 @@ static void overloadedPerWorldBindingsMethod2Method(const v8::FunctionCallbackIn
 
 static void overloadedPerWorldBindingsMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 0:
       if (true) {
@@ -7573,7 +7596,6 @@ static void overloadedPerWorldBindingsMethodMethod(const v8::FunctionCallbackInf
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedPerWorldBindingsMethod");
-
   if (isArityError) {
   }
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
@@ -7594,6 +7616,7 @@ static void overloadedPerWorldBindingsMethod2MethodForMainWorld(const v8::Functi
 
 static void overloadedPerWorldBindingsMethodMethodForMainWorld(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 0:
       if (true) {
@@ -7612,7 +7635,6 @@ static void overloadedPerWorldBindingsMethodMethodForMainWorld(const v8::Functio
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedPerWorldBindingsMethod");
-
   if (isArityError) {
   }
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
@@ -7647,6 +7669,7 @@ static void overloadedStaticMethod2Method(const v8::FunctionCallbackInfo<v8::Val
 
 static void overloadedStaticMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(2, info.Length())) {
     case 1:
       if (true) {
@@ -7665,7 +7688,6 @@ static void overloadedStaticMethodMethod(const v8::FunctionCallbackInfo<v8::Valu
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "overloadedStaticMethod");
-
   if (isArityError) {
     if (info.Length() < 1) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
@@ -7944,7 +7966,7 @@ static void checkSecurityForNodeVoidMethodMethod(const v8::FunctionCallbackInfo<
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "checkSecurityForNodeVoidMethod");
-  if (!BindingSecurity::ShouldAllowAccessTo(CurrentDOMWindow(info.GetIsolate()), impl->checkSecurityForNodeVoidMethod(), exceptionState)) {
+  if (!BindingSecurity::ShouldAllowAccessTo(CurrentDOMWindow(info.GetIsolate()), impl->checkSecurityForNodeVoidMethod(), BindingSecurity::ErrorReportOption::kDoNotReport)) {
     UseCounter::Count(CurrentExecutionContext(info.GetIsolate()),
                       WebFeature::kCrossOriginTestObjectCheckSecurityForNodeVoidMethod);
     V8SetReturnValueNull(info);
@@ -8013,6 +8035,7 @@ static void measureOverloadedMethod2Method(const v8::FunctionCallbackInfo<v8::Va
 
 static void measureOverloadedMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 0:
       if (true) {
@@ -8033,7 +8056,6 @@ static void measureOverloadedMethodMethod(const v8::FunctionCallbackInfo<v8::Val
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "measureOverloadedMethod");
-
   if (isArityError) {
   }
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
@@ -8060,6 +8082,7 @@ static void DeprecateAsOverloadedMethod2Method(const v8::FunctionCallbackInfo<v8
 
 static void DeprecateAsOverloadedMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 0:
       if (true) {
@@ -8080,7 +8103,6 @@ static void DeprecateAsOverloadedMethodMethod(const v8::FunctionCallbackInfo<v8:
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "DeprecateAsOverloadedMethod");
-
   if (isArityError) {
   }
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
@@ -8109,6 +8131,7 @@ static void DeprecateAsSameValueOverloadedMethodMethod(const v8::FunctionCallbac
   Deprecation::CountDeprecation(CurrentExecutionContext(info.GetIsolate()), WebFeature::kTestFeature);
 
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 0:
       if (true) {
@@ -8127,7 +8150,6 @@ static void DeprecateAsSameValueOverloadedMethodMethod(const v8::FunctionCallbac
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "DeprecateAsSameValueOverloadedMethod");
-
   if (isArityError) {
   }
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
@@ -8154,6 +8176,7 @@ static void measureAsOverloadedMethod2Method(const v8::FunctionCallbackInfo<v8::
 
 static void measureAsOverloadedMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 0:
       if (true) {
@@ -8174,7 +8197,6 @@ static void measureAsOverloadedMethodMethod(const v8::FunctionCallbackInfo<v8::V
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "measureAsOverloadedMethod");
-
   if (isArityError) {
   }
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
@@ -8201,6 +8223,7 @@ static void measureAsSameValueOverloadedMethod2Method(const v8::FunctionCallback
 
 static void measureAsSameValueOverloadedMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 0:
       if (true) {
@@ -8221,7 +8244,6 @@ static void measureAsSameValueOverloadedMethodMethod(const v8::FunctionCallbackI
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "measureAsSameValueOverloadedMethod");
-
   if (isArityError) {
   }
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
@@ -8270,6 +8292,7 @@ static void ceReactionsOverloadedMethod2Method(const v8::FunctionCallbackInfo<v8
 
 static void ceReactionsOverloadedMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 0:
       if (true) {
@@ -8288,7 +8311,6 @@ static void ceReactionsOverloadedMethodMethod(const v8::FunctionCallbackInfo<v8:
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "ceReactionsOverloadedMethod");
-
   if (isArityError) {
   }
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
@@ -8315,6 +8337,7 @@ static void deprecateAsMeasureAsSameValueOverloadedMethod2Method(const v8::Funct
 
 static void deprecateAsMeasureAsSameValueOverloadedMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 0:
       if (true) {
@@ -8337,7 +8360,6 @@ static void deprecateAsMeasureAsSameValueOverloadedMethodMethod(const v8::Functi
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "deprecateAsMeasureAsSameValueOverloadedMethod");
-
   if (isArityError) {
   }
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
@@ -8366,6 +8388,7 @@ static void deprecateAsSameValueMeasureAsOverloadedMethodMethod(const v8::Functi
   Deprecation::CountDeprecation(CurrentExecutionContext(info.GetIsolate()), WebFeature::kTestFeature);
 
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 0:
       if (true) {
@@ -8386,7 +8409,6 @@ static void deprecateAsSameValueMeasureAsOverloadedMethodMethod(const v8::Functi
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "deprecateAsSameValueMeasureAsOverloadedMethod");
-
   if (isArityError) {
   }
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
@@ -8415,6 +8437,7 @@ static void deprecateAsSameValueMeasureAsSameValueOverloadedMethodMethod(const v
   Deprecation::CountDeprecation(CurrentExecutionContext(info.GetIsolate()), WebFeature::kTestFeatureA);
 
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 0:
       if (true) {
@@ -8435,7 +8458,6 @@ static void deprecateAsSameValueMeasureAsSameValueOverloadedMethodMethod(const v
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "deprecateAsSameValueMeasureAsSameValueOverloadedMethod");
-
   if (isArityError) {
   }
   exceptionState.ThrowTypeError("No function was found that matched the signature provided.");
@@ -8657,10 +8679,10 @@ static void raisesExceptionVoidMethodTestCallbackInterfaceArgMethod(const v8::Fu
   }
 
   V8TestCallbackInterface* testCallbackInterfaceArg;
-  if (info[0]->IsFunction()) {
+  if (info[0]->IsObject()) {
     testCallbackInterfaceArg = V8TestCallbackInterface::Create(info[0].As<v8::Object>());
   } else {
-    exceptionState.ThrowTypeError("The callback provided as parameter 1 is not a function.");
+    exceptionState.ThrowTypeError("The callback provided as parameter 1 is not an object.");
     return;
   }
 
@@ -8676,12 +8698,12 @@ static void raisesExceptionVoidMethodOptionalTestCallbackInterfaceArgMethod(cons
   TestObject* impl = V8TestObject::ToImpl(info.Holder());
 
   V8TestCallbackInterface* optionalTestCallbackInterfaceArg;
-  if (info[0]->IsFunction()) {
+  if (info[0]->IsObject()) {
     optionalTestCallbackInterfaceArg = V8TestCallbackInterface::Create(info[0].As<v8::Object>());
-  } else if (info[0]->IsNullOrUndefined()) {
+  } else if (info[0]->IsUndefined()) {
     optionalTestCallbackInterfaceArg = nullptr;
   } else {
-    exceptionState.ThrowTypeError("The callback provided as parameter 1 is not a function.");
+    exceptionState.ThrowTypeError("The callback provided as parameter 1 is not an object.");
     return;
   }
 
@@ -8781,6 +8803,7 @@ static void runtimeEnabledOverloadedVoidMethod2Method(const v8::FunctionCallback
 
 static void runtimeEnabledOverloadedVoidMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(1, info.Length())) {
     case 1:
       if (info[0]->IsNumber()) {
@@ -8801,7 +8824,6 @@ static void runtimeEnabledOverloadedVoidMethodMethod(const v8::FunctionCallbackI
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "runtimeEnabledOverloadedVoidMethod");
-
   if (isArityError) {
     if (info.Length() < 1) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(1, info.Length()));
@@ -8897,6 +8919,7 @@ static int partiallyRuntimeEnabledOverloadedVoidMethodMethodMaxArg() {
 
 static void partiallyRuntimeEnabledOverloadedVoidMethodMethod(const v8::FunctionCallbackInfo<v8::Value>& info) {
   bool isArityError = false;
+
   switch (std::min(TestObjectV8Internal::partiallyRuntimeEnabledOverloadedVoidMethodMethodMaxArg(), info.Length())) {
     case 1:
       if (RuntimeEnabledFeatures::FeatureName2Enabled()) {
@@ -8931,7 +8954,6 @@ static void partiallyRuntimeEnabledOverloadedVoidMethodMethod(const v8::Function
   }
 
   ExceptionState exceptionState(info.GetIsolate(), ExceptionState::kExecutionContext, "TestObject", "partiallyRuntimeEnabledOverloadedVoidMethod");
-
   if (isArityError) {
     if (info.Length() < TestObjectV8Internal::partiallyRuntimeEnabledOverloadedVoidMethodMethodLength()) {
       exceptionState.ThrowTypeError(ExceptionMessages::NotEnoughArguments(TestObjectV8Internal::partiallyRuntimeEnabledOverloadedVoidMethodMethodLength(), info.Length()));
@@ -9819,14 +9841,6 @@ void V8TestObject::nodeFilterAttributeAttributeGetterCallback(const v8::Function
   RUNTIME_CALL_TIMER_SCOPE_DISABLED_BY_DEFAULT(info.GetIsolate(), "Blink_TestObject_nodeFilterAttribute_Getter");
 
   TestObjectV8Internal::nodeFilterAttributeAttributeGetter(info);
-}
-
-void V8TestObject::nodeFilterAttributeAttributeSetterCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
-  RUNTIME_CALL_TIMER_SCOPE_DISABLED_BY_DEFAULT(info.GetIsolate(), "Blink_TestObject_nodeFilterAttribute_Setter");
-
-  v8::Local<v8::Value> v8Value = info[0];
-
-  TestObjectV8Internal::nodeFilterAttributeAttributeSetter(v8Value, info);
 }
 
 void V8TestObject::serializedScriptValueAttributeAttributeGetterCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
@@ -13233,7 +13247,7 @@ static const V8DOMConfiguration::AccessorConfiguration V8TestObjectAccessors[] =
     { "imeAttribute", V8TestObject::imeAttributeAttributeGetterCallback, V8TestObject::imeAttributeAttributeSetterCallback, V8PrivateProperty::kNoCachedAccessor, static_cast<v8::PropertyAttribute>(v8::None), V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kHasSideEffect, V8DOMConfiguration::kAllWorlds },
     { "svgAttribute", V8TestObject::svgAttributeAttributeGetterCallback, V8TestObject::svgAttributeAttributeSetterCallback, V8PrivateProperty::kNoCachedAccessor, static_cast<v8::PropertyAttribute>(v8::None), V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kHasSideEffect, V8DOMConfiguration::kAllWorlds },
     { "xmlAttribute", V8TestObject::xmlAttributeAttributeGetterCallback, V8TestObject::xmlAttributeAttributeSetterCallback, V8PrivateProperty::kNoCachedAccessor, static_cast<v8::PropertyAttribute>(v8::None), V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kHasSideEffect, V8DOMConfiguration::kAllWorlds },
-    { "nodeFilterAttribute", V8TestObject::nodeFilterAttributeAttributeGetterCallback, V8TestObject::nodeFilterAttributeAttributeSetterCallback, V8PrivateProperty::kNoCachedAccessor, static_cast<v8::PropertyAttribute>(v8::None), V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kHasSideEffect, V8DOMConfiguration::kAllWorlds },
+    { "nodeFilterAttribute", V8TestObject::nodeFilterAttributeAttributeGetterCallback, nullptr, V8PrivateProperty::kNoCachedAccessor, static_cast<v8::PropertyAttribute>(v8::ReadOnly), V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kHasSideEffect, V8DOMConfiguration::kAllWorlds },
     { "serializedScriptValueAttribute", V8TestObject::serializedScriptValueAttributeAttributeGetterCallback, V8TestObject::serializedScriptValueAttributeAttributeSetterCallback, V8PrivateProperty::kNoCachedAccessor, static_cast<v8::PropertyAttribute>(v8::None), V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kHasSideEffect, V8DOMConfiguration::kAllWorlds },
     { "anyAttribute", V8TestObject::anyAttributeAttributeGetterCallback, V8TestObject::anyAttributeAttributeSetterCallback, V8PrivateProperty::kNoCachedAccessor, static_cast<v8::PropertyAttribute>(v8::None), V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kCheckHolder, V8DOMConfiguration::kHasSideEffect, V8DOMConfiguration::kAllWorlds },
     { "promiseAttribute", V8TestObject::promiseAttributeAttributeGetterCallback, V8TestObject::promiseAttributeAttributeSetterCallback, V8PrivateProperty::kNoCachedAccessor, static_cast<v8::PropertyAttribute>(v8::None), V8DOMConfiguration::kOnPrototype, V8DOMConfiguration::kDoNotCheckHolder, V8DOMConfiguration::kHasSideEffect, V8DOMConfiguration::kAllWorlds },
@@ -13615,16 +13629,16 @@ static void installV8TestObjectTemplate(
   // Register IDL constants, attributes and operations.
   V8DOMConfiguration::InstallAttributes(
       isolate, world, instanceTemplate, prototypeTemplate,
-      V8TestObjectAttributes, WTF_ARRAY_LENGTH(V8TestObjectAttributes));
+      V8TestObjectAttributes, arraysize(V8TestObjectAttributes));
   V8DOMConfiguration::InstallLazyDataAttributes(
       isolate, world, instanceTemplate, prototypeTemplate,
-      V8TestObjectLazyDataAttributes, WTF_ARRAY_LENGTH(V8TestObjectLazyDataAttributes));
+      V8TestObjectLazyDataAttributes, arraysize(V8TestObjectLazyDataAttributes));
   V8DOMConfiguration::InstallAccessors(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestObjectAccessors, WTF_ARRAY_LENGTH(V8TestObjectAccessors));
+      signature, V8TestObjectAccessors, arraysize(V8TestObjectAccessors));
   V8DOMConfiguration::InstallMethods(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestObjectMethods, WTF_ARRAY_LENGTH(V8TestObjectMethods));
+      signature, V8TestObjectMethods, arraysize(V8TestObjectMethods));
 
   // Indexed properties
   v8::IndexedPropertyHandlerConfiguration indexedPropertyHandlerConfig(
@@ -13688,7 +13702,7 @@ void V8TestObject::InstallRuntimeEnabledFeaturesOnTemplate(
     V8DOMConfiguration::InstallAccessors(
         isolate, world, instance_template, prototype_template, interface_template,
         signature, accessor_configurations,
-        WTF_ARRAY_LENGTH(accessor_configurations));
+        arraysize(accessor_configurations));
   }
 
   // Custom signature

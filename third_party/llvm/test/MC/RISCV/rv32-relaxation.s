@@ -1,5 +1,9 @@
 # RUN: llvm-mc -filetype=obj -triple riscv32 -mattr=+c < %s \
-# RUN:     | llvm-objdump -d - | FileCheck -check-prefix=INSTR %s
+# RUN:     | llvm-objdump -d -riscv-no-aliases - | FileCheck -check-prefix=INSTR %s
+# RUN: llvm-mc -filetype=obj -triple riscv32 -mattr=+c,+relax < %s \
+# RUN:     | llvm-objdump -d -riscv-no-aliases - | FileCheck -check-prefix=RELAX-INSTR %s
+# RUN: llvm-mc -filetype=obj -triple riscv32 -mattr=+c,+relax < %s \
+# RUN:     | llvm-readobj -r | FileCheck -check-prefix=RELAX-RELOC %s
 
 FAR_JUMP_NEGATIVE:
   c.nop
@@ -15,55 +19,103 @@ NEAR_NEGATIVE:
 start:
   c.bnez a0, NEAR
 #INSTR: c.bnez a0, 72
+#RELAX-INSTR: c.bnez a0, 0
+#RELAX-RELOC: R_RISCV_RVC_BRANCH
   c.bnez a0, NEAR_NEGATIVE
 #INSTR: c.bnez a0, -4
+#RELAX-INSTR: c.bnez a0, 0
+#RELAX-RELOC: R_RISCV_RVC_BRANCH
   c.bnez a0, FAR_BRANCH
-#INSTR-NEXT: bnez a0, 326
+#INSTR-NEXT: bne a0, zero, 326
+#RELAX-INSTR-NEXT: bne a0, zero, 0
+#RELAX-RELOC: R_RISCV_BRANCH
   c.bnez a0, FAR_BRANCH_NEGATIVE
-#INSTR-NEXT: bnez a0, -268
+#INSTR-NEXT: bne a0, zero, -268
+#RELAX-INSTR-NEXT: bne a0, zero, 0
+#RELAX-RELOC: R_RISCV_BRANCH
   c.bnez a0, FAR_JUMP
-#INSTR-NEXT: bnez a0, 2320
+#INSTR-NEXT: bne a0, zero, 2320
+#RELAX-INSTR-NEXT: bne a0, zero, 0
+#RELAX-RELOC: R_RISCV_BRANCH
   c.bnez a0, FAR_JUMP_NEGATIVE
-#INSTR-NEXT: bnez a0, -2278
+#INSTR-NEXT: bne a0, zero, -2278
+#RELAX-INSTR-NEXT: bne a0, zero, 0
+#RELAX-RELOC: R_RISCV_BRANCH
 
   c.beqz a0, NEAR
 #INSTR-NEXT: c.beqz a0, 52
+#RELAX-INSTR-NEXT: c.beqz a0, 0
+#RELAX-RELOC: R_RISCV_RVC_BRANCH
   c.beqz a0, NEAR_NEGATIVE
 #INSTR-NEXT: c.beqz a0, -24
+#RELAX-INSTR-NEXT: c.beqz a0, 0
+#RELAX-RELOC: R_RISCV_RVC_BRANCH
   c.beqz a0, FAR_BRANCH
-#INSTR-NEXT: beqz a0, 306
+#INSTR-NEXT: beq a0, zero, 306
+#RELAX-INSTR-NEXT: beq a0, zero, 0
+#RELAX-RELOC: R_RISCV_BRANCH
   c.beqz a0, FAR_BRANCH_NEGATIVE
-#INSTR-NEXT: beqz a0, -288
+#INSTR-NEXT: beq a0, zero, -288
+#RELAX-INSTR-NEXT: beq a0, zero, 0
+#RELAX-RELOC: R_RISCV_BRANCH
   c.beqz a0, FAR_JUMP
-#INSTR-NEXT: beqz a0, 2300
+#INSTR-NEXT: beq a0, zero, 2300
+#RELAX-INSTR-NEXT: beq a0, zero, 0
+#RELAX-RELOC: R_RISCV_BRANCH
   c.beqz a0, FAR_JUMP_NEGATIVE
-#INSTR-NEXT: beqz a0, -2298
+#INSTR-NEXT: beq a0, zero, -2298
+#RELAX-INSTR-NEXT: beq a0, zero, 0
+#RELAX-RELOC: R_RISCV_BRANCH
 
   c.j NEAR
 #INSTR-NEXT: c.j 32
+#RELAX-INSTR-NEXT: c.j 0
+#RELAX-RELOC: R_RISCV_RVC_JUMP
   c.j NEAR_NEGATIVE
 #INSTR-NEXT: c.j -44
+#RELAX-INSTR-NEXT: c.j 0
+#RELAX-RELOC: R_RISCV_RVC_JUMP
   c.j FAR_BRANCH
 #INSTR-NEXT: c.j 286
+#RELAX-INSTR-NEXT: c.j 0
+#RELAX-RELOC: R_RISCV_RVC_JUMP
   c.j FAR_BRANCH_NEGATIVE
 #INSTR-NEXT: c.j -306
+#RELAX-INSTR-NEXT: c.j 0
+#RELAX-RELOC: R_RISCV_RVC_JUMP
   c.j FAR_JUMP
-#INSTR-NEXT: j 2284
+#INSTR-NEXT: jal zero, 2284
+#RELAX-INSTR-NEXT: jal zero, 0
+#RELAX-RELOC: R_RISCV_JAL
   c.j FAR_JUMP_NEGATIVE
-#INSTR-NEXT: j -2314
+#INSTR-NEXT: jal zero, -2314
+#RELAX-INSTR-NEXT: jal zero, 0
+#RELAX-RELOC: R_RISCV_JAL
 
   c.jal NEAR
 #INSTR: c.jal 16
+#RELAX-INSTR: c.jal 0
+#RELAX-RELOC: R_RISCV_RVC_JUMP
   c.jal NEAR_NEGATIVE
 #INSTR: c.jal -60
+#RELAX-INSTR: c.jal 0
+#RELAX-RELOC: R_RISCV_RVC_JUMP
   c.jal FAR_BRANCH
 #INSTR-NEXT: c.jal 270
+#RELAX-INSTR-NEXT: c.jal 0
+#RELAX-RELOC: R_RISCV_RVC_JUMP
   c.jal FAR_BRANCH_NEGATIVE
 #INSTR-NEXT: c.jal -322
+#RELAX-INSTR-NEXT: c.jal 0
+#RELAX-RELOC: R_RISCV_RVC_JUMP
   c.jal FAR_JUMP
-#INSTR-NEXT: jal 2268
+#INSTR-NEXT: jal ra, 2268
+#RELAX-INSTR-NEXT: jal ra, 0
+#RELAX-RELOC: R_RISCV_JAL
   c.jal FAR_JUMP_NEGATIVE
-#INSTR-NEXT: jal -2330
+#INSTR-NEXT: jal ra, -2330
+#RELAX-INSTR-NEXT: jal ra, 0
+#RELAX-RELOC: R_RISCV_JAL
 
 NEAR:
   c.nop

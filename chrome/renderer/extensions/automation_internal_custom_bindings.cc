@@ -722,7 +722,11 @@ void AutomationInternalCustomBindings::AddRoutes() {
         if (!node->data().GetFloatAttribute(attribute, &attr_value))
           return;
 
-        result.Set(v8::Number::New(isolate, attr_value));
+        double intpart, fracpart;
+        fracpart = modf(attr_value, &intpart);
+        double value_precision_2 =
+            intpart + std::round(fracpart * 100) / 100.0f;
+        result.Set(v8::Number::New(isolate, value_precision_2));
       });
   RouteNodeIDPlusAttributeFunction(
       "GetIntListAttribute",
@@ -779,6 +783,25 @@ void AutomationInternalCustomBindings::AddRoutes() {
             node->data().GetIntAttribute(ax::mojom::IntAttribute::kNameFrom));
         std::string name_from_str = ui::ToString(name_from);
         result.Set(v8::String::NewFromUtf8(isolate, name_from_str.c_str()));
+      });
+  RouteNodeIDFunction("GetSubscript", [](v8::Isolate* isolate,
+                                         v8::ReturnValue<v8::Value> result,
+                                         AutomationAXTreeWrapper* tree_wrapper,
+                                         ui::AXNode* node) {
+    bool value =
+        node->data().GetIntAttribute(ax::mojom::IntAttribute::kTextPosition) ==
+        static_cast<int32_t>(ax::mojom::TextPosition::kSubscript);
+    result.Set(v8::Boolean::New(isolate, value));
+  });
+  RouteNodeIDFunction(
+      "GetSuperscript",
+      [](v8::Isolate* isolate, v8::ReturnValue<v8::Value> result,
+         AutomationAXTreeWrapper* tree_wrapper, ui::AXNode* node) {
+        bool value =
+            node->data().GetIntAttribute(
+                ax::mojom::IntAttribute::kTextPosition) ==
+            static_cast<int32_t>(ax::mojom::TextPosition::kSuperscript);
+        result.Set(v8::Boolean::New(isolate, value));
       });
   RouteNodeIDFunction(
       "GetBold", [](v8::Isolate* isolate, v8::ReturnValue<v8::Value> result,
@@ -857,6 +880,20 @@ void AutomationInternalCustomBindings::AddRoutes() {
             standard_actions.push_back(
                 ToString(static_cast<api::automation::ActionType>(action)));
         }
+
+        // The doDefault action is implied by having a default action verb.
+        int default_action_verb =
+            static_cast<int>(ax::mojom::DefaultActionVerb::kNone);
+        if (node->data().GetIntAttribute(
+                ax::mojom::IntAttribute::kDefaultActionVerb,
+                &default_action_verb) &&
+            default_action_verb !=
+                static_cast<int>(ax::mojom::DefaultActionVerb::kNone)) {
+          standard_actions.push_back(
+              ToString(static_cast<api::automation::ActionType>(
+                  ax::mojom::Action::kDoDefault)));
+        }
+
         auto actions_result = v8::Array::New(isolate, standard_actions.size());
         for (size_t i = 0; i < standard_actions.size(); i++) {
           const v8::Maybe<bool>& did_set_value = actions_result->Set(

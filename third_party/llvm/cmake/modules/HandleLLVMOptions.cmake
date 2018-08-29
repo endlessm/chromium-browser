@@ -115,7 +115,7 @@ if(WIN32)
     set(LLVM_ON_UNIX 0)
   endif(CYGWIN)
 else(WIN32)
-  if(UNIX)
+  if(FUCHSIA OR UNIX)
     set(LLVM_ON_WIN32 0)
     set(LLVM_ON_UNIX 1)
     if(APPLE OR ${CMAKE_SYSTEM_NAME} MATCHES "AIX")
@@ -123,9 +123,9 @@ else(WIN32)
     else()
       set(LLVM_HAVE_LINK_VERSION_SCRIPT 1)
     endif()
-  else(UNIX)
+  else(FUCHSIA OR UNIX)
     MESSAGE(SEND_ERROR "Unable to determine platform")
-  endif(UNIX)
+  endif(FUCHSIA OR UNIX)
 endif(WIN32)
 
 set(EXEEXT ${CMAKE_EXECUTABLE_SUFFIX})
@@ -639,7 +639,7 @@ macro(append_common_sanitizer_flags)
       add_flag_if_supported("-gline-tables-only" GLINE_TABLES_ONLY)
     endif()
     # Use -O1 even in debug mode, otherwise sanitizers slowdown is too large.
-    if (uppercase_CMAKE_BUILD_TYPE STREQUAL "DEBUG")
+    if (uppercase_CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND LLVM_OPTIMIZE_SANITIZED_BUILDS)
       add_flag_if_supported("-O1" O1)
     endif()
   elseif (CLANG_CL)
@@ -720,11 +720,13 @@ add_definitions( -D__STDC_CONSTANT_MACROS )
 add_definitions( -D__STDC_FORMAT_MACROS )
 add_definitions( -D__STDC_LIMIT_MACROS )
 
-# clang doesn't print colored diagnostics when invoked from Ninja
+# clang and gcc don't default-print colored diagnostics when invoked from Ninja.
 if (UNIX AND
-    CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
-    CMAKE_GENERATOR STREQUAL "Ninja")
-  append("-fcolor-diagnostics" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+    CMAKE_GENERATOR STREQUAL "Ninja" AND
+    (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR
+     (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
+      NOT (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 4.9))))
+  append("-fdiagnostics-color" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
 endif()
 
 # lld doesn't print colored diagnostics when invoked from Ninja

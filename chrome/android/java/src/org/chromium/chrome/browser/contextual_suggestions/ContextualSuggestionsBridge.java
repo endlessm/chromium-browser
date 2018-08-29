@@ -28,6 +28,7 @@ public class ContextualSuggestionsBridge {
     public static class ContextualSuggestionsResult {
         private String mPeekText;
         private List<ContextualSuggestionsCluster> mClusters = new ArrayList<>();
+        private PeekConditions mPeekConditions = new PeekConditions();
 
         ContextualSuggestionsResult(String peekText) {
             mPeekText = peekText;
@@ -41,6 +42,16 @@ public class ContextualSuggestionsBridge {
         /** Clusters of suggestions. */
         public List<ContextualSuggestionsCluster> getClusters() {
             return mClusters;
+        }
+
+        /** Server-provided conditions for when to "peek" the suggestions UI. */
+        public PeekConditions getPeekConditions() {
+            return mPeekConditions;
+        }
+
+        /** Setter for mPeekConditions. */
+        public void setPeekConditions(PeekConditions peekConditions) {
+            mPeekConditions = peekConditions;
         }
     }
 
@@ -116,20 +127,28 @@ public class ContextualSuggestionsBridge {
     }
 
     @CalledByNative
+    private static void setPeekConditionsOnResult(ContextualSuggestionsResult result,
+            float pageScrollPercentage, float minimumSecondsOnPage, float maximumNumberOfPeeks) {
+        PeekConditions peekConditions = new PeekConditions(
+                pageScrollPercentage, minimumSecondsOnPage, maximumNumberOfPeeks);
+        result.setPeekConditions(peekConditions);
+    }
+
+    @CalledByNative
     private static void addNewClusterToResult(ContextualSuggestionsResult result, String title) {
         result.getClusters().add(new ContextualSuggestionsCluster(title));
     }
 
     @CalledByNative
     private static void addSuggestionToLastCluster(ContextualSuggestionsResult result, String id,
-            String title, String publisher, String url) {
+            String title, String snippet, String publisher, String url, boolean hasImage) {
         assert result.getClusters().size() > 0;
         result.getClusters()
                 .get(result.getClusters().size() - 1)
                 .getSuggestions()
-                .add(new SnippetArticle(KnownCategories.CONTEXTUAL, id, title, publisher, url,
-                        /*publishTimestamp=*/0, /*score=*/0f, /*fetchTimestamp=*/0,
-                        /*isVideoSuggestion=*/false, /*thumbnailDominantColor=*/0));
+                .add(new SnippetArticle(KnownCategories.CONTEXTUAL, id, title, snippet, publisher,
+                        url, /*publishTimestamp=*/0, /*score=*/0f, /*fetchTimestamp=*/0,
+                        /*isVideoSuggestion=*/false, /*thumbnailDominantColor=*/null, hasImage));
     }
 
     static private native boolean nativeIsEnterprisePolicyManaged();

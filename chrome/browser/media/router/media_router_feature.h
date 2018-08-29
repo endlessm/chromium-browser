@@ -35,17 +35,16 @@ void RegisterLocalStatePrefs(PrefRegistrySimple* registry);
 // https://crbug.com/813974.
 extern const base::Feature kCastAllowAllIPsFeature;
 
-// Returns |true| if CastMediaSinkService can connect to Cast devices on
+// Returns true if CastMediaSinkService can connect to Cast devices on
 // all IPs, as determined by local state |pref_service| / feature flag.
 bool GetCastAllowAllIPsPref(PrefService* pref_service);
 
 extern const base::Feature kEnableDialSinkQuery;
 extern const base::Feature kEnableCastDiscovery;
 extern const base::Feature kCastMediaRouteProvider;
-extern const base::Feature kEnableCastLocalMedia;
 
-// Returns true if browser side DIAL sink query is enabled.
-bool DialSinkQueryEnabled();
+// Returns true if browser side DIAL Media Route Provider is enabled.
+bool DialMediaRouteProviderEnabled();
 
 // Returns true if browser side Cast discovery is enabled.
 bool CastDiscoveryEnabled();
@@ -53,9 +52,6 @@ bool CastDiscoveryEnabled();
 // Returns true if browser side Cast Media Route Provider and sink query are
 // enabled.
 bool CastMediaRouteProviderEnabled();
-
-// Returns true if local media casting is enabled.
-bool CastLocalMediaEnabled();
 
 // Returns true if the presentation receiver window for local media casting is
 // available on the current platform.

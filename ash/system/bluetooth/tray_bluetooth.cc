@@ -15,14 +15,14 @@
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "ash/system/bluetooth/bluetooth_power_controller.h"
 #include "ash/system/bluetooth/tray_bluetooth_helper.h"
 #include "ash/system/tray/hover_highlight_view.h"
 #include "ash/system/tray/system_tray.h"
 #include "ash/system/tray/system_tray_controller.h"
+#include "ash/system/tray/system_tray_item_detailed_view_delegate.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "ash/system/tray/tray_constants.h"
-#include "ash/system/tray/tray_details_view.h"
+#include "ash/system/tray/tray_detailed_view.h"
 #include "ash/system/tray/tray_info_label.h"
 #include "ash/system/tray/tray_item_more.h"
 #include "ash/system/tray/tray_popup_item_style.h"
@@ -184,10 +184,10 @@ class BluetoothDefaultView : public TrayItemMore {
   DISALLOW_COPY_AND_ASSIGN(BluetoothDefaultView);
 };
 
-class BluetoothDetailedView : public TrayDetailsView {
+class BluetoothDetailedView : public TrayDetailedView {
  public:
-  BluetoothDetailedView(SystemTrayItem* owner, LoginStatus login)
-      : TrayDetailsView(owner),
+  BluetoothDetailedView(DetailedViewDelegate* delegate, LoginStatus login)
+      : TrayDetailedView(delegate),
         login_(login),
         toggle_(nullptr),
         settings_(nullptr),
@@ -380,7 +380,7 @@ class BluetoothDetailedView : public TrayDetailsView {
     }
   }
 
-  // TrayDetailsView:
+  // TrayDetailedView:
   void HandleViewClicked(views::View* view) override {
     TrayBluetoothHelper* helper = Shell::Get()->tray_bluetooth_helper();
     if (!helper->GetBluetoothEnabled())
@@ -402,13 +402,8 @@ class BluetoothDetailedView : public TrayDetailsView {
   void HandleButtonPressed(views::Button* sender,
                            const ui::Event& event) override {
     if (sender == toggle_) {
-      TrayBluetoothHelper* helper = Shell::Get()->tray_bluetooth_helper();
-      BluetoothPowerController* power_controller =
-          Shell::Get()->bluetooth_power_controller();
-      Shell::Get()->metrics()->RecordUserMetricsAction(
-          helper->GetBluetoothEnabled() ? UMA_STATUS_AREA_BLUETOOTH_DISABLED
-                                        : UMA_STATUS_AREA_BLUETOOTH_ENABLED);
-      power_controller->ToggleBluetoothEnabled();
+      Shell::Get()->tray_bluetooth_helper()->SetBluetoothEnabled(
+          toggle_->is_on());
     } else if (sender == settings_) {
       ShowSettings();
     } else {
@@ -436,7 +431,7 @@ class BluetoothDetailedView : public TrayDetailsView {
   void ShowSettings() {
     if (TrayPopupUtils::CanOpenWebUISettings()) {
       Shell::Get()->system_tray_controller()->ShowBluetoothSettings();
-      owner()->system_tray()->CloseBubble();
+      CloseBubble();
     }
   }
 
@@ -556,7 +551,9 @@ class BluetoothDetailedView : public TrayDetailsView {
 TrayBluetooth::TrayBluetooth(SystemTray* system_tray)
     : SystemTrayItem(system_tray, UMA_BLUETOOTH),
       default_(nullptr),
-      detailed_(nullptr) {
+      detailed_(nullptr),
+      detailed_view_delegate_(
+          std::make_unique<SystemTrayItemDetailedViewDelegate>(this)) {
   Shell::Get()->system_tray_notifier()->AddBluetoothObserver(this);
 }
 
@@ -590,7 +587,8 @@ views::View* TrayBluetooth::CreateDetailedView(LoginStatus status) {
   Shell::Get()->metrics()->RecordUserMetricsAction(
       UMA_STATUS_AREA_DETAILED_BLUETOOTH_VIEW);
   CHECK(detailed_ == nullptr);
-  detailed_ = new tray::BluetoothDetailedView(this, status);
+  detailed_ =
+      new tray::BluetoothDetailedView(detailed_view_delegate_.get(), status);
   detailed_->Update();
   return detailed_;
 }

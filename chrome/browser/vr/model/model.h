@@ -16,6 +16,7 @@
 #include "chrome/browser/vr/model/platform_toast.h"
 #include "chrome/browser/vr/model/reticle_model.h"
 #include "chrome/browser/vr/model/speech_recognition_model.h"
+#include "chrome/browser/vr/model/tab_model.h"
 #include "chrome/browser/vr/model/text_input_info.h"
 #include "chrome/browser/vr/model/toolbar_state.h"
 #include "chrome/browser/vr/model/ui_mode.h"
@@ -49,13 +50,17 @@ struct Model {
       UiElementRenderer::kTextureLocationLocal;
   UiElementRenderer::TextureLocation content_overlay_location =
       UiElementRenderer::kTextureLocationLocal;
-  bool update_ready_snackbar_enabled = false;
   bool waiting_for_background = false;
   bool background_loaded = false;
   bool supports_selection = true;
   bool needs_keyboard_update = false;
   bool overflow_menu_enabled = false;
-  bool incognito_tabs_open = false;
+  bool standalone_vr_device = false;
+  std::vector<TabModel> regular_tabs;
+  std::vector<TabModel> incognito_tabs;
+  bool incognito_tabs_view_selected = false;
+  bool create_tabs_view = false;
+  float floor_height = 0.0f;
 
   // WebVR state.
   WebVrModel web_vr;
@@ -65,6 +70,7 @@ struct Model {
   void pop_mode();
   void pop_mode(UiMode mode);
   void toggle_mode(UiMode mode);
+  UiMode get_mode() const;
   UiMode get_last_opaque_mode() const;
   bool has_mode_in_stack(UiMode mode) const;
   bool browsing_enabled() const;

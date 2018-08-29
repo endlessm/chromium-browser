@@ -26,6 +26,8 @@
 #include "chrome/browser/media/router/discovery/dial/dial_url_fetcher.h"
 #include "chrome/browser/media/router/discovery/mdns/cast_media_sink_service.h"
 #include "chrome/browser/media/router/discovery/mdns/cast_media_sink_service_impl.h"
+#include "chrome/browser/media/router/providers/cast/cast_app_discovery_service.h"
+#include "chrome/browser/media/router/providers/dial/dial_activity_manager.h"
 #include "chrome/common/media_router/discovery/media_sink_internal.h"
 #include "net/base/ip_endpoint.h"
 #include "services/network/test/test_url_loader_factory.h"
@@ -105,14 +107,14 @@ class MockPresentationConnectionProxy
   MockPresentationConnectionProxy();
   ~MockPresentationConnectionProxy() override;
   void OnMessage(content::PresentationConnectionMessage message,
-                 OnMessageCallback cb) {
+                 OnMessageCallback cb) override {
     OnMessageInternal(message, cb);
   }
   MOCK_METHOD2(OnMessageInternal,
                void(const content::PresentationConnectionMessage&,
                     OnMessageCallback&));
   MOCK_METHOD1(DidChangeState,
-               void(content::PresentationConnectionState state));
+               void(blink::mojom::PresentationConnectionState state));
   MOCK_METHOD0(RequestClose, void());
 };
 
@@ -122,16 +124,8 @@ class MockDialMediaSinkService : public DialMediaSinkService {
   MockDialMediaSinkService();
   ~MockDialMediaSinkService() override;
 
-  MOCK_METHOD2(Start,
-               void(const OnSinksDiscoveredCallback&,
-                    const OnDialSinkAddedCallback&));
+  MOCK_METHOD1(Start, void(const OnSinksDiscoveredCallback&));
   MOCK_METHOD0(OnUserGesture, void());
-  MOCK_METHOD2(StartMonitoringAvailableSinksForApp,
-               DialMediaSinkService::SinkQueryByAppSubscription(
-                   const std::string&,
-                   const SinkQueryByAppCallback&));
-  MOCK_METHOD1(GetCachedAvailableSinks,
-               std::vector<MediaSinkInternal>(const std::string& app_name));
 };
 
 class MockCastMediaSinkService : public CastMediaSinkService {
@@ -140,23 +134,89 @@ class MockCastMediaSinkService : public CastMediaSinkService {
   ~MockCastMediaSinkService() override;
 
   MOCK_METHOD2(Start,
-               void(const OnSinksDiscoveredCallback&,
-                    CastMediaSinkServiceImpl::Observer*));
+               void(const OnSinksDiscoveredCallback&, MediaSinkServiceBase*));
   MOCK_METHOD0(OnUserGesture, void());
   MOCK_METHOD0(StartMdnsDiscovery, void());
 };
 
+class MockCastAppDiscoveryService : public CastAppDiscoveryService {
+ public:
+  MockCastAppDiscoveryService();
+  ~MockCastAppDiscoveryService() override;
+
+  Subscription StartObservingMediaSinks(
+      const CastMediaSource& source,
+      const SinkQueryCallback& callback) override;
+  MOCK_METHOD1(DoStartObservingMediaSinks, void(const CastMediaSource&));
+  MOCK_METHOD0(Refresh, void());
+
+  SinkQueryCallbackList& callbacks() { return callbacks_; }
+
+ private:
+  SinkQueryCallbackList callbacks_;
+};
+
+class MockDialAppDiscoveryService : public DialAppDiscoveryService {
+ public:
+  MockDialAppDiscoveryService();
+  ~MockDialAppDiscoveryService() override;
+
+  void FetchDialAppInfo(const MediaSinkInternal& sink,
+                        const std::string& app_name,
+                        DialAppInfoCallback app_info_cb) override;
+  MOCK_METHOD2(DoFetchDialAppInfo,
+               void(const MediaSink::Id& sink_id, const std::string& app_name));
+
+  DialAppInfoCallback PassCallback();
+
+ private:
+  DialAppInfoCallback app_info_cb_;
+};
+
 class TestDialURLFetcher : public DialURLFetcher {
  public:
-  TestDialURLFetcher(const GURL& url,
-                     base::OnceCallback<void(const std::string&)> success_cb,
-                     base::OnceCallback<void(int, const std::string&)> error_cb,
+  TestDialURLFetcher(SuccessCallback success_cb,
+                     ErrorCallback error_cb,
                      network::TestURLLoaderFactory* factory);
   ~TestDialURLFetcher() override;
+  void Start(const GURL& url,
+             const std::string& method,
+             const base::Optional<std::string>& post_data,
+             int max_retries) override;
+  MOCK_METHOD4(DoStart,
+               void(const GURL&,
+                    const std::string&,
+                    const base::Optional<std::string>&,
+                    int));
   void StartDownload() override;
 
  private:
   network::TestURLLoaderFactory* const factory_;
+};
+
+class TestDialActivityManager : public DialActivityManager {
+ public:
+  explicit TestDialActivityManager(network::TestURLLoaderFactory* factory);
+  ~TestDialActivityManager() override;
+
+  std::unique_ptr<DialURLFetcher> CreateFetcher(
+      DialURLFetcher::SuccessCallback success_cb,
+      DialURLFetcher::ErrorCallback error_cb) override;
+
+  void SetExpectedRequest(const GURL& url,
+                          const std::string& method,
+                          const base::Optional<std::string>& post_data);
+
+  MOCK_METHOD0(OnFetcherCreated, void());
+
+ private:
+  network::TestURLLoaderFactory* const factory_;
+
+  GURL expected_url_;
+  std::string expected_method_;
+  base::Optional<std::string> expected_post_data_;
+
+  DISALLOW_COPY_AND_ASSIGN(TestDialActivityManager);
 };
 
 // Helper function to create an IP endpoint object.
@@ -180,6 +240,13 @@ MediaSinkInternal CreateDialSink(int num);
 // Helper function to create a Cast sink.
 MediaSinkInternal CreateCastSink(int num);
 
+// Creates a minimal ParsedDialAppInfo with given values.
+ParsedDialAppInfo CreateParsedDialAppInfo(const std::string& name,
+                                          DialAppState app_state);
+
+std::unique_ptr<ParsedDialAppInfo> CreateParsedDialAppInfoPtr(
+    const std::string& name,
+    DialAppState app_state);
 #endif  // !defined(OS_ANDROID)
 
 }  // namespace media_router

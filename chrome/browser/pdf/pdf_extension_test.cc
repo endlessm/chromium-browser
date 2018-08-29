@@ -38,6 +38,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "chrome/test/views/scoped_macviews_browser_mode.h"
 #include "components/download/public/common/download_item.h"
 #include "components/viz/common/features.h"
 #include "components/zoom/page_zoom.h"
@@ -105,7 +106,7 @@ bool GetGuestCallback(WebContents** guest_out, WebContents* guest) {
   return false;
 }
 
-class PDFExtensionTest : public ExtensionApiTest {
+class PDFExtensionTest : public extensions::ExtensionApiTest {
  public:
   ~PDFExtensionTest() override {}
 
@@ -114,7 +115,7 @@ class PDFExtensionTest : public ExtensionApiTest {
   }
 
   void SetUpOnMainThread() override {
-    ExtensionApiTest::SetUpOnMainThread();
+    extensions::ExtensionApiTest::SetUpOnMainThread();
     host_resolver()->AddRule("*", "127.0.0.1");
     ASSERT_TRUE(embedded_test_server()->InitializeAndListen());
     content::SetupCrossSiteRedirector(embedded_test_server());
@@ -123,7 +124,7 @@ class PDFExtensionTest : public ExtensionApiTest {
 
   void TearDownOnMainThread() override {
     ASSERT_TRUE(embedded_test_server()->ShutdownAndWaitUntilComplete());
-    ExtensionApiTest::TearDownOnMainThread();
+    extensions::ExtensionApiTest::TearDownOnMainThread();
   }
 
   bool PdfIsExpectedToLoad(const std::string& pdf_file) {
@@ -164,13 +165,13 @@ class PDFExtensionTest : public ExtensionApiTest {
     {
       base::ScopedAllowBlockingForTesting allow_blocking;
       base::FilePath test_data_dir;
-      PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
+      base::PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
       test_data_dir = test_data_dir.Append(FILE_PATH_LITERAL("pdf"));
       base::FilePath test_util_path = test_data_dir.AppendASCII("test_util.js");
       ASSERT_TRUE(base::ReadFileToString(test_util_path, &test_util_js));
 
       base::FilePath source_root_dir;
-      PathService::Get(base::DIR_SOURCE_ROOT, &source_root_dir);
+      base::PathService::Get(base::DIR_SOURCE_ROOT, &source_root_dir);
       base::FilePath mock_interactions_path = source_root_dir.Append(
           FILE_PATH_LITERAL("third_party/polymer/v1_0/components-chromium/"
                             "iron-test-helpers/mock-interactions.js"));
@@ -230,7 +231,7 @@ class PDFExtensionTest : public ExtensionApiTest {
   void LoadAllPdfsTest(const std::string& dir_name, int k) {
     base::ScopedAllowBlockingForTesting allow_blocking;
     base::FilePath test_data_dir;
-    ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir));
+    ASSERT_TRUE(base::PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir));
     base::FileEnumerator file_enumerator(test_data_dir.AppendASCII(dir_name),
                                          false, base::FileEnumerator::FILES,
                                          FILE_PATH_LITERAL("*.pdf"));
@@ -365,10 +366,16 @@ class PDFExtensionHitTestTest : public PDFExtensionTest,
     PDFExtensionTest::SetUpCommandLine(command_line);
     if (GetParam()) {
       feature_list_.InitAndEnableFeature(features::kEnableVizHitTestDrawQuad);
+    } else {
+      feature_list_.InitAndDisableFeature(features::kEnableVizHitTestDrawQuad);
     }
   }
 
   base::test::ScopedFeatureList feature_list_;
+
+#if defined(OS_MACOSX)
+  test::ScopedMacViewsBrowserMode cocoa_browser_mode_{false};
+#endif
 };
 
 // Disabled because it's flaky.
@@ -512,6 +519,10 @@ IN_PROC_BROWSER_TEST_F(PDFExtensionTest, WhitespaceTitle) {
   RunTestsInFile("whitespace_title_test.js", "test-whitespace-title.pdf");
 }
 
+IN_PROC_BROWSER_TEST_F(PDFExtensionTest, Beep) {
+  RunTestsInFile("beep_test.js", "test-beep.pdf");
+}
+
 IN_PROC_BROWSER_TEST_F(PDFExtensionTest, PageChange) {
   RunTestsInFile("page_change_test.js", "test-bookmarks.pdf");
 }
@@ -588,7 +599,7 @@ IN_PROC_BROWSER_TEST_F(PDFExtensionTest, EnsurePDFFromLocalFileLoads) {
   {
     base::ScopedAllowBlockingForTesting allow_blocking;
     base::FilePath test_data_dir;
-    ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir));
+    ASSERT_TRUE(base::PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir));
     test_data_dir = test_data_dir.Append(FILE_PATH_LITERAL("pdf"));
     base::FilePath test_data_file = test_data_dir.AppendASCII("test.pdf");
     ASSERT_TRUE(PathExists(test_data_file));
@@ -1631,6 +1642,61 @@ IN_PROC_BROWSER_TEST_F(PDFExtensionTest, CtrlWheelInvokesCustomZoom) {
 }
 
 #endif  // defined(OS_MACOSX)
+
+IN_PROC_BROWSER_TEST_P(PDFExtensionHitTestTest, MouseLeave) {
+  GURL url = embedded_test_server()->GetURL("/pdf/pdf_embed.html");
+
+  // Load page with embedded PDF and make sure it succeeds.
+  ASSERT_TRUE(LoadPdf(url));
+  WebContents* guest_contents = nullptr;
+  WebContents* embedder_contents = GetActiveWebContents();
+  content::BrowserPluginGuestManager* guest_manager =
+      embedder_contents->GetBrowserContext()->GetGuestManager();
+  ASSERT_NO_FATAL_FAILURE(guest_manager->ForEachGuest(
+      embedder_contents, base::Bind(&GetGuestCallback, &guest_contents)));
+  ASSERT_NE(nullptr, guest_contents);
+#if defined(USE_AURA)
+  // TODO(wjmaclean): In theory this should be used to make sure the hit testing
+  // for routing to the guest process works as intended. Not sure if not having
+  // this on Mac is an issue.
+  content::WaitForGuestSurfaceReady(guest_contents);
+#endif
+  gfx::Point point_in_parent(250, 25);
+  gfx::Point point_in_pdf(250, 250);
+
+  // Inject script to count MouseLeaves in the PDF.
+  ASSERT_TRUE(content::ExecuteScript(
+      guest_contents,
+      "var enter_count = 0;\n"
+      "var leave_count = 0;\n"
+      "document.addEventListener('mouseenter', function (){\n"
+      "  enter_count++;"
+      "});\n"
+      "document.addEventListener('mouseleave', function (){\n"
+      "  leave_count++;"
+      "});"));
+
+  // Inject some MouseMoves to invoke a MouseLeave in the PDF.
+  content::SimulateRoutedMouseEvent(
+      embedder_contents, blink::WebInputEvent::kMouseMove, point_in_parent);
+  content::SimulateRoutedMouseEvent(
+      embedder_contents, blink::WebInputEvent::kMouseMove, point_in_pdf);
+  content::SimulateRoutedMouseEvent(
+      embedder_contents, blink::WebInputEvent::kMouseMove, point_in_parent);
+
+  // Verify MouseEnter, MouseLeave received.
+  int leave_count = 0;
+  do {
+    ASSERT_TRUE(ExecuteScriptAndExtractInt(
+        guest_contents, "window.domAutomationController.send(leave_count);",
+        &leave_count));
+  } while (!leave_count);
+  int enter_count = 0;
+  ASSERT_TRUE(ExecuteScriptAndExtractInt(
+      guest_contents, "window.domAutomationController.send(enter_count);",
+      &enter_count));
+  EXPECT_EQ(1, enter_count);
+}
 
 IN_PROC_BROWSER_TEST_P(PDFExtensionHitTestTest, ContextMenuCoordinates) {
   GURL url = embedded_test_server()->GetURL("/pdf/pdf_embed.html");

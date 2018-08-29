@@ -5,13 +5,18 @@
 #include "components/drive/file_system/operation_test_base.h"
 
 #include "base/task_scheduler/post_task.h"
+#include "components/drive/chromeos/about_resource_loader.h"
+#include "components/drive/chromeos/about_resource_root_folder_id_loader.h"
 #include "components/drive/chromeos/change_list_loader.h"
 #include "components/drive/chromeos/fake_free_disk_space_getter.h"
 #include "components/drive/chromeos/file_cache.h"
 #include "components/drive/chromeos/file_system/operation_delegate.h"
+#include "components/drive/chromeos/loader_controller.h"
 #include "components/drive/chromeos/resource_metadata.h"
+#include "components/drive/chromeos/start_page_token_loader.h"
 #include "components/drive/event_logger.h"
 #include "components/drive/file_change.h"
+#include "components/drive/file_system_core_util.h"
 #include "components/drive/job_scheduler.h"
 #include "components/drive/service/fake_drive_service.h"
 #include "components/drive/service/test_util.h"
@@ -22,11 +27,9 @@
 namespace drive {
 namespace file_system {
 
-OperationTestBase::LoggingDelegate::LoggingDelegate() {
-}
+OperationTestBase::LoggingDelegate::LoggingDelegate() = default;
 
-OperationTestBase::LoggingDelegate::~LoggingDelegate() {
-}
+OperationTestBase::LoggingDelegate::~LoggingDelegate() = default;
 
 void OperationTestBase::LoggingDelegate::OnFileChangedByOperation(
     const FileChange& changed_files) {
@@ -51,15 +54,13 @@ bool OperationTestBase::LoggingDelegate::WaitForSyncComplete(
       false : wait_for_sync_complete_handler_.Run(local_id, callback);
 }
 
-OperationTestBase::OperationTestBase() {
-}
+OperationTestBase::OperationTestBase() = default;
 
 OperationTestBase::OperationTestBase(int test_thread_bundle_options)
     : thread_bundle_(test_thread_bundle_options) {
 }
 
-OperationTestBase::~OperationTestBase() {
-}
+OperationTestBase::~OperationTestBase() = default;
 
 void OperationTestBase::SetUp() {
   blocking_task_runner_ =
@@ -122,14 +123,16 @@ void OperationTestBase::SetUp() {
   // Makes sure the FakeDriveService's content is loaded to the metadata_.
   about_resource_loader_.reset(new internal::AboutResourceLoader(
       scheduler_.get()));
+  root_folder_id_loader_ =
+      std::make_unique<internal::AboutResourceRootFolderIdLoader>(
+          about_resource_loader_.get());
+  start_page_token_loader_.reset(new internal::StartPageTokenLoader(
+      drive::util::kTeamDriveIdDefaultCorpus, scheduler_.get()));
   loader_controller_.reset(new internal::LoaderController);
   change_list_loader_.reset(new internal::ChangeListLoader(
-      logger_.get(),
-      blocking_task_runner_.get(),
-      metadata_.get(),
-      scheduler_.get(),
-      about_resource_loader_.get(),
-      loader_controller_.get()));
+      logger_.get(), blocking_task_runner_.get(), metadata_.get(),
+      scheduler_.get(), root_folder_id_loader_.get(),
+      start_page_token_loader_.get(), loader_controller_.get()));
   change_list_loader_->LoadIfNeeded(
       google_apis::test_util::CreateCopyResultCallback(&error));
   content::RunAllTasksUntilIdle();

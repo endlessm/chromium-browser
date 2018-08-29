@@ -11,24 +11,25 @@
 #include "chrome/browser/ui/views/chrome_constrained_window_views_client.h"
 #include "chrome/browser/ui/views/chrome_views_delegate.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
-#include "chrome/browser/ui/views/ime_driver/ime_driver_mus.h"
 #include "components/constrained_window/constrained_window_views.h"
+#include "services/service_manager/sandbox/switches.h"
 
 #if defined(USE_AURA)
 #include "base/run_loop.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/ui_devtools/css_agent.h"
 #include "components/ui_devtools/devtools_server.h"
 #include "components/ui_devtools/views/dom_agent_aura.h"
 #include "components/ui_devtools/views/overlay_agent_aura.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/service_manager_connection.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/service_manager/runner/common/client_util.h"
 #include "services/ui/public/cpp/gpu/gpu.h"  // nogncheck
-#include "services/ui/public/cpp/input_devices/input_device_client.h"
 #include "services/ui/public/interfaces/constants.mojom.h"
-#include "services/ui/public/interfaces/input_devices/input_device_server.mojom.h"
 #include "ui/aura/env.h"
 #include "ui/display/screen.h"
 #include "ui/views/mus/mus_client.h"
@@ -56,20 +57,6 @@
 #include "chrome/browser/ui/views/relaunch_notification/relaunch_notification_controller.h"
 #endif  // defined(OS_CHROMEOS)
 
-namespace {
-
-#if defined(USE_AURA)
-bool ShouldCreateWMState() {
-#if defined(OS_CHROMEOS)
-  return chromeos::GetAshConfig() != ash::Config::MUS;
-#else
-  return true;
-#endif
-}
-#endif
-
-}  // namespace
-
 ChromeBrowserMainExtraPartsViews::ChromeBrowserMainExtraPartsViews() {
 }
 
@@ -86,16 +73,13 @@ void ChromeBrowserMainExtraPartsViews::ToolkitInitialized() {
   SetConstrainedWindowViewsClient(CreateChromeConstrainedWindowViewsClient());
 
 #if defined(USE_AURA)
-  if (ShouldCreateWMState())
-    wm_state_.reset(new wm::WMState);
+  wm_state_.reset(new wm::WMState);
 #endif
 }
 
 void ChromeBrowserMainExtraPartsViews::PreCreateThreads() {
-#if defined(USE_AURA) && !defined(OS_CHROMEOS) && !defined(USE_OZONE)
-  // The screen may have already been set in test initialization.
-  if (!display::Screen::GetScreen())
-    display::Screen::SetScreenInstance(views::CreateDesktopScreen());
+#if defined(USE_AURA)
+  views::InstallDesktopScreenIfNecessary();
 #endif
 
   // TODO(pkasting): Try to move ViewsDelegate creation here as well;
@@ -109,13 +93,11 @@ void ChromeBrowserMainExtraPartsViews::PreCreateThreads() {
 
 void ChromeBrowserMainExtraPartsViews::PreProfileInit() {
 #if defined(USE_AURA)
-  // IME driver must be available at login screen, so initialize before profile.
-  if (aura::Env::GetInstance()->mode() == aura::Env::Mode::MUS)
-    IMEDriver::Register();
-
   // Start devtools server
+  network::mojom::NetworkContext* network_context =
+      g_browser_process->system_network_context_manager()->GetContext();
   devtools_server_ = ui_devtools::UiDevToolsServer::Create(
-      nullptr, switches::kEnableUiDevTools, 9223);
+      network_context, switches::kEnableUiDevTools, 9223);
   if (devtools_server_) {
     auto dom_backend = std::make_unique<ui_devtools::DOMAgentAura>();
     auto overlay_backend =
@@ -147,7 +129,7 @@ void ChromeBrowserMainExtraPartsViews::PreProfileInit() {
 
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
-  if (command_line.HasSwitch(switches::kNoSandbox))
+  if (command_line.HasSwitch(service_manager::switches::kNoSandbox))
     return;
 
   base::string16 title = l10n_util::GetStringFUTF16(
@@ -182,23 +164,18 @@ void ChromeBrowserMainExtraPartsViews::ServiceManagerConnectionStarted(
   }
 #endif
 
-  input_device_client_ = std::make_unique<ui::InputDeviceClient>();
-  ui::mojom::InputDeviceServerPtr server;
-  connection->GetConnector()->BindInterface(ui::mojom::kServiceName, &server);
-  input_device_client_->Connect(std::move(server));
-
 #if defined(OS_CHROMEOS)
   if (chromeos::GetAshConfig() != ash::Config::MASH)
     return;
 #endif
 
+  views::MusClient::InitParams params;
+  params.connector = connection->GetConnector();
+  params.io_task_runner = content::BrowserThread::GetTaskRunnerForThread(
+      content::BrowserThread::IO);
   // WMState is owned as a member, so don't have MusClient create it.
-  const bool create_wm_state = false;
-  mus_client_ = std::make_unique<views::MusClient>(
-      connection->GetConnector(), service_manager::Identity(),
-      content::BrowserThread::GetTaskRunnerForThread(
-          content::BrowserThread::IO),
-      create_wm_state);
+  params.create_wm_state = false;
+  mus_client_ = std::make_unique<views::MusClient>(params);
 #endif  // defined(USE_AURA)
 }
 

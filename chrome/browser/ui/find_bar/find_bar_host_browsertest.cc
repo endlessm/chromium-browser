@@ -6,12 +6,12 @@
 
 #include "base/command_line.h"
 #include "base/files/file_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/buildflag.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -27,6 +27,7 @@
 #include "chrome/browser/ui/find_bar/find_notification_details.h"
 #include "chrome/browser/ui/find_bar/find_tab_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/views_mode_controller.h"
 #include "chrome/browser/ui/webui/md_history_ui.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/find_in_page_observer.h"
@@ -1127,6 +1128,15 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, RestartSearchFromF3) {
 // The only exception is if there is a global pasteboard (for example on Mac).
 // http://crbug.com/30006
 IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, PreferPreviousSearch) {
+#if defined(OS_MACOSX) && BUILDFLAG(MAC_VIEWS_BROWSER)
+  if (!views_mode_controller::IsViewsBrowserCocoa()) {
+    // TODO(http://crbug.com/843878): Remove the interactive UI test
+    // FindBarPlatformHelperMacInteractiveUITest.PreferPreviousSearch
+    // once http://crbug.com/843878 is fixed.
+    return;
+  }
+#endif
+
   // First we navigate to any page.
   GURL url = GetURL(kSimple);
   ui_test_utils::NavigateToURL(browser(), url);
@@ -1476,6 +1486,15 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest,
   if (!find_bar->HasGlobalFindPasteboard())
     return;
 
+#if defined(OS_MACOSX) && BUILDFLAG(MAC_VIEWS_BROWSER)
+  if (!views_mode_controller::IsViewsBrowserCocoa()) {
+    // TODO(http://crbug.com/843878): Remove the interactive UI test
+    // FindBarPlatformHelperMacInteractiveUITest.GlobalPasteBoardClearMatches
+    // once http://crbug.com/843878 is fixed.
+    return;
+  }
+#endif
+
   // First we navigate to any page.
   GURL url = GetURL(kSimple);
   ui_test_utils::NavigateToURL(browser(), url);
@@ -1557,6 +1576,15 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, IncognitoFindNextSecret) {
 // Find text in regular window, send IDC_FIND_NEXT to incognito. It should
 // search for the first phrase.
 IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, IncognitoFindNextShared) {
+#if defined(OS_MACOSX) && BUILDFLAG(MAC_VIEWS_BROWSER)
+  if (!views_mode_controller::IsViewsBrowserCocoa()) {
+    // TODO(http://crbug.com/843878): Remove the interactive UI test
+    // FindBarPlatformHelperMacInteractiveUITest.IncognitoFindNextShared
+    // once http://crbug.com/843878 is fixed.
+    return;
+  }
+#endif
+
   WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   // On Mac this updates the find pboard.

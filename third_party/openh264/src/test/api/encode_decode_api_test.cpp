@@ -84,7 +84,7 @@ void EncodeDecodeTestAPIBase::prepareParamDefault (int iLayers, int iSlices, int
     SEncParamExt* pParam) {
   memset (pParam, 0, sizeof (SEncParamExt));
   encoder_->GetDefaultParams (pParam);
-  EncodeDecodeTestBase::prepareParam (iLayers, iSlices, width, height, framerate, pParam);
+  EncodeDecodeTestBase::prepareParam (iLayers, iSlices, VALID_SIZE(width), VALID_SIZE(height), framerate, pParam);
 }
 
 
@@ -95,7 +95,7 @@ void EncodeDecodeTestAPIBase::EncodeOneFrame (int iCheckTypeIndex) {
   memset (buf_.data() + lumaSize, rand() % 256, (frameSize - lumaSize));
   int rv = encoder_->EncodeFrame (&EncPic, &info);
   if (0 == iCheckTypeIndex)
-    ASSERT_TRUE (rv == cmResultSuccess);
+    ASSERT_TRUE (rv == cmResultSuccess) << rv;
   else if (1 == iCheckTypeIndex)
     ASSERT_TRUE (rv == cmResultSuccess || rv == cmUnknownReason);
 }

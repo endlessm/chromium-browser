@@ -14,6 +14,7 @@
 #include "components/viz/service/display/display.h"
 #include "components/viz/service/display/display_client.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
+#include "components/viz/test/test_shared_bitmap_manager.h"
 #include "services/viz/public/interfaces/compositing/compositor_frame_sink.mojom.h"
 
 namespace base {
@@ -58,7 +59,6 @@ class TestLayerTreeFrameSink : public cc::LayerTreeFrameSink,
   TestLayerTreeFrameSink(
       scoped_refptr<ContextProvider> compositor_context_provider,
       scoped_refptr<RasterContextProvider> worker_context_provider,
-      SharedBitmapManager* shared_bitmap_manager,
       gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
       const RendererSettings& renderer_settings,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner,
@@ -116,6 +116,8 @@ class TestLayerTreeFrameSink : public cc::LayerTreeFrameSink,
   void DisplayDidDrawAndSwap() override;
   void DisplayDidReceiveCALayerParams(
       const gfx::CALayerParams& ca_layer_params) override;
+  void DidSwapAfterSnapshotRequestReceived(
+      const std::vector<ui::LatencyInfo>& latency_info) override {}
 
   const std::set<SharedBitmapId>& owned_bitmaps() const {
     return owned_bitmaps_;
@@ -138,7 +140,6 @@ class TestLayerTreeFrameSink : public cc::LayerTreeFrameSink,
   std::unique_ptr<FrameSinkManagerImpl> frame_sink_manager_;
   std::unique_ptr<ParentLocalSurfaceIdAllocator>
       parent_local_surface_id_allocator_;
-  LocalSurfaceId local_surface_id_;
   gfx::Size display_size_;
   float device_scale_factor_ = 0;
   gfx::ColorSpace blending_color_space_ = gfx::ColorSpace::CreateSRGB();
@@ -152,7 +153,9 @@ class TestLayerTreeFrameSink : public cc::LayerTreeFrameSink,
   BeginFrameSource* display_begin_frame_source_ = nullptr;  // Not owned.
   ExternalBeginFrameSource external_begin_frame_source_;
 
-  // Uses surface_manager_ and begin_frame_source_.
+  TestSharedBitmapManager shared_bitmap_manager_;
+
+  // Uses surface_manager_, begin_frame_source_, shared_bitmap_manager_.
   std::unique_ptr<Display> display_;
 
   TestLayerTreeFrameSinkClient* test_client_ = nullptr;

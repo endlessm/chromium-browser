@@ -83,6 +83,7 @@
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
@@ -3516,12 +3517,13 @@ ScalarEvolution::getUMaxExpr(SmallVectorImpl<const SCEV *> &Ops) {
   for (unsigned i = 0, e = Ops.size()-1; i != e; ++i)
     //  X umax Y umax Y  -->  X umax Y
     //  X umax Y         -->  X, if X is always greater than Y
-    if (Ops[i] == Ops[i+1] ||
-        isKnownPredicate(ICmpInst::ICMP_UGE, Ops[i], Ops[i+1])) {
-      Ops.erase(Ops.begin()+i+1, Ops.begin()+i+2);
+    if (Ops[i] == Ops[i + 1] || isKnownViaNonRecursiveReasoning(
+                                    ICmpInst::ICMP_UGE, Ops[i], Ops[i + 1])) {
+      Ops.erase(Ops.begin() + i + 1, Ops.begin() + i + 2);
       --i; --e;
-    } else if (isKnownPredicate(ICmpInst::ICMP_ULE, Ops[i], Ops[i+1])) {
-      Ops.erase(Ops.begin()+i, Ops.begin()+i+1);
+    } else if (isKnownViaNonRecursiveReasoning(ICmpInst::ICMP_ULE, Ops[i],
+                                               Ops[i + 1])) {
+      Ops.erase(Ops.begin() + i, Ops.begin() + i + 1);
       --i; --e;
     }
 
@@ -3548,14 +3550,35 @@ ScalarEvolution::getUMaxExpr(SmallVectorImpl<const SCEV *> &Ops) {
 
 const SCEV *ScalarEvolution::getSMinExpr(const SCEV *LHS,
                                          const SCEV *RHS) {
-  // ~smax(~x, ~y) == smin(x, y).
-  return getNotSCEV(getSMaxExpr(getNotSCEV(LHS), getNotSCEV(RHS)));
+  SmallVector<const SCEV *, 2> Ops = { LHS, RHS };
+  return getSMinExpr(Ops);
+}
+
+const SCEV *ScalarEvolution::getSMinExpr(SmallVectorImpl<const SCEV *> &Ops) {
+  // ~smax(~x, ~y, ~z) == smin(x, y, z).
+  SmallVector<const SCEV *, 2> NotOps;
+  for (auto *S : Ops)
+    NotOps.push_back(getNotSCEV(S));
+  return getNotSCEV(getSMaxExpr(NotOps));
 }
 
 const SCEV *ScalarEvolution::getUMinExpr(const SCEV *LHS,
                                          const SCEV *RHS) {
-  // ~umax(~x, ~y) == umin(x, y)
-  return getNotSCEV(getUMaxExpr(getNotSCEV(LHS), getNotSCEV(RHS)));
+  SmallVector<const SCEV *, 2> Ops = { LHS, RHS };
+  return getUMinExpr(Ops);
+}
+
+const SCEV *ScalarEvolution::getUMinExpr(SmallVectorImpl<const SCEV *> &Ops) {
+  assert(!Ops.empty() && "At least one operand must be!");
+  // Trivial case.
+  if (Ops.size() == 1)
+    return Ops[0];
+
+  // ~umax(~x, ~y, ~z) == umin(x, y, z).
+  SmallVector<const SCEV *, 2> NotOps;
+  for (auto *S : Ops)
+    NotOps.push_back(getNotSCEV(S));
+  return getNotSCEV(getUMaxExpr(NotOps));
 }
 
 const SCEV *ScalarEvolution::getSizeOfExpr(Type *IntTy, Type *AllocTy) {
@@ -3943,15 +3966,32 @@ const SCEV *ScalarEvolution::getUMaxFromMismatchedTypes(const SCEV *LHS,
 
 const SCEV *ScalarEvolution::getUMinFromMismatchedTypes(const SCEV *LHS,
                                                         const SCEV *RHS) {
-  const SCEV *PromotedLHS = LHS;
-  const SCEV *PromotedRHS = RHS;
+  SmallVector<const SCEV *, 2> Ops = { LHS, RHS };
+  return getUMinFromMismatchedTypes(Ops);
+}
 
-  if (getTypeSizeInBits(LHS->getType()) > getTypeSizeInBits(RHS->getType()))
-    PromotedRHS = getZeroExtendExpr(RHS, LHS->getType());
-  else
-    PromotedLHS = getNoopOrZeroExtend(LHS, RHS->getType());
+const SCEV *ScalarEvolution::getUMinFromMismatchedTypes(
+    SmallVectorImpl<const SCEV *> &Ops) {
+  assert(!Ops.empty() && "At least one operand must be!");
+  // Trivial case.
+  if (Ops.size() == 1)
+    return Ops[0];
 
-  return getUMinExpr(PromotedLHS, PromotedRHS);
+  // Find the max type first.
+  Type *MaxType = nullptr;
+  for (auto *S : Ops)
+    if (MaxType)
+      MaxType = getWiderType(MaxType, S->getType());
+    else
+      MaxType = S->getType();
+
+  // Extend all ops to max type.
+  SmallVector<const SCEV *, 2> PromotedOps;
+  for (auto *S : Ops)
+    PromotedOps.push_back(getNoopOrZeroExtend(S, MaxType));
+
+  // Generate umin.
+  return getUMinExpr(PromotedOps);
 }
 
 const SCEV *ScalarEvolution::getPointerBase(const SCEV *V) {
@@ -4683,7 +4723,7 @@ ScalarEvolution::createAddRecFromPHIWithCastsImpl(const SCEVUnknown *SymbolicPHI
 
   const SCEV *StartExtended = getExtendedExpr(StartVal, Signed);
   if (PredIsKnownFalse(StartVal, StartExtended)) {
-    DEBUG(dbgs() << "P2 is compile-time false\n";);
+    LLVM_DEBUG(dbgs() << "P2 is compile-time false\n";);
     return None;
   }
 
@@ -4691,7 +4731,7 @@ ScalarEvolution::createAddRecFromPHIWithCastsImpl(const SCEVUnknown *SymbolicPHI
   // NSSW or NUSW)
   const SCEV *AccumExtended = getExtendedExpr(Accum, /*CreateSignExtend=*/true);
   if (PredIsKnownFalse(Accum, AccumExtended)) {
-    DEBUG(dbgs() << "P3 is compile-time false\n";);
+    LLVM_DEBUG(dbgs() << "P3 is compile-time false\n";);
     return None;
   }
 
@@ -4700,7 +4740,7 @@ ScalarEvolution::createAddRecFromPHIWithCastsImpl(const SCEVUnknown *SymbolicPHI
     if (Expr != ExtendedExpr &&
         !isKnownPredicate(ICmpInst::ICMP_EQ, Expr, ExtendedExpr)) {
       const SCEVPredicate *Pred = getEqualPredicate(Expr, ExtendedExpr);
-      DEBUG (dbgs() << "Added Predicate: " << *Pred);
+      LLVM_DEBUG(dbgs() << "Added Predicate: " << *Pred);
       Predicates.push_back(Pred);
     }
   };
@@ -6474,8 +6514,13 @@ ScalarEvolution::getBackedgeTakenInfo(const Loop *L) {
   // must be cleared in this scope.
   BackedgeTakenInfo Result = computeBackedgeTakenCount(L);
 
-  if (Result.getExact(L, this) != getCouldNotCompute()) {
-    assert(isLoopInvariant(Result.getExact(L, this), L) &&
+  // In product build, there are no usage of statistic.
+  (void)NumTripCountsComputed;
+  (void)NumTripCountsNotComputed;
+#if LLVM_ENABLE_STATS || !defined(NDEBUG)
+  const SCEV *BEExact = Result.getExact(L, this);
+  if (BEExact != getCouldNotCompute()) {
+    assert(isLoopInvariant(BEExact, L) &&
            isLoopInvariant(Result.getMax(this), L) &&
            "Computed backedge-taken count isn't loop invariant for loop!");
     ++NumTripCountsComputed;
@@ -6485,6 +6530,7 @@ ScalarEvolution::getBackedgeTakenInfo(const Loop *L) {
     // Only count loops that have phi nodes as not being computable.
     ++NumTripCountsNotComputed;
   }
+#endif // LLVM_ENABLE_STATS || !defined(NDEBUG)
 
   // Now that we know more about the trip count for this loop, forget any
   // existing SCEV values for PHI nodes in this loop since they are only
@@ -6620,6 +6666,12 @@ void ScalarEvolution::forgetLoop(const Loop *L) {
   }
 }
 
+void ScalarEvolution::forgetTopmostLoop(const Loop *L) {
+  while (Loop *Parent = L->getParentLoop())
+    L = Parent;
+  forgetLoop(L);
+}
+
 void ScalarEvolution::forgetValue(Value *V) {
   Instruction *I = dyn_cast<Instruction>(V);
   if (!I) return;
@@ -6660,7 +6712,6 @@ ScalarEvolution::BackedgeTakenInfo::getExact(const Loop *L, ScalarEvolution *SE,
   if (!isComplete() || ExitNotTaken.empty())
     return SE->getCouldNotCompute();
 
-  const SCEV *BECount = nullptr;
   const BasicBlock *Latch = L->getLoopLatch();
   // All exiting blocks we have collected must dominate the only backedge.
   if (!Latch)
@@ -6668,16 +6719,15 @@ ScalarEvolution::BackedgeTakenInfo::getExact(const Loop *L, ScalarEvolution *SE,
 
   // All exiting blocks we have gathered dominate loop's latch, so exact trip
   // count is simply a minimum out of all these calculated exit counts.
+  SmallVector<const SCEV *, 2> Ops;
   for (auto &ENT : ExitNotTaken) {
-    assert(ENT.ExactNotTaken != SE->getCouldNotCompute() && "Bad exit SCEV!");
+    const SCEV *BECount = ENT.ExactNotTaken;
+    assert(BECount != SE->getCouldNotCompute() && "Bad exit SCEV!");
     assert(SE->DT.dominates(ENT.ExitingBlock, Latch) &&
            "We should only have known counts for exiting blocks that dominate "
            "latch!");
 
-    if (!BECount)
-      BECount = ENT.ExactNotTaken;
-    else if (BECount != ENT.ExactNotTaken)
-      BECount = SE->getUMinFromMismatchedTypes(BECount, ENT.ExactNotTaken);
+    Ops.push_back(BECount);
 
     if (Preds && !ENT.hasAlwaysTruePredicate())
       Preds->add(ENT.Predicate.get());
@@ -6686,8 +6736,7 @@ ScalarEvolution::BackedgeTakenInfo::getExact(const Loop *L, ScalarEvolution *SE,
            "Predicate should be always true!");
   }
 
-  assert(BECount && "Invalid not taken count for loop exit");
-  return BECount;
+  return SE->getUMinFromMismatchedTypes(Ops);
 }
 
 /// Get the exact not taken count for this loop exit.
@@ -6884,63 +6933,12 @@ ScalarEvolution::computeBackedgeTakenCount(const Loop *L,
 ScalarEvolution::ExitLimit
 ScalarEvolution::computeExitLimit(const Loop *L, BasicBlock *ExitingBlock,
                                       bool AllowPredicates) {
-  // Okay, we've chosen an exiting block.  See what condition causes us to exit
-  // at this block and remember the exit block and whether all other targets
-  // lead to the loop header.
-  bool MustExecuteLoopHeader = true;
-  BasicBlock *Exit = nullptr;
-  for (auto *SBB : successors(ExitingBlock))
-    if (!L->contains(SBB)) {
-      if (Exit) // Multiple exit successors.
-        return getCouldNotCompute();
-      Exit = SBB;
-    } else if (SBB != L->getHeader()) {
-      MustExecuteLoopHeader = false;
-    }
-
-  // At this point, we know we have a conditional branch that determines whether
-  // the loop is exited.  However, we don't know if the branch is executed each
-  // time through the loop.  If not, then the execution count of the branch will
-  // not be equal to the trip count of the loop.
-  //
-  // Currently we check for this by checking to see if the Exit branch goes to
-  // the loop header.  If so, we know it will always execute the same number of
-  // times as the loop.  We also handle the case where the exit block *is* the
-  // loop header.  This is common for un-rotated loops.
-  //
-  // If both of those tests fail, walk up the unique predecessor chain to the
-  // header, stopping if there is an edge that doesn't exit the loop. If the
-  // header is reached, the execution count of the branch will be equal to the
-  // trip count of the loop.
-  //
-  //  More extensive analysis could be done to handle more cases here.
-  //
-  if (!MustExecuteLoopHeader && ExitingBlock != L->getHeader()) {
-    // The simple checks failed, try climbing the unique predecessor chain
-    // up to the header.
-    bool Ok = false;
-    for (BasicBlock *BB = ExitingBlock; BB; ) {
-      BasicBlock *Pred = BB->getUniquePredecessor();
-      if (!Pred)
-        return getCouldNotCompute();
-      TerminatorInst *PredTerm = Pred->getTerminator();
-      for (const BasicBlock *PredSucc : PredTerm->successors()) {
-        if (PredSucc == BB)
-          continue;
-        // If the predecessor has a successor that isn't BB and isn't
-        // outside the loop, assume the worst.
-        if (L->contains(PredSucc))
-          return getCouldNotCompute();
-      }
-      if (Pred == L->getHeader()) {
-        Ok = true;
-        break;
-      }
-      BB = Pred;
-    }
-    if (!Ok)
-      return getCouldNotCompute();
-  }
+  assert(L->contains(ExitingBlock) && "Exit count for non-loop block?");
+  // If our exiting block does not dominate the latch, then its connection with
+  // loop's exit limit may be far from trivial.
+  const BasicBlock *Latch = L->getLoopLatch();
+  if (!Latch || !DT.dominates(ExitingBlock, Latch))
+    return getCouldNotCompute();
 
   bool IsOnlyExit = (L->getExitingBlock() != nullptr);
   TerminatorInst *Term = ExitingBlock->getTerminator();
@@ -6955,9 +6953,19 @@ ScalarEvolution::computeExitLimit(const Loop *L, BasicBlock *ExitingBlock,
         /*ControlsExit=*/IsOnlyExit, AllowPredicates);
   }
 
-  if (SwitchInst *SI = dyn_cast<SwitchInst>(Term))
+  if (SwitchInst *SI = dyn_cast<SwitchInst>(Term)) {
+    // For switch, make sure that there is a single exit from the loop.
+    BasicBlock *Exit = nullptr;
+    for (auto *SBB : successors(ExitingBlock))
+      if (!L->contains(SBB)) {
+        if (Exit) // Multiple exit successors.
+          return getCouldNotCompute();
+        Exit = SBB;
+      }
+    assert(Exit && "Exiting block must have at least one exit");
     return computeExitLimitFromSingleExitSwitch(L, SI, Exit,
                                                 /*ControlsExit=*/IsOnlyExit);
+  }
 
   return getCouldNotCompute();
 }
@@ -8709,24 +8717,25 @@ bool ScalarEvolution::isKnownViaInduction(ICmpInst::Predicate Pred,
               DT.dominates(L2->getHeader(), L1->getHeader())) &&
              "Domination relationship is not a linear order");
 #endif
-  
-  const Loop *MDL = *std::max_element(LoopsUsed.begin(), LoopsUsed.end(),
-                                        [&](const Loop *L1, const Loop *L2) {
-                         return DT.dominates(L1->getHeader(), L2->getHeader());
-                       });
+
+  const Loop *MDL =
+      *std::max_element(LoopsUsed.begin(), LoopsUsed.end(),
+                        [&](const Loop *L1, const Loop *L2) {
+         return DT.properlyDominates(L1->getHeader(), L2->getHeader());
+       });
 
   // Get init and post increment value for LHS.
   auto SplitLHS = SplitIntoInitAndPostInc(MDL, LHS);
   // if LHS contains unknown non-invariant SCEV then bail out.
   if (SplitLHS.first == getCouldNotCompute())
     return false;
-  assert (SplitLHS.first != getCouldNotCompute() && "Unexpected CNC");
+  assert (SplitLHS.second != getCouldNotCompute() && "Unexpected CNC");
   // Get init and post increment value for RHS.
   auto SplitRHS = SplitIntoInitAndPostInc(MDL, RHS);
   // if RHS contains unknown non-invariant SCEV then bail out.
   if (SplitRHS.first == getCouldNotCompute())
     return false;
-  assert (SplitRHS.first != getCouldNotCompute() && "Unexpected CNC");
+  assert (SplitRHS.second != getCouldNotCompute() && "Unexpected CNC");
   // It is possible that init SCEV contains an invariant load but it does
   // not dominate MDL and is not available at MDL loop entry, so we should
   // check it here.
@@ -9558,6 +9567,115 @@ bool ScalarEvolution::isImpliedCondOperandsViaNoOverflow(
                                   getConstant(FoundRHSLimit));
 }
 
+bool ScalarEvolution::isImpliedViaMerge(ICmpInst::Predicate Pred,
+                                        const SCEV *LHS, const SCEV *RHS,
+                                        const SCEV *FoundLHS,
+                                        const SCEV *FoundRHS, unsigned Depth) {
+  const PHINode *LPhi = nullptr, *RPhi = nullptr;
+
+  auto ClearOnExit = make_scope_exit([&]() {
+    if (LPhi) {
+      bool Erased = PendingMerges.erase(LPhi);
+      assert(Erased && "Failed to erase LPhi!");
+      (void)Erased;
+    }
+    if (RPhi) {
+      bool Erased = PendingMerges.erase(RPhi);
+      assert(Erased && "Failed to erase RPhi!");
+      (void)Erased;
+    }
+  });
+
+  // Find respective Phis and check that they are not being pending.
+  if (const SCEVUnknown *LU = dyn_cast<SCEVUnknown>(LHS))
+    if (auto *Phi = dyn_cast<PHINode>(LU->getValue())) {
+      if (!PendingMerges.insert(Phi).second)
+        return false;
+      LPhi = Phi;
+    }
+  if (const SCEVUnknown *RU = dyn_cast<SCEVUnknown>(RHS))
+    if (auto *Phi = dyn_cast<PHINode>(RU->getValue())) {
+      // If we detect a loop of Phi nodes being processed by this method, for
+      // example:
+      //
+      //   %a = phi i32 [ %some1, %preheader ], [ %b, %latch ]
+      //   %b = phi i32 [ %some2, %preheader ], [ %a, %latch ]
+      //
+      // we don't want to deal with a case that complex, so return conservative
+      // answer false.
+      if (!PendingMerges.insert(Phi).second)
+        return false;
+      RPhi = Phi;
+    }
+
+  // If none of LHS, RHS is a Phi, nothing to do here.
+  if (!LPhi && !RPhi)
+    return false;
+
+  // If there is a SCEVUnknown Phi we are interested in, make it left.
+  if (!LPhi) {
+    std::swap(LHS, RHS);
+    std::swap(FoundLHS, FoundRHS);
+    std::swap(LPhi, RPhi);
+    Pred = ICmpInst::getSwappedPredicate(Pred);
+  }
+
+  assert(LPhi && "LPhi should definitely be a SCEVUnknown Phi!");
+  const BasicBlock *LBB = LPhi->getParent();
+  const SCEVAddRecExpr *RAR = dyn_cast<SCEVAddRecExpr>(RHS);
+
+  auto ProvedEasily = [&](const SCEV *S1, const SCEV *S2) {
+    return isKnownViaNonRecursiveReasoning(Pred, S1, S2) ||
+           isImpliedCondOperandsViaRanges(Pred, S1, S2, FoundLHS, FoundRHS) ||
+           isImpliedViaOperations(Pred, S1, S2, FoundLHS, FoundRHS, Depth);
+  };
+
+  if (RPhi && RPhi->getParent() == LBB) {
+    // Case one: RHS is also a SCEVUnknown Phi from the same basic block.
+    // If we compare two Phis from the same block, and for each entry block
+    // the predicate is true for incoming values from this block, then the
+    // predicate is also true for the Phis.
+    for (const BasicBlock *IncBB : predecessors(LBB)) {
+      const SCEV *L = getSCEV(LPhi->getIncomingValueForBlock(IncBB));
+      const SCEV *R = getSCEV(RPhi->getIncomingValueForBlock(IncBB));
+      if (!ProvedEasily(L, R))
+        return false;
+    }
+  } else if (RAR && RAR->getLoop()->getHeader() == LBB) {
+    // Case two: RHS is also a Phi from the same basic block, and it is an
+    // AddRec. It means that there is a loop which has both AddRec and Unknown
+    // PHIs, for it we can compare incoming values of AddRec from above the loop
+    // and latch with their respective incoming values of LPhi.
+    assert(LPhi->getNumIncomingValues() == 2 &&
+           "Phi node standing in loop header does not have exactly 2 inputs?");
+    auto *RLoop = RAR->getLoop();
+    auto *Predecessor = RLoop->getLoopPredecessor();
+    assert(Predecessor && "Loop with AddRec with no predecessor?");
+    const SCEV *L1 = getSCEV(LPhi->getIncomingValueForBlock(Predecessor));
+    if (!ProvedEasily(L1, RAR->getStart()))
+      return false;
+    auto *Latch = RLoop->getLoopLatch();
+    assert(Latch && "Loop with AddRec with no latch?");
+    const SCEV *L2 = getSCEV(LPhi->getIncomingValueForBlock(Latch));
+    if (!ProvedEasily(L2, RAR->getPostIncExpr(*this)))
+      return false;
+  } else {
+    // In all other cases go over inputs of LHS and compare each of them to RHS,
+    // the predicate is true for (LHS, RHS) if it is true for all such pairs.
+    // At this point RHS is either a non-Phi, or it is a Phi from some block
+    // different from LBB.
+    for (const BasicBlock *IncBB : predecessors(LBB)) {
+      // Check that RHS is available in this block.
+      if (!dominates(RHS, IncBB))
+        return false;
+      const SCEV *L = getSCEV(LPhi->getIncomingValueForBlock(IncBB));
+      if (!ProvedEasily(L, RHS))
+        return false;
+    }
+  }
+  return true;
+}
+
 bool ScalarEvolution::isImpliedCondOperands(ICmpInst::Predicate Pred,
                                             const SCEV *LHS, const SCEV *RHS,
                                             const SCEV *FoundLHS,
@@ -9711,6 +9829,7 @@ bool ScalarEvolution::isImpliedViaOperations(ICmpInst::Predicate Pred,
   };
 
   // Acquire values from extensions.
+  auto *OrigLHS = LHS;
   auto *OrigFoundLHS = FoundLHS;
   LHS = GetOpFromSExt(LHS);
   FoundLHS = GetOpFromSExt(FoundLHS);
@@ -9817,6 +9936,12 @@ bool ScalarEvolution::isImpliedViaOperations(ICmpInst::Predicate Pred,
         return true;
     }
   }
+
+  // If our expression contained SCEVUnknown Phis, and we split it down and now
+  // need to prove something for them, try to prove the predicate for every
+  // possible incoming values of those Phis.
+  if (isImpliedViaMerge(Pred, OrigLHS, RHS, OrigFoundLHS, FoundRHS, Depth + 1))
+    return true;
 
   return false;
 }
@@ -10508,22 +10633,22 @@ void ScalarEvolution::collectParametricTerms(const SCEV *Expr,
   SCEVCollectStrides StrideCollector(*this, Strides);
   visitAll(Expr, StrideCollector);
 
-  DEBUG({
-      dbgs() << "Strides:\n";
-      for (const SCEV *S : Strides)
-        dbgs() << *S << "\n";
-    });
+  LLVM_DEBUG({
+    dbgs() << "Strides:\n";
+    for (const SCEV *S : Strides)
+      dbgs() << *S << "\n";
+  });
 
   for (const SCEV *S : Strides) {
     SCEVCollectTerms TermCollector(Terms);
     visitAll(S, TermCollector);
   }
 
-  DEBUG({
-      dbgs() << "Terms:\n";
-      for (const SCEV *T : Terms)
-        dbgs() << *T << "\n";
-    });
+  LLVM_DEBUG({
+    dbgs() << "Terms:\n";
+    for (const SCEV *T : Terms)
+      dbgs() << *T << "\n";
+  });
 
   SCEVCollectAddRecMultiplies MulCollector(Terms, *this);
   visitAll(Expr, MulCollector);
@@ -10634,18 +10759,18 @@ void ScalarEvolution::findArrayDimensions(SmallVectorImpl<const SCEV *> &Terms,
   if (!containsParameters(Terms))
     return;
 
-  DEBUG({
-      dbgs() << "Terms:\n";
-      for (const SCEV *T : Terms)
-        dbgs() << *T << "\n";
-    });
+  LLVM_DEBUG({
+    dbgs() << "Terms:\n";
+    for (const SCEV *T : Terms)
+      dbgs() << *T << "\n";
+  });
 
   // Remove duplicates.
   array_pod_sort(Terms.begin(), Terms.end());
   Terms.erase(std::unique(Terms.begin(), Terms.end()), Terms.end());
 
   // Put larger terms first.
-  std::sort(Terms.begin(), Terms.end(), [](const SCEV *LHS, const SCEV *RHS) {
+  llvm::sort(Terms.begin(), Terms.end(), [](const SCEV *LHS, const SCEV *RHS) {
     return numberOfTerms(LHS) > numberOfTerms(RHS);
   });
 
@@ -10665,11 +10790,11 @@ void ScalarEvolution::findArrayDimensions(SmallVectorImpl<const SCEV *> &Terms,
     if (const SCEV *NewT = removeConstantFactors(*this, T))
       NewTerms.push_back(NewT);
 
-  DEBUG({
-      dbgs() << "Terms after sorting:\n";
-      for (const SCEV *T : NewTerms)
-        dbgs() << *T << "\n";
-    });
+  LLVM_DEBUG({
+    dbgs() << "Terms after sorting:\n";
+    for (const SCEV *T : NewTerms)
+      dbgs() << *T << "\n";
+  });
 
   if (NewTerms.empty() || !findArrayDimensionsRec(*this, NewTerms, Sizes)) {
     Sizes.clear();
@@ -10679,11 +10804,11 @@ void ScalarEvolution::findArrayDimensions(SmallVectorImpl<const SCEV *> &Terms,
   // The last element to be pushed into Sizes is the size of an element.
   Sizes.push_back(ElementSize);
 
-  DEBUG({
-      dbgs() << "Sizes:\n";
-      for (const SCEV *S : Sizes)
-        dbgs() << *S << "\n";
-    });
+  LLVM_DEBUG({
+    dbgs() << "Sizes:\n";
+    for (const SCEV *S : Sizes)
+      dbgs() << *S << "\n";
+  });
 }
 
 void ScalarEvolution::computeAccessFunctions(
@@ -10703,13 +10828,13 @@ void ScalarEvolution::computeAccessFunctions(
     const SCEV *Q, *R;
     SCEVDivision::divide(*this, Res, Sizes[i], &Q, &R);
 
-    DEBUG({
-        dbgs() << "Res: " << *Res << "\n";
-        dbgs() << "Sizes[i]: " << *Sizes[i] << "\n";
-        dbgs() << "Res divided by Sizes[i]:\n";
-        dbgs() << "Quotient: " << *Q << "\n";
-        dbgs() << "Remainder: " << *R << "\n";
-      });
+    LLVM_DEBUG({
+      dbgs() << "Res: " << *Res << "\n";
+      dbgs() << "Sizes[i]: " << *Sizes[i] << "\n";
+      dbgs() << "Res divided by Sizes[i]:\n";
+      dbgs() << "Quotient: " << *Q << "\n";
+      dbgs() << "Remainder: " << *R << "\n";
+    });
 
     Res = Q;
 
@@ -10737,11 +10862,11 @@ void ScalarEvolution::computeAccessFunctions(
 
   std::reverse(Subscripts.begin(), Subscripts.end());
 
-  DEBUG({
-      dbgs() << "Subscripts:\n";
-      for (const SCEV *S : Subscripts)
-        dbgs() << *S << "\n";
-    });
+  LLVM_DEBUG({
+    dbgs() << "Subscripts:\n";
+    for (const SCEV *S : Subscripts)
+      dbgs() << *S << "\n";
+  });
 }
 
 /// Splits the SCEV into two vectors of SCEVs representing the subscripts and
@@ -10815,17 +10940,17 @@ void ScalarEvolution::delinearize(const SCEV *Expr,
   if (Subscripts.empty())
     return;
 
-  DEBUG({
-      dbgs() << "succeeded to delinearize " << *Expr << "\n";
-      dbgs() << "ArrayDecl[UnknownSize]";
-      for (const SCEV *S : Sizes)
-        dbgs() << "[" << *S << "]";
+  LLVM_DEBUG({
+    dbgs() << "succeeded to delinearize " << *Expr << "\n";
+    dbgs() << "ArrayDecl[UnknownSize]";
+    for (const SCEV *S : Sizes)
+      dbgs() << "[" << *S << "]";
 
-      dbgs() << "\nArrayRef";
-      for (const SCEV *S : Subscripts)
-        dbgs() << "[" << *S << "]";
-      dbgs() << "\n";
-    });
+    dbgs() << "\nArrayRef";
+    for (const SCEV *S : Subscripts)
+      dbgs() << "[" << *S << "]";
+    dbgs() << "\n";
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -10903,6 +11028,7 @@ ScalarEvolution::ScalarEvolution(ScalarEvolution &&Arg)
       ValueExprMap(std::move(Arg.ValueExprMap)),
       PendingLoopPredicates(std::move(Arg.PendingLoopPredicates)),
       PendingPhiRanges(std::move(Arg.PendingPhiRanges)),
+      PendingMerges(std::move(Arg.PendingMerges)),
       MinTrailingZerosCache(std::move(Arg.MinTrailingZerosCache)),
       BackedgeTakenCounts(std::move(Arg.BackedgeTakenCounts)),
       PredicatedBackedgeTakenCounts(
@@ -10947,6 +11073,7 @@ ScalarEvolution::~ScalarEvolution() {
 
   assert(PendingLoopPredicates.empty() && "isImpliedCond garbage");
   assert(PendingPhiRanges.empty() && "getRangeRef garbage");
+  assert(PendingMerges.empty() && "isImpliedViaMerge garbage");
   assert(!WalkingBEDominatingConds && "isLoopBackedgeGuardedByCond garbage!");
   assert(!ProvingSplitPredicate && "ProvingSplitPredicate garbage!");
 }

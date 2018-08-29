@@ -98,9 +98,7 @@ void Instruction::dispatch(unsigned RCUToken) {
   RCUTokenID = RCUToken;
 
   // Check if input operands are already available.
-  if (std::all_of(Uses.begin(), Uses.end(),
-                  [](const UniqueUse &Use) { return Use->isReady(); }))
-    Stage = IS_READY;
+  update();
 }
 
 void Instruction::execute() {
@@ -118,8 +116,12 @@ void Instruction::execute() {
     Stage = IS_EXECUTED;
 }
 
-bool Instruction::isZeroLatency() const {
-  return Desc.MaxLatency == 0 && Defs.size() == 0 && Uses.size() == 0;
+void Instruction::update() {
+  if (!isDispatched())
+    return;
+
+  if (llvm::all_of(Uses, [](const UniqueUse &Use) { return Use->isReady(); }))
+    Stage = IS_READY;
 }
 
 void Instruction::cycleEvent() {
@@ -127,14 +129,9 @@ void Instruction::cycleEvent() {
     return;
 
   if (isDispatched()) {
-    bool IsReady = true;
-    for (UniqueUse &Use : Uses) {
+    for (UniqueUse &Use : Uses)
       Use->cycleEvent();
-      IsReady &= Use->isReady();
-    }
-
-    if (IsReady)
-      Stage = IS_READY;
+    update();
     return;
   }
 

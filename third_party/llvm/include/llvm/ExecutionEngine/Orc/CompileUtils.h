@@ -16,13 +16,13 @@
 
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ExecutionEngine/ObjectCache.h"
-#include "llvm/ExecutionEngine/ObjectMemoryBuffer.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/SmallVectorMemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include <algorithm>
@@ -35,7 +35,7 @@ class Module;
 
 namespace orc {
 
-/// @brief Simple compile functor: Takes a single IR module and returns an
+/// Simple compile functor: Takes a single IR module and returns an
 ///        ObjectFile.
 class SimpleCompiler {
 private:
@@ -56,14 +56,14 @@ private:
 public:
   using CompileResult = std::unique_ptr<MemoryBuffer>;
 
-  /// @brief Construct a simple compile functor with the given target.
+  /// Construct a simple compile functor with the given target.
   SimpleCompiler(TargetMachine &TM, ObjectCache *ObjCache = nullptr)
     : TM(TM), ObjCache(ObjCache) {}
 
-  /// @brief Set an ObjectCache to query before compiling.
+  /// Set an ObjectCache to query before compiling.
   void setObjectCache(ObjectCache *NewCache) { ObjCache = NewCache; }
 
-  /// @brief Compile a Module to an ObjectFile.
+  /// Compile a Module to an ObjectFile.
   CompileResult operator()(Module &M) {
     CompileResult CachedObject = tryToLoadFromObjectCache(M);
     if (CachedObject)

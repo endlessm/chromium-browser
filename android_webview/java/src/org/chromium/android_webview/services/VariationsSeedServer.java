@@ -8,9 +8,6 @@ import android.app.Service;
 import android.content.Intent;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
-import android.os.ParcelFileDescriptor.AutoCloseOutputStream;
-
-import org.chromium.android_webview.VariationsUtils;
 
 /**
  * VariationsSeedServer is a bound service that shares the Variations seed with all the WebViews
@@ -18,10 +15,12 @@ import org.chromium.android_webview.VariationsUtils;
  * service should write the seed.
  */
 public class VariationsSeedServer extends Service {
+    private VariationsSeedHolder mSeedHolder;
+
     private final IVariationsSeedServer.Stub mBinder = new IVariationsSeedServer.Stub() {
         @Override
         public void getSeed(ParcelFileDescriptor newSeedFile, long oldSeedDate) {
-            VariationsUtils.writeSeed(new AutoCloseOutputStream(newSeedFile), null);
+            mSeedHolder.writeSeedIfNewer(newSeedFile, oldSeedDate);
         }
     };
 
@@ -34,5 +33,6 @@ public class VariationsSeedServer extends Service {
     public void onCreate() {
         super.onCreate();
         ServiceInit.init(getApplicationContext());
+        mSeedHolder = VariationsSeedHolder.getInstance();
     }
 }

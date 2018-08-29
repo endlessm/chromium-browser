@@ -20,6 +20,10 @@ namespace {
 constexpr const char kUserActionConinueAndReview[] = "continue-and-review";
 constexpr const char kUserActionContinueWithDefaults[] =
     "continue-with-defaults";
+constexpr const char kUserActionContinueWithSyncOnly[] =
+    "continue-with-sync-only";
+constexpr const char kUserActionContinueWithSyncAndPersonalization[] =
+    "continue-with-sync-and-personalization";
 
 browser_sync::ProfileSyncService* GetSyncService(Profile* profile) {
   if (ProfileSyncServiceFactory::HasProfileSyncService(profile))
@@ -53,12 +57,15 @@ void SyncConsentScreen::Show() {
   }
 
   shown_ = true;
-  if (behavior_ == SyncScreenBehavior::SHOW) {
-    view_->Show();
-  } else {
-    // Wait for updates if not shown.
+  if (behavior_ != SyncScreenBehavior::SHOW) {
+    // Wait for updates and set the loading throbber to be visible.
+    view_->SetThrobberVisible(true /*visible*/);
     GetSyncService(profile_)->AddObserver(this);
   }
+  // Show the entire screen.
+  // If SyncScreenBehavior is show, this should show the sync consent screen.
+  // If SyncScreenBehavior is unknown, this should show the loading throbber.
+  view_->Show();
 }
 
 void SyncConsentScreen::Hide() {
@@ -75,6 +82,16 @@ void SyncConsentScreen::OnUserAction(const std::string& action_id) {
     return;
   }
   if (action_id == kUserActionContinueWithDefaults) {
+    Finish(ScreenExitCode::SYNC_CONSENT_FINISHED);
+    return;
+  }
+  if (action_id == kUserActionContinueWithSyncOnly) {
+    // TODO(alemate) https://crbug.com/822889
+    Finish(ScreenExitCode::SYNC_CONSENT_FINISHED);
+    return;
+  }
+  if (action_id == kUserActionContinueWithSyncAndPersonalization) {
+    // TODO(alemate) https://crbug.com/822889
     Finish(ScreenExitCode::SYNC_CONSENT_FINISHED);
     return;
   }
@@ -102,6 +119,12 @@ SyncConsentScreen::SyncScreenBehavior SyncConsentScreen::GetSyncScreenBehavior()
       (user_->GetType() != user_manager::USER_TYPE_REGULAR)) {
     return SyncScreenBehavior::SKIP;
   }
+
+  // Skip if disabled by policy.
+  if (!profile_->GetPrefs()->GetBoolean(prefs::kEnableSyncConsent)) {
+    return SyncScreenBehavior::SKIP;
+  }
+
   // Skip for sync-disabled case.
   const browser_sync::ProfileSyncService* sync_service =
       GetSyncService(profile_);
@@ -132,7 +155,7 @@ void SyncConsentScreen::UpdateScreen() {
     Finish(ScreenExitCode::SYNC_CONSENT_FINISHED);
 
   if (behavior_ == SyncScreenBehavior::SHOW) {
-    view_->Show();
+    view_->SetThrobberVisible(false /*visible*/);
     GetSyncService(profile_)->RemoveObserver(this);
   }
 }

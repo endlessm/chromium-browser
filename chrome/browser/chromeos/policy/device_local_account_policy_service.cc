@@ -13,7 +13,6 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/sequenced_task_runner.h"
 #include "base/stl_util.h"
@@ -77,8 +76,8 @@ std::unique_ptr<CloudPolicyClient> CreateClient(
   std::unique_ptr<CloudPolicyClient> client =
       std::make_unique<CloudPolicyClient>(
           std::string() /* machine_id */, std::string() /* machine_model */,
-          device_management_service, system_request_context,
-          nullptr /* signing_service */,
+          std::string() /* brand_code */, device_management_service,
+          system_request_context, nullptr /* signing_service */,
           base::BindRepeating(&GetDeviceDMToken, device_settings_service));
   std::vector<std::string> user_affiliation_ids(
       policy_data->user_affiliation_ids().begin(),
@@ -116,8 +115,8 @@ void DeleteOrphanedCaches(
 // the removal is in progress.
 void DeleteObsoleteExtensionCache(const std::string& account_id_to_delete) {
   base::FilePath cache_root_dir;
-  CHECK(PathService::Get(chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS,
-                         &cache_root_dir));
+  CHECK(base::PathService::Get(chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS,
+                               &cache_root_dir));
   const base::FilePath path = cache_root_dir.Append(
       GetCacheSubdirectoryForAccountID(account_id_to_delete));
   if (base::DirectoryExists(path))
@@ -152,8 +151,8 @@ DeviceLocalAccountPolicyBroker::DeviceLocalAccountPolicyBroker(
         account, store_.get(), &schema_registry_));
   }
   base::FilePath cache_root_dir;
-  CHECK(PathService::Get(chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS,
-                         &cache_root_dir));
+  CHECK(base::PathService::Get(chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS,
+                               &cache_root_dir));
   extension_loader_ = new chromeos::DeviceLocalAccountExternalPolicyLoader(
       store_.get(),
       cache_root_dir.Append(
@@ -290,8 +289,9 @@ DeviceLocalAccountPolicyService::DeviceLocalAccountPolicyService(
               &DeviceLocalAccountPolicyService::UpdateAccountListIfNonePending,
               base::Unretained(this)))),
       weak_factory_(this) {
-  CHECK(PathService::Get(chromeos::DIR_DEVICE_LOCAL_ACCOUNT_COMPONENT_POLICY,
-                         &component_policy_cache_root_));
+  CHECK(base::PathService::Get(
+      chromeos::DIR_DEVICE_LOCAL_ACCOUNT_COMPONENT_POLICY,
+      &component_policy_cache_root_));
   external_data_service_.reset(new DeviceLocalAccountExternalDataService(
       this,
       external_data_service_backend_task_runner,
@@ -518,8 +518,8 @@ void DeviceLocalAccountPolicyService::UpdateAccountList() {
     orphan_extension_cache_deletion_state_ = IN_PROGRESS;
 
     base::FilePath cache_root_dir;
-    CHECK(PathService::Get(chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS,
-                           &cache_root_dir));
+    CHECK(base::PathService::Get(chromeos::DIR_DEVICE_LOCAL_ACCOUNT_EXTENSIONS,
+                                 &cache_root_dir));
     extension_cache_task_runner_->PostTaskAndReply(
         FROM_HERE,
         base::BindOnce(&DeleteOrphanedCaches, cache_root_dir,

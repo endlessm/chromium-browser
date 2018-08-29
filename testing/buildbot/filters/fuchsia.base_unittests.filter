@@ -16,7 +16,6 @@
 -FilePathWatcherTest.RecursiveWatch
 -FilePathWatcherTest.WatchDirectory
 -FileProxyTest.SetTimes
--FileUtilProxyTest.Touch
 -FileUtilTest.FileToFILE
 -PlatformThreadTest.ThreadPriorityCurrentThread
 -ProcessMemoryDumpTest.CountResidentBytes
@@ -25,17 +24,6 @@
 -SysInfoTest.AmountOfFreeDiskSpace
 -SysInfoTest.AmountOfMem
 -SysInfoTest.AmountOfTotalDiskSpace
-
-# Remove this filter once the migration to packages is complete.
-# See crbug.com/805057.
--NativeLibraryTest.LoadLibrary
--NativeLibraryTest.LoadLibraryPreferOwnSymbols
-
-# These tests are affected by an issue with cloning namespace entries from
-# inside a package. See https://crbug.com/826018
--ProcessUtilTest.CloneAlternateDir
--ProcessUtilTest.KillSlowChild
--ProcessUtilTest.SelectivelyClonedDir
 
 # These tests all rely on being able to set the exit code of an externally
 # terminated process, which mx_task_kill() does not support.
@@ -54,11 +42,6 @@
 -ObserverListThreadSafeTest.CrossThreadObserver
 -TraceCategoryTest.ThreadRaces
 
-# This test expects a task to complete no later than 250ms after it's expected
-# to, but that's easily a poor assumption when running on QEMU without hardware
-# virtualization.
--*TaskSchedulerWorkerPoolImplTest.PostDelayedTask*
-
 # https://crbug.com/751894
 -ConditionVariableTest.LargeFastTaskTest
 
@@ -66,21 +49,12 @@
 -FieldTrialListTest.ClearParamsFromSharedMemory
 -FieldTrialListTest.TestCopyFieldTrialStateToFlags
 
-# Flaky, https://crbug.com/768436, https://crbug.com/792310.
--TaskSchedulerWorkerPoolBlockingTest.MaximumWorkersTest
--TaskSchedulerWorkerPoolBlockingTest.MayBlockIncreaseCapacityNestedWillBlock
--TaskSchedulerWorkerPoolBlockingTest.PostBeforeBlocking
--TaskSchedulerWorkerPoolBlockingTest.ThreadBlockedUnblocked
--TaskSchedulerWorkerPoolBlockingTest.WorkersIdleWhenOverCapacity
-
 # Flaky, https://crbug.com/810077.
 -MessageLoopTypedTest.RecursivePosts/*
-
-# Flaky, https://crbug.com/735701 and https://crbug.com/816170.
--TaskSchedulerWorkerPoolHistogramTest.NumTasks*Cleanup
 
 # Flaky, https://crbug.com/811881
 -AddressSpaceRandomizationTest.RandomBitCorrelations*
 
-# Flaky, https://crbug.com/813651
--TaskSchedulerWorkerPoolCheckTlsReuse.CheckCleanupWorkers
+# Frequently times out, https://crbug.com/836785
+-PipelineIntegrationTest.TrackStatusChangesWhileSuspended
+

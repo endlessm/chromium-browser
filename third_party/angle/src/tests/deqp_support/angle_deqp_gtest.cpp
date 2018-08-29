@@ -7,15 +7,16 @@
 //   dEQP and GoogleTest integration logic. Calls through to the random
 //   order executor.
 
-#include <fstream>
 #include <stdint.h>
+#include <array>
+#include <fstream>
 
 #include <gtest/gtest.h>
 
 #include "angle_deqp_libtester.h"
+#include "common/Optional.h"
 #include "common/angleutils.h"
 #include "common/debug.h"
-#include "common/Optional.h"
 #include "common/platform.h"
 #include "common/string_utils.h"
 #include "gpu_test_expectations_parser.h"
@@ -23,31 +24,40 @@
 
 namespace
 {
+std::string DrawElementsToGoogleTestName(const std::string &dEQPName)
+{
+    std::string gTestName = dEQPName.substr(dEQPName.find('.') + 1);
+    std::replace(gTestName.begin(), gTestName.end(), '.', '_');
+
+    // Occurs in some luminance tests
+    gTestName.erase(std::remove(gTestName.begin(), gTestName.end(), '-'), gTestName.end());
+    return gTestName;
+}
 
 #if defined(ANGLE_PLATFORM_ANDROID)
-const char *g_CaseListRelativePath =
+const char *gCaseListRelativePath =
     "/../../sdcard/chromium_tests_root/third_party/deqp/src/android/cts/master/";
 #else
-const char *g_CaseListRelativePath = "/../../third_party/deqp/src/android/cts/master/";
+const char *gCaseListRelativePath = "/../../third_party/deqp/src/android/cts/master/";
 #endif
 
-const char *g_TestExpectationsSearchPaths[] = {
+const char *gTestExpectationsSearchPaths[] = {
     "/../../src/tests/deqp_support/", "/../../third_party/angle/src/tests/deqp_support/",
     "/deqp_support/", "/../../sdcard/chromium_tests_root/third_party/angle/src/tests/deqp_support/",
 };
 
-const char *g_CaseListFiles[] = {
+const char *gCaseListFiles[] = {
     "gles2-master.txt", "gles3-master.txt", "gles31-master.txt", "egl-master.txt",
 };
 
-const char *g_TestExpectationsFiles[] = {
+const char *gTestExpectationsFiles[] = {
     "deqp_gles2_test_expectations.txt", "deqp_gles3_test_expectations.txt",
     "deqp_gles31_test_expectations.txt", "deqp_egl_test_expectations.txt",
 };
 
 using APIInfo = std::pair<const char *, gpu::GPUTestConfig::API>;
 
-const APIInfo g_eglDisplayAPIs[] = {
+const APIInfo gEGLDisplayAPIs[] = {
     {"angle-d3d9", gpu::GPUTestConfig::kAPID3D9},
     {"angle-d3d11", gpu::GPUTestConfig::kAPID3D11},
     {"angle-gl", gpu::GPUTestConfig::kAPIGLDesktop},
@@ -56,15 +66,18 @@ const APIInfo g_eglDisplayAPIs[] = {
     {"angle-vulkan", gpu::GPUTestConfig::kAPIVulkan},
 };
 
-const char *g_deqpEGLString = "--deqp-egl-display-type=";
-const char *g_angleEGLString = "--use-angle=";
+const char *gdEQPEGLString  = "--deqp-egl-display-type=";
+const char *gANGLEEGLString = "--use-angle=";
+const char *gdEQPCaseString = "--deqp-case=";
 
-const APIInfo *g_initAPI = nullptr;
+std::array<char, 500> gCaseStringBuffer;
 
-constexpr const char *g_deqpEGLConfigNameString = "--deqp-gl-config-name=";
+const APIInfo *gInitAPI = nullptr;
+
+constexpr const char *gdEQPEGLConfigNameString = "--deqp-gl-config-name=";
 
 // Default the config to RGBA8
-const char *g_eglConfigName = "rgba8888d24s8";
+const char *gEGLConfigName = "rgba8888d24s8";
 
 // Returns the default API for a platform.
 const char *GetDefaultAPIName()
@@ -82,7 +95,7 @@ const char *GetDefaultAPIName()
 
 const APIInfo *FindAPIInfo(const std::string &arg)
 {
-    for (auto &displayAPI : g_eglDisplayAPIs)
+    for (auto &displayAPI : gEGLDisplayAPIs)
     {
         if (arg == displayAPI.first)
         {
@@ -106,13 +119,12 @@ void Die()
     exit(EXIT_FAILURE);
 }
 
-Optional<std::string> FindTestExpectationsPath(const std::string &exeDir,
-                                                      size_t testModuleIndex)
+Optional<std::string> FindTestExpectationsPath(const std::string &exeDir, size_t testModuleIndex)
 {
-    for (const char *testPath : g_TestExpectationsSearchPaths)
+    for (const char *testPath : gTestExpectationsSearchPaths)
     {
         std::stringstream testExpectationsPathStr;
-        testExpectationsPathStr << exeDir << testPath << g_TestExpectationsFiles[testModuleIndex];
+        testExpectationsPathStr << exeDir << testPath << gTestExpectationsFiles[testModuleIndex];
 
         std::string path = testExpectationsPathStr.str();
         std::ifstream inFile(path.c_str());
@@ -133,12 +145,8 @@ class dEQPCaseList
 
     struct CaseInfo
     {
-        CaseInfo(const std::string &dEQPName,
-                 const std::string &gTestName,
-                 int expectation)
-            : mDEQPName(dEQPName),
-              mGTestName(gTestName),
-              mExpectation(expectation)
+        CaseInfo(const std::string &dEQPName, const std::string &gTestName, int expectation)
+            : mDEQPName(dEQPName), mGTestName(gTestName), mExpectation(expectation)
         {
         }
 
@@ -171,8 +179,7 @@ class dEQPCaseList
 };
 
 dEQPCaseList::dEQPCaseList(size_t testModuleIndex)
-    : mTestModuleIndex(testModuleIndex),
-      mInitialized(false)
+    : mTestModuleIndex(testModuleIndex), mInitialized(false)
 {
 }
 
@@ -188,7 +195,7 @@ void dEQPCaseList::initialize()
     std::string exeDir = angle::GetExecutableDirectory();
 
     std::stringstream caseListPathStr;
-    caseListPathStr << exeDir << g_CaseListRelativePath << g_CaseListFiles[mTestModuleIndex];
+    caseListPathStr << exeDir << gCaseListRelativePath << gCaseListFiles[mTestModuleIndex];
     std::string caseListPath = caseListPathStr.str();
 
     Optional<std::string> testExpectationsPath = FindTestExpectationsPath(exeDir, mTestModuleIndex);
@@ -217,9 +224,9 @@ void dEQPCaseList::initialize()
     }
 
     // Set the API from the command line, or using the default platform API.
-    if (g_initAPI)
+    if (gInitAPI)
     {
-        mTestConfig.set_api(g_initAPI->second);
+        mTestConfig.set_api(gInitAPI->second);
     }
     else
     {
@@ -241,19 +248,32 @@ void dEQPCaseList::initialize()
         std::string dEQPName = angle::TrimString(inString, angle::kWhitespaceASCII);
         if (dEQPName.empty())
             continue;
-        std::string gTestName = dEQPName.substr(dEQPName.find('.') + 1);
+        std::string gTestName = DrawElementsToGoogleTestName(dEQPName);
         if (gTestName.empty())
             continue;
-        std::replace(gTestName.begin(), gTestName.end(), '.', '_');
-
-        // Occurs in some luminance tests
-        gTestName.erase(std::remove(gTestName.begin(), gTestName.end(), '-'), gTestName.end());
 
         int expectation = mTestExpectationsParser.GetTestExpectation(dEQPName, mTestConfig);
         if (expectation != gpu::GPUTestExpectationsParser::kGpuTestSkip)
         {
             mCaseInfoList.push_back(CaseInfo(dEQPName, gTestName, expectation));
         }
+    }
+}
+
+bool TestPassed(TestResult result)
+{
+    switch (result)
+    {
+        case TestResult::Pass:
+            return true;
+        case TestResult::Fail:
+            return false;
+        case TestResult::NotSupported:
+            return true;
+        case TestResult::Exception:
+            return false;
+        default:
+            return false;
     }
 }
 
@@ -283,20 +303,28 @@ class dEQPTest : public testing::TestWithParam<size_t>
     static void TearDownTestCase();
 
   protected:
-    void runTest()
+    void runTest() const
     {
+        if (sExceptions > 1)
+        {
+            std::cout << "Too many exceptions, skipping all remaining tests." << std::endl;
+            return;
+        }
+
         const auto &caseInfo = GetCaseList().getCaseInfo(GetParam());
         std::cout << caseInfo.mDEQPName << std::endl;
 
-        bool result = deqp_libtester_run(caseInfo.mDEQPName.c_str());
+        TestResult result = deqp_libtester_run(caseInfo.mDEQPName.c_str());
+
+        bool testPassed = TestPassed(result);
 
         if (caseInfo.mExpectation == gpu::GPUTestExpectationsParser::kGpuTestPass)
         {
-            EXPECT_TRUE(result);
-            sPasses += (result ? 1u : 0u);
-            sFails += (!result ? 1u : 0u);
+            EXPECT_TRUE(testPassed);
+            sPasses += (testPassed ? 1u : 0u);
+            sFails += (!testPassed ? 1u : 0u);
         }
-        else if (result)
+        else if (testPassed)
         {
             std::cout << "Test expected to fail but passed!" << std::endl;
             sUnexpectedPasses++;
@@ -305,19 +333,27 @@ class dEQPTest : public testing::TestWithParam<size_t>
         {
             sFails++;
         }
+
+        if (result == TestResult::Exception)
+        {
+            sExceptions++;
+        }
     }
 
     static unsigned int sPasses;
     static unsigned int sFails;
     static unsigned int sUnexpectedPasses;
+    static unsigned int sExceptions;
 };
 
 template <size_t TestModuleIndex>
-unsigned int dEQPTest<TestModuleIndex>::sPasses           = 0;
+unsigned int dEQPTest<TestModuleIndex>::sPasses = 0;
 template <size_t TestModuleIndex>
-unsigned int dEQPTest<TestModuleIndex>::sFails            = 0;
+unsigned int dEQPTest<TestModuleIndex>::sFails = 0;
 template <size_t TestModuleIndex>
 unsigned int dEQPTest<TestModuleIndex>::sUnexpectedPasses = 0;
+template <size_t TestModuleIndex>
+unsigned int dEQPTest<TestModuleIndex>::sExceptions = 0;
 
 // static
 template <size_t TestModuleIndex>
@@ -333,13 +369,13 @@ void dEQPTest<TestModuleIndex>::SetUpTestCase()
     argv.push_back("");
 
     // Add init api.
-    const char *targetApi    = g_initAPI ? g_initAPI->first : GetDefaultAPIName();
-    std::string apiArgString = std::string(g_deqpEGLString) + targetApi;
+    const char *targetApi    = gInitAPI ? gInitAPI->first : GetDefaultAPIName();
+    std::string apiArgString = std::string(gdEQPEGLString) + targetApi;
     argv.push_back(apiArgString.c_str());
 
     // Add config name
-    const char *targetConfigName = g_eglConfigName;
-    std::string configArgString  = std::string(g_deqpEGLConfigNameString) + targetConfigName;
+    const char *targetConfigName = gEGLConfigName;
+    std::string configArgString  = std::string(gdEQPEGLConfigNameString) + targetConfigName;
     argv.push_back(configArgString.c_str());
 
     // Init the platform.
@@ -372,38 +408,38 @@ void dEQPTest<TestModuleIndex>::TearDownTestCase()
     deqp_libtester_shutdown_platform();
 }
 
-#define ANGLE_INSTANTIATE_DEQP_TEST_CASE(DEQP_TEST, N)                          \
-    class DEQP_TEST : public dEQPTest<N>                                        \
-    {                                                                           \
-    };                                                                          \
-    TEST_P(DEQP_TEST, Default) { runTest(); }                                   \
-                                                                                \
-    INSTANTIATE_TEST_CASE_P(, DEQP_TEST, DEQP_TEST::GetTestingRange(),          \
-                            [](const testing::TestParamInfo<size_t> &info) {    \
-                                return DEQP_TEST::GetCaseGTestName(info.param); \
+#define ANGLE_INSTANTIATE_DEQP_TEST_CASE(API, N)                             \
+    class dEQP : public dEQPTest<N>                                          \
+    {                                                                        \
+    };                                                                       \
+    TEST_P(dEQP, API) { runTest(); }                                         \
+                                                                             \
+    INSTANTIATE_TEST_CASE_P(, dEQP, dEQP::GetTestingRange(),                 \
+                            [](const testing::TestParamInfo<size_t> &info) { \
+                                return dEQP::GetCaseGTestName(info.param);   \
                             })
 
 #ifdef ANGLE_DEQP_GLES2_TESTS
-ANGLE_INSTANTIATE_DEQP_TEST_CASE(dEQP_GLES2, 0);
+ANGLE_INSTANTIATE_DEQP_TEST_CASE(GLES2, 0);
 #endif
 
 #ifdef ANGLE_DEQP_GLES3_TESTS
-ANGLE_INSTANTIATE_DEQP_TEST_CASE(dEQP_GLES3, 1);
+ANGLE_INSTANTIATE_DEQP_TEST_CASE(GLES3, 1);
 #endif
 
 #ifdef ANGLE_DEQP_GLES31_TESTS
-ANGLE_INSTANTIATE_DEQP_TEST_CASE(dEQP_GLES31, 2);
+ANGLE_INSTANTIATE_DEQP_TEST_CASE(GLES31, 2);
 #endif
 
 #ifdef ANGLE_DEQP_EGL_TESTS
-ANGLE_INSTANTIATE_DEQP_TEST_CASE(dEQP_EGL, 3);
+ANGLE_INSTANTIATE_DEQP_TEST_CASE(EGL, 3);
 #endif
 
 void HandleDisplayType(const char *displayTypeString)
 {
     std::stringstream argStream;
 
-    if (g_initAPI)
+    if (gInitAPI)
     {
         std::cout << "Cannot specify two EGL displays!" << std::endl;
         exit(1);
@@ -417,9 +453,9 @@ void HandleDisplayType(const char *displayTypeString)
     argStream << displayTypeString;
     std::string arg = argStream.str();
 
-    g_initAPI = FindAPIInfo(arg);
+    gInitAPI = FindAPIInfo(arg);
 
-    if (!g_initAPI)
+    if (!gInitAPI)
     {
         std::cout << "Unknown ANGLE back-end API: " << displayTypeString << std::endl;
         exit(1);
@@ -428,7 +464,25 @@ void HandleDisplayType(const char *displayTypeString)
 
 void HandleEGLConfigName(const char *configNameString)
 {
-    g_eglConfigName = configNameString;
+    gEGLConfigName = configNameString;
+}
+
+// The --deqp-case flag takes a case expression that is parsed into a --gtest_filter. It converts
+// the "dEQP" style names (functional.thing.*) into "GoogleTest" style names (functional_thing_*).
+// Currently it does not handle multiple tests and multiple filters in different arguments.
+void HandleCaseName(const char *caseString, int *argc, int argIndex, char **argv)
+{
+    std::string googleTestName = DrawElementsToGoogleTestName(caseString);
+    gCaseStringBuffer.fill(0);
+    int bytesWritten = snprintf(gCaseStringBuffer.data(), gCaseStringBuffer.size() - 1,
+                                "--gtest_filter=*%s", googleTestName.c_str());
+    if (bytesWritten <= 0 || static_cast<size_t>(bytesWritten) >= gCaseStringBuffer.size() - 1)
+    {
+        std::cout << "Error parsing test case string: " << caseString;
+        exit(1);
+    }
+
+    argv[argIndex] = gCaseStringBuffer.data();
 }
 
 void DeleteArg(int *argc, int argIndex, char **argv)
@@ -440,7 +494,7 @@ void DeleteArg(int *argc, int argIndex, char **argv)
     }
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // Called from main() to process command-line arguments.
 namespace angle
@@ -450,21 +504,26 @@ void InitTestHarness(int *argc, char **argv)
     int argIndex = 0;
     while (argIndex < *argc)
     {
-        if (strncmp(argv[argIndex], g_deqpEGLString, strlen(g_deqpEGLString)) == 0)
+        if (strncmp(argv[argIndex], gdEQPEGLString, strlen(gdEQPEGLString)) == 0)
         {
-            HandleDisplayType(argv[argIndex] + strlen(g_deqpEGLString));
+            HandleDisplayType(argv[argIndex] + strlen(gdEQPEGLString));
             DeleteArg(argc, argIndex, argv);
         }
-        else if (strncmp(argv[argIndex], g_angleEGLString, strlen(g_angleEGLString)) == 0)
+        else if (strncmp(argv[argIndex], gANGLEEGLString, strlen(gANGLEEGLString)) == 0)
         {
-            HandleDisplayType(argv[argIndex] + strlen(g_angleEGLString));
+            HandleDisplayType(argv[argIndex] + strlen(gANGLEEGLString));
             DeleteArg(argc, argIndex, argv);
         }
-        else if (strncmp(argv[argIndex], g_deqpEGLConfigNameString,
-                         strlen(g_deqpEGLConfigNameString)) == 0)
+        else if (strncmp(argv[argIndex], gdEQPEGLConfigNameString,
+                         strlen(gdEQPEGLConfigNameString)) == 0)
         {
-            HandleEGLConfigName(argv[argIndex] + strlen(g_deqpEGLConfigNameString));
+            HandleEGLConfigName(argv[argIndex] + strlen(gdEQPEGLConfigNameString));
             DeleteArg(argc, argIndex, argv);
+        }
+        else if (strncmp(argv[argIndex], gdEQPCaseString, strlen(gdEQPCaseString)) == 0)
+        {
+            HandleCaseName(argv[argIndex] + strlen(gdEQPCaseString), argc, argIndex, argv);
+            argIndex++;
         }
         else
         {

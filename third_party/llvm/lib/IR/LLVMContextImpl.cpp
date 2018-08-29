@@ -155,7 +155,7 @@ void Module::dropTriviallyDeadConstantArrays() {
 
 namespace llvm {
 
-/// \brief Make MDOperand transparent for hashing.
+/// Make MDOperand transparent for hashing.
 ///
 /// This overload of an implementation detail of the hashing library makes
 /// MDOperand hash to the same value as a \a Metadata pointer.
@@ -233,6 +233,12 @@ void LLVMContextImpl::getSyncScopeNames(
 /// enabled in order to enable a consistent bisect count.
 static ManagedStatic<OptBisect> OptBisector;
 
-OptPassGate &LLVMContextImpl::getOptPassGate() {
-  return *OptBisector;
+OptPassGate &LLVMContextImpl::getOptPassGate() const {
+  if (!OPG)
+    OPG = &(*OptBisector);
+  return *OPG;
+}
+
+void LLVMContextImpl::setOptPassGate(OptPassGate& OPG) {
+  this->OPG = &OPG;
 }

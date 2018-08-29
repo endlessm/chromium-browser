@@ -294,10 +294,14 @@ class BuildStartStage(generic_stages.BuilderStage):
         master_build_id = d['master_build_id']
         if master_build_id is not None:
           master_build_status = db.GetBuildStatus(master_build_id)
-          master_url = tree_status.ConstructDashboardURL(
-              master_build_status['waterfall'],
-              master_build_status['builder_name'],
-              master_build_status['build_number'])
+          if master_build_status['buildbucket_id']:
+            master_url = tree_status.ConstructLegolandBuildURL(
+                master_build_status['buildbucket_id'])
+          else:
+            master_url = tree_status.ConstructDashboardURL(
+                master_build_status['waterfall'],
+                master_build_status['builder_name'],
+                master_build_status['build_number'])
           logging.PrintBuildbotLink('Link to master build', master_url)
 
     # Write the tag metadata last so that a build_id is available.
@@ -1035,7 +1039,7 @@ class ReportStage(generic_stages.BuilderStage,
                     'important': self._run.config.important}
       metrics.Counter(constants.MON_BUILD_COMP_COUNT).increment(
           fields=mon_fields)
-      metrics.SecondsDistribution(constants.MON_BUILD_DURATION).add(
+      metrics.CumulativeSecondsDistribution(constants.MON_BUILD_DURATION).add(
           duration, fields=mon_fields)
 
       if self._run.options.sanity_check_build:
@@ -1059,8 +1063,8 @@ class ReportStage(generic_stages.BuilderStage,
             constants.SELF_DESTRUCTED_BUILD, False)
         mon_fields = {'status': status_for_db,
                       'self_destructed': self_destructed}
-        metrics.SecondsDistribution(constants.MON_CQ_BUILD_DURATION).add(
-            duration, fields=mon_fields)
+        metrics.CumulativeSecondsDistribution(
+            constants.MON_CQ_BUILD_DURATION).add(duration, fields=mon_fields)
         annotator_link = tree_status.ConstructAnnotatorURL(build_id)
         logging.PrintBuildbotLink('Build annotator', annotator_link)
 

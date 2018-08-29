@@ -45,7 +45,7 @@ class CursorWindowControllerTest : public AshTestBase {
   }
 
   ui::CursorType GetCursorType() const {
-    return cursor_window_controller_->cursor_type_;
+    return cursor_window_controller_->cursor_.native_type();
   }
 
   const gfx::Point& GetCursorHotPoint() const {
@@ -180,8 +180,7 @@ TEST_F(CursorWindowControllerTest, DSF) {
       display::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor());
   EXPECT_TRUE(GetCursorImage().HasRepresentation(2.0f));
 
-  ASSERT_TRUE(display::test::DisplayManagerTestApi(display_manager())
-                  .SetDisplayUIScale(primary_id, 2.0f));
+  display_manager()->UpdateZoomFactor(primary_id, 0.5f);
   ASSERT_EQ(
       1.0f,
       display::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor());

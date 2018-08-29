@@ -15,8 +15,8 @@
 
 namespace chromeos {
 
+class UserBoardViewMojo;
 class UserSelectionScreen;
-class UserSelectionScreenProxy;
 
 // ViewsScreenLocker acts like LoginScreenClient::Delegate which handles method
 // calls coming from ash into chrome.
@@ -49,12 +49,10 @@ class ViewsScreenLocker : public LoginScreenClient::Delegate,
   content::WebContents* GetWebContents() override;
 
   // LoginScreenClient::Delegate
-  void HandleAuthenticateUser(
-      const AccountId& account_id,
-      const std::string& hashed_password,
-      const password_manager::SyncPasswordData& sync_password_data,
-      bool authenticated_by_pin,
-      AuthenticateUserCallback callback) override;
+  void HandleAuthenticateUser(const AccountId& account_id,
+                              const std::string& password,
+                              bool authenticated_by_pin,
+                              AuthenticateUserCallback callback) override;
   void HandleAttemptUnlock(const AccountId& account_id) override;
   void HandleHardlockPod(const AccountId& account_id) override;
   void HandleRecordClickOnLockIcon(const AccountId& account_id) override;
@@ -86,8 +84,9 @@ class ViewsScreenLocker : public LoginScreenClient::Delegate,
   void UpdatePinKeyboardState(const AccountId& account_id);
   void OnAllowedInputMethodsChanged();
   void OnDevChannelInfoUpdated();
+  void OnPinCanAuthenticate(const AccountId& account_id, bool can_authenticate);
 
-  std::unique_ptr<UserSelectionScreenProxy> user_selection_screen_proxy_;
+  std::unique_ptr<UserBoardViewMojo> user_board_view_mojo_;
   std::unique_ptr<UserSelectionScreen> user_selection_screen_;
 
   // The ScreenLocker that owns this instance.

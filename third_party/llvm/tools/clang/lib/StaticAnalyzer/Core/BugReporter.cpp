@@ -192,8 +192,9 @@ using LocationContextMap =
 /// that aren't needed.  Return true if afterwards the path contains
 /// "interesting stuff" which means it shouldn't be pruned from the parent path.
 static bool removeUnneededCalls(PathPieces &pieces, BugReport *R,
-                                LocationContextMap &LCM) {
-  bool containsSomethingInteresting = false;
+                                LocationContextMap &LCM,
+                                bool IsInteresting = false) {
+  bool containsSomethingInteresting = IsInteresting;
   const unsigned N = pieces.size();
 
   for (unsigned i = 0 ; i < N ; ++i) {
@@ -207,12 +208,8 @@ static bool removeUnneededCalls(PathPieces &pieces, BugReport *R,
         auto &call = cast<PathDiagnosticCallPiece>(*piece);
         // Check if the location context is interesting.
         assert(LCM.count(&call.path));
-        if (R->isInteresting(LCM[&call.path])) {
-          containsSomethingInteresting = true;
-          break;
-        }
-
-        if (!removeUnneededCalls(call.path, R, LCM))
+        if (!removeUnneededCalls(call.path, R, LCM,
+                                 R->isInteresting(LCM[&call.path])))
           continue;
 
         containsSomethingInteresting = true;
@@ -220,7 +217,7 @@ static bool removeUnneededCalls(PathPieces &pieces, BugReport *R,
       }
       case PathDiagnosticPiece::Macro: {
         auto &macro = cast<PathDiagnosticMacroPiece>(*piece);
-        if (!removeUnneededCalls(macro.subPieces, R, LCM))
+        if (!removeUnneededCalls(macro.subPieces, R, LCM, IsInteresting))
           continue;
         containsSomethingInteresting = true;
         break;
@@ -1639,7 +1636,7 @@ static bool GenerateExtensivePathDiagnostic(
   return PDB.getBugReport()->isValid();
 }
 
-/// \brief Adds a sanitized control-flow diagnostic edge to a path.
+/// Adds a sanitized control-flow diagnostic edge to a path.
 static void addEdgeToPath(PathPieces &path,
                           PathDiagnosticLocation &PrevLoc,
                           PathDiagnosticLocation NewLoc,
@@ -2098,7 +2095,7 @@ static void addContextEdges(PathPieces &pieces, SourceManager &SM,
   }
 }
 
-/// \brief Move edges from a branch condition to a branch target
+/// Move edges from a branch condition to a branch target
 ///        when the condition is simple.
 ///
 /// This restructures some of the work of addContextEdges.  That function
@@ -2181,7 +2178,7 @@ static void simplifySimpleBranches(PathPieces &pieces) {
 static Optional<size_t> getLengthOnSingleLine(SourceManager &SM,
                                               SourceRange Range) {
   SourceRange ExpansionRange(SM.getExpansionLoc(Range.getBegin()),
-                             SM.getExpansionRange(Range.getEnd()).second);
+                             SM.getExpansionRange(Range.getEnd()).getEnd());
 
   FileID FID = SM.getFileID(ExpansionRange.getBegin());
   if (FID != SM.getFileID(ExpansionRange.getEnd()))
@@ -2284,7 +2281,7 @@ static void removeContextCycles(PathPieces &Path, SourceManager &SM,
   }
 }
 
-/// \brief Return true if X is contained by Y.
+/// Return true if X is contained by Y.
 static bool lexicalContains(ParentMap &PM, const Stmt *X, const Stmt *Y) {
   while (X) {
     if (X == Y)

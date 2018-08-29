@@ -11,6 +11,7 @@ import os
 import shutil
 
 from chromite.cbuildbot import commands
+from chromite.cbuildbot import constants
 from chromite.cbuildbot.stages import generic_stages
 from chromite.lib import cipd
 from chromite.lib import cros_logging as logging
@@ -44,7 +45,8 @@ class EmergeInfraGoBinariesStage(generic_stages.BuilderStage):
     cmd = ['emerge', '--deep']
     cmd.extend(_GO_PACKAGES)
     commands.RunBuildScript(self._build_root, cmd,
-                            sudo=True, enter_chroot=True)
+                            sudo=True, enter_chroot=True,
+                            extra_env={'FEATURES=test'})
 
 
 class PackageInfraGoBinariesStage(generic_stages.BuilderStage,
@@ -141,6 +143,28 @@ class TestPuppetSpecsStage(generic_stages.BuilderStage):
          'cd ../../chromeos-admin/puppet'
          ' && make -j -O check GEM=gem19'],
         enter_chroot=True)
+
+
+class TestVenvPackagesStage(generic_stages.BuilderStage):
+  """Run unittests for infra venv projects."""
+
+  def PerformStage(self):
+    """Run untitests for infra venv projects."""
+    commands.RunBuildScript(
+        self._build_root,
+        ['./bin/test_venv_packages'],
+        cwd=os.path.join(constants.SOURCE_ROOT, 'chromeos-admin'),
+    )
+    commands.RunBuildScript(
+        self._build_root,
+        ['./bin/test_venv_packages'],
+        cwd=os.path.join(constants.SOURCE_ROOT, 'infra', 'skylab_inventory'),
+    )
+    commands.RunBuildScript(
+        self._build_root,
+        ['./bin/run_tests'],
+        cwd=os.path.join(constants.SOURCE_ROOT, 'infra', 'ci_results_archiver'),
+    )
 
 
 def _StageChrootFilesIntoDir(target_path, paths):

@@ -53,7 +53,7 @@ unsigned getBitMask(unsigned Shift, unsigned Width) {
   return ((1 << Width) - 1) << Shift;
 }
 
-/// \brief Packs \p Src into \p Dst for given bit \p Shift and bit \p Width.
+/// Packs \p Src into \p Dst for given bit \p Shift and bit \p Width.
 ///
 /// \returns Packed \p Dst.
 unsigned packBits(unsigned Src, unsigned Dst, unsigned Shift, unsigned Width) {
@@ -62,7 +62,7 @@ unsigned packBits(unsigned Src, unsigned Dst, unsigned Shift, unsigned Width) {
   return Dst;
 }
 
-/// \brief Unpacks bits from \p Src for given bit \p Shift and bit \p Width.
+/// Unpacks bits from \p Src for given bit \p Shift and bit \p Width.
 ///
 /// \returns Unpacked bits.
 unsigned unpackBits(unsigned Src, unsigned Shift, unsigned Width) {
@@ -96,11 +96,6 @@ unsigned getVmcntBitWidthHi() { return 2; }
 } // end namespace anonymous
 
 namespace llvm {
-
-static cl::opt<bool> EnablePackedInlinableLiterals(
-    "enable-packed-inlinable-literals",
-    cl::desc("Enable packed inlinable literals (v2f16, v2i16)"),
-    cl::init(false));
 
 namespace AMDGPU {
 
@@ -226,6 +221,10 @@ IsaVersion getIsaVersion(const FeatureBitset &Features) {
     return {9, 0, 0};
   if (Features.test(FeatureISAVersion9_0_2))
     return {9, 0, 2};
+  if (Features.test(FeatureISAVersion9_0_4))
+    return {9, 0, 4};
+  if (Features.test(FeatureISAVersion9_0_6))
+    return {9, 0, 6};
   if (Features.test(FeatureGFX9))
     return {9, 0, 0};
 
@@ -359,9 +358,11 @@ unsigned getMinNumSGPRs(const FeatureBitset &Features, unsigned WavesPerEU) {
 
   if (WavesPerEU >= getMaxWavesPerEU(Features))
     return 0;
-  unsigned MinNumSGPRs =
-      alignDown(getTotalNumSGPRs(Features) / (WavesPerEU + 1),
-                getSGPRAllocGranule(Features)) + 1;
+
+  unsigned MinNumSGPRs = getTotalNumSGPRs(Features) / (WavesPerEU + 1);
+  if (Features.test(FeatureTrapHandler))
+    MinNumSGPRs -= std::min(MinNumSGPRs, (unsigned)TRAP_NUM_SGPRS);
+  MinNumSGPRs = alignDown(MinNumSGPRs, getSGPRAllocGranule(Features)) + 1;
   return std::min(MinNumSGPRs, getAddressableNumSGPRs(Features));
 }
 
@@ -370,11 +371,13 @@ unsigned getMaxNumSGPRs(const FeatureBitset &Features, unsigned WavesPerEU,
   assert(WavesPerEU != 0);
 
   IsaVersion Version = getIsaVersion(Features);
-  unsigned MaxNumSGPRs = alignDown(getTotalNumSGPRs(Features) / WavesPerEU,
-                                   getSGPRAllocGranule(Features));
   unsigned AddressableNumSGPRs = getAddressableNumSGPRs(Features);
   if (Version.Major >= 8 && !Addressable)
     AddressableNumSGPRs = 112;
+  unsigned MaxNumSGPRs = getTotalNumSGPRs(Features) / WavesPerEU;
+  if (Features.test(FeatureTrapHandler))
+    MaxNumSGPRs -= std::min(MaxNumSGPRs, (unsigned)TRAP_NUM_SGPRS);
+  MaxNumSGPRs = alignDown(MaxNumSGPRs, getSGPRAllocGranule(Features));
   return std::min(MaxNumSGPRs, AddressableNumSGPRs);
 }
 
@@ -423,7 +426,7 @@ void initDefaultAMDKernelCodeT(amd_kernel_code_t &Header,
   memset(&Header, 0, sizeof(Header));
 
   Header.amd_kernel_code_version_major = 1;
-  Header.amd_kernel_code_version_minor = 1;
+  Header.amd_kernel_code_version_minor = 2;
   Header.amd_machine_kind = 1; // AMD_MACHINE_KIND_AMDGPU
   Header.amd_machine_version_major = ISA.Major;
   Header.amd_machine_version_minor = ISA.Minor;
@@ -877,9 +880,6 @@ bool isInlinableLiteral16(int16_t Literal, bool HasInv2Pi) {
 bool isInlinableLiteralV216(int32_t Literal, bool HasInv2Pi) {
   assert(HasInv2Pi);
 
-  if (!EnablePackedInlinableLiterals)
-    return false;
-
   int16_t Lo16 = static_cast<int16_t>(Literal);
   int16_t Hi16 = static_cast<int16_t>(Literal >> 16);
   return Lo16 == Hi16 && isInlinableLiteral16(Lo16, HasInv2Pi);
@@ -946,54 +946,20 @@ AMDGPUAS getAMDGPUAS(const Module &M) {
   return getAMDGPUAS(Triple(M.getTargetTriple()));
 }
 
+namespace {
+
+struct SourceOfDivergence {
+  unsigned Intr;
+};
+const SourceOfDivergence *lookupSourceOfDivergenceByIntr(unsigned Intr);
+
+#define GET_SOURCEOFDIVERGENCE_IMPL
+#include "AMDGPUGenSearchableTables.inc"
+
+} // end anonymous namespace
+
 bool isIntrinsicSourceOfDivergence(unsigned IntrID) {
-  switch (IntrID) {
-  case Intrinsic::amdgcn_workitem_id_x:
-  case Intrinsic::amdgcn_workitem_id_y:
-  case Intrinsic::amdgcn_workitem_id_z:
-  case Intrinsic::amdgcn_interp_mov:
-  case Intrinsic::amdgcn_interp_p1:
-  case Intrinsic::amdgcn_interp_p2:
-  case Intrinsic::amdgcn_mbcnt_hi:
-  case Intrinsic::amdgcn_mbcnt_lo:
-  case Intrinsic::r600_read_tidig_x:
-  case Intrinsic::r600_read_tidig_y:
-  case Intrinsic::r600_read_tidig_z:
-  case Intrinsic::amdgcn_atomic_inc:
-  case Intrinsic::amdgcn_atomic_dec:
-  case Intrinsic::amdgcn_ds_fadd:
-  case Intrinsic::amdgcn_ds_fmin:
-  case Intrinsic::amdgcn_ds_fmax:
-  case Intrinsic::amdgcn_image_atomic_swap:
-  case Intrinsic::amdgcn_image_atomic_add:
-  case Intrinsic::amdgcn_image_atomic_sub:
-  case Intrinsic::amdgcn_image_atomic_smin:
-  case Intrinsic::amdgcn_image_atomic_umin:
-  case Intrinsic::amdgcn_image_atomic_smax:
-  case Intrinsic::amdgcn_image_atomic_umax:
-  case Intrinsic::amdgcn_image_atomic_and:
-  case Intrinsic::amdgcn_image_atomic_or:
-  case Intrinsic::amdgcn_image_atomic_xor:
-  case Intrinsic::amdgcn_image_atomic_inc:
-  case Intrinsic::amdgcn_image_atomic_dec:
-  case Intrinsic::amdgcn_image_atomic_cmpswap:
-  case Intrinsic::amdgcn_buffer_atomic_swap:
-  case Intrinsic::amdgcn_buffer_atomic_add:
-  case Intrinsic::amdgcn_buffer_atomic_sub:
-  case Intrinsic::amdgcn_buffer_atomic_smin:
-  case Intrinsic::amdgcn_buffer_atomic_umin:
-  case Intrinsic::amdgcn_buffer_atomic_smax:
-  case Intrinsic::amdgcn_buffer_atomic_umax:
-  case Intrinsic::amdgcn_buffer_atomic_and:
-  case Intrinsic::amdgcn_buffer_atomic_or:
-  case Intrinsic::amdgcn_buffer_atomic_xor:
-  case Intrinsic::amdgcn_buffer_atomic_cmpswap:
-  case Intrinsic::amdgcn_ps_live:
-  case Intrinsic::amdgcn_ds_swizzle:
-    return true;
-  default:
-    return false;
-  }
+  return lookupSourceOfDivergenceByIntr(IntrID);
 }
 } // namespace AMDGPU
 } // namespace llvm

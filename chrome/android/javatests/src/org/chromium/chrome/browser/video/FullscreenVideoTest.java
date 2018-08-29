@@ -20,6 +20,7 @@ import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.fullscreen.FullscreenOptions;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeActivityTestRule;
@@ -54,8 +55,12 @@ public class FullscreenVideoTest {
 
     private class FullscreenTabObserver extends EmptyTabObserver {
         @Override
-        public void onToggleFullscreenMode(Tab tab, boolean enable) {
-            mIsTabFullscreen = enable;
+        public void onEnterFullscreenMode(Tab tab, FullscreenOptions options) {
+            mIsTabFullscreen = true;
+        }
+        @Override
+        public void onExitFullscreenMode(Tab tab) {
+            mIsTabFullscreen = false;
         }
     }
 
@@ -114,13 +119,13 @@ public class FullscreenVideoTest {
         tab.addObserver(observer);
 
         // Start playback to guarantee it's properly loaded.
-        WebContents webContents = mActivity.getCurrentContentViewCore().getWebContents();
+        WebContents webContents = mActivity.getCurrentWebContents();
         Assert.assertTrue(DOMUtils.isMediaPaused(webContents, video));
         DOMUtils.playMedia(webContents, video);
         DOMUtils.waitForMediaPlay(webContents, video);
 
         // Trigger requestFullscreen() via a click on a button.
-        Assert.assertTrue(DOMUtils.clickNode(mActivity.getCurrentContentViewCore(), "fullscreen"));
+        Assert.assertTrue(DOMUtils.clickNode(webContents, "fullscreen"));
 
         waitForVideoToEnterFullscreen();
 

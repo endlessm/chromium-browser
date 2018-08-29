@@ -81,6 +81,7 @@ Nogle websites kan f.eks. reagere på denne anmodning ved at vise dig annoncer, 
 <translation id="2381405137052800939">Grundlæggende</translation>
 <translation id="2386793615875593361">1 valgt</translation>
 <translation id="2435457462613246316">Vis adgangskode</translation>
+<translation id="2481538920734869610">TILFØJ KONTO</translation>
 <translation id="2523363575747517183">Dette website forsøger hele tiden at åbne en anden app.</translation>
 <translation id="2529021024822217800">Åbn alle</translation>
 <translation id="2572712655377361602">En enhedspolitik har blokeret adgangen til dine billeder</translation>
@@ -112,6 +113,7 @@ Nogle websites kan f.eks. reagere på denne anmodning ved at vise dig annoncer, 
 <translation id="2909437209446960244">Seneste faner</translation>
 <translation id="291754862089661335">Placer QR-kode eller stregkode i denne ramme</translation>
 <translation id="2921219216347069551">Siden kan ikke deles</translation>
+<translation id="2923448633003185837">Indsæt og fortsæt</translation>
 <translation id="292639812446257861">Markér som ulæst</translation>
 <translation id="2933759065870693102">Lommelygte</translation>
 <translation id="2969979262385602596">Login mislykkedes. Prøv igen senere.</translation>
@@ -131,6 +133,7 @@ Nogle websites kan f.eks. reagere på denne anmodning ved at vise dig annoncer, 
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> af <ph name="NUM_SUGGESTIONS" /></translation>
 <translation id="3268451620468152448">Åbne faner</translation>
 <translation id="3277021493514034324">Webadressen er kopieret</translation>
+<translation id="3290875554372353449">Vælg en konto</translation>
 <translation id="3324193307694657476">Adresse 2</translation>
 <translation id="3329904751041170572">Der kunne ikke oprettes forbindelse til serveren.</translation>
 <translation id="3335947283844343239">Åbn lukket fane igen</translation>
@@ -151,6 +154,7 @@ Nogle websites kan f.eks. reagere på denne anmodning ved at vise dig annoncer, 
 <translation id="3588820906588687999">Åbn billede på ny fane</translation>
 <translation id="3603009562372709545">Kopiér linkets webadresse</translation>
 <translation id="3607167657931203000">AutoFyld-data</translation>
+<translation id="3609785682760573515">Synkroniserer…</translation>
 <translation id="3628119975092896051">Din læseliste er tilgængelig offline. Du kan føje en side til din læseliste ved at trykke på <ph name="SHARE_OPENING_ICON" />.</translation>
 <translation id="3638472932233958418">Forudindlæs websider</translation>
 <translation id="3691593122358196899">Bogmærket er gemt i <ph name="FOLDER_TITLE" /></translation>
@@ -171,6 +175,7 @@ Nogle websites kan f.eks. reagere på denne anmodning ved at vise dig annoncer, 
 <translation id="4049507953662678203">Sørg for, at du har forbindelse til et netværk, og prøv igen.</translation>
 <translation id="4084682180776658562">Bogmærke</translation>
 <translation id="411254640334432676">Download mislykkedes.</translation>
+<translation id="4112644173421521737">Søg</translation>
 <translation id="4121993058175073134">For at sende oplysninger om nettoeksporten skal du konfigurere din e-mailkonto i appen Indstillinger.</translation>
 <translation id="4124987746317609294">Tidsinterval</translation>
 <translation id="4172051516777682613">Vis altid</translation>
@@ -338,10 +343,12 @@ Dine data blev krypteret med din adgangssætning til synkronisering d. <ph name=
 <translation id="7159472599653637159">Anmod om mobilversion</translation>
 <translation id="7167621057293532233">Datatyper</translation>
 <translation id="7175593937868963913">Skriv mail</translation>
+<translation id="7180611975245234373">Opdater</translation>
 <translation id="7189598951263744875">Del...</translation>
 <translation id="7203585745079012652">Giv talte svar</translation>
 <translation id="722055596168483966">Tilpas Google-tjenester</translation>
 <translation id="7272437679830969316">Din identitet kunne ikke bekræftes. Adgangskoden blev ikke kopieret.</translation>
+<translation id="7285236536143823449">JA TAK</translation>
 <translation id="7291368939935408496">Forbereder adgangskoder...</translation>
 <translation id="7336264872878993241"><ph name="PERCENT" /> procent er downloadet</translation>
 <translation id="7346909386216857016">OK</translation>
@@ -356,6 +363,7 @@ Dine data blev krypteret med din adgangssætning til synkronisering d. <ph name=
 <translation id="750493650310597496">0 valgt</translation>
 <translation id="7514365320538308">Download</translation>
 <translation id="7537586195939242955">Din adgangssætning kan ikke installeres på Passbook lige nu.</translation>
+<translation id="7554791636758816595">Ny fane</translation>
 <translation id="7561196759112975576">Altid</translation>
 <translation id="7603852183842204213">Pop op-vinduer er blokeret (<ph name="NUMBER_OF_BLOCKED_POPUPS" />)</translation>
 <translation id="7605594153474022051">Synkronisering fungerer ikke</translation>

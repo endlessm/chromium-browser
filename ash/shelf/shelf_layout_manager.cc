@@ -12,6 +12,8 @@
 #include "ash/app_list/app_list_controller_impl.h"
 #include "ash/app_list/model/app_list_view_state.h"
 #include "ash/keyboard/keyboard_observer_register.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
 #include "ash/screen_util.h"
@@ -32,8 +34,6 @@
 #include "base/auto_reset.h"
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
-#include "ui/app_list/app_list_constants.h"
-#include "ui/app_list/app_list_features.h"
 #include "ui/app_list/views/app_list_view.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/compositor/layer.h"
@@ -678,10 +678,16 @@ void ShelfLayoutManager::UpdateBoundsAndOpacity(
                               &status_bounds);
     status_widget->SetBounds(status_bounds);
 
-    // For crbug.com/622431, when the shelf alignment is BOTTOM_LOCKED, we
-    // don't set display work area, as it is not real user-set alignment.
+    // Do not update the work area when the alignment changes to BOTTOM_LOCKED
+    // to prevent window movement when the screen is locked: crbug.com/622431
+    // The work area is initialized with BOTTOM_LOCKED insets to prevent window
+    // movement on async preference initialization in tests: crbug.com/834369
+    const display::Display display =
+        display::Screen::GetScreen()->GetDisplayNearestWindow(
+            shelf_widget_->GetNativeWindow());
     if (!state_.IsScreenLocked() && change_work_area &&
-        shelf_->alignment() != SHELF_ALIGNMENT_BOTTOM_LOCKED) {
+        (shelf_->alignment() != SHELF_ALIGNMENT_BOTTOM_LOCKED ||
+         display.work_area() == display.bounds())) {
       gfx::Insets insets;
       // If user session is blocked (login to new user session or add user to
       // the existing session - multi-profile) then give 100% of work area only
@@ -1297,6 +1303,15 @@ bool ShelfLayoutManager::CanStartFullscreenAppListDrag(
   // Swipes down on shelf should hide the shelf.
   if (scroll_y_hint >= 0)
     return false;
+
+  // In overview mode, app list for tablet mode is hidden temporarily and will
+  // be shown automatically after overview mode ends. So prevent opening it
+  // here.
+  if (Shell::Get()
+          ->app_list_controller()
+          ->IsHomeLauncherEnabledInTabletMode()) {
+    return false;
+  }
 
   return true;
 }

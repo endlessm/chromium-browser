@@ -18,6 +18,7 @@
 #include "base/memory/singleton.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
+#include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
@@ -193,7 +194,7 @@ bool ServiceProcess::Initialize(base::MessageLoopForUI* message_loop,
   request_context_getter_ = new ServiceURLRequestContextGetter();
 
   base::FilePath user_data_dir;
-  PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
+  base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
   base::FilePath pref_path =
       user_data_dir.Append(chrome::kServiceStateFileName);
   service_prefs_ = std::make_unique<ServiceProcessPrefs>(
@@ -304,7 +305,7 @@ void ServiceProcess::Shutdown() {
 
 void ServiceProcess::Terminate() {
   main_message_loop_->task_runner()->PostTask(
-      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+      FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
 }
 
 void ServiceProcess::OnShutdown() {
@@ -329,7 +330,7 @@ bool ServiceProcess::OnIPCClientDisconnect() {
 mojo::ScopedMessagePipeHandle ServiceProcess::CreateChannelMessagePipe() {
   if (!server_handle_.is_valid()) {
 #if defined(OS_MACOSX)
-    mojo::edk::PlatformHandle platform_handle(
+    mojo::edk::InternalPlatformHandle platform_handle(
         service_process_state_->GetServiceProcessChannel().release());
     platform_handle.needs_connection = true;
     server_handle_.reset(platform_handle);
@@ -342,7 +343,7 @@ mojo::ScopedMessagePipeHandle ServiceProcess::CreateChannelMessagePipe() {
     DCHECK(server_handle_.is_valid());
   }
 
-  mojo::edk::ScopedPlatformHandle channel_handle;
+  mojo::edk::ScopedInternalPlatformHandle channel_handle;
 #if defined(OS_POSIX)
   channel_handle = mojo::edk::DuplicatePlatformHandle(server_handle_.get());
 #elif defined(OS_WIN)

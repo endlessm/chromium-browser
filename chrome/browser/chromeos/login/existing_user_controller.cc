@@ -13,7 +13,6 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/optional.h"
 #include "base/strings/string_util.h"
@@ -33,6 +32,8 @@
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_service.h"
 #include "chrome/browser/chromeos/login/enterprise_user_session_metrics.h"
 #include "chrome/browser/chromeos/login/helper.h"
+#include "chrome/browser/chromeos/login/quick_unlock/pin_storage_cryptohome.h"
+#include "chrome/browser/chromeos/login/reauth_stats.h"
 #include "chrome/browser/chromeos/login/screens/encryption_migration_screen.h"
 #include "chrome/browser/chromeos/login/session/user_session_manager.h"
 #include "chrome/browser/chromeos/login/signin/oauth2_token_initializer.h"
@@ -66,6 +67,7 @@
 #include "chromeos/login/auth/authpolicy_login_helper.h"
 #include "chromeos/login/auth/key.h"
 #include "chromeos/settings/cros_settings_names.h"
+#include "components/account_id/account_id.h"
 #include "components/arc/arc_util.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
@@ -79,7 +81,6 @@
 #include "components/policy/proto/cloud_policy.pb.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/signin/core/browser/signin_client.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_manager.h"
@@ -192,21 +193,25 @@ bool CanShowDebuggingFeatures() {
          !session_manager::SessionManager::Get()->IsSessionStarted();
 }
 
-bool DemoModeEnabled() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      chromeos::switches::kEnableDemoMode);
-}
-
 void RecordPasswordChangeFlow(LoginPasswordChangeFlow flow) {
   UMA_HISTOGRAM_ENUMERATION("Login.PasswordChangeFlow", flow,
                             LOGIN_PASSWORD_CHANGE_FLOW_COUNT);
 }
 
+bool IsTestingMigrationUI() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      chromeos::switches::kTestEncryptionMigrationUI);
+}
+
 bool ShouldForceDircrypto(const AccountId& account_id) {
+  if (IsTestingMigrationUI())
+    return true;
+
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           chromeos::switches::kDisableEncryptionMigration)) {
     return false;
   }
+
   // If the device is not officially supported to run ARC, we don't need to
   // force Ext4 dircrypto.
   if (!arc::IsArcAvailable())
@@ -256,6 +261,9 @@ apu::EcryptfsMigrationAction GetEcryptfsMigrationAction(
     PolicyFetchResult policy_fetch_result,
     enterprise_management::CloudPolicySettings* policy_payload,
     bool active_directory_user) {
+  if (IsTestingMigrationUI())
+    return apu::EcryptfsMigrationAction::kAskUser;
+
   switch (policy_fetch_result) {
     case PolicyFetchResult::NO_POLICY:
       // There was no policy, the user is unmanaged. They get to choose
@@ -591,8 +599,8 @@ void ExistingUserController::PerformLogin(
   }
   if (user_context.GetAccountId().GetAccountType() ==
           AccountType::ACTIVE_DIRECTORY &&
-      user_context.GetAuthFlow() == UserContext::AUTH_FLOW_OFFLINE) {
-    DCHECK(user_context.GetKey()->GetKeyType() == Key::KEY_TYPE_PASSWORD_PLAIN);
+      user_context.GetAuthFlow() == UserContext::AUTH_FLOW_OFFLINE &&
+      user_context.GetKey()->GetKeyType() == Key::KEY_TYPE_PASSWORD_PLAIN) {
     // Try to get kerberos TGT while we have user's password typed on the pod
     // screen. Failure to get TGT here is OK - that could mean e.g. Active
     // Directory server is not reachable. We don't want to have user wait for
@@ -613,8 +621,19 @@ void ExistingUserController::PerformLogin(
   if (user_context.GetKey()->GetKeyType() == Key::KEY_TYPE_PASSWORD_PLAIN) {
     base::string16 password(
         base::UTF8ToUTF16(new_user_context.GetKey()->GetSecret()));
-    new_user_context.SetSyncPasswordData(password_manager::SyncPasswordData(
-        password, auth_mode == LoginPerformer::AUTH_MODE_EXTENSION));
+    new_user_context.SetSyncPasswordData(password_manager::PasswordHashData(
+        user_context.GetAccountId().GetUserEmail(), password,
+        auth_mode == LoginPerformer::AUTH_MODE_EXTENSION));
+  }
+
+  if (new_user_context.IsUsingPin()) {
+    base::Optional<Key> key = quick_unlock::PinStorageCryptohome::TransformKey(
+        new_user_context.GetAccountId(), *new_user_context.GetKey());
+    if (key) {
+      new_user_context.SetKey(*key);
+    } else {
+      new_user_context.SetIsUsingPin(false);
+    }
   }
 
   if (user_manager::UserManager::Get()->IsSupervisedAccountId(
@@ -691,11 +710,6 @@ void ExistingUserController::OnStartEnterpriseEnrollment() {
 void ExistingUserController::OnStartEnableDebuggingScreen() {
   if (CanShowDebuggingFeatures())
     ShowEnableDebuggingScreen();
-}
-
-void ExistingUserController::OnStartDemoModeSetupScreen() {
-  if (DemoModeEnabled())
-    ShowDemoModeSetupScreen();
 }
 
 void ExistingUserController::OnStartKioskEnableScreen() {
@@ -783,10 +797,6 @@ void ExistingUserController::ShowEnableDebuggingScreen() {
   host_->StartWizard(OobeScreen::SCREEN_OOBE_ENABLE_DEBUGGING);
 }
 
-void ExistingUserController::ShowDemoModeSetupScreen() {
-  host_->StartWizard(OobeScreen::SCREEN_OOBE_DEMO_SETUP);
-}
-
 void ExistingUserController::ShowKioskEnableScreen() {
   host_->StartWizard(OobeScreen::SCREEN_KIOSK_ENABLE);
 }
@@ -854,6 +864,8 @@ void ExistingUserController::OnAuthFailure(const AuthFailure& failure) {
     return;
   }
 
+  const bool is_known_user = user_manager::UserManager::Get()->IsKnownUser(
+      last_login_attempt_account_id_);
   if (failure.reason() == AuthFailure::OWNER_REQUIRED) {
     ShowError(IDS_LOGIN_ERROR_OWNER_REQUIRED, error);
     content::BrowserThread::PostDelayedTask(
@@ -869,11 +881,14 @@ void ExistingUserController::OnAuthFailure(const AuthFailure& failure) {
     // Show no errors, just re-enable input.
     login_display_->ClearAndEnablePassword();
     StartAutoLoginTimer();
+  } else if (is_known_user &&
+             failure.reason() == AuthFailure::MISSING_CRYPTOHOME) {
+    ForceOnlineLoginForAccountId(last_login_attempt_account_id_);
+    RecordReauthReason(last_login_attempt_account_id_,
+                       ReauthReason::MISSING_CRYPTOHOME);
   } else {
     // Check networking after trying to login in case user is
     // cached locally or the local admin account.
-    const bool is_known_user = user_manager::UserManager::Get()->IsKnownUser(
-        last_login_attempt_account_id_);
     if (!network_state_helper_->IsConnected()) {
       if (is_known_user)
         ShowError(IDS_LOGIN_ERROR_AUTHENTICATING, error);
@@ -902,14 +917,6 @@ void ExistingUserController::OnAuthFailure(const AuthFailure& failure) {
 
   ClearActiveDirectoryState();
   ClearRecordedNames();
-
-  // TODO(ginkage): Fix this case once crbug.com/469990 is ready.
-  /*
-    if (failure.reason() == AuthFailure::COULD_NOT_MOUNT_CRYPTOHOME) {
-      RecordReauthReason(last_login_attempt_account_id_,
-                         ReauthReason::MISSING_CRYPTOHOME);
-    }
-  */
 }
 
 void ExistingUserController::OnAuthSuccess(const UserContext& user_context) {
@@ -994,8 +1001,9 @@ void ExistingUserController::OnProfilePrepared(Profile* profile,
   // Inform |auth_status_consumer_| about successful login.
   // TODO(nkostylev): Pass UserContext back crbug.com/424550
   if (auth_status_consumer_) {
-    auth_status_consumer_->OnAuthSuccess(
-        UserContext(last_login_attempt_account_id_));
+    const user_manager::User* const user =
+        chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
+    auth_status_consumer_->OnAuthSuccess(UserContext(*user));
   }
 }
 
@@ -1086,8 +1094,8 @@ void ExistingUserController::OnOldEncryptionDetected(
       ProfileHelper::GetSigninProfile()->GetRequestContext();
   auto cloud_policy_client = std::make_unique<policy::CloudPolicyClient>(
       std::string() /* machine_id */, std::string() /* machine_model */,
-      device_management_service, signin_profile_context,
-      nullptr /* signing_service */,
+      std::string() /* brand_code */, device_management_service,
+      signin_profile_context, nullptr /* signing_service */,
       chromeos::GetDeviceDMTokenForUserPolicyGetter(
           user_context.GetAccountId()));
   pre_signin_policy_fetcher_ = std::make_unique<policy::PreSigninPolicyFetcher>(
@@ -1190,17 +1198,20 @@ void ExistingUserController::WipePerformed(const UserContext& user_context,
   // removing the user's cryptohome.  Without this, the user can sign-in offline
   // but after sign-in would immediately see the "sign-in details are out of
   // date" error message and be prompted to sign out.
+  ForceOnlineLoginForAccountId(user_context.GetAccountId());
+}
 
+void ExistingUserController::ForceOnlineLoginForAccountId(
+    const AccountId& account_id) {
   // Save the necessity to sign-in online into UserManager in case the user
   // aborts the online flow.
-  user_manager::UserManager::Get()->SaveForceOnlineSignin(
-      user_context.GetAccountId(), true);
+  user_manager::UserManager::Get()->SaveForceOnlineSignin(account_id, true);
   host_->OnPreferencesChanged();
 
   // Start online sign-in UI for the user.
   is_login_in_progress_ = false;
   login_performer_.reset();
-  login_display_->ShowSigninUI(user_context.GetAccountId().GetUserEmail());
+  login_display_->ShowSigninUI(account_id.GetUserEmail());
 }
 
 void ExistingUserController::WhiteListCheckFailed(const std::string& email) {

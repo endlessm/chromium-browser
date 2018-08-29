@@ -9,20 +9,18 @@
 #include <utility>
 #include <vector>
 
+#include "ash/public/cpp/app_list/app_list_constants.h"
 #include "base/bind.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/app_list/app_list_model_updater.h"
 #include "chrome/browser/ui/app_list/search/chrome_search_result.h"
-#include "chrome/browser/ui/app_list/search/history.h"
 #include "chrome/browser/ui/app_list/search/search_provider.h"
-#include "ui/app_list/app_list_constants.h"
 
 namespace app_list {
 
-SearchController::SearchController(AppListModelUpdater* model_updater,
-                                   History* history)
-    : mixer_(new Mixer(model_updater)), history_(history) {}
+SearchController::SearchController(AppListModelUpdater* model_updater)
+    : mixer_(std::make_unique<Mixer>(model_updater)) {}
 
 SearchController::~SearchController() {}
 
@@ -49,9 +47,6 @@ void SearchController::OpenResult(ChromeSearchResult* result, int event_flags) {
     return;
 
   result->Open(event_flags);
-
-  if (history_ && history_->IsReady())
-    history_->AddLaunchEvent(base::UTF16ToUTF8(last_raw_query_), result->id());
 }
 
 void SearchController::InvokeResultAction(ChromeSearchResult* result,
@@ -79,15 +74,36 @@ void SearchController::OnResultsChanged() {
   if (dispatching_query_)
     return;
 
-  KnownResults known_results;
-  if (history_ && history_->IsReady()) {
-    history_->GetKnownResults(base::UTF16ToUTF8(last_raw_query_))
-        ->swap(known_results);
-  }
-
   size_t num_max_results =
       query_for_recommendation_ ? kNumStartPageTiles : kMaxSearchResults;
-  mixer_->MixAndPublish(known_results, num_max_results);
+  mixer_->MixAndPublish(num_max_results);
+}
+
+ChromeSearchResult* SearchController::FindSearchResult(
+    const std::string& result_id) {
+  for (const auto& provider : providers_) {
+    for (const auto& result : provider->results()) {
+      if (result->id() == result_id)
+        return result.get();
+    }
+  }
+  return nullptr;
+}
+
+ChromeSearchResult* SearchController::GetResultByTitleForTest(
+    const std::string& title) {
+  base::string16 target_title = base::ASCIIToUTF16(title);
+  for (const auto& provider : providers_) {
+    for (const auto& result : provider->results()) {
+      if (result->title() == target_title &&
+          result->result_type() == ash::SearchResultType::kInstalledApp &&
+          result->display_type() !=
+              ash::SearchResultDisplayType::kRecommendation) {
+        return result.get();
+      }
+    }
+  }
+  return nullptr;
 }
 
 }  // namespace app_list

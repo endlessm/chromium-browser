@@ -64,6 +64,7 @@ const Flag<bool> kBoolFlags[] = {
   { "-shim-writes-first", &TestConfig::shim_writes_first },
   { "-expect-session-miss", &TestConfig::expect_session_miss },
   { "-decline-alpn", &TestConfig::decline_alpn },
+  { "-select-empty-alpn", &TestConfig::select_empty_alpn },
   { "-expect-extended-master-secret",
     &TestConfig::expect_extended_master_secret },
   { "-enable-ocsp-stapling", &TestConfig::enable_ocsp_stapling },
@@ -101,6 +102,8 @@ const Flag<bool> kBoolFlags[] = {
   { "-renegotiate-once", &TestConfig::renegotiate_once },
   { "-renegotiate-freely", &TestConfig::renegotiate_freely },
   { "-renegotiate-ignore", &TestConfig::renegotiate_ignore },
+  { "-forbid-renegotiation-after-handshake",
+    &TestConfig::forbid_renegotiation_after_handshake },
   { "-p384-only", &TestConfig::p384_only },
   { "-enable-all-curves", &TestConfig::enable_all_curves },
   { "-use-old-client-cert-callback",
@@ -133,6 +136,11 @@ const Flag<bool> kBoolFlags[] = {
   { "-expect-draft-downgrade", &TestConfig::expect_draft_downgrade },
   { "-handoff", &TestConfig::handoff },
   { "-expect-dummy-pq-padding", &TestConfig::expect_dummy_pq_padding },
+  { "-no-rsa-pss-rsae-certs", &TestConfig::no_rsa_pss_rsae_certs },
+  { "-use-ocsp-callback", &TestConfig::use_ocsp_callback },
+  { "-set-ocsp-in-callback", &TestConfig::set_ocsp_in_callback },
+  { "-decline-ocsp-callback", &TestConfig::decline_ocsp_callback },
+  { "-fail-ocsp-callback", &TestConfig::fail_ocsp_callback },
 };
 
 const Flag<std::string> kStringFlags[] = {

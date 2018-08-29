@@ -126,7 +126,7 @@ namespace X86Local {
   };
 
   enum {
-    PS = 1, PD = 2, XS = 3, XD = 4
+    PD = 1, XS = 2, XD = 3, PS = 4
   };
 
   enum {
@@ -272,7 +272,7 @@ private:
   static OperandEncoding writemaskRegisterEncodingFromString(const std::string &s,
                                                              uint8_t OpSize);
 
-  /// \brief Adjust the encoding type for an operand based on the instruction.
+  /// Adjust the encoding type for an operand based on the instruction.
   void adjustOperandEncoding(OperandEncoding &encoding);
 
   /// handleOperand - Converts a single operand from the LLVM table format to

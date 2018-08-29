@@ -11,25 +11,25 @@
 #ifndef TestDictionary_h
 #define TestDictionary_h
 
-#include "bindings/core/v8/dictionary.h"
-#include "bindings/core/v8/double_or_double_or_null_sequence.h"
-#include "bindings/core/v8/double_or_double_sequence.h"
-#include "bindings/core/v8/double_or_string.h"
-#include "bindings/core/v8/float_or_boolean.h"
-#include "bindings/core/v8/idl_dictionary_base.h"
-#include "bindings/core/v8/long_or_boolean.h"
-#include "bindings/core/v8/script_value.h"
-#include "bindings/core/v8/test_enum_or_test_enum_or_null_sequence.h"
-#include "bindings/core/v8/test_enum_or_test_enum_sequence.h"
-#include "bindings/core/v8/test_interface_2_or_uint8_array.h"
-#include "bindings/tests/idls/core/test_interface_2.h"
-#include "core/core_export.h"
-#include "core/testing/internal_dictionary.h"
-#include "core/typed_arrays/array_buffer_view_helpers.h"
-#include "core/typed_arrays/dom_typed_array.h"
-#include "platform/heap/handle.h"
-#include "platform/wtf/text/wtf_string.h"
-#include "platform/wtf/vector.h"
+#include "third_party/blink/renderer/bindings/core/v8/dictionary.h"
+#include "third_party/blink/renderer/bindings/core/v8/double_or_double_or_null_sequence.h"
+#include "third_party/blink/renderer/bindings/core/v8/double_or_double_sequence.h"
+#include "third_party/blink/renderer/bindings/core/v8/double_or_string.h"
+#include "third_party/blink/renderer/bindings/core/v8/float_or_boolean.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_dictionary_base.h"
+#include "third_party/blink/renderer/bindings/core/v8/long_or_boolean.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_value.h"
+#include "third_party/blink/renderer/bindings/core/v8/test_enum_or_test_enum_or_null_sequence.h"
+#include "third_party/blink/renderer/bindings/core/v8/test_enum_or_test_enum_sequence.h"
+#include "third_party/blink/renderer/bindings/core/v8/test_interface_2_or_uint8_array.h"
+#include "third_party/blink/renderer/bindings/tests/idls/core/test_interface_2.h"
+#include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/testing/internal_dictionary.h"
+#include "third_party/blink/renderer/core/typed_arrays/array_buffer_view_helpers.h"
+#include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
+#include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
@@ -114,18 +114,18 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
   void setDoubleOrNullOrDoubleOrNullSequenceMember(const DoubleOrDoubleOrNullSequence&);
 
   bool hasDoubleOrNullRecordMember() const { return has_double_or_null_record_member_; }
-  const Vector<std::pair<String, Optional<double>>>& doubleOrNullRecordMember() const {
+  const Vector<std::pair<String, base::Optional<double>>>& doubleOrNullRecordMember() const {
     DCHECK(has_double_or_null_record_member_);
     return double_or_null_record_member_;
   }
-  void setDoubleOrNullRecordMember(const Vector<std::pair<String, Optional<double>>>&);
+  void setDoubleOrNullRecordMember(const Vector<std::pair<String, base::Optional<double>>>&);
 
   bool hasDoubleOrNullSequenceMember() const { return has_double_or_null_sequence_member_; }
-  const Vector<Optional<double>>& doubleOrNullSequenceMember() const {
+  const Vector<base::Optional<double>>& doubleOrNullSequenceMember() const {
     DCHECK(has_double_or_null_sequence_member_);
     return double_or_null_sequence_member_;
   }
-  void setDoubleOrNullSequenceMember(const Vector<Optional<double>>&);
+  void setDoubleOrNullSequenceMember(const Vector<base::Optional<double>>&);
 
   bool hasDoubleOrStringMember() const { return !double_or_string_member_.IsNull(); }
   const DoubleOrString& doubleOrStringMember() const {
@@ -388,9 +388,9 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
   }
   void setTreatNullAsStringSequenceMember(const Vector<String>&);
 
-  bool hasUint8ArrayMember() const { return uint8_array_member_; }
+  bool hasUint8ArrayMember() const { return uint_8_array_member_; }
   NotShared<DOMUint8Array> uint8ArrayMember() const {
-    return uint8_array_member_;
+    return uint_8_array_member_;
   }
   inline void setUint8ArrayMember(NotShared<DOMUint8Array>);
 
@@ -442,7 +442,7 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
   inline void setUsvStringOrNullMemberToNull();
 
   v8::Local<v8::Value> ToV8Impl(v8::Local<v8::Object>, v8::Isolate*) const override;
-  virtual void Trace(blink::Visitor*);
+  void Trace(blink::Visitor*) override;
 
  private:
   bool has_any_in_record_member_ = false;
@@ -488,8 +488,8 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
   Dictionary dictionary_member_;
   double double_or_null_member_;
   DoubleOrDoubleOrNullSequence double_or_null_or_double_or_null_sequence_member_;
-  Vector<std::pair<String, Optional<double>>> double_or_null_record_member_;
-  Vector<Optional<double>> double_or_null_sequence_member_;
+  Vector<std::pair<String, base::Optional<double>>> double_or_null_record_member_;
+  Vector<base::Optional<double>> double_or_null_sequence_member_;
   DoubleOrString double_or_string_member_;
   HeapVector<DoubleOrString> double_or_string_sequence_member_;
   Member<Element> element_or_null_member_;
@@ -529,7 +529,7 @@ class CORE_EXPORT TestDictionary : public IDLDictionaryBase {
   HeapVector<Member<TestInterfaceImplementation>> test_interface_sequence_member_;
   HeapVector<Member<TestObject>> test_object_sequence_member_;
   Vector<String> treat_null_as_string_sequence_member_;
-  Member<DOMUint8Array> uint8_array_member_;
+  Member<DOMUint8Array> uint_8_array_member_;
   HeapVector<std::pair<String, LongOrBoolean>> union_in_record_member_;
   DoubleOrDoubleSequence union_member_with_sequence_default_;
   HeapVector<std::pair<String, DoubleOrString>> union_or_null_record_member_;
@@ -663,7 +663,7 @@ void TestDictionary::setTestInterfaceOrNullMemberToNull() {
 }
 
 void TestDictionary::setUint8ArrayMember(NotShared<DOMUint8Array> value) {
-  uint8_array_member_ = value.View();
+  uint_8_array_member_ = value.View();
 }
 
 void TestDictionary::setUnrestrictedDoubleMember(double value) {

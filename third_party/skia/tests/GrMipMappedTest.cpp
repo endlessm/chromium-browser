@@ -34,7 +34,7 @@ static constexpr int kSize = 8;
 // SkImages and SkSurfaces
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrWrappedMipMappedTest, reporter, ctxInfo) {
     GrContext* context = ctxInfo.grContext();
-    if (!context->caps()->mipMapSupport()) {
+    if (!context->contextPriv().caps()->mipMapSupport()) {
         return;
     }
     GrGpu* gpu = context->contextPriv().getGpu();
@@ -89,7 +89,13 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrWrappedMipMappedTest, reporter, ctxInfo) {
                 if (isRT) {
                     REPORTER_ASSERT(reporter, texture->texturePriv().mipMapsAreDirty());
                 } else {
+#if 1
+                    // This is temporarily checks that the new image DOES have dirty MIP levels. See
+                    // comment in SkImage_Gpu.cpp, new_wrapped_texture_common().
+                    REPORTER_ASSERT(reporter, texture->texturePriv().mipMapsAreDirty());
+#else
                     REPORTER_ASSERT(reporter, !texture->texturePriv().mipMapsAreDirty());
+#endif
                 }
             } else {
                 REPORTER_ASSERT(reporter, GrMipMapped::kNo == texture->texturePriv().mipMapped());
@@ -103,7 +109,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrWrappedMipMappedTest, reporter, ctxInfo) {
 // based on if we will use mips in the draw and the mip status of the GrBackendTexture.
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrBackendTextureImageMipMappedTest, reporter, ctxInfo) {
     GrContext* context = ctxInfo.grContext();
-    if (!context->caps()->mipMapSupport()) {
+    if (!context->contextPriv().caps()->mipMapSupport()) {
         return;
     }
     GrGpu* gpu = context->contextPriv().getGpu();
@@ -229,7 +235,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrBackendTextureImageMipMappedTest, reporter,
 // resource we took the snapshot of.
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrImageSnapshotMipMappedTest, reporter, ctxInfo) {
     GrContext* context = ctxInfo.grContext();
-    if (!context->caps()->mipMapSupport()) {
+    if (!context->contextPriv().caps()->mipMapSupport()) {
         return;
     }
 
@@ -284,6 +290,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrImageSnapshotMipMappedTest, reporter, ctxIn
             // Must flush the context to make sure all the cmds (copies, etc.) from above are sent
             // to the gpu before we delete the backendHandle.
             context->flush();
+            gpu->testingOnly_flushGpuAndSync();
             gpu->deleteTestingOnlyBackendTexture(backendTex);
         }
     }

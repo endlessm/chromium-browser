@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <memory>
 
-#include "ash/ash_constants.h"
+#include "ash/public/cpp/ash_constants.h"
 #include "ash/shelf/ink_drop_button_listener.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_constants.h"
@@ -625,9 +625,9 @@ void ShelfButton::OnGestureEvent(ui::GestureEvent* event) {
 std::unique_ptr<views::InkDropRipple> ShelfButton::CreateInkDropRipple() const {
   return std::make_unique<views::SquareInkDropRipple>(
       gfx::Size(kInkDropLargeSize, kInkDropLargeSize),
-      kInkDropLargeCornerRadius,
+      ink_drop_large_corner_radius(),
       gfx::Size(kInkDropSmallSize, kInkDropSmallSize),
-      kInkDropSmallCornerRadius, GetLocalBounds().CenterPoint(),
+      ink_drop_small_corner_radius(), GetLocalBounds().CenterPoint(),
       GetInkDropBaseColor(), ink_drop_visible_opacity());
 }
 

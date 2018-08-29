@@ -73,7 +73,8 @@ def CreateTarball(source_root, tarball_path, exclude_paths=None):
   cros_build_lib.SudoRunCommand(cmd)
 
 
-class SDKBuildToolchainsStage(generic_stages.BuilderStage):
+class SDKBuildToolchainsStage(generic_stages.BuilderStage,
+                              generic_stages.ArchivingStageMixin):
   """Stage that builds all the cross-compilers we care about"""
 
   def PerformStage(self):
@@ -86,6 +87,11 @@ class SDKBuildToolchainsStage(generic_stages.BuilderStage):
 
     # Create toolchain packages.
     self.CreateRedistributableToolchains(chroot_location)
+    toolchain_path = os.path.join(chroot_location,
+                                  constants.SDK_TOOLCHAINS_OUTPUT)
+    for files in os.listdir(toolchain_path):
+      self.UploadArtifact(
+          os.path.join(toolchain_path, files), strict=True, archive=True)
 
   def CrosSetupToolchains(self, cmd_args, **kwargs):
     """Wrapper around cros_setup_toolchains to simplify things."""
@@ -110,7 +116,8 @@ class SDKBuildToolchainsStage(generic_stages.BuilderStage):
     ], sudo=True)
 
 
-class SDKPackageStage(generic_stages.BuilderStage):
+class SDKPackageStage(generic_stages.BuilderStage,
+                      generic_stages.ArchivingStageMixin):
   """Stage that performs preparing and packaging SDK files"""
 
   def __init__(self, builder_run, version=None, **kwargs):
@@ -126,6 +133,7 @@ class SDKPackageStage(generic_stages.BuilderStage):
 
     # Create a tarball of the latest SDK.
     CreateTarball(board_location, tarball_location)
+    self.UploadArtifact(tarball_location, strict=True, archive=True)
 
     # Create a package manifest for the tarball.
     self.CreateManifestFromSDK(board_location, manifest_location)
@@ -287,7 +295,7 @@ class SDKTestStage(generic_stages.BuilderStage):
     new_pkgdir = os.path.join(self._build_root, new_chroot_dir, pkgdir)
     osutils.SafeMakedirs(new_pkgdir, sudo=True)
     cros_build_lib.SudoRunCommand(
-        ['cp', '-r'] + glob.glob(os.path.join(old_pkgdir, 'cross-*')) +
+        ['cp', '-r'] + glob.glob(os.path.join(old_pkgdir, '*')) +
         [new_pkgdir])
 
     # Now install those toolchains in the new chroot.  We skip the chroot

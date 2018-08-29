@@ -9,29 +9,29 @@
 
 #include "base/macros.h"
 #include "libassistant/shared/public/platform_system.h"
+#include "services/device/public/mojom/battery_monitor.mojom.h"
 
 namespace chromeos {
 namespace assistant {
 
 class SystemProviderImpl : public assistant_client::SystemProvider {
  public:
-  SystemProviderImpl();
+  explicit SystemProviderImpl(device::mojom::BatteryMonitorPtr battery_monitor);
   ~SystemProviderImpl() override;
 
   // assistant_client::SystemProvider implementation:
-  std::string GetDeviceModelId() override;
-  int GetDeviceModelRevision() override;
-  std::string GetEmbedderBuildInfo() override;
-  std::string GetBoardName() override;
-  std::string GetBoardRevision() override;
-  std::string GetOemDeviceId() override;
-  std::string GetDisplayName() override;
-  int GetDebugServerPort() override;
+  assistant_client::MicMuteState GetMicMuteState() override;
+  void RegisterMicMuteChangeCallback(ConfigChangeCallback callback) override;
+  assistant_client::PowerManagerProvider* GetPowerManagerProvider() override;
+  bool GetBatteryState(BatteryState* state) override;
+  void UpdateTimezoneAndLocale(const std::string& timezone,
+                               const std::string& locale) override;
 
  private:
-  std::string board_name_;
-  std::string device_model_id_;
-  std::string embedder_build_info_;
+  void OnBatteryStatus(device::mojom::BatteryStatusPtr battery_status);
+
+  device::mojom::BatteryMonitorPtr battery_monitor_;
+  device::mojom::BatteryStatusPtr current_battery_status_;
 
   DISALLOW_COPY_AND_ASSIGN(SystemProviderImpl);
 };

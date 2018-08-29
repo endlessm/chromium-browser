@@ -335,7 +335,7 @@ public class LaunchIntentDispatcher implements IntentHandler.IntentHandlerDelega
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 // Force a new document L+ to ensure the proper task/stack creation.
                 newIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
-                if (VrIntentUtils.isVrIntent(intent)) {
+                if (VrIntentUtils.isCustomTabVrIntent(intent)) {
                     newIntent.setClassName(context, CustomTabVrActivity.class.getName());
                 } else {
                     newIntent.setClassName(context, SeparateTaskCustomTabActivity.class.getName());

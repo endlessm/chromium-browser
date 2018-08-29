@@ -14,26 +14,6 @@
     android:paddingTop="@dimen/toolbar_height_no_shadow"
     android:visibility="gone" >
 
-    <!-- Top spacer. Note: the top spacer must have layout_weight="1" and the middle and bottom
-         spacers must have layout_weight="0". The NewTabPageLayout will redistribute the extra space
-         between them. -->
-    <View
-        android:id="@+id/ntp_top_spacer"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:visibility="invisible" />
-
-    <!-- Spacer above the search provider logo that can be used to distribute extra space in order
-         to push part of Most Visited below the fold, suggesting that the page can be scrolled. This
-         is only used when there is not enough space to show the peeking card. -->
-    <View
-        android:id="@+id/search_provider_logo_spacer"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_weight="0"
-        android:visibility="gone" />
-
     <!-- Search provider logo -->
     <org.chromium.chrome.browser.ntp.LogoView
         android:id="@+id/search_provider_logo"
@@ -44,18 +24,9 @@
         android:layout_marginTop="26dp"
         android:layout_marginBottom="23dp" />
 
-    <!-- Spacer above the search box that can be used to distribute extra space in order to push
-         part of Most Visited below the fold, suggesting that the page can be scrolled. This
-         is only used when there is not enough space to show the peeking card. -->
-    <View
-        android:id="@+id/search_box_spacer"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_weight="0"
-        android:visibility="gone" />
-
     <!-- Search box -->
-    <LinearLayout
+    <view
+        class="org.chromium.chrome.browser.ntp.NewTabPageLayout$SearchBoxContainerView"
         android:id="@+id/search_box"
         android:layout_width="match_parent"
         android:layout_height="@dimen/ntp_search_box_height"
@@ -64,6 +35,7 @@
         android:layout_marginTop="0dp"
         android:layout_marginBottom="1dp"
         android:gravity="center_vertical"
+        android:addStatesFromChildren="true"
         android:background="@drawable/card_single"
         android:orientation="horizontal"
         android:paddingStart="2dp"
@@ -95,7 +67,14 @@
             android:layout_marginEnd="12dp"
             android:contentDescription="@string/accessibility_toolbar_btn_mic"
             android:src="@drawable/btn_mic" />
-    </LinearLayout>
+    </view>
+
+    <ViewStub
+        android:id="@+id/shortcuts_stub"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inflatedId="@+id/shortcuts"
+        android:layout="@layout/ntp_shortcuts" />
 
     <!-- Middle spacer -->
     <View
@@ -116,14 +95,6 @@
         android:inflatedId="@+id/tile_grid_placeholder"
         android:layout="@layout/new_tab_page_tile_grid_placeholder" />
 
-    <!-- Bottom spacer -->
-    <View
-        android:id="@+id/ntp_bottom_spacer"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_weight="0"
-        android:visibility="invisible" />
-
     <!-- Spacer for when there is no search provider logo. -->
     <View
         android:id="@+id/no_search_logo_spacer"
@@ -131,28 +102,4 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:visibility="gone" />
-
-    <LinearLayout
-        android:id="@+id/shortcuts"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:orientation="horizontal"
-        android:visibility="gone" >
-
-        <Button
-            style="@style/SuggestionCardAction"
-            android:id="@+id/bookmarks_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingEnd="16dp"
-            android:text="@string/menu_bookmarks" />
-
-        <Button
-            style="@style/SuggestionCardAction"
-            android:id="@+id/downloads_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/menu_downloads" />
-    </LinearLayout>
 </org.chromium.chrome.browser.ntp.NewTabPageLayout>

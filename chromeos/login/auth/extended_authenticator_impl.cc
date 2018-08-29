@@ -20,7 +20,7 @@
 #include "chromeos/login/auth/key.h"
 #include "chromeos/login/auth/user_context.h"
 #include "chromeos/login_event_recorder.h"
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 #include "crypto/sha2.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 
@@ -80,33 +80,6 @@ void ExtendedAuthenticatorImpl::AuthenticateToCheck(
       base::Bind(&ExtendedAuthenticatorImpl::DoAuthenticateToCheck,
                  this,
                  success_callback));
-}
-
-void ExtendedAuthenticatorImpl::CreateMount(
-    const AccountId& account_id,
-    const std::vector<cryptohome::KeyDefinition>& keys,
-    const ResultCallback& success_callback) {
-  RecordStartMarker("MountEx");
-
-  cryptohome::Identification id(account_id);
-  cryptohome::MountRequest mount;
-  for (size_t i = 0; i < keys.size(); i++) {
-    cryptohome::KeyDefinitionToKey(keys[i], mount.mutable_create()->add_keys());
-  }
-  UserContext context(account_id);
-  Key key(keys.front().secret);
-  key.SetLabel(keys.front().label);
-  context.SetKey(key);
-  cryptohome::AuthorizationRequest auth;
-  cryptohome::Key* auth_key = auth.mutable_key();
-  if (!key.GetLabel().empty()) {
-    auth_key->mutable_data()->set_label(key.GetLabel());
-  }
-  auth_key->set_secret(key.GetSecret());
-  DBusThreadManager::Get()->GetCryptohomeClient()->MountEx(
-      id, auth, mount,
-      base::BindOnce(&ExtendedAuthenticatorImpl::OnMountComplete, this,
-                     "MountEx", context, success_callback));
 }
 
 void ExtendedAuthenticatorImpl::AddKey(const UserContext& context,

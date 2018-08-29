@@ -482,21 +482,23 @@ type testCase struct {
 
 var testCases []testCase
 
-func writeTranscript(test *testCase, path string, data []byte) {
+func appendTranscript(path string, data []byte) error {
 	if len(data) == 0 {
-		return
+		return nil
 	}
 
 	settings, err := ioutil.ReadFile(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading %s: %s.\n", path, err)
-		return
+		if !os.IsNotExist(err) {
+			return err
+		}
+		// If the shim aborted before writing a file, use a default
+		// settings block, so the transcript is still somewhat valid.
+		settings = []byte{0, 0} // kDataTag
 	}
 
 	settings = append(settings, data...)
-	if err := ioutil.WriteFile(path, settings, 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing %s: %s\n", path, err)
-	}
+	return ioutil.WriteFile(path, settings, 0644)
 }
 
 // A timeoutConn implements an idle timeout on each Read and Write operation.
@@ -523,7 +525,7 @@ func (t *timeoutConn) Write(b []byte) (int, error) {
 	return t.Conn.Write(b)
 }
 
-func doExchange(test *testCase, config *Config, conn net.Conn, isResume bool, transcriptPrefix string, num int) error {
+func doExchange(test *testCase, config *Config, conn net.Conn, isResume bool, transcripts *[][]byte, num int) error {
 	if !test.noSessionCache {
 		if config.ClientSessionCache == nil {
 			config.ClientSessionCache = NewLRUClientSessionCache(1)
@@ -575,10 +577,13 @@ func doExchange(test *testCase, config *Config, conn net.Conn, isResume bool, tr
 		if *flagDebug {
 			defer connDebug.WriteTo(os.Stdout)
 		}
-		if len(transcriptPrefix) != 0 {
+		if len(*transcriptDir) != 0 {
 			defer func() {
-				path := transcriptPrefix + strconv.Itoa(num)
-				writeTranscript(test, path, connDebug.Transcript())
+				if num == len(*transcripts) {
+					*transcripts = append(*transcripts, connDebug.Transcript())
+				} else {
+					panic("transcripts are out of sync")
+				}
 			}()
 		}
 
@@ -1118,6 +1123,7 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 	}
 
 	var transcriptPrefix string
+	var transcripts [][]byte
 	if len(*transcriptDir) != 0 {
 		protocol := "tls"
 		if test.protocol == dtls {
@@ -1176,7 +1182,7 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 
 	conn, err := acceptOrWait(listener, waitChan)
 	if err == nil {
-		err = doExchange(test, &config, conn, false /* not a resumption */, transcriptPrefix, 0)
+		err = doExchange(test, &config, conn, false /* not a resumption */, &transcripts, 0)
 		conn.Close()
 	}
 
@@ -1196,7 +1202,7 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 		var connResume net.Conn
 		connResume, err = acceptOrWait(listener, waitChan)
 		if err == nil {
-			err = doExchange(test, &resumeConfig, connResume, true /* resumption */, transcriptPrefix, i+1)
+			err = doExchange(test, &resumeConfig, connResume, true /* resumption */, &transcripts, i+1)
 			connResume.Close()
 		}
 	}
@@ -1210,21 +1216,19 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 	if *useGDB {
 		childErr = <-waitChan
 	} else {
-		var shimKilledLock sync.Mutex
-		var shimKilled bool
 		waitTimeout := time.AfterFunc(*idleTimeout, func() {
-			shimKilledLock.Lock()
-			shimKilled = true
-			shimKilledLock.Unlock()
 			shim.Process.Kill()
 		})
 		childErr = <-waitChan
 		waitTimeout.Stop()
-		shimKilledLock.Lock()
-		if shimKilled && err == nil {
-			err = errors.New("timeout waiting for the shim to exit.")
+	}
+
+	// Now that the shim has exitted, all the settings files have been
+	// written. Append the saved transcripts.
+	for i, transcript := range transcripts {
+		if err := appendTranscript(transcriptPrefix+strconv.Itoa(i), transcript); err != nil {
+			return err
 		}
-		shimKilledLock.Unlock()
 	}
 
 	var isValgrindError, mustFail bool
@@ -1378,6 +1382,13 @@ var tlsVersions = []tlsVersion{
 		versionWire:  tls13Draft23Version,
 		tls13Variant: TLS13Draft23,
 	},
+	{
+		name:         "TLS13Draft28",
+		version:      VersionTLS13,
+		excludeFlag:  "-no-tls13",
+		versionWire:  tls13Draft28Version,
+		tls13Variant: TLS13Draft28,
+	},
 }
 
 func allVersions(protocol protocol) []tlsVersion {
@@ -1394,6 +1405,23 @@ func allVersions(protocol protocol) []tlsVersion {
 	return ret
 }
 
+func allShimVersions(protocol protocol) []tlsVersion {
+	if protocol == dtls {
+		return allVersions(protocol)
+	}
+	tls13Default := tlsVersion{
+		name:         "TLS13Default",
+		version:      VersionTLS13,
+		excludeFlag:  "-no-tls13",
+		versionWire:  0,
+		tls13Variant: TLS13Default,
+	}
+
+	var shimVersions []tlsVersion
+	shimVersions = append(shimVersions, allVersions(protocol)...)
+	return append(shimVersions, tls13Default)
+}
+
 type testCipherSuite struct {
 	name string
 	id   uint16
@@ -1403,23 +1431,17 @@ var testCipherSuites = []testCipherSuite{
 	{"3DES-SHA", TLS_RSA_WITH_3DES_EDE_CBC_SHA},
 	{"AES128-GCM", TLS_RSA_WITH_AES_128_GCM_SHA256},
 	{"AES128-SHA", TLS_RSA_WITH_AES_128_CBC_SHA},
-	{"AES128-SHA256", TLS_RSA_WITH_AES_128_CBC_SHA256},
 	{"AES256-GCM", TLS_RSA_WITH_AES_256_GCM_SHA384},
 	{"AES256-SHA", TLS_RSA_WITH_AES_256_CBC_SHA},
-	{"AES256-SHA256", TLS_RSA_WITH_AES_256_CBC_SHA256},
 	{"ECDHE-ECDSA-AES128-GCM", TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 	{"ECDHE-ECDSA-AES128-SHA", TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA},
-	{"ECDHE-ECDSA-AES128-SHA256", TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256},
 	{"ECDHE-ECDSA-AES256-GCM", TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384},
 	{"ECDHE-ECDSA-AES256-SHA", TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA},
-	{"ECDHE-ECDSA-AES256-SHA384", TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384},
 	{"ECDHE-ECDSA-CHACHA20-POLY1305", TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256},
 	{"ECDHE-RSA-AES128-GCM", TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256},
 	{"ECDHE-RSA-AES128-SHA", TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA},
-	{"ECDHE-RSA-AES128-SHA256", TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256},
 	{"ECDHE-RSA-AES256-GCM", TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384},
 	{"ECDHE-RSA-AES256-SHA", TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA},
-	{"ECDHE-RSA-AES256-SHA384", TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384},
 	{"ECDHE-RSA-CHACHA20-POLY1305", TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256},
 	{"PSK-AES128-CBC-SHA", TLS_PSK_WITH_AES_128_CBC_SHA},
 	{"PSK-AES256-CBC-SHA", TLS_PSK_WITH_AES_256_CBC_SHA},
@@ -4744,60 +4766,160 @@ func addStateMachineCoverageTests(config stateMachineTestConfig) {
 	})
 
 	// OCSP stapling tests.
-	tests = append(tests, testCase{
-		testType: clientTest,
-		name:     "OCSPStapling-Client",
-		config: Config{
-			MaxVersion: VersionTLS12,
-		},
-		flags: []string{
-			"-enable-ocsp-stapling",
-			"-expect-ocsp-response",
-			base64.StdEncoding.EncodeToString(testOCSPResponse),
-			"-verify-peer",
-		},
-		resumeSession: true,
-	})
-	tests = append(tests, testCase{
-		testType: serverTest,
-		name:     "OCSPStapling-Server",
-		config: Config{
-			MaxVersion: VersionTLS12,
-		},
-		expectedOCSPResponse: testOCSPResponse,
-		flags: []string{
-			"-ocsp-response",
-			base64.StdEncoding.EncodeToString(testOCSPResponse),
-		},
-		resumeSession: true,
-	})
-	tests = append(tests, testCase{
-		testType: clientTest,
-		name:     "OCSPStapling-Client-TLS13",
-		config: Config{
-			MaxVersion: VersionTLS13,
-		},
-		flags: []string{
-			"-enable-ocsp-stapling",
-			"-expect-ocsp-response",
-			base64.StdEncoding.EncodeToString(testOCSPResponse),
-			"-verify-peer",
-		},
-		resumeSession: true,
-	})
-	tests = append(tests, testCase{
-		testType: serverTest,
-		name:     "OCSPStapling-Server-TLS13",
-		config: Config{
-			MaxVersion: VersionTLS13,
-		},
-		expectedOCSPResponse: testOCSPResponse,
-		flags: []string{
-			"-ocsp-response",
-			base64.StdEncoding.EncodeToString(testOCSPResponse),
-		},
-		resumeSession: true,
-	})
+	for _, vers := range tlsVersions {
+		if config.protocol == dtls && !vers.hasDTLS {
+			continue
+		}
+		if vers.version == VersionSSL30 {
+			continue
+		}
+		tests = append(tests, testCase{
+			testType: clientTest,
+			name:     "OCSPStapling-Client-" + vers.name,
+			config: Config{
+				MaxVersion: vers.version,
+			},
+			tls13Variant: vers.tls13Variant,
+			flags: []string{
+				"-enable-ocsp-stapling",
+				"-expect-ocsp-response",
+				base64.StdEncoding.EncodeToString(testOCSPResponse),
+				"-verify-peer",
+			},
+			resumeSession: true,
+		})
+		tests = append(tests, testCase{
+			testType: serverTest,
+			name:     "OCSPStapling-Server-" + vers.name,
+			config: Config{
+				MaxVersion: vers.version,
+			},
+			tls13Variant:         vers.tls13Variant,
+			expectedOCSPResponse: testOCSPResponse,
+			flags: []string{
+				"-ocsp-response",
+				base64.StdEncoding.EncodeToString(testOCSPResponse),
+			},
+			resumeSession: true,
+		})
+
+		// The client OCSP callback is an alternate certificate
+		// verification callback.
+		tests = append(tests, testCase{
+			testType: clientTest,
+			name:     "ClientOCSPCallback-Pass-" + vers.name,
+			config: Config{
+				MaxVersion:   vers.version,
+				Certificates: []Certificate{rsaCertificate},
+			},
+			tls13Variant: vers.tls13Variant,
+			flags: []string{
+				"-enable-ocsp-stapling",
+				"-use-ocsp-callback",
+			},
+		})
+		var expectedLocalError string
+		if !config.async {
+			// TODO(davidben): Asynchronous fatal alerts are never
+			// sent. https://crbug.com/boringssl/130.
+			expectedLocalError = "remote error: bad certificate status response"
+		}
+		tests = append(tests, testCase{
+			testType: clientTest,
+			name:     "ClientOCSPCallback-Fail-" + vers.name,
+			config: Config{
+				MaxVersion:   vers.version,
+				Certificates: []Certificate{rsaCertificate},
+			},
+			tls13Variant: vers.tls13Variant,
+			flags: []string{
+				"-enable-ocsp-stapling",
+				"-use-ocsp-callback",
+				"-fail-ocsp-callback",
+			},
+			shouldFail:         true,
+			expectedLocalError: expectedLocalError,
+			expectedError:      ":OCSP_CB_ERROR:",
+		})
+		// The callback still runs if the server does not send an OCSP
+		// response.
+		certNoStaple := rsaCertificate
+		certNoStaple.OCSPStaple = nil
+		tests = append(tests, testCase{
+			testType: clientTest,
+			name:     "ClientOCSPCallback-FailNoStaple-" + vers.name,
+			config: Config{
+				MaxVersion:   vers.version,
+				Certificates: []Certificate{certNoStaple},
+			},
+			tls13Variant: vers.tls13Variant,
+			flags: []string{
+				"-enable-ocsp-stapling",
+				"-use-ocsp-callback",
+				"-fail-ocsp-callback",
+			},
+			shouldFail:         true,
+			expectedLocalError: expectedLocalError,
+			expectedError:      ":OCSP_CB_ERROR:",
+		})
+
+		// The server OCSP callback is a legacy mechanism for
+		// configuring OCSP, used by unreliable server software.
+		tests = append(tests, testCase{
+			testType: serverTest,
+			name:     "ServerOCSPCallback-SetInCallback-" + vers.name,
+			config: Config{
+				MaxVersion: vers.version,
+			},
+			tls13Variant:         vers.tls13Variant,
+			expectedOCSPResponse: testOCSPResponse,
+			flags: []string{
+				"-use-ocsp-callback",
+				"-set-ocsp-in-callback",
+				"-ocsp-response",
+				base64.StdEncoding.EncodeToString(testOCSPResponse),
+			},
+			resumeSession: true,
+		})
+
+		// The callback may decline OCSP, in which case  we act as if
+		// the client did not support it, even if a response was
+		// configured.
+		tests = append(tests, testCase{
+			testType: serverTest,
+			name:     "ServerOCSPCallback-Decline-" + vers.name,
+			config: Config{
+				MaxVersion: vers.version,
+			},
+			tls13Variant:         vers.tls13Variant,
+			expectedOCSPResponse: []byte{},
+			flags: []string{
+				"-use-ocsp-callback",
+				"-decline-ocsp-callback",
+				"-ocsp-response",
+				base64.StdEncoding.EncodeToString(testOCSPResponse),
+			},
+			resumeSession: true,
+		})
+
+		// The callback may also signal an internal error.
+		tests = append(tests, testCase{
+			testType: serverTest,
+			name:     "ServerOCSPCallback-Fail-" + vers.name,
+			config: Config{
+				MaxVersion: vers.version,
+			},
+			tls13Variant: vers.tls13Variant,
+			flags: []string{
+				"-use-ocsp-callback",
+				"-fail-ocsp-callback",
+				"-ocsp-response",
+				base64.StdEncoding.EncodeToString(testOCSPResponse),
+			},
+			shouldFail:    true,
+			expectedError: ":OCSP_CB_ERROR:",
+		})
+	}
 
 	// Certificate verification tests.
 	for _, vers := range tlsVersions {
@@ -5366,7 +5488,7 @@ func addDDoSCallbackTests() {
 
 func addVersionNegotiationTests() {
 	for _, protocol := range []protocol{tls, dtls} {
-		for _, shimVers := range allVersions(protocol) {
+		for _, shimVers := range allShimVersions(protocol) {
 			// Assemble flags to disable all newer versions on the shim.
 			var flags []string
 			for _, vers := range allVersions(protocol) {
@@ -5388,15 +5510,10 @@ func addVersionNegotiationTests() {
 				if runnerVers.version < shimVers.version {
 					expectedVersion = runnerVers.version
 				}
-				// When running and shim have different TLS 1.3 variants enabled,
-				// shim clients are expected to fall back to TLS 1.2, while shim
-				// servers support multiple variants.
-				expectedServerVersion := expectedVersion
-				expectedClientVersion := expectedVersion
+
 				if expectedVersion == VersionTLS13 && runnerVers.tls13Variant != shimVers.tls13Variant {
-					expectedClientVersion = VersionTLS12
-					if shimVers.tls13Variant == TLS13Draft23 {
-						expectedServerVersion = VersionTLS12
+					if shimVers.tls13Variant != TLS13Default {
+						expectedVersion = VersionTLS12
 					}
 				}
 
@@ -5411,8 +5528,8 @@ func addVersionNegotiationTests() {
 					clientVers = VersionTLS10
 				}
 				clientVers = recordVersionToWire(clientVers, protocol)
-				serverVers := expectedServerVersion
-				if expectedServerVersion >= VersionTLS13 {
+				serverVers := expectedVersion
+				if expectedVersion >= VersionTLS13 {
 					serverVers = VersionTLS12
 				}
 				serverVers = recordVersionToWire(serverVers, protocol)
@@ -5429,7 +5546,7 @@ func addVersionNegotiationTests() {
 						},
 					},
 					flags:           flags,
-					expectedVersion: expectedClientVersion,
+					expectedVersion: expectedVersion,
 				})
 				testCases = append(testCases, testCase{
 					protocol: protocol,
@@ -5443,7 +5560,7 @@ func addVersionNegotiationTests() {
 						},
 					},
 					flags:           flags2,
-					expectedVersion: expectedClientVersion,
+					expectedVersion: expectedVersion,
 				})
 
 				testCases = append(testCases, testCase{
@@ -5458,7 +5575,7 @@ func addVersionNegotiationTests() {
 						},
 					},
 					flags:           flags,
-					expectedVersion: expectedServerVersion,
+					expectedVersion: expectedVersion,
 				})
 				testCases = append(testCases, testCase{
 					protocol: protocol,
@@ -5472,7 +5589,7 @@ func addVersionNegotiationTests() {
 						},
 					},
 					flags:           flags2,
-					expectedVersion: expectedServerVersion,
+					expectedVersion: expectedVersion,
 				})
 			}
 		}
@@ -5591,7 +5708,7 @@ func addVersionNegotiationTests() {
 		config: Config{
 			MaxVersion: VersionTLS12,
 			Bugs: ProtocolBugs{
-				SendServerSupportedExtensionVersion: VersionTLS12,
+				SendServerSupportedVersionExtension: VersionTLS12,
 			},
 		},
 		shouldFail:    true,
@@ -6075,6 +6192,24 @@ func addExtensionTests() {
 			tls13Variant:      ver.tls13Variant,
 			expectNoNextProto: true,
 			resumeSession:     true,
+		})
+		// Test that the server implementation catches itself if the
+		// callback tries to return an invalid empty ALPN protocol.
+		testCases = append(testCases, testCase{
+			testType: serverTest,
+			name:     "ALPNServer-SelectEmpty-" + ver.name,
+			config: Config{
+				MaxVersion: ver.version,
+				NextProtos: []string{"foo", "bar", "baz"},
+			},
+			flags: []string{
+				"-expect-advertised-alpn", "\x03foo\x03bar\x03baz",
+				"-select-empty-alpn",
+			},
+			tls13Variant:       ver.tls13Variant,
+			shouldFail:         true,
+			expectedLocalError: "remote error: internal error",
+			expectedError:      ":INVALID_ALPN_PROTOCOL:",
 		})
 
 		// Test ALPN in async mode as well to ensure that extensions callbacks are only
@@ -8202,6 +8337,20 @@ func addRenegotiationTests() {
 		},
 	})
 
+	// Renegotiation may be enabled and then disabled immediately after the
+	// handshake.
+	testCases = append(testCases, testCase{
+		name: "Renegotiate-ForbidAfterHandshake",
+		config: Config{
+			MaxVersion: VersionTLS12,
+		},
+		renegotiate:        1,
+		flags:              []string{"-forbid-renegotiation-after-handshake"},
+		shouldFail:         true,
+		expectedError:      ":NO_RENEGOTIATION:",
+		expectedLocalError: "remote error: no renegotiation",
+	})
+
 	// Renegotiation is not allowed at SSL 3.0.
 	testCases = append(testCases, testCase{
 		name: "Renegotiate-Client-SSL3",
@@ -9453,6 +9602,119 @@ func addSignatureAlgorithmTests() {
 			"-verify-prefs", strconv.Itoa(int(signatureEd25519)),
 		},
 	})
+
+	rsaPSSSupportTests := []struct {
+		name                string
+		expectRSAPSSSupport RSAPSSSupport
+		verifyPrefs         []signatureAlgorithm
+		noCerts             bool
+	}{
+		// By default, RSA-PSS is fully advertised.
+		{
+			name:                "Default",
+			expectRSAPSSSupport: RSAPSSSupportBoth,
+		},
+		// Disabling RSA-PSS certificates makes it online-signature-only.
+		{
+			name:                "Default-NoCerts",
+			expectRSAPSSSupport: RSAPSSSupportOnlineSignatureOnly,
+			noCerts:             true,
+		},
+		// The above also apply if verify preferences were explicitly configured.
+		{
+			name:                "ConfigPSS",
+			expectRSAPSSSupport: RSAPSSSupportBoth,
+			verifyPrefs:         []signatureAlgorithm{signatureRSAPSSWithSHA256, signatureRSAPKCS1WithSHA256, signatureECDSAWithP256AndSHA256},
+		},
+		{
+			name:                "ConfigPSS-NoCerts",
+			expectRSAPSSSupport: RSAPSSSupportOnlineSignatureOnly,
+			verifyPrefs:         []signatureAlgorithm{signatureRSAPSSWithSHA256, signatureRSAPKCS1WithSHA256, signatureECDSAWithP256AndSHA256},
+			noCerts:             true,
+		},
+		// If verify preferences were explicitly configured without RSA-PSS support,
+		// NoCerts is a no-op and the shim correctly only sends one extension.
+		// (This is checked internally in the runner.)
+		{
+			name:                "ConfigNoPSS",
+			expectRSAPSSSupport: RSAPSSSupportNone,
+			verifyPrefs:         []signatureAlgorithm{signatureRSAPKCS1WithSHA256, signatureECDSAWithP256AndSHA256},
+		},
+		{
+			name:                "ConfigNoPSS-NoCerts",
+			expectRSAPSSSupport: RSAPSSSupportNone,
+			verifyPrefs:         []signatureAlgorithm{signatureRSAPKCS1WithSHA256, signatureECDSAWithP256AndSHA256},
+			noCerts:             true,
+		},
+	}
+
+	for _, test := range rsaPSSSupportTests {
+		var pssFlags []string
+		for _, pref := range test.verifyPrefs {
+			pssFlags = append(pssFlags, "-verify-prefs", strconv.Itoa(int(pref)))
+		}
+		if test.noCerts {
+			pssFlags = append(pssFlags, "-no-rsa-pss-rsae-certs")
+		}
+		for _, ver := range tlsVersions {
+			if ver.version < VersionTLS12 {
+				continue
+			}
+
+			// TLS 1.2 cannot express different RSAPSSSupportOnlineSignatureOnly,
+			// so it decays to RSAPSSSupportNone.
+			expect := test.expectRSAPSSSupport
+			if ver.version < VersionTLS13 && expect == RSAPSSSupportOnlineSignatureOnly {
+				expect = RSAPSSSupportNone
+			}
+
+			// If the configuration results in no RSA-PSS support, the handshake won't complete.
+			// (The test, however, still covers the RSA-PSS assertion.)
+			var localError string
+			var shouldFail bool
+			if ver.version >= VersionTLS13 && expect == RSAPSSSupportNone {
+				shouldFail = true
+				localError = "tls: no common signature algorithms"
+			}
+
+			flags := []string{"-max-version", ver.shimFlag(tls)}
+			flags = append(flags, pssFlags...)
+			testCases = append(testCases, testCase{
+				name: fmt.Sprintf("RSAPSSSupport-%s-%s-Client", test.name, ver.name),
+				config: Config{
+					MinVersion:   ver.version,
+					MaxVersion:   ver.version,
+					Certificates: []Certificate{rsaCertificate},
+					Bugs: ProtocolBugs{
+						ExpectRSAPSSSupport: expect,
+					},
+				},
+				tls13Variant:       ver.tls13Variant,
+				flags:              flags,
+				shouldFail:         shouldFail,
+				expectedLocalError: localError,
+			})
+
+			serverFlags := []string{"-require-any-client-certificate"}
+			serverFlags = append(flags, serverFlags...)
+			testCases = append(testCases, testCase{
+				testType: serverTest,
+				name:     fmt.Sprintf("RSAPSSSupport-%s-%s-Server", test.name, ver.name),
+				config: Config{
+					MinVersion:   ver.version,
+					MaxVersion:   ver.version,
+					Certificates: []Certificate{rsaCertificate},
+					Bugs: ProtocolBugs{
+						ExpectRSAPSSSupport: expect,
+					},
+				},
+				tls13Variant:       ver.tls13Variant,
+				flags:              serverFlags,
+				shouldFail:         shouldFail,
+				expectedLocalError: localError,
+			})
+		}
+	}
 }
 
 // timeouts is the retransmit schedule for BoringSSL. It doubles and
@@ -10900,6 +11162,22 @@ func addCurveTests() {
 		},
 		shouldFail:    true,
 		expectedError: ":ERROR_PARSING_EXTENSION:",
+	})
+
+	// Implementations should mask off the high order bit in X25519.
+	testCases = append(testCases, testCase{
+		name: "SetX25519HighBit",
+		config: Config{
+			CipherSuites: []uint16{
+				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+				TLS_AES_128_GCM_SHA256,
+			},
+			CurvePreferences: []CurveID{CurveX25519},
+			Bugs: ProtocolBugs{
+				SetX25519HighBit: true,
+			},
+		},
 	})
 }
 
@@ -12612,6 +12890,39 @@ func addTLS13HandshakeTests() {
 			shouldFail:    true,
 			expectedError: ":WRONG_CURVE:",
 		})
+
+		// Test that the supported_versions extension is enforced in the
+		// second ServerHello. Note we only enforce this starting draft 28.
+		if isDraft28(version.versionWire) {
+			testCases = append(testCases, testCase{
+				name: "SecondServerHelloNoVersion-" + name,
+				config: Config{
+					MaxVersion: VersionTLS13,
+					// P-384 requires HelloRetryRequest in BoringSSL.
+					CurvePreferences: []CurveID{CurveP384},
+					Bugs: ProtocolBugs{
+						OmitServerSupportedVersionExtension: true,
+					},
+				},
+				tls13Variant:  variant,
+				shouldFail:    true,
+				expectedError: ":SECOND_SERVERHELLO_VERSION_MISMATCH:",
+			})
+			testCases = append(testCases, testCase{
+				name: "SecondServerHelloWrongVersion-" + name,
+				config: Config{
+					MaxVersion: VersionTLS13,
+					// P-384 requires HelloRetryRequest in BoringSSL.
+					CurvePreferences: []CurveID{CurveP384},
+					Bugs: ProtocolBugs{
+						SendServerSupportedVersionExtension: 0x1234,
+					},
+				},
+				tls13Variant:  variant,
+				shouldFail:    true,
+				expectedError: ":SECOND_SERVERHELLO_VERSION_MISMATCH:",
+			})
+		}
 
 		testCases = append(testCases, testCase{
 			name: "RequestContextInHandshake-" + name,

@@ -59,7 +59,7 @@ class UserCloudExternalDataManagerTest : public LoginPolicyTestBase {
         embedded_test_server()->GetURL(std::string("/") + kExternalDataPath);
 
     base::FilePath test_dir;
-    ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_dir));
+    ASSERT_TRUE(base::PathService::Get(chrome::DIR_TEST_DATA, &test_dir));
     ASSERT_TRUE(base::ReadFileToString(test_dir.AppendASCII(kExternalDataPath),
                                        &external_data_));
     ASSERT_FALSE(external_data_.empty());
@@ -76,7 +76,7 @@ IN_PROC_BROWSER_TEST_F(UserCloudExternalDataManagerTest, FetchExternalData) {
   CloudExternalDataManagerBase::SetMaxExternalDataSizeForTesting(1000);
 
   SkipToLoginScreen();
-  LogIn(kAccountId, kAccountPassword);
+  LogIn(kAccountId, kAccountPassword, kEmptyServices);
 
   Profile* profile = ProfileManager::GetActiveUserProfile();
   ASSERT_TRUE(profile);

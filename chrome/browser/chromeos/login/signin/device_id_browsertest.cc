@@ -6,7 +6,6 @@
 #include "base/files/file_path.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -112,7 +111,7 @@ class DeviceIDTest : public OobeBaseTest,
     fake_gaia_->UpdateMergeSessionParams(params);
     fake_gaia_->MapEmailToGaiaId(user_id, gaia_id);
 
-    GetLoginDisplay()->ShowSigninScreenForCreds(user_id, password);
+    GetLoginDisplay()->ShowSigninScreenForTest(user_id, password, "[]");
     WaitForSessionStart();
   }
 

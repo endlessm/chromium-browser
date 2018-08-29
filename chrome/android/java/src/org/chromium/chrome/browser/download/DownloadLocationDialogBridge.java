@@ -37,8 +37,8 @@ public class DownloadLocationDialogBridge implements ModalDialogView.Controller 
     }
 
     @CalledByNative
-    public void showDialog(WindowAndroid windowAndroid, @DownloadLocationDialogType int dialogType,
-            String suggestedPath) {
+    public void showDialog(WindowAndroid windowAndroid, long totalBytes,
+            @DownloadLocationDialogType int dialogType, String suggestedPath) {
         ChromeActivity activity = (ChromeActivity) windowAndroid.getActivity().get();
         // If the activity has gone away, just clean up the native pointer.
         if (activity == null) {
@@ -49,8 +49,8 @@ public class DownloadLocationDialogBridge implements ModalDialogView.Controller 
         mModalDialogManager = activity.getModalDialogManager();
 
         if (mLocationDialog != null) return;
-        mLocationDialog =
-                DownloadLocationDialog.create(this, activity, dialogType, new File(suggestedPath));
+        mLocationDialog = DownloadLocationDialog.create(
+                this, activity, totalBytes, dialogType, new File(suggestedPath));
 
         mModalDialogManager.showDialog(mLocationDialog, ModalDialogManager.APP_MODAL);
     }
@@ -59,7 +59,7 @@ public class DownloadLocationDialogBridge implements ModalDialogView.Controller 
     public void onClick(@ModalDialogView.ButtonType int buttonType) {
         switch (buttonType) {
             case ModalDialogView.BUTTON_POSITIVE:
-                handleResponses(mLocationDialog.getFileName(), mLocationDialog.getFileLocation(),
+                handleResponses(mLocationDialog.getFileName(), mLocationDialog.getDirectoryOption(),
                         mLocationDialog.getDontShowAgain());
                 mModalDialogManager.dismissDialog(mLocationDialog);
                 break;
@@ -86,12 +86,13 @@ public class DownloadLocationDialogBridge implements ModalDialogView.Controller 
      * Pass along information from location dialog to native.
      *
      * @param fileName      Name the user gave the file.
-     * @param fileLocation  Location the user wants the file saved to.
+     * @param directoryOption  Location the user wants the file saved to.
      * @param dontShowAgain Whether the user wants the "Save download to..." dialog shown again.
      */
-    private void handleResponses(String fileName, File fileLocation, boolean dontShowAgain) {
+    private void handleResponses(
+            String fileName, DirectoryOption directoryOption, boolean dontShowAgain) {
         // If there's no file location, treat as a cancellation.
-        if (fileLocation == null) {
+        if (directoryOption == null || directoryOption.location == null) {
             cancel();
             return;
         }
@@ -99,14 +100,13 @@ public class DownloadLocationDialogBridge implements ModalDialogView.Controller 
         // Update native with new path.
         if (mNativeDownloadLocationDialogBridge != 0) {
             PrefServiceBridge.getInstance().setDownloadAndSaveFileDefaultDirectory(
-                    fileLocation.getAbsolutePath());
+                    directoryOption.location);
+            directoryOption.recordDirectoryOptionType();
 
-            File filePath = new File(fileLocation, fileName);
-            nativeOnComplete(mNativeDownloadLocationDialogBridge, filePath.getAbsolutePath());
+            File file = new File(directoryOption.location, fileName);
+            nativeOnComplete(mNativeDownloadLocationDialogBridge, file.getAbsolutePath());
         }
 
-        // TODO(jming): Right now this doesn't stay checked if a second error is displayed.
-        // Figure out if this needs to be fixed (depending on if we want it pre-checked anyways).
         // Update preference to show prompt based on whether checkbox is checked.
         if (dontShowAgain) {
             PrefServiceBridge.getInstance().setPromptForDownloadAndroid(

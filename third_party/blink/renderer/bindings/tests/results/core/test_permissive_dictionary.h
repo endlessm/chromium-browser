@@ -11,9 +11,9 @@
 #ifndef TestPermissiveDictionary_h
 #define TestPermissiveDictionary_h
 
-#include "bindings/core/v8/idl_dictionary_base.h"
-#include "core/core_export.h"
-#include "platform/heap/handle.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_dictionary_base.h"
+#include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/platform/heap/handle.h"
 
 namespace blink {
 
@@ -33,7 +33,7 @@ class CORE_EXPORT TestPermissiveDictionary : public IDLDictionaryBase {
   inline void setBooleanMember(bool);
 
   v8::Local<v8::Value> ToV8Impl(v8::Local<v8::Object>, v8::Isolate*) const override;
-  virtual void Trace(blink::Visitor*);
+  void Trace(blink::Visitor*) override;
 
  private:
   bool has_boolean_member_ = false;

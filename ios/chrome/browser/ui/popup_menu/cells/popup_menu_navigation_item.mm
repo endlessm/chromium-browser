@@ -5,6 +5,7 @@
 #import "ios/chrome/browser/ui/popup_menu/cells/popup_menu_navigation_item.h"
 
 #include "base/logging.h"
+#import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 
@@ -13,9 +14,13 @@
 #endif
 
 namespace {
-const CGFloat kImageLength = 16;
+const CGFloat kImageSize = 16;
+const CGFloat kImageCornerRadius = 2;
+const CGFloat kFaviconBackgroundSize = 28;
+const CGFloat kFaviconBackgroundColorAlpha = 0.03;
+const CGFloat kFaviconBackgroundCornerRadius = 7;
 const CGFloat kCellHeight = 44;
-const CGFloat kImageTextMargin = 11;
+const CGFloat kIconTextMargin = 11;
 const CGFloat kMargin = 15;
 const CGFloat kVerticalMargin = 8;
 const CGFloat kMaxHeight = 100;
@@ -67,47 +72,68 @@ const CGFloat kMaxHeight = 100;
 
 @interface PopupMenuNavigationCell ()
 @property(nonatomic, strong) UILabel* titleLabel;
-@property(nonatomic, strong) UIImageView* faviconView;
+@property(nonatomic, strong) UIImageView* faviconImageView;
 @end
 
 @implementation PopupMenuNavigationCell
 
-@synthesize faviconView = _faviconView;
+@synthesize faviconImageView = _faviconImageView;
 @synthesize titleLabel = _titleLabel;
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style
               reuseIdentifier:(NSString*)reuseIdentifier {
   self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
   if (self) {
+    UIView* selectedBackgroundView = [[UIView alloc] init];
+    selectedBackgroundView.backgroundColor =
+        [UIColor colorWithWhite:0 alpha:kSelectedItemBackgroundAlpha];
+    self.selectedBackgroundView = selectedBackgroundView;
+
     _titleLabel = [[UILabel alloc] init];
     _titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
     _titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
 
-    _faviconView = [[UIImageView alloc] init];
-    _faviconView.translatesAutoresizingMaskIntoConstraints = NO;
+    UIView* faviconBackground = [[UIView alloc] init];
+    faviconBackground.translatesAutoresizingMaskIntoConstraints = NO;
+    faviconBackground.backgroundColor =
+        [UIColor colorWithWhite:0 alpha:kFaviconBackgroundColorAlpha];
+    faviconBackground.layer.cornerRadius = kFaviconBackgroundCornerRadius;
+
+    _faviconImageView = [[UIImageView alloc] init];
+    _faviconImageView.translatesAutoresizingMaskIntoConstraints = NO;
+    _faviconImageView.layer.cornerRadius = kImageCornerRadius;
+    _faviconImageView.layer.masksToBounds = YES;
+
+    [faviconBackground addSubview:_faviconImageView];
 
     [self.contentView addSubview:_titleLabel];
-    [self.contentView addSubview:_faviconView];
+    [self.contentView addSubview:faviconBackground];
 
     ApplyVisualConstraintsWithMetrics(
         @[
-          @"H:|-(margin)-[image(imageSize)]-(textImage)-[text]-(margin)-|",
+          @"H:|-(margin)-[favicon(faviconSize)]-(iconText)-[text]-(margin)-|",
+          @"H:[image(imageSize)]", @"V:[favicon(faviconSize)]",
           @"V:[image(imageSize)]",
           @"V:|-(verticalMargin)-[text]-(verticalMargin)-|"
         ],
-        @{@"image" : _faviconView, @"text" : _titleLabel}, @{
+        @{
+          @"image" : _faviconImageView,
+          @"text" : _titleLabel,
+          @"favicon" : faviconBackground
+        },
+        @{
           @"margin" : @(kMargin),
-          @"imageSize" : @(kImageLength),
-          @"textImage" : @(kImageTextMargin),
+          @"imageSize" : @(kImageSize),
+          @"faviconSize" : @(kFaviconBackgroundSize),
+          @"iconText" : @(kIconTextMargin),
           @"verticalMargin" : @(kVerticalMargin),
         });
 
     [self.contentView.heightAnchor
         constraintGreaterThanOrEqualToConstant:kCellHeight]
         .active = YES;
-    [_faviconView.centerYAnchor
-        constraintEqualToAnchor:self.contentView.centerYAnchor]
-        .active = YES;
+    AddSameCenterConstraints(_faviconImageView, faviconBackground);
+    AddSameCenterYConstraint(self.contentView, faviconBackground);
 
     self.isAccessibilityElement = YES;
   }
@@ -120,9 +146,9 @@ const CGFloat kMaxHeight = 100;
 
 - (void)setFavicon:(UIImage*)favicon {
   if (favicon) {
-    self.faviconView.image = favicon;
+    self.faviconImageView.image = favicon;
   } else {
-    self.faviconView.image = [UIImage imageNamed:@"default_favicon"];
+    self.faviconImageView.image = [UIImage imageNamed:@"default_favicon"];
   }
 }
 

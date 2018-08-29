@@ -21,6 +21,8 @@
 #include "components/sync/engine_impl/directory_commit_contributor.h"
 #include "components/sync/engine_impl/directory_update_handler.h"
 #include "components/sync/engine_impl/model_type_worker.h"
+#include "components/sync/syncable/read_transaction.h"
+#include "components/sync/syncable/syncable_base_transaction.h"
 
 namespace syncer {
 
@@ -251,6 +253,11 @@ ModelTypeSet ModelTypeRegistry::GetInitialSyncDoneNonBlockingTypes() const {
   return types;
 }
 
+const UpdateHandler* ModelTypeRegistry::GetUpdateHandler(ModelType type) const {
+  UpdateHandlerMap::const_iterator it = update_handler_map_.find(type);
+  return it == update_handler_map_.end() ? nullptr : it->second;
+}
+
 UpdateHandlerMap* ModelTypeRegistry::update_handler_map() {
   return &update_handler_map_;
 }
@@ -283,6 +290,19 @@ void ModelTypeRegistry::RequestEmitDebugInfo() {
     // They've already been asked for manually on the UI thread because USS
     // emitters don't have a working implementation yet.
   }
+}
+
+bool ModelTypeRegistry::HasUnsyncedItems() const {
+  // For model type workers, we ask them individually.
+  for (const auto& worker : model_type_workers_) {
+    if (worker->HasLocalChangesForTest()) {
+      return true;
+    }
+  }
+
+  // Verify directory state.
+  ReadTransaction trans(FROM_HERE, user_share_);
+  return trans.GetWrappedTrans()->directory()->unsynced_entity_count() != 0;
 }
 
 base::WeakPtr<ModelTypeConnector> ModelTypeRegistry::AsWeakPtr() {

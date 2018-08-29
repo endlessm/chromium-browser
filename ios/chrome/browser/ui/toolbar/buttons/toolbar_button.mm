@@ -4,6 +4,8 @@
 
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
 
+#include "base/logging.h"
+#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 
@@ -11,11 +13,25 @@
 #error "This file requires ARC support."
 #endif
 
+namespace {
+const CGFloat kSpotlightSize = 38;
+const CGFloat kSpotlightCornerRadius = 7;
+const CGFloat kDimmedAlpha = 0.5;
+}  // namespace
+
+@interface ToolbarButton ()
+@property(nonatomic, strong) UIView* spotlightView;
+@end
+
 @implementation ToolbarButton
 @synthesize visibilityMask = _visibilityMask;
 @synthesize guideName = _guideName;
 @synthesize hiddenInCurrentSizeClass = _hiddenInCurrentSizeClass;
 @synthesize hiddenInCurrentState = _hiddenInCurrentState;
+@synthesize spotlighted = _spotlighted;
+@synthesize dimmed = _dimmed;
+@synthesize configuration = _configuration;
+@synthesize spotlightView = _spotlightView;
 
 + (instancetype)toolbarButtonWithImageForNormalState:(UIImage*)normalImage
                             imageForHighlightedState:(UIImage*)highlightedImage
@@ -91,15 +107,82 @@
     newHiddenValue = !self.enabled;
   }
 
-  if (newHiddenValue != self.hiddenInCurrentSizeClass) {
-    self.hiddenInCurrentSizeClass = newHiddenValue;
-    [self setHiddenForCurrentStateAndSizeClass];
-  }
+  // Update the hidden property of the buttons even if it is the same to
+  // prevent: https://crbug.com/828767.
+  self.hiddenInCurrentSizeClass = newHiddenValue;
+  [self setHiddenForCurrentStateAndSizeClass];
 }
 
 - (void)setHiddenInCurrentState:(BOOL)hiddenInCurrentState {
   _hiddenInCurrentState = hiddenInCurrentState;
   [self setHiddenForCurrentStateAndSizeClass];
+}
+
+- (void)setSpotlighted:(BOOL)spotlighted {
+  if (spotlighted == _spotlighted)
+    return;
+
+  _spotlighted = spotlighted;
+  self.spotlightView.hidden = !spotlighted;
+  [self setNeedsLayout];
+  [self layoutIfNeeded];
+}
+
+- (void)setDimmed:(BOOL)dimmed {
+  if (dimmed == _dimmed)
+    return;
+  _dimmed = dimmed;
+  if (!self.configuration)
+    return;
+
+  if (dimmed) {
+    self.alpha = kDimmedAlpha;
+    if (_spotlightView) {
+      self.spotlightView.backgroundColor =
+          self.configuration.dimmedButtonsSpotlightColor;
+    }
+  } else {
+    self.alpha = 1;
+    if (_spotlightView) {
+      self.spotlightView.backgroundColor =
+          self.configuration.buttonsSpotlightColor;
+    }
+  }
+}
+
+- (UIControlState)state {
+  DCHECK(ControlStateSpotlighted & UIControlStateApplication);
+  UIControlState state = [super state];
+  if (self.spotlighted)
+    state |= ControlStateSpotlighted;
+  return state;
+}
+
+- (void)setConfiguration:(ToolbarConfiguration*)configuration {
+  _configuration = configuration;
+  if (!configuration)
+    return;
+
+  self.tintColor = configuration.buttonsTintColor;
+  _spotlightView.backgroundColor = self.configuration.buttonsSpotlightColor;
+}
+
+- (UIView*)spotlightView {
+  if (!_spotlightView) {
+    _spotlightView = [[UIView alloc] init];
+    _spotlightView.translatesAutoresizingMaskIntoConstraints = NO;
+    _spotlightView.hidden = YES;
+    _spotlightView.userInteractionEnabled = NO;
+    _spotlightView.layer.cornerRadius = kSpotlightCornerRadius;
+    _spotlightView.backgroundColor = self.configuration.buttonsSpotlightColor;
+    [self addSubview:_spotlightView];
+    AddSameCenterConstraints(self, _spotlightView);
+    [_spotlightView.widthAnchor constraintEqualToConstant:kSpotlightSize]
+        .active = YES;
+    [_spotlightView.heightAnchor constraintEqualToConstant:kSpotlightSize]
+        .active = YES;
+  }
+  return _spotlightView;
 }
 
 #pragma mark - Private

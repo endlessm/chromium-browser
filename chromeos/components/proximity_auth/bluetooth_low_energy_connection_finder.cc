@@ -38,14 +38,14 @@ const int kRestartDiscoveryOnErrorDelaySeconds = 2;
 }  // namespace
 
 BluetoothLowEnergyConnectionFinder::BluetoothLowEnergyConnectionFinder(
-    const cryptauth::RemoteDevice remote_device)
+    cryptauth::RemoteDeviceRef remote_device)
     : BluetoothLowEnergyConnectionFinder(
           remote_device,
           kBLEGattServiceUUID,
           std::make_unique<cryptauth::BackgroundEidGenerator>()) {}
 
 BluetoothLowEnergyConnectionFinder::BluetoothLowEnergyConnectionFinder(
-    const cryptauth::RemoteDevice remote_device,
+    cryptauth::RemoteDeviceRef remote_device,
     const std::string& service_uuid,
     std::unique_ptr<cryptauth::BackgroundEidGenerator> eid_generator)
     : remote_device_(remote_device),
@@ -158,10 +158,9 @@ bool BluetoothLowEnergyConnectionFinder::IsRightDevice(
   if (!service_data)
     return false;
 
-  PA_LOG(INFO) << "Generating EIDs for: " << device->GetAddress();
   std::string service_data_string(service_data->begin(), service_data->end());
   std::vector<cryptauth::DataWithTimestamp> nearest_eids =
-      eid_generator_->GenerateNearestEids(remote_device_.beacon_seeds);
+      eid_generator_->GenerateNearestEids(remote_device_.beacon_seeds());
   for (const cryptauth::DataWithTimestamp& eid : nearest_eids) {
     if (eid.data == service_data_string) {
       PA_LOG(INFO) << "Found a matching EID: " << eid.DataInHex();
@@ -252,7 +251,7 @@ void BluetoothLowEnergyConnectionFinder::OnConnectionStatusChanged(
         FROM_HERE,
         base::BindOnce(&BluetoothLowEnergyConnectionFinder::InvokeCallbackAsync,
                        weak_ptr_factory_.GetWeakPtr()));
-  } else if (old_status == cryptauth::Connection::IN_PROGRESS) {
+  } else if (old_status == cryptauth::Connection::Status::IN_PROGRESS) {
     PA_LOG(WARNING) << "Connection failed. Retrying.";
     connection_->RemoveObserver(this);
     connection_.reset();

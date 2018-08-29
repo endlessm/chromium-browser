@@ -5,7 +5,10 @@
 #ifndef COMPONENTS_VIZ_TEST_TEST_GLES2_INTERFACE_H_
 #define COMPONENTS_VIZ_TEST_TEST_GLES2_INTERFACE_H_
 
+#include <stddef.h>
+
 #include "gpu/command_buffer/client/gles2_interface_stub.h"
+#include "gpu/command_buffer/common/capabilities.h"
 
 namespace viz {
 
@@ -159,13 +162,39 @@ class TestGLES2Interface : public gpu::gles2::GLES2InterfaceStub {
   void LoseContextCHROMIUM(GLenum current, GLenum other) override;
   GLenum GetGraphicsResetStatusKHR() override;
 
+  size_t NumTextures() const;
+
   void set_test_context(TestWebGraphicsContext3D* context);
+  void set_times_bind_texture_succeeds(int times);
+
+  void set_have_extension_io_surface(bool have);
+  void set_have_extension_egl_image(bool have);
+  void set_have_post_sub_buffer(bool have);
+  void set_have_swap_buffers_with_bounds(bool have);
+  void set_have_commit_overlay_planes(bool have);
+  void set_have_discard_framebuffer(bool have);
+  void set_support_compressed_texture_etc1(bool support);
+  void set_support_texture_format_bgra8888(bool support);
+  void set_support_texture_storage(bool support);
+  void set_support_texture_usage(bool support);
+  void set_support_sync_query(bool support);
+  void set_support_texture_rectangle(bool support);
+  void set_support_texture_half_float_linear(bool support);
+  void set_support_texture_norm16(bool support);
+  void set_msaa_is_slow(bool msaa_is_slow);
+  void set_gpu_rasterization(bool gpu_rasterization);
+  void set_avoid_stencil_buffers(bool avoid_stencil_buffers);
+  void set_enable_dc_layers(bool support);
+  void set_support_multisample_compatibility(bool support);
+  void set_support_texture_storage_image(bool support);
+  void set_support_texture_npot(bool support);
+  void set_max_texture_size(int size);
 
  protected:
-  virtual void InitializeTestContext(TestWebGraphicsContext3D* context) {}
+  virtual void InitializeTestContext() {}
 
- protected:
   TestWebGraphicsContext3D* test_context_ = nullptr;
+  gpu::Capabilities test_capabilities_;
 };
 
 }  // namespace viz

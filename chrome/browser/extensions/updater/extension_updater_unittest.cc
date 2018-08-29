@@ -20,7 +20,6 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/stl_util.h"
@@ -65,7 +64,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_urls.h"
 #include "extensions/common/manifest_constants.h"
-#include "google_apis/gaia/fake_identity_provider.h"
 #include "google_apis/gaia/fake_oauth2_token_service.h"
 #include "net/base/backoff_entry.h"
 #include "net/base/escape.h"
@@ -141,7 +139,6 @@ int kExpectedLoadFlags =
 int kExpectedLoadFlagsForDownloadWithCookies = net::LOAD_DISABLE_CACHE;
 
 // Fake authentication constants
-const char kFakeAccountId[] = "bobloblaw@lawblog.example.com";
 const char kFakeOAuth2Token[] = "ce n'est pas un jeton";
 
 const ManifestFetchData::PingData kNeverPingedData(
@@ -304,6 +301,7 @@ class MockService : public TestExtensionService {
   explicit MockService(TestExtensionPrefs* prefs)
       : prefs_(prefs),
         pending_extension_manager_(prefs->profile()),
+        fake_account_id_("bobloblaw@lawblog.example.com"),
         downloader_delegate_override_(NULL) {}
 
   ~MockService() override {}
@@ -327,6 +325,8 @@ class MockService : public TestExtensionService {
   FakeOAuth2TokenService* fake_token_service() {
     return fake_token_service_.get();
   }
+
+  const std::string& fake_account_id() { return fake_account_id_; }
 
   // Creates test extensions and inserts them into list. The name and
   // version are all based on their index. If |update_url| is non-null, it
@@ -384,19 +384,19 @@ class MockService : public TestExtensionService {
 
   std::unique_ptr<ExtensionDownloader> CreateExtensionDownloaderWithIdentity(
       ExtensionDownloaderDelegate* delegate) {
-    std::unique_ptr<FakeIdentityProvider> fake_identity_provider;
     fake_token_service_.reset(new FakeOAuth2TokenService());
-    fake_identity_provider.reset(new FakeIdentityProvider(
-          fake_token_service_.get()));
-    fake_identity_provider->LogIn(kFakeAccountId);
-    fake_token_service_->AddAccount(kFakeAccountId);
+    fake_token_service_->AddAccount(fake_account_id_);
 
     std::unique_ptr<ExtensionDownloader> downloader(
         CreateExtensionDownloader(delegate));
-    downloader->SetWebstoreIdentityProvider(std::move(fake_identity_provider));
+    downloader->SetWebstoreAuthenticationCapabilities(
+        base::BindRepeating(&MockService::fake_account_id,
+                            base::Unretained(this)),
+        fake_token_service_.get());
     return downloader;
   }
 
+  std::string fake_account_id_;
   std::unique_ptr<FakeOAuth2TokenService> fake_token_service_;
 
   ExtensionDownloaderDelegate* downloader_delegate_override_;
@@ -1390,7 +1390,7 @@ class ExtensionUpdaterTest : public testing::Test {
 
     if (service->fake_token_service()) {
       service->fake_token_service()->IssueAllTokensForAccount(
-          kFakeAccountId, kFakeOAuth2Token, base::Time::Now());
+          service->fake_account_id(), kFakeOAuth2Token, base::Time::Now());
     }
     RunUntilIdle();
 
@@ -1642,7 +1642,8 @@ class ExtensionUpdaterTest : public testing::Test {
 
       // Fake install notice.  This should start the second installation,
       // which will be checked below.
-      fake_crx1->NotifyCrxInstallComplete(false);
+      fake_crx1->NotifyCrxInstallComplete(CrxInstallError(
+          CrxInstallErrorType::OTHER, CrxInstallErrorDetail::NONE));
 
       EXPECT_TRUE(updater.crx_install_is_running_);
     }
@@ -1655,7 +1656,8 @@ class ExtensionUpdaterTest : public testing::Test {
 
     if (updates_start_running) {
       EXPECT_TRUE(updater.crx_install_is_running_);
-      fake_crx2->NotifyCrxInstallComplete(false);
+      fake_crx2->NotifyCrxInstallComplete(CrxInstallError(
+          CrxInstallErrorType::OTHER, CrxInstallErrorDetail::NONE));
     }
     EXPECT_FALSE(updater.crx_install_is_running_);
   }
@@ -1750,9 +1752,8 @@ class ExtensionUpdaterTest : public testing::Test {
                              kUpdateFrequencySecs,
                              NULL,
                              service.GetDownloaderFactory());
-    ExtensionUpdater::CheckParams params;
     updater.Start();
-    updater.CheckNow(params);
+    updater.CheckNow(ExtensionUpdater::CheckParams());
 
     // Make the updater do manifest fetching, and note the urls it tries to
     // fetch.
@@ -2220,9 +2221,8 @@ TEST_F(ExtensionUpdaterTest, TestNonAutoUpdateableLocations) {
   EXPECT_CALL(delegate, GetPingDataForExtension(updateable_id, _));
 
   service.set_extensions(extensions, ExtensionList());
-  ExtensionUpdater::CheckParams params;
   updater.Start();
-  updater.CheckNow(params);
+  updater.CheckNow(ExtensionUpdater::CheckParams());
 }
 
 TEST_F(ExtensionUpdaterTest, TestUpdatingDisabledExtensions) {
@@ -2258,9 +2258,8 @@ TEST_F(ExtensionUpdaterTest, TestUpdatingDisabledExtensions) {
   EXPECT_CALL(delegate, GetPingDataForExtension(disabled_id, _));
 
   service.set_extensions(enabled_extensions, disabled_extensions);
-  ExtensionUpdater::CheckParams params;
   updater.Start();
-  updater.CheckNow(params);
+  updater.CheckNow(ExtensionUpdater::CheckParams());
 }
 
 TEST_F(ExtensionUpdaterTest, TestManifestFetchesBuilderAddExtension) {
@@ -2401,9 +2400,9 @@ TEST_F(ExtensionUpdaterTest, TestUninstallWhileUpdateCheck) {
                            NULL,
                            service.GetDownloaderFactory());
   ExtensionUpdater::CheckParams params;
-  params.ids.push_back(id);
+  params.ids = {id};
   updater.Start();
-  updater.CheckNow(params);
+  updater.CheckNow(std::move(params));
 
   service.set_extensions(ExtensionList(), ExtensionList());
   ASSERT_FALSE(service.GetExtensionById(id, false));

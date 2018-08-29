@@ -16,6 +16,8 @@ class Profile;
 
 namespace app_list {
 
+class AppContextMenu;
+
 class InternalAppResult : public AppResult {
  public:
   InternalAppResult(Profile* profile,
@@ -24,15 +26,19 @@ class InternalAppResult : public AppResult {
                     bool is_recommendation);
   ~InternalAppResult() override;
 
-  // SearchResult overrides:
+  // ChromeSearchResult overrides:
   void Open(int event_flags) override;
-  std::unique_ptr<ChromeSearchResult> Duplicate() const override;
-  ui::MenuModel* GetContextMenuModel() override;
+  void GetContextMenuModel(GetMenuModelCallback callback) override;
 
   // AppContextMenuDelegate overrides:
   void ExecuteLaunchCommand(int event_flags) override;
 
  private:
+  // ChromeSearchResult overrides:
+  AppContextMenu* GetAppContextMenu() override;
+
+  std::unique_ptr<AppContextMenu> context_menu_;
+
   DISALLOW_COPY_AND_ASSIGN(InternalAppResult);
 };
 

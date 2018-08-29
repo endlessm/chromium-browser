@@ -54,6 +54,24 @@
 
 using namespace clang;
 
+void ModuleMap::resolveLinkAsDependencies(Module *Mod) {
+  auto PendingLinkAs = PendingLinkAsModule.find(Mod->Name);
+  if (PendingLinkAs != PendingLinkAsModule.end()) {
+    for (auto &Name : PendingLinkAs->second) {
+      auto *M = findModule(Name.getKey());
+      if (M)
+        M->UseExportAsModuleLinkName = true;
+    }
+  }
+}
+
+void ModuleMap::addLinkAsDependency(Module *Mod) {
+  if (findModule(Mod->ExportAsModule))
+    Mod->UseExportAsModuleLinkName = true;
+  else
+    PendingLinkAsModule[Mod->ExportAsModule].insert(Mod->Name);
+}
+
 Module::HeaderKind ModuleMap::headerRoleToKind(ModuleHeaderRole Role) {
   switch ((int)Role) {
   default: llvm_unreachable("unknown header role");
@@ -133,7 +151,7 @@ Module *ModuleMap::resolveModuleId(const ModuleId &Id, Module *Mod,
   return Context;
 }
 
-/// \brief Append to \p Paths the set of paths needed to get to the 
+/// Append to \p Paths the set of paths needed to get to the 
 /// subframework in which the given module lives.
 static void appendSubframeworkPaths(Module *Mod,
                                     SmallVectorImpl<char> &Path) {
@@ -291,7 +309,7 @@ void ModuleMap::setTarget(const TargetInfo &Target) {
   this->Target = &Target;
 }
 
-/// \brief "Sanitize" a filename so that it can be used as an identifier.
+/// "Sanitize" a filename so that it can be used as an identifier.
 static StringRef sanitizeFilenameAsIdentifier(StringRef Name,
                                               SmallVectorImpl<char> &Buffer) {
   if (Name.empty())
@@ -328,7 +346,7 @@ static StringRef sanitizeFilenameAsIdentifier(StringRef Name,
   return Name;
 }
 
-/// \brief Determine whether the given file name is the name of a builtin
+/// Determine whether the given file name is the name of a builtin
 /// header, supplied by Clang to replace, override, or augment existing system
 /// headers.
 bool ModuleMap::isBuiltinHeader(StringRef FileName) {
@@ -802,7 +820,7 @@ Module *ModuleMap::createModuleForInterfaceUnit(SourceLocation Loc,
   return Result;
 }
 
-/// \brief For a framework module, infer the framework against which we
+/// For a framework module, infer the framework against which we
 /// should link.
 static void inferFrameworkLink(Module *Mod, const DirectoryEntry *FrameworkDir,
                                FileManager &FileMgr) {
@@ -1226,7 +1244,7 @@ bool ModuleMap::resolveConflicts(Module *Mod, bool Complain) {
 
 namespace clang {
 
-  /// \brief A token in a module map file.
+  /// A token in a module map file.
   struct MMToken {
     enum TokenKind {
       Comma,
@@ -1296,37 +1314,37 @@ namespace clang {
     Lexer &L;
     SourceManager &SourceMgr;
 
-    /// \brief Default target information, used only for string literal
+    /// Default target information, used only for string literal
     /// parsing.
     const TargetInfo *Target;
 
     DiagnosticsEngine &Diags;
     ModuleMap &Map;
 
-    /// \brief The current module map file.
+    /// The current module map file.
     const FileEntry *ModuleMapFile;
     
-    /// \brief The directory that file names in this module map file should
+    /// The directory that file names in this module map file should
     /// be resolved relative to.
     const DirectoryEntry *Directory;
 
-    /// \brief Whether this module map is in a system header directory.
+    /// Whether this module map is in a system header directory.
     bool IsSystem;
     
-    /// \brief Whether an error occurred.
+    /// Whether an error occurred.
     bool HadError = false;
         
-    /// \brief Stores string data for the various string literals referenced
+    /// Stores string data for the various string literals referenced
     /// during parsing.
     llvm::BumpPtrAllocator StringData;
     
-    /// \brief The current token.
+    /// The current token.
     MMToken Tok;
     
-    /// \brief The active module.
+    /// The active module.
     Module *ActiveModule = nullptr;
 
-    /// \brief Whether a module uses the 'requires excluded' hack to mark its
+    /// Whether a module uses the 'requires excluded' hack to mark its
     /// contents as 'textual'.
     ///
     /// On older Darwin SDK versions, 'requires excluded' is used to mark the
@@ -1336,10 +1354,10 @@ namespace clang {
     /// 'textual' to match the original intent.
     llvm::SmallPtrSet<Module *, 2> UsesRequiresExcludedHack;
 
-    /// \brief Consume the current token and return its location.
+    /// Consume the current token and return its location.
     SourceLocation consumeToken();
 
-    /// \brief Skip tokens until we reach the a token with the given kind
+    /// Skip tokens until we reach the a token with the given kind
     /// (or the end of the file).
     void skipUntil(MMToken::TokenKind K);
 
@@ -1575,7 +1593,7 @@ void ModuleMapParser::skipUntil(MMToken::TokenKind K) {
   } while (true);
 }
 
-/// \brief Parse a module-id.
+/// Parse a module-id.
 ///
 ///   module-id:
 ///     identifier
@@ -1604,21 +1622,21 @@ bool ModuleMapParser::parseModuleId(ModuleId &Id) {
 
 namespace {
 
-  /// \brief Enumerates the known attributes.
+  /// Enumerates the known attributes.
   enum AttributeKind {
-    /// \brief An unknown attribute.
+    /// An unknown attribute.
     AT_unknown,
 
-    /// \brief The 'system' attribute.
+    /// The 'system' attribute.
     AT_system,
 
-    /// \brief The 'extern_c' attribute.
+    /// The 'extern_c' attribute.
     AT_extern_c,
 
-    /// \brief The 'exhaustive' attribute.
+    /// The 'exhaustive' attribute.
     AT_exhaustive,
 
-    /// \brief The 'no_undeclared_includes' attribute.
+    /// The 'no_undeclared_includes' attribute.
     AT_no_undeclared_includes
   };
 
@@ -1630,14 +1648,15 @@ namespace {
 /// in other ways (FooPrivate and Foo.Private), providing notes and fixits.
 static void diagnosePrivateModules(const ModuleMap &Map,
                                    DiagnosticsEngine &Diags,
-                                   const Module *ActiveModule) {
+                                   const Module *ActiveModule,
+                                   SourceLocation InlineParent) {
 
   auto GenNoteAndFixIt = [&](StringRef BadName, StringRef Canonical,
-                             const Module *M) {
+                             const Module *M, SourceRange ReplLoc) {
     auto D = Diags.Report(ActiveModule->DefinitionLoc,
                           diag::note_mmap_rename_top_level_private_module);
     D << BadName << M->Name;
-    D << FixItHint::CreateReplacement(ActiveModule->DefinitionLoc, Canonical);
+    D << FixItHint::CreateReplacement(ReplLoc, Canonical);
   };
 
   for (auto E = Map.module_begin(); E != Map.module_end(); ++E) {
@@ -1657,7 +1676,8 @@ static void diagnosePrivateModules(const ModuleMap &Map,
       Diags.Report(ActiveModule->DefinitionLoc,
                    diag::warn_mmap_mismatched_private_submodule)
           << FullName;
-      GenNoteAndFixIt(FullName, Canonical, M);
+      GenNoteAndFixIt(FullName, Canonical, M,
+                      SourceRange(InlineParent, ActiveModule->DefinitionLoc));
       continue;
     }
 
@@ -1667,12 +1687,13 @@ static void diagnosePrivateModules(const ModuleMap &Map,
       Diags.Report(ActiveModule->DefinitionLoc,
                    diag::warn_mmap_mismatched_private_module_name)
           << ActiveModule->Name;
-      GenNoteAndFixIt(ActiveModule->Name, Canonical, M);
+      GenNoteAndFixIt(ActiveModule->Name, Canonical, M,
+                      SourceRange(ActiveModule->DefinitionLoc));
     }
   }
 }
 
-/// \brief Parse a module declaration.
+/// Parse a module declaration.
 ///
 ///   module-declaration:
 ///     'extern' 'module' module-id string-literal
@@ -1753,6 +1774,7 @@ void ModuleMapParser::parseModuleDecl() {
   }
   
   Module *PreviousActiveModule = ActiveModule;  
+  SourceLocation LastInlineParentLoc = SourceLocation();
   if (Id.size() > 1) {
     // This module map defines a submodule. Go find the module of which it
     // is a submodule.
@@ -1763,6 +1785,7 @@ void ModuleMapParser::parseModuleDecl() {
         if (I == 0)
           TopLevelModule = Next;
         ActiveModule = Next;
+        LastInlineParentLoc = Id[I].second;
         continue;
       }
       
@@ -1868,21 +1891,24 @@ void ModuleMapParser::parseModuleDecl() {
     ActiveModule->NoUndeclaredIncludes = true;
   ActiveModule->Directory = Directory;
 
+  StringRef MapFileName(ModuleMapFile->getName());
+  if (MapFileName.endswith("module.private.modulemap") ||
+      MapFileName.endswith("module_private.map")) {
+    ActiveModule->ModuleMapIsPrivate = true;
+  }
 
   // Private modules named as FooPrivate, Foo.Private or similar are likely a
   // user error; provide warnings, notes and fixits to direct users to use
   // Foo_Private instead.
   SourceLocation StartLoc =
       SourceMgr.getLocForStartOfFile(SourceMgr.getMainFileID());
-  StringRef MapFileName(ModuleMapFile->getName());
   if (Map.HeaderInfo.getHeaderSearchOpts().ImplicitModuleMaps &&
       !Diags.isIgnored(diag::warn_mmap_mismatched_private_submodule,
                        StartLoc) &&
       !Diags.isIgnored(diag::warn_mmap_mismatched_private_module_name,
                        StartLoc) &&
-      (MapFileName.endswith("module.private.modulemap") ||
-       MapFileName.endswith("module_private.map")))
-    diagnosePrivateModules(Map, Diags, ActiveModule);
+      ActiveModule->ModuleMapIsPrivate)
+    diagnosePrivateModules(Map, Diags, ActiveModule, LastInlineParentLoc);
 
   bool Done = false;
   do {
@@ -1987,7 +2013,7 @@ void ModuleMapParser::parseModuleDecl() {
   ActiveModule = PreviousActiveModule;
 }
 
-/// \brief Parse an extern module declaration.
+/// Parse an extern module declaration.
 ///
 ///   extern module-declaration:
 ///     'extern' 'module' module-id string-literal
@@ -2065,7 +2091,7 @@ static bool shouldAddRequirement(Module *M, StringRef Feature,
   return true;
 }
 
-/// \brief Parse a requires declaration.
+/// Parse a requires declaration.
 ///
 ///   requires-declaration:
 ///     'requires' feature-list
@@ -2121,7 +2147,7 @@ void ModuleMapParser::parseRequiresDecl() {
   } while (true);
 }
 
-/// \brief Parse a header declaration.
+/// Parse a header declaration.
 ///
 ///   header-declaration:
 ///     'textual'[opt] 'header' string-literal
@@ -2249,7 +2275,7 @@ static int compareModuleHeaders(const Module::Header *A,
   return A->NameAsWritten.compare(B->NameAsWritten);
 }
 
-/// \brief Parse an umbrella directory declaration.
+/// Parse an umbrella directory declaration.
 ///
 ///   umbrella-dir-declaration:
 ///     umbrella string-literal
@@ -2327,7 +2353,7 @@ void ModuleMapParser::parseUmbrellaDirDecl(SourceLocation UmbrellaLoc) {
   Map.setUmbrellaDir(ActiveModule, Dir, DirName);
 }
 
-/// \brief Parse a module export declaration.
+/// Parse a module export declaration.
 ///
 ///   export-declaration:
 ///     'export' wildcard-module-id
@@ -2375,7 +2401,7 @@ void ModuleMapParser::parseExportDecl() {
   ActiveModule->UnresolvedExports.push_back(Unresolved);
 }
 
-/// \brief Parse a module export_as declaration.
+/// Parse a module export_as declaration.
 ///
 ///   export-as-declaration:
 ///     'export_as' identifier
@@ -2407,10 +2433,12 @@ void ModuleMapParser::parseExportAsDecl() {
   }
   
   ActiveModule->ExportAsModule = Tok.getString();
+  Map.addLinkAsDependency(ActiveModule);
+
   consumeToken();
 }
 
-/// \brief Parse a module use declaration.
+/// Parse a module use declaration.
 ///
 ///   use-declaration:
 ///     'use' wildcard-module-id
@@ -2427,7 +2455,7 @@ void ModuleMapParser::parseUseDecl() {
     ActiveModule->UnresolvedDirectUses.push_back(ParsedModuleId);
 }
 
-/// \brief Parse a link declaration.
+/// Parse a link declaration.
 ///
 ///   module-declaration:
 ///     'link' 'framework'[opt] string-literal
@@ -2456,7 +2484,7 @@ void ModuleMapParser::parseLinkDecl() {
                                                             IsFramework));
 }
 
-/// \brief Parse a configuration macro declaration.
+/// Parse a configuration macro declaration.
 ///
 ///   module-declaration:
 ///     'config_macros' attributes[opt] config-macro-list?
@@ -2513,7 +2541,7 @@ void ModuleMapParser::parseConfigMacros() {
   } while (true);
 }
 
-/// \brief Format a module-id into a string.
+/// Format a module-id into a string.
 static std::string formatModuleId(const ModuleId &Id) {
   std::string result;
   {
@@ -2529,7 +2557,7 @@ static std::string formatModuleId(const ModuleId &Id) {
   return result;
 }
 
-/// \brief Parse a conflict declaration.
+/// Parse a conflict declaration.
 ///
 ///   module-declaration:
 ///     'conflict' module-id ',' string-literal
@@ -2563,7 +2591,7 @@ void ModuleMapParser::parseConflict() {
   ActiveModule->UnresolvedConflicts.push_back(Conflict);
 }
 
-/// \brief Parse an inferred module declaration (wildcard modules).
+/// Parse an inferred module declaration (wildcard modules).
 ///
 ///   module-declaration:
 ///     'explicit'[opt] 'framework'[opt] 'module' * attributes[opt]
@@ -2716,7 +2744,7 @@ void ModuleMapParser::parseInferredModuleDecl(bool Framework, bool Explicit) {
   }
 }
 
-/// \brief Parse optional attributes.
+/// Parse optional attributes.
 ///
 ///   attributes:
 ///     attribute attributes
@@ -2791,7 +2819,7 @@ bool ModuleMapParser::parseOptionalAttributes(Attributes &Attrs) {
   return HadError;
 }
 
-/// \brief Parse a module map file.
+/// Parse a module map file.
 ///
 ///   module-map-file:
 ///     module-declaration*

@@ -83,9 +83,9 @@ TEST_F(PlatformAppsManifestTest, PlatformAppContentSecurityPolicy) {
   RunTestcases(
       warning_testcases, arraysize(warning_testcases), EXPECT_TYPE_WARNING);
 
-  // Whitelisted ones can (this is the ID corresponding to the base 64 encoded
+  // Allowlisted ones can (this is the ID corresponding to the base 64 encoded
   // key in the init_platform_app_csp.json manifest.)
-  SimpleFeature::ScopedThreadUnsafeWhitelistForTest whitelist(
+  SimpleFeature::ScopedThreadUnsafeAllowlistForTest allowlist(
       "ahplfneplbnjcflhdgkkjeiglkkfeelb");
   scoped_refptr<Extension> extension =
       LoadAndExpectSuccess("init_platform_app_csp.json");
@@ -96,7 +96,7 @@ TEST_F(PlatformAppsManifestTest, PlatformAppContentSecurityPolicy) {
             CSPInfo::GetResourceContentSecurityPolicy(extension.get(),
                                                       std::string()));
 
-  // But even whitelisted ones must specify a secure policy.
+  // But even allowlisted ones must specify a secure policy.
   LoadAndExpectWarning(
       "init_platform_app_csp_insecure.json",
       ErrorUtils::FormatErrorMessage(errors::kInvalidCSPInsecureValue,
@@ -117,18 +117,17 @@ TEST_F(PlatformAppsManifestTest, CertainApisRequirePlatformApps) {
   // testing. The requirements are that (1) it be a valid platform app, and (2)
   // it contain no permissions dictionary.
   std::string error;
-  std::unique_ptr<base::DictionaryValue> manifest(
-      LoadManifest("init_valid_platform_app.json", &error));
+  base::Value manifest = LoadManifest("init_valid_platform_app.json", &error);
 
   std::vector<std::unique_ptr<ManifestData>> manifests;
   // Create each manifest.
   for (const char* api_name : kPlatformAppExperimentalApis) {
-    auto permissions = std::make_unique<base::ListValue>();
-    permissions->AppendString("experimental");
-    permissions->AppendString(api_name);
-    manifest->Set("permissions", std::move(permissions));
+    base::Value permissions(base::Value::Type::LIST);
+    permissions.GetList().push_back(base::Value("experimental"));
+    permissions.GetList().push_back(base::Value(api_name));
+    manifest.SetKey("permissions", std::move(permissions));
     manifests.push_back(
-        std::make_unique<ManifestData>(manifest->CreateDeepCopy(), ""));
+        std::make_unique<ManifestData>(manifest.CreateDeepCopy(), ""));
   }
   // First try to load without any flags. This should warn for every API.
   for (const std::unique_ptr<ManifestData>& manifest : manifests) {

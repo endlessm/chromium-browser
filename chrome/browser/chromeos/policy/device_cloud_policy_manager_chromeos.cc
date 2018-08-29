@@ -100,8 +100,7 @@ bool GetMachineFlag(const std::string& key, bool default_value) {
 
 // Checks whether forced re-enrollment is enabled.
 bool ForcedReEnrollmentEnabled() {
-  return chromeos::AutoEnrollmentController::GetMode() ==
-         chromeos::AutoEnrollmentController::MODE_FORCED_RE_ENROLLMENT;
+  return chromeos::AutoEnrollmentController::IsFREEnabled();
 }
 
 }  // namespace
@@ -251,8 +250,8 @@ void DeviceCloudPolicyManagerChromeOS::StartConnection(
   // exposing policy for extensions.
   if (!component_policy_disabled_for_testing_) {
     base::FilePath component_policy_cache_dir;
-    CHECK(PathService::Get(chromeos::DIR_SIGNIN_PROFILE_COMPONENT_POLICY,
-                           &component_policy_cache_dir));
+    CHECK(base::PathService::Get(chromeos::DIR_SIGNIN_PROFILE_COMPONENT_POLICY,
+                                 &component_policy_cache_dir));
     CHECK(signin_profile_forwarding_schema_registry_);
     CreateComponentCloudPolicyService(
         dm_protocol::kChromeSigninExtensionPolicyType,

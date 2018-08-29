@@ -15,6 +15,7 @@
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
@@ -22,6 +23,7 @@
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
+#include "content/browser/browser_process_sub_thread.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/tracing/tracing_controller_impl.h"
 #include "content/public/app/content_main.h"
@@ -120,7 +122,8 @@ class InitialNavigationObserver : public WebContentsObserver {
 
 }  // namespace
 
-extern int BrowserMain(const MainFunctionParams&);
+extern int BrowserMain(const MainFunctionParams&,
+                       std::unique_ptr<BrowserProcessSubThread> io_thread);
 
 BrowserTestBase::BrowserTestBase()
     : field_trial_list_(std::make_unique<base::FieldTrialList>(nullptr)),
@@ -312,7 +315,7 @@ void BrowserTestBase::SetUp() {
   params.ui_task = ui_task.release();
   params.created_main_parts_closure = created_main_parts_closure.release();
   // TODO(phajdan.jr): Check return code, http://crbug.com/374738 .
-  BrowserMain(params);
+  BrowserMain(params, nullptr);
 #else
   GetContentMainParams()->ui_task = ui_task.release();
   GetContentMainParams()->created_main_parts_closure =
@@ -353,8 +356,7 @@ void BrowserTestBase::ProxyRunTestOnMainThreadLoop() {
     // This can be called from a posted task. Allow nested tasks here, because
     // otherwise the test body will have to do it in order to use RunLoop for
     // waiting.
-    base::MessageLoop::ScopedNestableTaskAllower allow(
-        base::MessageLoop::current());
+    base::MessageLoopCurrent::ScopedNestableTaskAllower allow;
     PreRunTestOnMainThread();
     std::unique_ptr<InitialNavigationObserver> initial_navigation_observer;
     if (initial_web_contents_ &&
@@ -454,20 +456,12 @@ void BrowserTestBase::InitializeNetworkProcess() {
     return;
 
   initialized_network_process_ = true;
-  const testing::TestInfo* const test_info =
-      testing::UnitTest::GetInstance()->current_test_info();
-  bool network_service =
-      base::FeatureList::IsEnabled(network::features::kNetworkService);
-  // ProcessTransferAfterError is the only browser test which needs to modify
-  // the host rules (when not using the network service).
-  if (network_service ||
-      std::string(test_info->name()) != "ProcessTransferAfterError") {
-    host_resolver()->DisableModifications();
-  }
+  host_resolver()->DisableModifications();
 
   // Send the host resolver rules to the network service if it's in use. No need
   // to do this if it's running in the browser process though.
-  if (!network_service || IsNetworkServiceRunningInProcess())
+  if (!base::FeatureList::IsEnabled(network::features::kNetworkService) ||
+      IsNetworkServiceRunningInProcess())
     return;
 
   net::RuleBasedHostResolverProc::RuleList rules = host_resolver()->GetRules();
@@ -497,8 +491,7 @@ void BrowserTestBase::InitializeNetworkProcess() {
       mojom::kNetworkServiceName, &network_service_test);
 
   // Allow nested tasks so that the mojo reply is dispatched.
-  base::MessageLoop::ScopedNestableTaskAllower allow(
-      base::MessageLoop::current());
+  base::MessageLoopCurrent::ScopedNestableTaskAllower allow;
   // Send the DNS rules to network service process. Android needs the RunLoop
   // to dispatch a Java callback that makes network process to enter native
   // code.

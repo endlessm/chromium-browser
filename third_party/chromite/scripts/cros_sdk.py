@@ -29,9 +29,11 @@ from chromite.lib import cgroups
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
+from chromite.lib import cros_sdk_lib
 from chromite.lib import locking
 from chromite.lib import namespaces
 from chromite.lib import osutils
+from chromite.lib import path_util
 from chromite.lib import process_util
 from chromite.lib import retry_util
 from chromite.lib import toolchain
@@ -245,7 +247,8 @@ def DeleteChroot(chroot_path):
 
 
 def EnterChroot(chroot_path, cache_dir, chrome_root, chrome_root_mount,
-                workspace, goma_dir, goma_client_json, additional_args):
+                workspace, goma_dir, goma_client_json, working_dir,
+                additional_args):
   """Enters an existing SDK chroot"""
   st = os.statvfs(os.path.join(chroot_path, 'usr', 'bin', 'sudo'))
   # The os.ST_NOSUID constant wasn't added until python-3.2.
@@ -263,6 +266,8 @@ def EnterChroot(chroot_path, cache_dir, chrome_root, chrome_root_mount,
     cmd.extend(['--goma_dir', goma_dir])
   if goma_client_json:
     cmd.extend(['--goma_client_json', goma_client_json])
+  if working_dir is not None:
+    cmd.extend(['--working_dir', working_dir])
 
   if len(additional_args) > 0:
     cmd.append('--')
@@ -341,8 +346,8 @@ def DeleteChrootSnapshot(snapshot_name, chroot_vg, chroot_lv):
   Raises:
     SystemExit: The lvremove command failed.
   """
-  if snapshot_name in (cros_build_lib.CHROOT_LV_NAME,
-                       cros_build_lib.CHROOT_THINPOOL_NAME):
+  if snapshot_name in (cros_sdk_lib.CHROOT_LV_NAME,
+                       cros_sdk_lib.CHROOT_THINPOOL_NAME):
     logging.error('Cannot remove LV %s as a snapshot.  Use cros_sdk --delete '
                   'if you want to remove the whole chroot.', snapshot_name)
     return
@@ -383,8 +388,8 @@ def RestoreChrootSnapshot(snapshot_name, chroot_vg, chroot_lv):
     SystemExit: Any of the LVM commands failed.
   """
   valid_snapshots = ListChrootSnapshots(chroot_vg, chroot_lv)
-  if (snapshot_name in (cros_build_lib.CHROOT_LV_NAME,
-                        cros_build_lib.CHROOT_THINPOOL_NAME) or
+  if (snapshot_name in (cros_sdk_lib.CHROOT_LV_NAME,
+                        cros_sdk_lib.CHROOT_THINPOOL_NAME) or
       snapshot_name not in valid_snapshots):
     logging.error('Chroot cannot be restored to %s.  Valid snapshots: %s',
                   snapshot_name, ', '.join(valid_snapshots))
@@ -470,8 +475,8 @@ def ListChrootSnapshots(chroot_vg, chroot_lv):
   for line in result.output.splitlines():
     lv_name, pool_lv, lv_attr = line.lstrip().split('\t')
     if (lv_name == chroot_lv or
-        lv_name == cros_build_lib.CHROOT_THINPOOL_NAME or
-        pool_lv != cros_build_lib.CHROOT_THINPOOL_NAME or
+        lv_name == cros_sdk_lib.CHROOT_THINPOOL_NAME or
+        pool_lv != cros_sdk_lib.CHROOT_THINPOOL_NAME or
         not snapshot_attrs.match(lv_attr)):
       continue
     snapshots.append(lv_name)
@@ -751,6 +756,15 @@ def _CreateParser(sdk_latest_version, bootstrap_latest_version):
   parser.add_argument('--goma_client_json', type='path',
                       help='Service account json file to use goma on bot. '
                            'Mounted into the chroot.')
+
+  # Use type=str instead of type='path' to prevent the given path from being
+  # transfered to absolute path automatically.
+  parser.add_argument('--working-dir', type=str,
+                      help='Run the command in specific working directory in '
+                           'chroot.  If the given directory is a relative '
+                           'path, this program will transfer the path to '
+                           'the corresponding one inside chroot.')
+
   parser.add_argument('commands', nargs=argparse.REMAINDER)
 
   # SDK overlay tarball options (mutually exclusive).
@@ -902,6 +916,9 @@ def main(argv):
     parser.error("Trying to enter or snapshot the chroot when --delete "
                  "was specified makes no sense.")
 
+  if options.working_dir is not None and not os.path.isabs(options.working_dir):
+    options.working_dir = path_util.ToChrootPath(options.working_dir)
+
   # Clean up potential leftovers from previous interrupted builds.
   # TODO(bmgordon): Remove this at the end of 2017.  That should be long enough
   # to get rid of them all.
@@ -929,7 +946,7 @@ def main(argv):
       with locking.FileLock(lock_path, 'chroot lock') as lock:
         logging.debug('Checking if existing chroot image can be mounted.')
         lock.write_lock()
-        cros_build_lib.MountChroot(options.chroot, create=False)
+        cros_sdk_lib.MountChroot(options.chroot, create=False)
         chroot_exists = os.path.exists(chroot_ver_file)
         if chroot_exists:
           logging.notice('Mounted existing image %s on chroot',
@@ -963,7 +980,7 @@ def main(argv):
           osutils.UmountTree(options.chroot)
         else:
           logging.notice('Deleting chroot.')
-          cros_build_lib.CleanupChrootMount(options.chroot, delete_image=True)
+          cros_sdk_lib.CleanupChrootMount(options.chroot, delete_image=True)
           osutils.RmDir(options.chroot, ignore_missing=True)
           chroot_deleted = True
 
@@ -985,7 +1002,7 @@ snapshots will be unavailable).''' % ', '.join(missing_image_tools))
     with cgroups.SimpleContainChildren('cros_sdk'):
       with locking.FileLock(lock_path, 'chroot lock') as lock:
         lock.write_lock()
-        if not cros_build_lib.MountChroot(options.chroot, create=True):
+        if not cros_sdk_lib.MountChroot(options.chroot, create=True):
           cros_build_lib.Die('Unable to mount %s on chroot',
                              _ImageFileForChroot(options.chroot))
         logging.notice('Mounted %s on chroot',
@@ -995,7 +1012,7 @@ snapshots will be unavailable).''' % ', '.join(missing_image_tools))
   if any_snapshot_operation:
     with cgroups.SimpleContainChildren('cros_sdk'):
       with locking.FileLock(lock_path, 'chroot lock') as lock:
-        chroot_vg, chroot_lv = cros_build_lib.FindChrootMountSource(
+        chroot_vg, chroot_lv = cros_sdk_lib.FindChrootMountSource(
             options.chroot)
         if not chroot_vg or not chroot_lv:
           cros_build_lib.Die('Unable to find VG/LV for chroot %s',
@@ -1016,7 +1033,7 @@ snapshots will be unavailable).''' % ', '.join(missing_image_tools))
           if not RestoreChrootSnapshot(options.snapshot_restore, chroot_vg,
                                        chroot_lv):
             cros_build_lib.Die('Unable to restore chroot to snapshot.')
-          if not cros_build_lib.MountChroot(options.chroot, create=False):
+          if not cros_sdk_lib.MountChroot(options.chroot, create=False):
             cros_build_lib.Die('Unable to mount restored snapshot onto chroot.')
 
         # Use a read lock for snapshot delete and create even though they modify
@@ -1078,12 +1095,13 @@ snapshots will be unavailable).''' % ', '.join(missing_image_tools))
     logging.PrintBuildbotStepText(sdk_version)
 
   # Based on selections, determine the tarball to fetch.
-  if options.sdk_url:
-    urls = [options.sdk_url]
-  elif options.bootstrap:
-    urls = GetStage3Urls(sdk_version)
-  else:
-    urls = GetArchStageTarballs(sdk_version)
+  if options.download:
+    if options.sdk_url:
+      urls = [options.sdk_url]
+    elif options.bootstrap:
+      urls = GetStage3Urls(sdk_version)
+    else:
+      urls = GetArchStageTarballs(sdk_version)
 
   # Get URLs for the toolchains overlay, if one is to be used.
   toolchains_overlay_urls = None
@@ -1160,4 +1178,4 @@ snapshots will be unavailable).''' % ', '.join(missing_image_tools))
         EnterChroot(options.chroot, options.cache_dir, options.chrome_root,
                     options.chrome_root_mount, options.workspace,
                     options.goma_dir, options.goma_client_json,
-                    chroot_command)
+                    options.working_dir, chroot_command)

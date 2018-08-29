@@ -12,24 +12,20 @@
 #include "chrome/browser/ui/views/profiles/profile_indicator_icon.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/signin/core/browser/profile_management_switches.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/gfx/font.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/label.h"
 
 namespace {
 
-const int kCaptionButtonHeight = 18;
+constexpr int kCaptionButtonHeight = 18;
 
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-// Default extra space between the top of the frame and the top of the window
-// caption buttons.
-const int kExtraCaption = 2;
-
-// Default extra spacing between individual window caption buttons.
-const int kCaptionButtonSpacing = 2;
+// Default spacing around window caption buttons.
+constexpr int kCaptionButtonSpacing = 2;
 #else
-const int kExtraCaption = 0;
-const int kCaptionButtonSpacing = 0;
+constexpr int kCaptionButtonSpacing = 0;
 #endif
 
 }  // namespace
@@ -79,7 +75,7 @@ OpaqueBrowserFrameViewLayout::OpaqueBrowserFrameViewLayout()
       minimum_size_for_buttons_(0),
       has_leading_buttons_(false),
       has_trailing_buttons_(false),
-      extra_caption_y_(kExtraCaption),
+      extra_caption_y_(kCaptionButtonSpacing),
       forced_window_caption_spacing_(-1),
       minimize_button_(nullptr),
       maximize_button_(nullptr),
@@ -105,7 +101,7 @@ gfx::Rect OpaqueBrowserFrameViewLayout::GetBoundsForTabStrip(
     const gfx::Size& tabstrip_preferred_size,
     int available_width) const {
   const int x = GetTabStripLeftInset();
-  available_width -= x + NewTabCaptionSpacing() + trailing_button_start_;
+  available_width -= x + TabStripCaptionSpacing() + trailing_button_start_;
   return gfx::Rect(x, GetTabStripInsetsTop(false), std::max(0, available_width),
                    tabstrip_preferred_size.height());
 }
@@ -125,7 +121,7 @@ gfx::Size OpaqueBrowserFrameViewLayout::GetMinimumSize(
   if (delegate_->IsTabStripVisible()) {
     gfx::Size preferred_size = delegate_->GetTabstripPreferredSize();
     const int min_tabstrip_width = preferred_size.width();
-    const int caption_spacing = NewTabCaptionSpacing();
+    const int caption_spacing = TabStripCaptionSpacing();
     min_size.Enlarge(min_tabstrip_width + caption_spacing, 0);
   }
 
@@ -172,7 +168,7 @@ int OpaqueBrowserFrameViewLayout::NonClientTopHeight(bool restored) const {
 
   int thickness = FrameBorderThickness(restored);
   // The tab top inset is equal to the height of any shadow region above the
-  // tabs, plus a 1 px top stroke.  In tablet mode, we want to push the
+  // tabs, plus a 1 px top stroke.  In maximized mode, we want to push the
   // shadow region off the top of the screen but leave the top stroke.
   if (!restored && delegate_->IsTabStripVisible() && IsTitleBarCondensed())
     thickness -= GetLayoutInsets(TAB).top() - 1;
@@ -291,7 +287,7 @@ void OpaqueBrowserFrameViewLayout::LayoutNewStyleAvatar(views::View* host) {
   minimum_size_for_buttons_ += button_width_with_offset;
   trailing_button_start_ += button_width_with_offset;
 
-  // In non-tablet mode, allow the new tab button to completely slide under
+  // In non-maximized mode, allow the new tab button to completely slide under
   // the avatar button.
   if (!IsTitleBarCondensed()) {
     trailing_button_start_ -=
@@ -319,7 +315,14 @@ bool OpaqueBrowserFrameViewLayout::ShouldIncognitoIconBeOnRight() const {
   return trailing_buttons_.size() < leading_buttons_.size();
 }
 
-int OpaqueBrowserFrameViewLayout::NewTabCaptionSpacing() const {
+int OpaqueBrowserFrameViewLayout::TabStripCaptionSpacing() const {
+  // For Material Refresh, the end of the tabstrip contains empty space to
+  // ensure the window remains draggable, which is sufficient padding to the
+  // other tabstrip contents.
+  using MD = ui::MaterialDesignController;
+  if (MD::IsRefreshUi())
+    return 0;
+
   return (has_trailing_buttons_ && IsTitleBarCondensed()) ?
       kNewTabCaptionCondensedSpacing : kCaptionSpacing;
 }
@@ -514,7 +517,7 @@ void OpaqueBrowserFrameViewLayout::SetBoundsForButton(
       views::ImageButton::ALIGN_BOTTOM);
 
   // There should always be the same number of non-shadow pixels visible to the
-  // side of the caption buttons.  In tablet mode we extend buttons to the
+  // side of the caption buttons.  In maximized mode we extend buttons to the
   // screen top and the rightmost button to the screen right (or leftmost button
   // to the screen left, for left-aligned buttons) to obey Fitts' Law.
   bool title_bar_condensed = IsTitleBarCondensed();

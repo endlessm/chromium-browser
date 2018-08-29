@@ -19,7 +19,6 @@
 #include "content/common/frame_messages.h"
 #include "content/common/frame_owner_properties.h"
 #include "content/public/browser/navigation_throttle.h"
-#include "content/public/browser/stream_handle.h"
 #include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/url_utils.h"
@@ -49,60 +48,6 @@ void TestRenderFrameHostCreationObserver::RenderFrameCreated(
     RenderFrameHost* render_frame_host) {
   last_created_frame_ = render_frame_host;
 }
-
-class TestRenderFrameHost::NavigationInterceptor
-    : public mojom::FrameNavigationControl {
- public:
-  explicit NavigationInterceptor(TestRenderFrameHost* frame_host)
-      : frame_host_(frame_host) {}
-  ~NavigationInterceptor() override = default;
-
-  // mojom::FrameNavigationControl:
-  void CommitNavigation(
-      const network::ResourceResponseHead& head,
-      const GURL& body_url,
-      const CommonNavigationParams& common_params,
-      const RequestNavigationParams& request_params,
-      network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints,
-      std::unique_ptr<URLLoaderFactoryBundleInfo> subresource_loader_factories,
-      base::Optional<std::vector<mojom::TransferrableURLLoaderPtr>>
-          subresource_overrides,
-      mojom::ControllerServiceWorkerInfoPtr controller_service_worker,
-      const base::UnguessableToken& devtools_navigation_token) override {
-    frame_host_->GetProcess()->set_did_frame_commit_navigation(true);
-    frame_host_->GetInternalNavigationControl()->CommitNavigation(
-        head, body_url, common_params, request_params,
-        std::move(url_loader_client_endpoints),
-        std::move(subresource_loader_factories),
-        std::move(subresource_overrides), std::move(controller_service_worker),
-        devtools_navigation_token);
-  }
-
-  void CommitSameDocumentNavigation(
-      const CommonNavigationParams& common_params,
-      const RequestNavigationParams& request_params,
-      CommitSameDocumentNavigationCallback callback) override {}
-
-  void CommitFailedNavigation(
-      const content::CommonNavigationParams& common_params,
-      const content::RequestNavigationParams& request_params,
-      bool has_stale_copy_in_cache,
-      int32_t error_code,
-      const base::Optional<std::string>& error_page_content,
-      std::unique_ptr<URLLoaderFactoryBundleInfo> subresource_loader_factories)
-      override {}
-
-  void UpdateSubresourceLoaderFactories(
-      std::unique_ptr<URLLoaderFactoryBundleInfo> subresource_loaders)
-      override{};
-
-  void HandleRendererDebugURL(const GURL& url) override {}
-
- private:
-  TestRenderFrameHost* const frame_host_;
-
-  DISALLOW_COPY_AND_ASSIGN(NavigationInterceptor);
-};
 
 TestRenderFrameHost::TestRenderFrameHost(SiteInstance* site_instance,
                                          RenderViewHostImpl* render_view_host,
@@ -607,9 +552,9 @@ void TestRenderFrameHost::PrepareForCommitInternal(
   scoped_refptr<network::ResourceResponse> response(
       new network::ResourceResponse);
   response->head.socket_address = socket_address;
-  // TODO(carlosk): ideally with PlzNavigate it should be possible someday to
+  // TODO(carlosk): Ideally, it should be possible someday to
   // fully commit the navigation at this call to CallOnResponseStarted.
-  url_loader->CallOnResponseStarted(response, MakeEmptyStream(), nullptr);
+  url_loader->CallOnResponseStarted(response, nullptr);
 }
 
 void TestRenderFrameHost::PrepareForCommitIfNecessary() {
@@ -631,17 +576,6 @@ void TestRenderFrameHost::SendFramePolicy(
     blink::WebSandboxFlags sandbox_flags,
     const blink::ParsedFeaturePolicy& declared_policy) {
   DidSetFramePolicyHeaders(sandbox_flags, declared_policy);
-}
-
-mojom::FrameNavigationControl* TestRenderFrameHost::GetNavigationControl() {
-  if (!navigation_interceptor_)
-    navigation_interceptor_ = std::make_unique<NavigationInterceptor>(this);
-  return navigation_interceptor_.get();
-}
-
-mojom::FrameNavigationControl*
-TestRenderFrameHost::GetInternalNavigationControl() {
-  return RenderFrameHostImpl::GetNavigationControl();
 }
 
 // static

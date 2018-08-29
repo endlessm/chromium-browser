@@ -4,8 +4,7 @@
 
 #include "components/sync/driver/signin_manager_wrapper.h"
 
-#include "components/signin/core/browser/signin_manager_base.h"
-#include "google_apis/gaia/gaia_constants.h"
+#include "services/identity/public/cpp/identity_manager.h"
 
 SigninManagerWrapper::SigninManagerWrapper(
     identity::IdentityManager* identity_manager,
@@ -20,16 +19,4 @@ identity::IdentityManager* SigninManagerWrapper::GetIdentityManager() {
 
 SigninManagerBase* SigninManagerWrapper::GetSigninManager() {
   return signin_manager_;
-}
-
-std::string SigninManagerWrapper::GetEffectiveUsername() const {
-  return signin_manager_->GetAuthenticatedAccountInfo().email;
-}
-
-std::string SigninManagerWrapper::GetAccountIdToUse() const {
-  return signin_manager_->GetAuthenticatedAccountId();
-}
-
-std::string SigninManagerWrapper::GetSyncScopeToUse() const {
-  return GaiaConstants::kChromeSyncOAuth2Scope;
 }

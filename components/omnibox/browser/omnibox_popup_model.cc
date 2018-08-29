@@ -186,8 +186,15 @@ void OmniboxPopupModel::SetSelectedLineState(LineState state) {
   DCHECK(!result().empty());
   DCHECK_NE(kNoMatch, selected_line_);
 
-  const AutocompleteMatch& match = result().match_at(selected_line_);
-  DCHECK(match.associated_keyword.get());
+  if (state == KEYWORD) {
+    const AutocompleteMatch& match = result().match_at(selected_line_);
+    DCHECK(match.associated_keyword.get());
+  }
+
+  if (state == TAB_SWITCH) {
+    const AutocompleteMatch& match = result().match_at(selected_line_);
+    DCHECK(match.has_tab_match);
+  }
 
   selected_line_state_ = state;
   view_->InvalidateLine(selected_line_);
@@ -231,7 +238,7 @@ bool OmniboxPopupModel::IsStarredMatch(const AutocompleteMatch& match) const {
 }
 
 void OmniboxPopupModel::OnResultChanged() {
-  answer_bitmap_ = SkBitmap();
+  rich_suggestion_bitmaps_.clear();
   const AutocompleteResult& result = this->result();
   selected_line_ = result.default_match() == result.end() ?
       kNoMatch : static_cast<size_t>(result.default_match() - result.begin());
@@ -246,8 +253,18 @@ void OmniboxPopupModel::OnResultChanged() {
     edit_model_->controller()->OnPopupVisibilityChanged();
 }
 
-void OmniboxPopupModel::SetAnswerBitmap(const SkBitmap& bitmap) {
-  answer_bitmap_ = bitmap;
+const SkBitmap* OmniboxPopupModel::RichSuggestionBitmapAt(
+    int result_index) const {
+  const auto iter = rich_suggestion_bitmaps_.find(result_index);
+  if (iter == rich_suggestion_bitmaps_.end()) {
+    return nullptr;
+  }
+  return &iter->second;
+}
+
+void OmniboxPopupModel::SetRichSuggestionBitmap(int result_index,
+                                                const SkBitmap& bitmap) {
+  rich_suggestion_bitmaps_[result_index] = bitmap;
   view_->UpdatePopupAppearance();
 }
 
@@ -260,8 +277,7 @@ gfx::Image OmniboxPopupModel::GetMatchIcon(const AutocompleteMatch& match,
   if (!extension_icon.IsEmpty())
     return extension_icon;
 
-  if (base::FeatureList::IsEnabled(
-          omnibox::kUIExperimentShowSuggestionFavicons) &&
+  if (OmniboxFieldTrial::IsShowSuggestionFaviconsEnabled() &&
       !AutocompleteMatch::IsSearchType(match.type)) {
     // Because the Views UI code calls GetMatchIcon in both the layout and
     // painting code, we may generate multiple OnFaviconFetched callbacks,
@@ -283,6 +299,11 @@ gfx::Image OmniboxPopupModel::GetMatchIcon(const AutocompleteMatch& match,
                                              vector_icon_color);
 }
 #endif  // !defined(OS_ANDROID) && !defined(OS_IOS)
+
+bool OmniboxPopupModel::SelectedLineHasTabMatch() {
+  return selected_line_ != kNoMatch &&
+         result().match_at(selected_line_).has_tab_match;
+}
 
 void OmniboxPopupModel::OnFaviconFetched(const GURL& page_url,
                                          const gfx::Image& icon) {

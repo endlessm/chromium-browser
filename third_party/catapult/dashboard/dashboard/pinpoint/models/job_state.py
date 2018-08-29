@@ -3,7 +3,6 @@
 # found in the LICENSE file.
 
 import collections
-import itertools
 import logging
 
 from dashboard.pinpoint.models import attempt as attempt_module
@@ -37,6 +36,11 @@ _SAME = 'same'
 _UNKNOWN = 'unknown'
 
 
+FUNCTIONAL = 'functional'
+PERFORMANCE = 'performance'
+COMPARISON_MODES = (FUNCTIONAL, PERFORMANCE)
+
+
 class JobState(object):
   """The internal state of a Job.
 
@@ -44,19 +48,26 @@ class JobState(object):
   use regular Python objects, with constructors, dicts, and object references.
 
   We lose the ability to index and query the fields, but it's all internal
-  anyway. Everything queryable should be on the Job object.
-  """
+  anyway. Everything queryable should be on the Job object."""
 
-  def __init__(self, quests):
+  def __init__(self, quests, comparison_mode=None, pin=None):
     """Create a JobState.
 
     Args:
+      comparison_mode: Either 'functional' or 'performance', which the Job uses
+          to figure out whether to perform a functional or performance bisect.
+          If None, the Job will not automatically add any Attempts or Changes.
       quests: A sequence of quests to run on each Change.
+      pin: A Change (Commits + Patch) to apply to every Change in this Job.
     """
     # _quests is mutable. Any modification should mutate the existing list
     # in-place rather than assign a new list, because every Attempt references
     # this object and will be updated automatically if it's mutated.
     self._quests = list(quests)
+
+    self._comparison_mode = comparison_mode
+
+    self._pin = pin
 
     # _changes can be in arbitrary order. Client should not assume that the
     # list of Changes is sorted in any particular order.
@@ -65,11 +76,23 @@ class JobState(object):
     # A mapping from a Change to a list of Attempts on that Change.
     self._attempts = {}
 
+  @property
+  def comparison_mode(self):
+    return self._comparison_mode
+
   def AddAttempts(self, change):
-    assert change in self._attempts
+    if not hasattr(self, '_pin'):
+      # TODO: Remove after data migration.
+      self._pin = None
+
+    if self._pin:
+      change_with_pin = change.Update(self._pin)
+    else:
+      change_with_pin = change
+
     for _ in xrange(_REPEAT_COUNT_INCREASE):
-      self._attempts[change].append(
-          attempt_module.Attempt(self._quests, change))
+      attempt = attempt_module.Attempt(self._quests, change_with_pin)
+      self._attempts[change].append(attempt)
 
   def AddChange(self, change, index=None):
     if index:
@@ -153,36 +176,43 @@ class JobState(object):
         yield index, change_b
 
   def AsDict(self):
-    comparisons = []
+    state = []
+    quest_index = len(self._quests) - 1
+    for change in self._changes:
+      result_values = []
+
+      if self._comparison_mode == 'functional':
+        pass_fails = []
+        for attempt in self._attempts[change]:
+          if attempt.completed:
+            pass_fails.append(int(attempt.failed))
+        if pass_fails:
+          result_values.append(_Mean(pass_fails))
+
+      elif self._comparison_mode == 'performance':
+        for attempt in self._attempts[change]:
+          if quest_index < len(attempt.executions):
+            result_values += attempt.executions[quest_index].result_values
+
+      state.append({
+          'attempts': [attempt.AsDict() for attempt in self._attempts[change]],
+          'change': change.AsDict(),
+          'comparisons': {},
+          'result_values': result_values,
+      })
+
     for index in xrange(1, len(self._changes)):
       change_a = self._changes[index - 1]
       change_b = self._changes[index]
-      comparisons.append(self._Compare(change_a, change_b))
+      comparison = self._Compare(change_a, change_b)
 
-    # result_values is a 3D array. result_values[change][quest] is a list of
-    # all the result values for that Change and Quest.
-    result_values = []
-    for change in self._changes:
-      executions = _ExecutionsPerQuest(self._attempts[change])
-      change_result_values = []
-      for quest in self._quests:
-        quest_result_values = list(itertools.chain.from_iterable(
-            execution.result_values for execution in executions[quest]
-            if execution.completed))
-        change_result_values.append(quest_result_values)
-      result_values.append(change_result_values)
-
-    attempts = []
-    for c in self._changes:
-      attempts.append([attempt.AsDict() for attempt in self._attempts[c]])
+      state[index - 1]['comparisons']['next'] = comparison
+      state[index]['comparisons']['prev'] = comparison
 
     return {
+        'comparison_mode': self._comparison_mode,
         'quests': map(str, self._quests),
-        'changes': [change.AsDict() for change in self._changes],
-        # TODO: Use JobState.Differences().
-        'comparisons': comparisons,
-        'result_values': result_values,
-        'attempts': attempts,
+        'state': state,
     }
 
   def _Compare(self, change_a, change_b):
@@ -209,6 +239,8 @@ class JobState(object):
     if any(not attempt.completed for attempt in attempts_a + attempts_b):
       return _PENDING
 
+    attempt_count = len(attempts_a) + len(attempts_b)
+
     executions_by_quest_a = _ExecutionsPerQuest(attempts_a)
     executions_by_quest_b = _ExecutionsPerQuest(attempts_b)
 
@@ -221,7 +253,7 @@ class JobState(object):
       values_a = tuple(bool(execution.exception) for execution in executions_a)
       values_b = tuple(bool(execution.exception) for execution in executions_b)
       if values_a and values_b:
-        comparison = _CompareValues(values_a, values_b)
+        comparison = _CompareValues(values_a, values_b, attempt_count)
         if comparison == _DIFFERENT:
           return _DIFFERENT
         elif comparison == _UNKNOWN:
@@ -233,7 +265,7 @@ class JobState(object):
       values_b = tuple(_Mean(execution.result_values)
                        for execution in executions_b if execution.result_values)
       if values_a and values_b:
-        comparison = _CompareValues(values_a, values_b)
+        comparison = _CompareValues(values_a, values_b, attempt_count)
         if comparison == _DIFFERENT:
           return _DIFFERENT
         elif comparison == _UNKNOWN:
@@ -253,12 +285,13 @@ def _ExecutionsPerQuest(attempts):
   return executions
 
 
-def _CompareValues(values_a, values_b):
+def _CompareValues(values_a, values_b, attempt_count):
   """Decide whether two samples are the same, different, or unknown.
 
   Arguments:
     values_a: A list of sortable values. They don't need to be numeric.
     values_b: A list of sortable values. They don't need to be numeric.
+    attempt_count: The total number of attempts made.
 
   Returns:
     _DIFFERENT: The samples likely come from different distributions.
@@ -287,8 +320,7 @@ def _CompareValues(values_a, values_b):
     # hypothesis.
     return _DIFFERENT
 
-  index = min(len(values_a), len(values_b)) / 10
-  index = min(index, len(_QUESTIONABLE_SIGNIFICANCE_LEVELS) - 1)
+  index = min(attempt_count / 20, len(_QUESTIONABLE_SIGNIFICANCE_LEVELS) - 1)
   questionable_significance_level = _QUESTIONABLE_SIGNIFICANCE_LEVELS[index]
   if p_value < questionable_significance_level:
     # The p-value is not less than the significance level, but it's small enough

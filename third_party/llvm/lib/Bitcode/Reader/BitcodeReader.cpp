@@ -23,6 +23,7 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/Bitcode/BitstreamReader.h"
 #include "llvm/Bitcode/LLVMBitCodes.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/AutoUpgrade.h"
@@ -532,7 +533,7 @@ public:
   Error materializeModule() override;
   std::vector<StructType *> getIdentifiedStructTypes() const override;
 
-  /// \brief Main interface to parsing a bitcode buffer.
+  /// Main interface to parsing a bitcode buffer.
   /// \returns true if an error occurred.
   Error parseBitcodeInto(Module *M, bool ShouldLazyLoadMetadata = false,
                          bool IsImporting = false);
@@ -1162,6 +1163,7 @@ static uint64_t getRawAttributeMask(Attribute::AttrKind Val) {
   case Attribute::SanitizeHWAddress: return 1ULL << 56;
   case Attribute::NoCfCheck:       return 1ULL << 57;
   case Attribute::OptForFuzzing:   return 1ULL << 58;
+  case Attribute::ShadowCallStack: return 1ULL << 59;
   case Attribute::Dereferenceable:
     llvm_unreachable("dereferenceable attribute not supported in raw format");
     break;
@@ -1200,7 +1202,7 @@ static void addRawAttributeValue(AttrBuilder &B, uint64_t Val) {
   }
 }
 
-/// \brief This fills an AttrBuilder object with the LLVM attributes that have
+/// This fills an AttrBuilder object with the LLVM attributes that have
 /// been decoded from the given integer. This function must stay in sync with
 /// 'encodeLLVMAttributesForBitcode'.
 static void decodeLLVMAttributesForBitcode(AttrBuilder &B,
@@ -1372,6 +1374,8 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::StackProtectStrong;
   case bitc::ATTR_KIND_SAFESTACK:
     return Attribute::SafeStack;
+  case bitc::ATTR_KIND_SHADOWCALLSTACK:
+    return Attribute::ShadowCallStack;
   case bitc::ATTR_KIND_STRICT_FP:
     return Attribute::StrictFP;
   case bitc::ATTR_KIND_STRUCT_RET:
@@ -2519,6 +2523,7 @@ Error BitcodeReader::parseConstants() {
       for (unsigned i = 0; i != ConstStrSize; ++i)
         ConstrStr += (char)Record[3+AsmStrSize+i];
       PointerType *PTy = cast<PointerType>(CurTy);
+      UpgradeInlineAsmString(&AsmStr);
       V = InlineAsm::get(cast<FunctionType>(PTy->getElementType()),
                          AsmStr, ConstrStr, HasSideEffects, IsAlignStack);
       break;
@@ -2544,6 +2549,7 @@ Error BitcodeReader::parseConstants() {
       for (unsigned i = 0; i != ConstStrSize; ++i)
         ConstrStr += (char)Record[3+AsmStrSize+i];
       PointerType *PTy = cast<PointerType>(CurTy);
+      UpgradeInlineAsmString(&AsmStr);
       V = InlineAsm::get(cast<FunctionType>(PTy->getElementType()),
                          AsmStr, ConstrStr, HasSideEffects, IsAlignStack,
                          InlineAsm::AsmDialect(AsmDialect));
@@ -4785,6 +4791,9 @@ Error BitcodeReader::materializeModule() {
   UpgradeDebugInfo(*TheModule);
 
   UpgradeModuleFlags(*TheModule);
+
+  UpgradeRetainReleaseMarker(*TheModule);
+
   return Error::success();
 }
 
@@ -5696,7 +5705,7 @@ llvm::getBitcodeFileContents(MemoryBufferRef Buffer) {
   }
 }
 
-/// \brief Get a lazy one-at-time loading module from bitcode.
+/// Get a lazy one-at-time loading module from bitcode.
 ///
 /// This isn't always used in a lazy context.  In particular, it's also used by
 /// \a parseModule().  If this is truly lazy, then we need to eagerly pull

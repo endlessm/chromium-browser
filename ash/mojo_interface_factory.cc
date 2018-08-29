@@ -10,9 +10,12 @@
 #include "ash/accessibility/accessibility_controller.h"
 #include "ash/accessibility/accessibility_focus_ring_controller.h"
 #include "ash/app_list/app_list_controller_impl.h"
-#include "ash/assistant/ash_assistant_controller.h"
+#include "ash/assistant/assistant_controller.h"
 #include "ash/cast_config_controller.h"
 #include "ash/display/ash_display_controller.h"
+#include "ash/display/cros_display_config.h"
+#include "ash/events/event_rewriter_controller.h"
+#include "ash/first_run/first_run_helper.h"
 #include "ash/highlighter/highlighter_controller.h"
 #include "ash/ime/ime_controller.h"
 #include "ash/login/login_screen_controller.h"
@@ -71,14 +74,19 @@ void BindAppListControllerRequestOnMainThread(
   Shell::Get()->app_list_controller()->BindRequest(std::move(request));
 }
 
-void BindAshAssistantControllerRequestOnMainThread(
-    mojom::AshAssistantControllerRequest request) {
-  Shell::Get()->ash_assistant_controller()->BindRequest(std::move(request));
-}
-
 void BindAshDisplayControllerRequestOnMainThread(
     mojom::AshDisplayControllerRequest request) {
   Shell::Get()->ash_display_controller()->BindRequest(std::move(request));
+}
+
+void BindAssistantControllerRequestOnMainThread(
+    mojom::AssistantControllerRequest request) {
+  Shell::Get()->assistant_controller()->BindRequest(std::move(request));
+}
+
+void BindCrosDisplayConfigControllerRequestOnMainThread(
+    mojom::CrosDisplayConfigControllerRequest request) {
+  Shell::Get()->cros_display_config()->BindRequest(std::move(request));
 }
 
 void BindAshMessageCenterControllerRequestOnMainThread(
@@ -93,6 +101,16 @@ void BindCastConfigOnMainThread(mojom::CastConfigRequest request) {
 void BindDockedMagnifierControllerRequestOnMainThread(
     mojom::DockedMagnifierControllerRequest request) {
   Shell::Get()->docked_magnifier_controller()->BindRequest(std::move(request));
+}
+
+void BindEventRewriterControllerRequestOnMainThread(
+    mojom::EventRewriterControllerRequest request) {
+  Shell::Get()->event_rewriter_controller()->BindRequest(std::move(request));
+}
+
+void BindFirstRunHelperRequestOnMainThread(
+    mojom::FirstRunHelperRequest request) {
+  Shell::Get()->first_run_helper()->BindRequest(std::move(request));
 }
 
 void BindHighlighterControllerRequestOnMainThread(
@@ -203,11 +221,14 @@ void RegisterInterfaces(
                          main_thread_task_runner);
   if (chromeos::switches::IsAssistantEnabled()) {
     registry->AddInterface(
-        base::Bind(&BindAshAssistantControllerRequestOnMainThread),
+        base::Bind(&BindAssistantControllerRequestOnMainThread),
         main_thread_task_runner);
   }
   registry->AddInterface(
       base::Bind(&BindAshDisplayControllerRequestOnMainThread),
+      main_thread_task_runner);
+  registry->AddInterface(
+      base::BindRepeating(&BindCrosDisplayConfigControllerRequestOnMainThread),
       main_thread_task_runner);
   registry->AddInterface(
       base::Bind(&BindAshMessageCenterControllerRequestOnMainThread),
@@ -219,6 +240,12 @@ void RegisterInterfaces(
         base::BindRepeating(&BindDockedMagnifierControllerRequestOnMainThread),
         main_thread_task_runner);
   }
+  registry->AddInterface(
+      base::BindRepeating(&BindEventRewriterControllerRequestOnMainThread),
+      main_thread_task_runner);
+  registry->AddInterface(
+      base::BindRepeating(&BindFirstRunHelperRequestOnMainThread),
+      main_thread_task_runner);
   registry->AddInterface(
       base::Bind(&BindHighlighterControllerRequestOnMainThread),
       main_thread_task_runner);

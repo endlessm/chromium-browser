@@ -17,6 +17,9 @@ import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNIAdditionalImport;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.tab.EmptyTabObserver;
+import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.components.payments.OriginSecurityChecker;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.payments.mojom.PaymentDetailsModifier;
 import org.chromium.payments.mojom.PaymentItem;
@@ -236,6 +239,39 @@ public class ServiceWorkerPaymentAppBridge implements PaymentAppFactory.PaymentA
         nativeAbortPaymentApp(webContents, registrationId, callback);
     }
 
+    /**
+     * Add observer for the opened payment app window tab so as to validate whether the web
+     * contents is secure.
+     *
+     * @param tab The opened payment app window tab.
+     */
+    public static void addTabObserverForPaymentRequestTab(Tab tab) {
+        tab.addObserver(new EmptyTabObserver() {
+            @Override
+            public void onPageLoadFinished(Tab tab) {
+                // Notify closing payment app window so as to abort payment if unsecure.
+                WebContents webContents = tab.getWebContents();
+                if (!OriginSecurityChecker.isOriginSecure(webContents.getLastCommittedUrl())
+                        || (!OriginSecurityChecker.isSchemeCryptographic(
+                                    webContents.getLastCommittedUrl())
+                                   && !OriginSecurityChecker.isOriginLocalhostOrFile(
+                                              webContents.getLastCommittedUrl()))
+                        || !SslValidityChecker.isSslCertificateValid(webContents)) {
+                    onClosingPaymentAppWindow(webContents);
+                }
+            }
+        });
+    }
+
+    /**
+     * Notify closing the opened payment app window.
+     *
+     * @param webContents The web contents in the opened window.
+     */
+    public static void onClosingPaymentAppWindow(WebContents webContents) {
+        nativeOnClosingPaymentAppWindow(webContents);
+    }
+
     @CalledByNative
     private static String[] getSupportedMethodsFromMethodData(PaymentMethodData data) {
         return data.supportedMethods;
@@ -279,11 +315,6 @@ public class ServiceWorkerPaymentAppBridge implements PaymentAppFactory.PaymentA
     @CalledByNative
     private static String getValueFromPaymentItem(PaymentItem item) {
         return item.amount.value;
-    }
-
-    @CalledByNative
-    private static String getCurrencySystemFromPaymentItem(PaymentItem item) {
-        return item.amount.currencySystem;
     }
 
     @CalledByNative
@@ -341,7 +372,7 @@ public class ServiceWorkerPaymentAppBridge implements PaymentAppFactory.PaymentA
             return;
         }
         callback.onPaymentAppCreated(new ServiceWorkerPaymentApp(webContents, name,
-                scopeUri.getScheme() + "://" + scopeUri.getHost(), swUri, scopeUri, useCache,
+                scopeUri.getHost(), swUri, scopeUri, useCache,
                 icon == null ? null : new BitmapDrawable(context.getResources(), icon),
                 methodName));
     }
@@ -420,12 +451,12 @@ public class ServiceWorkerPaymentAppBridge implements PaymentAppFactory.PaymentA
             GetServiceWorkerPaymentAppsInfoCallback callback);
 
     private static native void nativeInvokePaymentApp(WebContents webContents, long registrationId,
-            String topLevelOrigin, String paymentRequestOrigin, String paymentRequestId,
+            String topOrigin, String paymentRequestOrigin, String paymentRequestId,
             PaymentMethodData[] methodData, PaymentItem total, PaymentDetailsModifier[] modifiers,
             PaymentInstrument.InstrumentDetailsCallback callback);
 
     private static native void nativeInstallAndInvokePaymentApp(WebContents webContents,
-            String topLevelOrigin, String paymentRequestOrigin, String paymentRequestId,
+            String topOrigin, String paymentRequestOrigin, String paymentRequestId,
             PaymentMethodData[] methodData, PaymentItem total, PaymentDetailsModifier[] modifiers,
             PaymentInstrument.InstrumentDetailsCallback callback, String appName,
             @Nullable Bitmap icon, String swUrl, String scope, boolean useCache, String method);
@@ -434,6 +465,8 @@ public class ServiceWorkerPaymentAppBridge implements PaymentAppFactory.PaymentA
             WebContents webContents, long registrationId, PaymentInstrument.AbortCallback callback);
 
     private static native void nativeCanMakePayment(WebContents webContents, long registrationId,
-            String topLevelOrigin, String paymentRequestOrigin, PaymentMethodData[] methodData,
+            String topOrigin, String paymentRequestOrigin, PaymentMethodData[] methodData,
             PaymentDetailsModifier[] modifiers, CanMakePaymentCallback callback);
+
+    private static native void nativeOnClosingPaymentAppWindow(WebContents webContents);
 }

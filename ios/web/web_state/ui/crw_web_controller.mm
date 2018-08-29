@@ -40,6 +40,7 @@
 #import "ios/web/interstitials/web_interstitial_impl.h"
 #import "ios/web/navigation/crw_navigation_item_holder.h"
 #import "ios/web/navigation/crw_session_controller.h"
+#include "ios/web/navigation/error_retry_state_machine.h"
 #import "ios/web/navigation/navigation_item_impl.h"
 #import "ios/web/navigation/navigation_manager_impl.h"
 #include "ios/web/navigation/navigation_manager_util.h"
@@ -112,7 +113,6 @@
 #error "This file requires ARC support."
 #endif
 
-using base::UserMetricsAction;
 using web::NavigationManager;
 using web::NavigationManagerImpl;
 using web::WebState;
@@ -142,19 +142,11 @@ NSString* const kUserIsInteractingKey = @"userIsInteracting";
 NSString* const kOriginURLKey = @"originURL";
 NSString* const kIsMainFrame = @"isMainFrame";
 
+// URL scheme for messages sent from javascript for asynchronous processing.
+NSString* const kScriptMessageName = @"crwebinvoke";
+
 // Standard User Defaults key for "Log JS" debug setting.
 NSString* const kLogJavaScript = @"LogJavascript";
-
-// Key of UMA IOSFix.ViewportZoomBugCount histogram.
-const char kUMAViewportZoomBugCount[] = "Renderer.ViewportZoomBugCount";
-
-// Key of UMA Renderer.WKWebViewCallbackAfterDestroy histogram.
-const char kUMAWKWebViewCallbackAfterDestroy[] =
-    "Renderer.WKWebViewCallbackAfterDestroy";
-
-// Key of the UMA Navigation.IOSWKWebViewSlowFastBackForward histogram.
-const char kUMAWKWebViewSlowFastBackForwardNavigationKey[] =
-    "Navigation.IOSWKWebViewSlowFastBackForward";
 
 // Values for the histogram that counts slow/fast back/forward navigations.
 enum class BackForwardNavigationType {
@@ -168,9 +160,6 @@ enum class BackForwardNavigationType {
   SLOW_FORWARD = 3,
   BACK_FORWARD_NAVIGATION_TYPE_COUNT
 };
-
-// URL scheme for messages sent from javascript for asynchronous processing.
-NSString* const kScriptMessageName = @"crwebinvoke";
 
 // Constants for storing the source of NSErrors received by WKWebViews:
 // - Errors received by |-webView:didFailProvisionalNavigation:withError:| are
@@ -248,6 +237,8 @@ NSError* WKWebViewErrorWithSource(NSError* error, WKWebViewErrorSource source) {
 // Cancelled navigations should be simply discarded without handling any
 // specific error.
 @property(nonatomic, assign) BOOL cancelled;
+// Whether the navigation was initiated by a user gesture.
+@property(nonatomic, assign) BOOL hasUserGesture;
 @end
 
 @implementation CRWWebControllerPendingNavigationInfo
@@ -256,6 +247,7 @@ NSError* WKWebViewErrorWithSource(NSError* error, WKWebViewErrorSource source) {
 @synthesize navigationType = _navigationType;
 @synthesize HTTPMethod = _HTTPMethod;
 @synthesize cancelled = _cancelled;
+@synthesize hasUserGesture = _hasUserGesture;
 
 - (instancetype)init {
   if ((self = [super init])) {
@@ -273,7 +265,6 @@ NSError* WKWebViewErrorWithSource(NSError* error, WKWebViewErrorSource source) {
                                CRWWebViewScrollViewProxyObserver,
                                WKNavigationDelegate,
                                WKUIDelegate> {
-  __weak id<CRWWebDelegate> _delegate;
   // The WKWebView managed by this instance.
   WKWebView* _webView;
   // The view used to display content.  Must outlive |_webViewProxy|. The
@@ -281,6 +272,10 @@ NSError* WKWebViewErrorWithSource(NSError* error, WKWebViewErrorSource source) {
   // |self.view| from within this class, as |self.view| triggers creation while
   // |self.containerView| will return nil if the view hasn't been instantiated.
   CRWWebControllerContainerView* _containerView;
+  // YES if the current URL load was triggered in Web Controller. NO by default
+  // and after web usage was disabled. Used by |-loadCurrentURLIfNecessary| to
+  // prevent extra loads.
+  BOOL _currentURLLoadWasTrigerred;
   // If |_contentView| contains a native view rather than a web view, this
   // is its controller. If it's a web view, this is nil.
   id<CRWNativeContent> _nativeController;
@@ -549,6 +544,10 @@ NSError* WKWebViewErrorWithSource(NSError* error, WKWebViewErrorSource source) {
 // Updates the WKBackForwardListItemHolder navigation item.
 - (void)updateCurrentBackForwardListItemHolder;
 
+// Presents native content using the native controller for |item| without
+// notifying WebStateObservers. This is used when loading native view for a new
+// navigation to avoid the delay introduced by placeholder navigation.
+- (void)presentNativeContentForNavigationItem:(web::NavigationItem*)item;
 // Presents native content using the native controller for |item| and notifies
 // WebStateObservers the completion of this navigation. This method does not
 // modify the underlying web view. It simply covers the web view with the native
@@ -561,26 +560,18 @@ NSError* WKWebViewErrorWithSource(NSError* error, WKWebViewErrorSource source) {
 // section of go/bling-navigation-experiment for details.
 - (web::NavigationContextImpl*)loadPlaceholderInWebViewForURL:
     (const GURL&)originalURL;
-// Transitions |item| to web::ErrorRetryState::kNavigatingToFailedNavigationItem
-// state. This is part of auto reloading an item that previously triggered a
-// native error view.
-// TODO(crbug.com/738020): Move navigation logic to NavigationManager.
-- (void)handleNavigationToFailedNavigationItem:(web::NavigationItemImpl*)item;
-// Transitions |item| to web::ErrorRetryState::kRetryFailedNavigationItem state.
-// This is part of auto reloading an item that previously triggered a native
-// error view.
-// TODO(crbug.com/738020): Move navigation logic to NavigationManager.
-- (void)handleRetryFailedNavigationItem:(web::NavigationItemImpl*)item;
+// Executes the command specified by the ErrorRetryStateMachine.
+- (void)handleErrorRetryCommand:(web::ErrorRetryCommand)command
+                 navigationItem:(web::NavigationItemImpl*)item
+              navigationContext:(web::NavigationContextImpl*)context;
 // Loads the current nativeController in a native view. If a web view is
 // present, removes it and swaps in the native view in its place. |context| can
 // not be null.
 - (void)loadNativeViewWithSuccess:(BOOL)loadSuccess
                 navigationContext:(web::NavigationContextImpl*)context;
-// Loads the correct HTML page for |error| in a native controller, retrieved
-// from the native provider.
-- (void)loadErrorInNativeViewForNavigationItem:(web::NavigationItemImpl*)item
-                             navigationContext:
-                                 (web::NavigationContextImpl*)context;
+// Loads the error page.
+- (void)loadErrorPageForNavigationItem:(web::NavigationItemImpl*)item
+                     navigationContext:(web::NavigationContextImpl*)context;
 // Aborts any load for both the web view and web controller.
 - (void)abortLoad;
 // Updates the internal state and informs the delegate that any outstanding load
@@ -589,6 +580,10 @@ NSError* WKWebViewErrorWithSource(NSError* error, WKWebViewErrorSource source) {
 // If YES, the page should be closed if it successfully redirects to a native
 // application, for example if a new tab redirects to the App Store.
 - (BOOL)shouldClosePageOnNativeApplicationLoad;
+// Discards non committed items, only if the last committed URL was not loaded
+// in native view. But if it was a native view, no discard will happen to avoid
+// an ugly animation where the web view is inserted and quickly removed.
+- (void)discardNonCommittedItemsIfLastCommittedWasNotNativeView;
 // Updates URL for navigation context and navigation item.
 - (void)didReceiveRedirectForNavigation:(web::NavigationContextImpl*)context
                                 withURL:(const GURL&)URL;
@@ -610,7 +605,7 @@ NSError* WKWebViewErrorWithSource(NSError* error, WKWebViewErrorSource source) {
 // Navigates forwards or backwards by |delta| pages. No-op if delta is out of
 // bounds. Reloads if delta is 0.
 // TODO(crbug.com/661316): Move this method to NavigationManager.
-- (void)rendererInitiatedGoDelta:(int)delta;
+- (void)rendererInitiatedGoDelta:(int)delta hasUserGesture:(BOOL)hasUserGesture;
 // Informs the native controller if web usage is allowed or not.
 - (void)setNativeControllerWebUsageEnabled:(BOOL)webUsageEnabled;
 // Acts on a single message from the JS object, parsed from JSON into a
@@ -631,7 +626,8 @@ NSError* WKWebViewErrorWithSource(NSError* error, WKWebViewErrorSource source) {
 // this request.
 - (std::unique_ptr<web::NavigationContextImpl>)
 registerLoadRequestForURL:(const GURL&)URL
-   sameDocumentNavigation:(BOOL)sameDocumentNavigation;
+   sameDocumentNavigation:(BOOL)sameDocumentNavigation
+           hasUserGesture:(BOOL)hasUserGesture;
 // Prepares web controller and delegates for anticipated page change.
 // Allows several methods to invoke webWill/DidAddPendingURL on anticipated page
 // change, using the same cached request and calculated transition types.
@@ -640,7 +636,8 @@ registerLoadRequestForURL:(const GURL&)URL
 registerLoadRequestForURL:(const GURL&)URL
                  referrer:(const web::Referrer&)referrer
                transition:(ui::PageTransition)transition
-   sameDocumentNavigation:(BOOL)sameDocumentNavigation;
+   sameDocumentNavigation:(BOOL)sameDocumentNavigation
+           hasUserGesture:(BOOL)hasUserGesture;
 // Maps WKNavigationType to ui::PageTransition.
 - (ui::PageTransition)pageTransitionFromNavigationType:
     (WKNavigationType)navigationType;
@@ -683,7 +680,6 @@ registerLoadRequestForURL:(const GURL&)URL
 // cleaned up manually by calling this method.
 - (void)forgetNullWKNavigation:(WKNavigation*)navigation;
 
-- (BOOL)isLoaded;
 // Returns YES if the current live view is a web view with an image MIME type.
 - (BOOL)contentIsImage;
 // Extracts the current page's viewport tag information and calls |completion|.
@@ -721,10 +717,12 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
 // NavigationManager.
 - (void)pushStateWithPageURL:(const GURL&)pageURL
                  stateObject:(NSString*)stateObject
-                  transition:(ui::PageTransition)transition;
+                  transition:(ui::PageTransition)transition
+              hasUserGesture:(BOOL)hasUserGesture;
 // Assigns the given URL and state object to the current NavigationItem.
 - (void)replaceStateWithPageURL:(const GURL&)pageUrl
-                    stateObject:(NSString*)stateObject;
+                    stateObject:(NSString*)stateObject
+                 hasUserGesture:(BOOL)hasUserGesture;
 // Sets _documentURL to newURL, and updates any relevant state information.
 - (void)setDocumentURL:(const GURL&)newURL;
 // Sets last committed NavigationItem's title to the given |title|, which can
@@ -741,8 +739,6 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
 // Finds all the scrollviews in the view hierarchy and makes sure they do not
 // interfere with scroll to top when tapping the statusbar.
 - (void)optOutScrollsToTopForSubviews;
-// Tears down the old native controller, and then replaces it with the new one.
-- (void)setNativeController:(id<CRWNativeContent>)nativeController;
 // Returns whether |url| should be opened.
 - (BOOL)shouldOpenURL:(const GURL&)url
       mainDocumentURL:(const GURL&)mainDocumentURL;
@@ -756,7 +752,9 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
 // provided by web view.
 - (void)updateSSLStatusForCurrentNavigationItem;
 // Called when a load ends in an SSL error and certificate chain.
-- (void)handleSSLCertError:(NSError*)error forNavigation:navigation;
+- (void)handleSSLCertError:(NSError*)error
+             forNavigation:navigation
+         errorRetryCommand:(web::ErrorRetryCommand)command;
 
 // Used in webView:didReceiveAuthenticationChallenge:completionHandler: to
 // reply with NSURLSessionAuthChallengeDisposition and credentials.
@@ -882,7 +880,8 @@ typedef void (^ViewportStateCompletion)(const web::PageViewportState*);
 - (BOOL)shouldAllowLoadWithNavigationAction:(WKNavigationAction*)action;
 // Called when a load ends in an error.
 - (void)handleLoadError:(NSError*)error
-          forNavigation:(WKNavigation*)navigation;
+          forNavigation:(WKNavigation*)navigation
+      errorRetryCommand:(web::ErrorRetryCommand)command;
 
 // Handles cancelled load in WKWebView (error with NSURLErrorCancelled code).
 - (void)handleCancelledError:(NSError*)error
@@ -926,6 +925,7 @@ GURL URLEscapedForHistory(const GURL& url) {
 
 @implementation CRWWebController
 
+@synthesize delegate = _delegate;
 @synthesize webUsageEnabled = _webUsageEnabled;
 @synthesize loadPhase = _loadPhase;
 @synthesize shouldSuppressDialogs = _shouldSuppressDialogs;
@@ -956,8 +956,8 @@ GURL URLEscapedForHistory(const GURL& url) {
     web::BrowserState* browserState = _webStateImpl->GetBrowserState();
     _certVerificationController = [[CRWCertVerificationController alloc]
         initWithBrowserState:browserState];
-    _certVerificationErrors.reset(
-        new CertVerificationErrorsCacheType(kMaxCertErrorsCount));
+    _certVerificationErrors =
+        std::make_unique<CertVerificationErrorsCacheType>(kMaxCertErrorsCount);
     _navigationStates = [[CRWWKNavigationStates alloc] init];
     [[NSNotificationCenter defaultCenter]
         addObserver:self
@@ -994,10 +994,6 @@ GURL URLEscapedForHistory(const GURL& url) {
   [_containerView displayTransientContent:contentView];
 }
 
-- (id<CRWWebDelegate>)delegate {
-  return _delegate;
-}
-
 - (void)setDelegate:(id<CRWWebDelegate>)delegate {
   _delegate = delegate;
   if ([self.nativeController respondsToSelector:@selector(setDelegate:)])
@@ -1008,12 +1004,6 @@ GURL URLEscapedForHistory(const GURL& url) {
   DCHECK([NSThread isMainThread]);
   DCHECK(_isBeingDestroyed);  // 'close' must have been called already.
   DCHECK(!_webView);
-}
-
-- (void)dismissKeyboard {
-  [_webView endEditing:YES];
-  if ([self.nativeController respondsToSelector:@selector(dismissKeyboard)])
-    [self.nativeController dismissKeyboard];
 }
 
 - (id<CRWNativeContent>)nativeController {
@@ -1084,6 +1074,7 @@ GURL URLEscapedForHistory(const GURL& url) {
       _touchTrackingRecognizer.touchTrackingDelegate = nil;
       _touchTrackingRecognizer = nil;
       [self resetContainerView];
+      _currentURLLoadWasTrigerred = NO;
     }
   }
 }
@@ -1173,9 +1164,6 @@ GURL URLEscapedForHistory(const GURL& url) {
 }
 
 - (CGPoint)scrollPosition {
-  CGPoint position = CGPointMake(0.0, 0.0);
-  if (!self.webScrollView)
-    return position;
   return self.webScrollView.contentOffset;
 }
 
@@ -1253,10 +1241,12 @@ GURL URLEscapedForHistory(const GURL& url) {
 
 - (void)pushStateWithPageURL:(const GURL&)pageURL
                  stateObject:(NSString*)stateObject
-                  transition:(ui::PageTransition)transition {
+                  transition:(ui::PageTransition)transition
+              hasUserGesture:(BOOL)hasUserGesture {
   std::unique_ptr<web::NavigationContextImpl> context =
       web::NavigationContextImpl::CreateNavigationContext(
-          _webStateImpl, pageURL, transition, true);
+          _webStateImpl, pageURL, hasUserGesture, transition,
+          /*is_renderer_initiated=*/true);
   context->SetIsSameDocument(true);
   _webStateImpl->OnNavigationStarted(context.get());
   self.navigationManagerImpl->AddPushStateItemIfNecessary(pageURL, stateObject,
@@ -1266,11 +1256,13 @@ GURL URLEscapedForHistory(const GURL& url) {
 }
 
 - (void)replaceStateWithPageURL:(const GURL&)pageURL
-                    stateObject:(NSString*)stateObject {
+                    stateObject:(NSString*)stateObject
+                 hasUserGesture:(BOOL)hasUserGesture {
   std::unique_ptr<web::NavigationContextImpl> context =
       web::NavigationContextImpl::CreateNavigationContext(
-          _webStateImpl, pageURL,
-          ui::PageTransition::PAGE_TRANSITION_CLIENT_REDIRECT, true);
+          _webStateImpl, pageURL, hasUserGesture,
+          ui::PageTransition::PAGE_TRANSITION_CLIENT_REDIRECT,
+          /*is_renderer_initiated=*/true);
   context->SetIsSameDocument(true);
   _webStateImpl->OnNavigationStarted(context.get());
   self.navigationManagerImpl->UpdateCurrentItemForReplaceState(pageURL,
@@ -1358,7 +1350,8 @@ GURL URLEscapedForHistory(const GURL& url) {
 
 - (std::unique_ptr<web::NavigationContextImpl>)
 registerLoadRequestForURL:(const GURL&)URL
-   sameDocumentNavigation:(BOOL)sameDocumentNavigation {
+   sameDocumentNavigation:(BOOL)sameDocumentNavigation
+           hasUserGesture:(BOOL)hasUserGesture {
   // Get the navigation type from the last main frame load request, and try to
   // map that to a PageTransition.
   WKNavigationType navigationType =
@@ -1372,7 +1365,8 @@ registerLoadRequestForURL:(const GURL&)URL
       [self registerLoadRequestForURL:URL
                              referrer:emptyReferrer
                            transition:transition
-               sameDocumentNavigation:sameDocumentNavigation];
+               sameDocumentNavigation:sameDocumentNavigation
+                       hasUserGesture:(BOOL)hasUserGesture];
   context->SetWKNavigationType(navigationType);
   return context;
 }
@@ -1381,7 +1375,8 @@ registerLoadRequestForURL:(const GURL&)URL
 registerLoadRequestForURL:(const GURL&)requestURL
                  referrer:(const web::Referrer&)referrer
                transition:(ui::PageTransition)transition
-   sameDocumentNavigation:(BOOL)sameDocumentNavigation {
+   sameDocumentNavigation:(BOOL)sameDocumentNavigation
+           hasUserGesture:(BOOL)hasUserGesture {
   // Transfer time is registered so that further transitions within the time
   // envelope are not also registered as links.
   _lastTransferTimeInSeconds = CFAbsoluteTimeGetCurrent();
@@ -1426,7 +1421,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
     self.navigationManagerImpl->AddPendingItem(
         requestURL, referrer, transition,
         web::NavigationInitiationType::RENDERER_INITIATED,
-        web::NavigationManager::UserAgentOverrideOption::INHERIT);
+        NavigationManager::UserAgentOverrideOption::INHERIT);
     item = self.navigationManagerImpl->GetPendingItem();
   }
 
@@ -1437,7 +1432,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
            : true;
   std::unique_ptr<web::NavigationContextImpl> context =
       web::NavigationContextImpl::CreateNavigationContext(
-          _webStateImpl, requestURL, transition, isRendererInitiated);
+          _webStateImpl, requestURL, hasUserGesture, transition,
+          isRendererInitiated);
 
   // TODO(crbug.com/676129): LegacyNavigationManagerImpl::AddPendingItem does
   // not create a pending item in case of reload. Remove this workaround once
@@ -1610,6 +1606,9 @@ registerLoadRequestForURL:(const GURL&)requestURL
         setReferrer:[self referrerFromNavigationAction:action]];
     [_pendingNavigationInfo setNavigationType:action.navigationType];
     [_pendingNavigationInfo setHTTPMethod:action.request.HTTPMethod];
+    BOOL hasUserGesture = web::GetNavigationActionInitiationType(action) ==
+                          web::NavigationActionInitiationType::kUserInitiated;
+    [_pendingNavigationInfo setHasUserGesture:hasUserGesture];
   }
 }
 
@@ -1706,7 +1705,6 @@ registerLoadRequestForURL:(const GURL&)requestURL
     // No DidStartNavigation callback for displaying error page.
     _webStateImpl->OnNavigationStarted(context);
   }
-  const GURL currentURL([self currentURL]);
   [self didStartLoading];
   self.navigationManagerImpl->CommitPendingItem();
   if (loadSuccess) {
@@ -1725,12 +1723,12 @@ registerLoadRequestForURL:(const GURL&)requestURL
   }
 }
 
-- (void)loadErrorInNativeViewForNavigationItem:(web::NavigationItemImpl*)item
-                             navigationContext:
-                                 (web::NavigationContextImpl*)context {
+- (void)loadErrorPageForNavigationItem:(web::NavigationItemImpl*)item
+                     navigationContext:(web::NavigationContextImpl*)context {
   const GURL currentURL = item ? item->GetVirtualURL() : GURL::EmptyGURL();
   NSError* error = context->GetError();
   DCHECK(error);
+  DCHECK_EQ(item->GetUniqueID(), context->GetNavigationItemUniqueID());
 
   if (web::IsWKWebViewSSLCertError(error)) {
     // This could happen only if certificate is absent or could not be parsed.
@@ -1744,17 +1742,28 @@ registerLoadRequestForURL:(const GURL&)requestURL
     error = web::NetErrorFromError(error);
   }
 
-  if (!web::GetWebClient()->IsSlimNavigationManagerEnabled()) {
+  if (!web::GetWebClient()->IsSlimNavigationManagerEnabled() &&
+      !base::FeatureList::IsEnabled(web::features::kWebErrorPages)) {
     [self removeWebView];
-  } else {
-    item->SetErrorRetryState(
-        web::ErrorRetryState::kDisplayingErrorForFailedNavigation);
   }
-  id<CRWNativeContent> nativeContent =
-      [_nativeProvider controllerForURL:currentURL
-                              withError:error
-                                 isPost:context->IsPost()];
-  [self setNativeController:nativeContent];
+
+  if (!base::FeatureList::IsEnabled(web::features::kWebErrorPages)) {
+    if (web::GetWebClient()->IsSlimNavigationManagerEnabled())
+      item->error_retry_state_machine().SetDisplayingNativeError();
+
+    id<CRWNativeContent> nativeContent =
+        [_nativeProvider controllerForURL:currentURL
+                                withError:error
+                                   isPost:context->IsPost()];
+    [self setNativeController:nativeContent];
+  } else {
+    NSString* errorHTML = nil;
+    web::GetWebClient()->PrepareErrorPage(
+        error, context->IsPost(),
+        _webStateImpl->GetBrowserState()->IsOffTheRecord(), &errorHTML);
+
+    [_webView loadHTMLString:errorHTML baseURL:net::NSURLWithGURL(currentURL)];
+  }
 
   // If |context| has placeholder URL, this is the second part of a native error
   // load for a provisional load failure. Rewrite the context URL to actual URL
@@ -1776,13 +1785,15 @@ registerLoadRequestForURL:(const GURL&)requestURL
     [self removeWebView];
     [self loadNativeContentForNavigationItem:self.currentNavItem];
   } else {
+    // Just present the native view now. Leave the rest of native content load
+    // until the placeholder navigation finishes.
+    [self presentNativeContentForNavigationItem:self.currentNavItem];
     [self loadPlaceholderInWebViewForURL:self.currentNavItem->GetVirtualURL()];
   }
 }
 
-- (void)loadNativeContentForNavigationItem:(web::NavigationItem*)item {
+- (void)presentNativeContentForNavigationItem:(web::NavigationItem*)item {
   const GURL targetURL = item ? item->GetURL() : GURL::EmptyGURL();
-  const web::Referrer referrer;
   id<CRWNativeContent> nativeContent =
       [_nativeProvider controllerForURL:targetURL webState:self.webState];
   // Unlike the WebView case, always create a new controller and view.
@@ -1792,11 +1803,24 @@ registerLoadRequestForURL:(const GURL&)requestURL
     item->SetVirtualURL([nativeContent virtualURL]);
   }
 
+  NSString* title = [self.nativeController title];
+  if (title && item) {
+    base::string16 newTitle = base::SysNSStringToUTF16(title);
+    item->SetTitle(newTitle);
+  }
+}
+
+- (void)loadNativeContentForNavigationItem:(web::NavigationItem*)item {
+  [self presentNativeContentForNavigationItem:item];
+
+  const GURL targetURL = item ? item->GetURL() : GURL::EmptyGURL();
+  const web::Referrer referrer;
   std::unique_ptr<web::NavigationContextImpl> navigationContext =
       [self registerLoadRequestForURL:targetURL
                              referrer:referrer
                            transition:self.currentTransition
-               sameDocumentNavigation:NO];
+               sameDocumentNavigation:NO
+                       hasUserGesture:YES];
   [self loadNativeViewWithSuccess:YES
                 navigationContext:navigationContext.get()];
   _loadPhase = web::PAGE_LOADED;
@@ -1807,8 +1831,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
 
 - (web::NavigationContextImpl*)loadPlaceholderInWebViewForURL:
     (const GURL&)originalURL {
-  web::WebClient* webClient = web::GetWebClient();
-  DCHECK(webClient->IsSlimNavigationManagerEnabled());
+  DCHECK(web::GetWebClient()->IsSlimNavigationManagerEnabled() ||
+         base::FeatureList::IsEnabled(web::features::kWebErrorPages));
 
   GURL placeholderURL = CreatePlaceholderUrlForUrl(originalURL);
   [self ensureWebViewCreated];
@@ -1819,22 +1843,54 @@ registerLoadRequestForURL:(const GURL&)requestURL
   [_navigationStates setState:web::WKNavigationState::REQUESTED
                 forNavigation:navigation];
   std::unique_ptr<web::NavigationContextImpl> navigationContext =
-      [self registerLoadRequestForURL:placeholderURL sameDocumentNavigation:NO];
+      [self registerLoadRequestForURL:placeholderURL
+               sameDocumentNavigation:NO
+                       hasUserGesture:NO];
   [_navigationStates setContext:std::move(navigationContext)
                   forNavigation:navigation];
   return [_navigationStates contextForNavigation:navigation];
 }
 
-- (void)handleNavigationToFailedNavigationItem:(web::NavigationItemImpl*)item {
-  item->SetErrorRetryState(
-      web::ErrorRetryState::kNavigatingToFailedNavigationItem);
-  [_webView loadHTMLString:@"" baseURL:net::NSURLWithGURL(item->GetURL())];
-}
+- (void)handleErrorRetryCommand:(web::ErrorRetryCommand)command
+                 navigationItem:(web::NavigationItemImpl*)item
+              navigationContext:(web::NavigationContextImpl*)context {
+  if (command == web::ErrorRetryCommand::kDoNothing)
+    return;
 
-- (void)handleRetryFailedNavigationItem:(web::NavigationItemImpl*)item {
-  DCHECK_EQ(item->GetURL(), net::GURLWithNSURL(_webView.URL));
-  item->SetErrorRetryState(web::ErrorRetryState::kRetryFailedNavigationItem);
-  [_webView reload];
+  DCHECK_EQ(item->GetUniqueID(), context->GetNavigationItemUniqueID());
+  switch (command) {
+    case web::ErrorRetryCommand::kLoadPlaceholder: {
+      web::NavigationContextImpl* placeholderNavigationContext =
+          [self loadPlaceholderInWebViewForURL:item->GetURL()];
+      placeholderNavigationContext->SetError(context->GetError());
+      placeholderNavigationContext->SetIsPost(context->IsPost());
+    } break;
+
+    case web::ErrorRetryCommand::kLoadErrorView:
+      [self loadErrorPageForNavigationItem:item navigationContext:context];
+      break;
+
+    case web::ErrorRetryCommand::kReload:
+      [_webView reload];
+      break;
+
+    case web::ErrorRetryCommand::kRewriteWebViewURL: {
+      std::unique_ptr<web::NavigationContextImpl> navigationContext =
+          [self registerLoadRequestForURL:item->GetURL()
+                   sameDocumentNavigation:NO
+                           hasUserGesture:NO];
+      WKNavigation* navigation =
+          [_webView loadHTMLString:@""
+                           baseURL:net::NSURLWithGURL(item->GetURL())];
+      navigationContext->SetError(context->GetError());
+      navigationContext->SetIsPost(context->IsPost());
+      [_navigationStates setContext:std::move(navigationContext)
+                      forNavigation:navigation];
+    } break;
+
+    case web::ErrorRetryCommand::kDoNothing:
+      NOTREACHED();
+  }
 }
 
 - (void)loadCurrentURL {
@@ -1842,6 +1898,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
   // never displayed. Bail, and let the URL be loaded when the tab is shown.
   if (!_containerView)
     return;
+
+  _currentURLLoadWasTrigerred = YES;
 
   // Reset current WebUI if one exists.
   [self clearWebUI];
@@ -1892,7 +1950,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
 - (void)loadCurrentURLIfNecessary {
   if (_webProcessCrashed) {
     [self loadCurrentURL];
-  } else if (!_containerView) {
+  } else if (!_currentURLLoadWasTrigerred) {
     [self ensureContainerViewCreated];
 
     // TODO(crbug.com/796608): end the practice of calling |loadCurrentURL|
@@ -1923,15 +1981,16 @@ registerLoadRequestForURL:(const GURL&)requestURL
   // TODO(crbug.com/546337): Move to after the load commits, in the subclass
   // implementation. This will be inaccurate if the reload fails or is
   // cancelled.
-  _lastUserInteraction = nil;
-  base::RecordAction(UserMetricsAction("Reload"));
-  GURL url = self.currentNavItem->GetURL();
-  if ([self shouldLoadURLInNativeView:url]) {
+  _lastUserInteraction = nullptr;
+  base::RecordAction(base::UserMetricsAction("Reload"));
+  GURL URL = self.currentNavItem->GetURL();
+  if ([self shouldLoadURLInNativeView:URL]) {
     std::unique_ptr<web::NavigationContextImpl> navigationContext = [self
-        registerLoadRequestForURL:url
+        registerLoadRequestForURL:URL
                          referrer:self.currentNavItemReferrer
                        transition:ui::PageTransition::PAGE_TRANSITION_RELOAD
-           sameDocumentNavigation:NO];
+           sameDocumentNavigation:NO
+                   hasUserGesture:YES];
     _webStateImpl->OnNavigationStarted(navigationContext.get());
     [self didStartLoading];
     self.navigationManagerImpl->CommitPendingItem();
@@ -1959,7 +2018,17 @@ registerLoadRequestForURL:(const GURL&)requestURL
         // New navigation manager can delegate directly to WKWebView to reload
         // for non-app-specific URLs. The necessary navigation states will be
         // updated in WKNavigationDelegate callbacks.
-        [_webView reload];
+        WKNavigation* navigation = [_webView reload];
+        [_navigationStates setState:web::WKNavigationState::REQUESTED
+                      forNavigation:navigation];
+        std::unique_ptr<web::NavigationContextImpl> navigationContext = [self
+            registerLoadRequestForURL:URL
+                             referrer:self.currentNavItemReferrer
+                           transition:ui::PageTransition::PAGE_TRANSITION_RELOAD
+               sameDocumentNavigation:NO
+                       hasUserGesture:YES];
+        [_navigationStates setContext:std::move(navigationContext)
+                        forNavigation:navigation];
       } else {
         [self loadCurrentURL];
       }
@@ -1984,10 +2053,6 @@ registerLoadRequestForURL:(const GURL&)requestURL
   }
 }
 
-- (BOOL)isLoaded {
-  return _loadPhase == web::PAGE_LOADED;
-}
-
 - (BOOL)contentIsImage {
   if (!_webView)
     return NO;
@@ -2007,8 +2072,10 @@ registerLoadRequestForURL:(const GURL&)requestURL
   // navigation. WKWebView allows multiple provisional navigations, while
   // Navigation Manager has only one pending navigation.
   if (item) {
-    item->SetVirtualURL(URL);
-    item->SetURL(URL);
+    if (!web::wk_navigation_util::IsWKInternalUrl(URL)) {
+      item->SetVirtualURL(URL);
+      item->SetURL(URL);
+    }
     // Redirects (3xx response code), must change POST requests to GETs.
     item->SetPostData(nil);
     item->ResetHttpRequestHeaders();
@@ -2088,7 +2155,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
   }
 }
 
-- (void)rendererInitiatedGoDelta:(int)delta {
+- (void)rendererInitiatedGoDelta:(int)delta
+                  hasUserGesture:(BOOL)hasUserGesture {
   if (_isBeingDestroyed)
     return;
 
@@ -2100,7 +2168,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
   if (self.navigationManagerImpl->CanGoToOffset(delta)) {
     int index = self.navigationManagerImpl->GetIndexForOffset(delta);
     self.navigationManagerImpl->GoToIndex(
-        index, web::NavigationInitiationType::RENDERER_INITIATED);
+        index, web::NavigationInitiationType::RENDERER_INITIATED,
+        /*has_user_gesture=*/hasUserGesture);
   }
 }
 
@@ -2177,6 +2246,14 @@ registerLoadRequestForURL:(const GURL&)requestURL
     [self requirePageReconstruction];
 }
 
+- (void)discardNonCommittedItemsIfLastCommittedWasNotNativeView {
+  GURL lastCommittedURL = self.webState->GetLastCommittedURL();
+  BOOL previousItemWasLoadedInNativeView =
+      [self shouldLoadURLInNativeView:lastCommittedURL];
+  if (!previousItemWasLoadedInNativeView)
+    self.navigationManagerImpl->DiscardNonCommittedItems();
+}
+
 #pragma mark -
 #pragma mark CRWWebControllerContainerViewDelegate
 
@@ -2188,14 +2265,6 @@ registerLoadRequestForURL:(const GURL&)requestURL
 - (CGFloat)nativeContentHeaderHeightForContainerView:
     (CRWWebControllerContainerView*)containerView {
   return [self headerHeight];
-}
-
-- (CGFloat)nativeContentFooterHeightForContainerView:
-    (CRWWebControllerContainerView*)containerView {
-  if (![_delegate respondsToSelector:@selector
-                  (nativeContentFooterHeightForWebController:)])
-    return 0.0f;
-  return [_delegate nativeContentFooterHeightForWebController:self];
 }
 
 #pragma mark -
@@ -2332,9 +2401,9 @@ registerLoadRequestForURL:(const GURL&)requestURL
 }
 
 - (BOOL)respondToWKScriptMessage:(WKScriptMessage*)scriptMessage {
-  GURL message_frame_origin = web::GURLOriginWithWKSecurityOrigin(
+  GURL messageFrameOrigin = web::GURLOriginWithWKSecurityOrigin(
       scriptMessage.frameInfo.securityOrigin);
-  if (message_frame_origin.GetOrigin() != _documentURL.GetOrigin()) {
+  if (messageFrameOrigin.GetOrigin() != _documentURL.GetOrigin()) {
     // Messages from cross-origin iframes are not currently supported.
     return NO;
   }
@@ -2522,7 +2591,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
                                context:(NSDictionary*)context {
   if (![context[kIsMainFrame] boolValue])
     return NO;
-  [self rendererInitiatedGoDelta:-1];
+  [self rendererInitiatedGoDelta:-1
+                  hasUserGesture:[context[kUserIsInteractingKey] boolValue]];
   return YES;
 }
 
@@ -2530,7 +2600,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
                                   context:(NSDictionary*)context {
   if (![context[kIsMainFrame] boolValue])
     return NO;
-  [self rendererInitiatedGoDelta:1];
+  [self rendererInitiatedGoDelta:1
+                  hasUserGesture:[context[kUserIsInteractingKey] boolValue]];
   return YES;
 }
 
@@ -2540,7 +2611,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
     return NO;
   double delta = 0;
   if (message->GetDouble("value", &delta)) {
-    [self rendererInitiatedGoDelta:static_cast<int>(delta)];
+    [self rendererInitiatedGoDelta:static_cast<int>(delta)
+                    hasUserGesture:[context[kUserIsInteractingKey] boolValue]];
     return YES;
   }
   return NO;
@@ -2612,7 +2684,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
                                       : ui::PAGE_TRANSITION_CLIENT_REDIRECT;
   [self pushStateWithPageURL:pushURL
                  stateObject:stateObject
-                  transition:transition];
+                  transition:transition
+              hasUserGesture:[context[kUserIsInteractingKey] boolValue]];
 
   NSString* replaceWebViewJS =
       [self javaScriptToReplaceWebViewURL:pushURL stateObjectJSON:stateObject];
@@ -2670,7 +2743,9 @@ registerLoadRequestForURL:(const GURL&)requestURL
     return NO;
   }
   NSString* stateObject = base::SysUTF8ToNSString(stateObjectJSON);
-  [self replaceStateWithPageURL:replaceURL stateObject:stateObject];
+  [self replaceStateWithPageURL:replaceURL
+                    stateObject:stateObject
+                 hasUserGesture:[context[kUserIsInteractingKey] boolValue]];
   NSString* replaceStateJS = [self javaScriptToReplaceWebViewURL:replaceURL
                                                  stateObjectJSON:stateObject];
   __weak CRWWebController* weakSelf = self;
@@ -2706,14 +2781,6 @@ registerLoadRequestForURL:(const GURL&)requestURL
 }
 
 #pragma mark -
-
-- (BOOL)wantsKeyboardShield {
-  if ([self.nativeController
-          respondsToSelector:@selector(wantsKeyboardShield)]) {
-    return [self.nativeController wantsKeyboardShield];
-  }
-  return YES;
-}
 
 - (BOOL)wantsLocationBarHintText {
   if ([self.nativeController
@@ -2751,7 +2818,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
 }
 
 - (void)resetDocumentSpecificState {
-  _lastUserInteraction = nil;
+  _lastUserInteraction = nullptr;
   _clickInProgress = NO;
 }
 
@@ -2921,22 +2988,10 @@ registerLoadRequestForURL:(const GURL&)requestURL
 }
 
 - (void)handleLoadError:(NSError*)error
-          forNavigation:(WKNavigation*)navigation {
-  if ([error code] == NSURLErrorUnsupportedURL)
+          forNavigation:(WKNavigation*)navigation
+      errorRetryCommand:(web::ErrorRetryCommand)errorRetryCommand {
+  if (error.code == NSURLErrorUnsupportedURL)
     return;
-  // In cases where a Plug-in handles the load do not take any further action.
-  if ([error.domain isEqual:base::SysUTF8ToNSString(web::kWebKitErrorDomain)] &&
-      (error.code == web::kWebKitErrorPlugInLoadFailed ||
-       error.code == web::kWebKitErrorCannotShowUrl))
-    return;
-
-  // If URL is blocked due to Restriction, do not take any further action as
-  // WKWebView will show a built-in error.
-  if (web::GetWebClient()->IsSlimNavigationManagerEnabled() &&
-      [error.domain isEqual:base::SysUTF8ToNSString(web::kWebKitErrorDomain)] &&
-      error.code == web::kWebKitErrorUrlBlockedByContentFilter) {
-    return;
-  }
 
   if (error.code == NSURLErrorCancelled) {
     [self handleCancelledError:error forNavigation:navigation];
@@ -2945,12 +3000,20 @@ registerLoadRequestForURL:(const GURL&)requestURL
     return;
   }
 
-  // Reset SSL status to default, unless the load was cancelled (manually or by
-  // back-forward navigation).
-  web::NavigationManager* navManager = self.webState->GetNavigationManager();
-  web::NavigationItem* lastCommittedItem = navManager->GetLastCommittedItem();
-  if (lastCommittedItem)
-    lastCommittedItem->GetSSL() = web::SSLStatus();
+  if ([error.domain isEqual:base::SysUTF8ToNSString(web::kWebKitErrorDomain)] &&
+      (error.code == web::kWebKitErrorPlugInLoadFailed ||
+       error.code == web::kWebKitErrorCannotShowUrl)) {
+    // In cases where a Plug-in handles the load do not take any further action.
+    return;
+  }
+
+  if (web::GetWebClient()->IsSlimNavigationManagerEnabled() &&
+      [error.domain isEqual:base::SysUTF8ToNSString(web::kWebKitErrorDomain)] &&
+      error.code == web::kWebKitErrorUrlBlockedByContentFilter) {
+    // If URL is blocked due to Restriction, do not take any further action as
+    // WKWebView will show a built-in error.
+    return;
+  }
 
   web::NavigationContextImpl* navigationContext =
       [_navigationStates contextForNavigation:navigation];
@@ -2993,49 +3056,35 @@ registerLoadRequestForURL:(const GURL&)requestURL
     if ([_openedApplicationURL containsObject:errorURL])
       return;
 
+    if (!navigationContext->IsDownload()) {
+      // Non-download navigation was cancelled because WKWebView has opened a
+      // Universal Link and called webView:didFailProvisionalNavigation:.
+      self.navigationManagerImpl->DiscardNonCommittedItems();
+    }
+
+
     // This navigation was a download navigation and embedder now has a chance
     // to start the download task.
     _webStateImpl->SetIsLoading(false);
     return;
-
-    // The wrapper error uses the URL of the error and not the requested URL
-    // (which can be different in case of a redirect) to match desktop Chrome
-    // behavior.
-    error = [NSError errorWithDomain:error.domain
-                                code:error.code
-                            userInfo:@{
-                              NSURLErrorFailingURLStringErrorKey : errorURLSpec,
-                              NSUnderlyingErrorKey : error,
-                            }];
   }
 
-  if (!web::GetWebClient()->IsSlimNavigationManagerEnabled()) {
-    [self loadErrorInNativeViewForNavigationItem:self.currentNavItem
-                               navigationContext:navigationContext];
+  NavigationManager* navManager = self.webState->GetNavigationManager();
+  web::NavigationItem* lastCommittedItem = navManager->GetLastCommittedItem();
+  if (lastCommittedItem) {
+    // Reset SSL status for last committed navigation to avoid showing security
+    // status for error pages.
+    lastCommittedItem->GetSSL() = web::SSLStatus();
+  }
+
+  if (!web::GetWebClient()->IsSlimNavigationManagerEnabled() &&
+      !base::FeatureList::IsEnabled(web::features::kWebErrorPages)) {
+    [self loadErrorPageForNavigationItem:self.currentNavItem
+                       navigationContext:navigationContext];
   } else {
-    web::ErrorRetryState errorRetryState =
-        self.currentNavItem->GetErrorRetryState();
-    if (errorRetryState ==
-        web::ErrorRetryState::kReadyToDisplayErrorForFailedNavigation) {
-      // The navigation item that failed to load already exists in the session
-      // history. This can arise if the failure occurs after the navigation is
-      // committed or if this is is a history navigation to a previously loaded
-      // page.
-      [self loadErrorInNativeViewForNavigationItem:self.currentNavItem
-                                 navigationContext:navigationContext];
-    } else {
-      // The navigation item that failed to load is not yet in
-      // WKBackForwardList. This can arise when the failure happens during
-      // provisional load of a new page. Kick off a placeholder load to insert a
-      // WKBackForwardListItem. |loadErrorInNativeViewForNavigationItem| will be
-      // called when the placeholder finishes loading.
-      DCHECK_EQ(web::ErrorRetryState::kNoNavigationError, errorRetryState);
-      web::NavigationContextImpl* placeholderNavigationContext =
-          [self loadPlaceholderInWebViewForURL:self.currentNavItem->GetURL()];
-      placeholderNavigationContext->SetError(error);
-      placeholderNavigationContext->SetIsPost(
-          [self isCurrentNavigationItemPOST]);
-    }
+    [self handleErrorRetryCommand:errorRetryCommand
+                   navigationItem:self.currentNavItem
+                navigationContext:navigationContext];
   }
   if ([_navigationStates stateForNavigation:navigation] ==
       web::WKNavigationState::PROVISIONALY_FAILED) {
@@ -3050,13 +3099,17 @@ registerLoadRequestForURL:(const GURL&)requestURL
     [self loadCancelled];
     self.navigationManagerImpl->DiscardNonCommittedItems();
     // If discarding the non-committed entries results in native content URL,
-    // reload it in its native view.
-    if (!self.nativeController) {
+    // reload it in its native view. For WKBasedNavigationManager, this is not
+    // necessary because WKWebView takes care of reloading the placeholder URL,
+    // which triggers native view upon completion.
+    if (!web::GetWebClient()->IsSlimNavigationManagerEnabled() &&
+        !self.nativeController) {
       GURL lastCommittedURL = self.webState->GetLastCommittedURL();
       if ([self shouldLoadURLInNativeView:lastCommittedURL]) {
         [self loadCurrentURLInNativeView];
       }
     }
+
     web::NavigationContextImpl* navigationContext =
         [_navigationStates contextForNavigation:navigation];
 
@@ -3085,7 +3138,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
 
 - (void)didReceiveWebViewNavigationDelegateCallback {
   if (_isBeingDestroyed) {
-    UMA_HISTOGRAM_BOOLEAN(kUMAWKWebViewCallbackAfterDestroy, true);
+    UMA_HISTOGRAM_BOOLEAN("Renderer.WKWebViewCallbackAfterDestroy", true);
   }
 }
 
@@ -3194,6 +3247,17 @@ registerLoadRequestForURL:(const GURL&)requestURL
                       defaultText:(NSString*)defaultText
                        completion:(void (^)(BOOL, NSString*))completionHandler {
   DCHECK(completionHandler);
+
+  // JavaScript dialogs should not be presented if there is no information about
+  // the requesting page's URL.
+  GURL requestURL = net::GURLWithNSURL(frame.request.URL);
+  if (!requestURL.is_valid()) {
+    completionHandler(NO, nil);
+    return;
+  }
+
+  // If dialogs have been explicitly suppressed using WebState's
+  // SetShouldSuppressDialogs(), suppress the dialog and notify observers.
   if (self.shouldSuppressDialogs) {
     _webStateImpl->OnDialogSuppressed();
     completionHandler(NO, nil);
@@ -3201,7 +3265,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
   }
 
   self.webStateImpl->RunJavaScriptDialog(
-      net::GURLWithNSURL(frame.request.URL), type, message, defaultText,
+      requestURL, type, message, defaultText,
       base::BindBlockArc(^(bool success, NSString* input) {
         completionHandler(success, input);
       }));
@@ -3217,13 +3281,13 @@ registerLoadRequestForURL:(const GURL&)requestURL
     _userInteractedWithWebController = YES;
     if (_isBeingDestroyed)
       return;
-    const web::NavigationManagerImpl& navigationManager =
-        self.webStateImpl->GetNavigationManagerImpl();
+    const NavigationManagerImpl* navigationManager = self.navigationManagerImpl;
     GURL mainDocumentURL =
-        navigationManager.GetItemCount()
-            ? navigationManager.GetLastCommittedItem()->GetURL()
+        navigationManager->GetItemCount()
+            ? navigationManager->GetLastCommittedItem()->GetURL()
             : [self currentURL];
-    _lastUserInteraction.reset(new UserInteractionEvent(mainDocumentURL));
+    _lastUserInteraction =
+        std::make_unique<UserInteractionEvent>(mainDocumentURL);
   }
 }
 
@@ -3320,7 +3384,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
     if (viewportState && !viewportState->viewport_tag_present() &&
         [scrollView minimumZoomScale] == [scrollView maximumZoomScale] &&
         [scrollView zoomScale] > 1.0) {
-      UMA_HISTOGRAM_BOOLEAN(kUMAViewportZoomBugCount, true);
+      UMA_HISTOGRAM_BOOLEAN("Renderer.ViewportZoomBugCount", true);
     }
   }];
 }
@@ -3662,10 +3726,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
 }
 
 - (CGFloat)headerHeight {
-  if (![_delegate respondsToSelector:@selector
-                  (nativeContentHeaderHeightForWebController:)])
-    return 0.0f;
-  return [_delegate nativeContentHeaderHeightForWebController:self];
+  return [_nativeProvider nativeContentHeaderHeightForWebState:self.webState];
 }
 
 - (void)updateSSLStatusForCurrentNavigationItem {
@@ -3673,9 +3734,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
     return;
   }
 
-  web::NavigationManagerImpl& navManager =
-      _webStateImpl->GetNavigationManagerImpl();
-  web::NavigationItem* currentNavItem = navManager.GetLastCommittedItem();
+  NavigationManagerImpl* navManager = self.navigationManagerImpl;
+  web::NavigationItem* currentNavItem = navManager->GetLastCommittedItem();
   if (!currentNavItem) {
     return;
   }
@@ -3683,7 +3743,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
   if (!_SSLStatusUpdater) {
     _SSLStatusUpdater =
         [[CRWSSLStatusUpdater alloc] initWithDataSource:self
-                                      navigationManager:&navManager];
+                                      navigationManager:navManager];
     [_SSLStatusUpdater setDelegate:self];
   }
   NSString* host = base::SysUTF8ToNSString(_documentURL.host());
@@ -3698,7 +3758,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
 }
 
 - (void)handleSSLCertError:(NSError*)error
-             forNavigation:(WKNavigation*)navigation {
+             forNavigation:(WKNavigation*)navigation
+         errorRetryCommand:(web::ErrorRetryCommand)command {
   CHECK(web::IsWKWebViewSSLCertError(error));
 
   net::SSLInfo info;
@@ -3708,7 +3769,9 @@ registerLoadRequestForURL:(const GURL&)requestURL
     // |info.cert| can be null if certChain in NSError is empty or can not be
     // parsed, in this case do not ask delegate if error should be allowed, it
     // should not be.
-    [self handleLoadError:error forNavigation:navigation];
+    [self handleLoadError:error
+            forNavigation:navigation
+        errorRetryCommand:command];
     return;
   }
 
@@ -3762,8 +3825,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
           // NavigationManager.  Additionally, if a page with a certificate
           // error is opened in a new tab, its last committed NavigationItem
           // will be null.
-          web::NavigationManager* navigationManager =
-              self.navigationManagerImpl;
+          NavigationManager* navigationManager = self.navigationManagerImpl;
           web::NavigationItem* item =
               navigationManager ? navigationManager->GetLastCommittedItem()
                                 : nullptr;
@@ -3790,13 +3852,19 @@ registerLoadRequestForURL:(const GURL&)requestURL
   // This will be resized later, but matching the final frame will minimize
   // re-rendering. Use the screen size because the application's key window
   // may still be nil.
-  // TODO(crbug.com/688259): Stop subtracting status bar height.
-  CGFloat statusBarHeight =
-      [[UIApplication sharedApplication] statusBarFrame].size.height;
-  CGRect containerViewFrame = [UIScreen mainScreen].bounds;
-  containerViewFrame.origin.y += statusBarHeight;
-  containerViewFrame.size.height -= statusBarHeight;
-  _containerView.frame = containerViewFrame;
+  if (base::FeatureList::IsEnabled(
+          web::features::kBrowserContainerFullscreen)) {
+    _containerView.frame = [UIScreen mainScreen].bounds;
+  } else {
+    // TODO(crbug.com/688259): Stop subtracting status bar height.
+    CGFloat statusBarHeight =
+        [[UIApplication sharedApplication] statusBarFrame].size.height;
+    CGRect containerViewFrame = [UIScreen mainScreen].bounds;
+    containerViewFrame.origin.y += statusBarHeight;
+    containerViewFrame.size.height -= statusBarHeight;
+    _containerView.frame = containerViewFrame;
+  }
+
   DCHECK(!CGRectIsEmpty(_containerView.frame));
 
   [_containerView addGestureRecognizer:[self touchTrackingRecognizer]];
@@ -3866,7 +3934,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
   // delegate must be specified.
   return web::BuildWKWebView(CGRectZero, config,
                              self.webStateImpl->GetBrowserState(),
-                             self.userAgentType);
+                             [self userAgentType]);
 }
 
 - (void)setWebView:(WKWebView*)webView {
@@ -3973,7 +4041,9 @@ registerLoadRequestForURL:(const GURL&)requestURL
           messageRouter:messageRouter
       completionHandler:^(NSError* loadError) {
         if (loadError)
-          [self handleLoadError:loadError forNavigation:nil];
+          [self handleLoadError:loadError
+                  forNavigation:nil
+              errorRetryCommand:web::ErrorRetryCommand::kDoNothing];
         else
           self.webStateImpl->SetContentsMimeType("text/html");
       }];
@@ -4003,12 +4073,15 @@ registerLoadRequestForURL:(const GURL&)requestURL
     // should not be treated as a navigation, but WKNavigationDelegate callbacks
     // still expect a valid context.
     context = web::NavigationContextImpl::CreateNavigationContext(
-        _webStateImpl, URL, loadHTMLTransition, false);
+        _webStateImpl, URL, /*has_user_gesture=*/true, loadHTMLTransition,
+        /*is_renderer_initiated=*/false);
+    context->SetNavigationItemUniqueID(self.currentNavItem->GetUniqueID());
   } else {
     context = [self registerLoadRequestForURL:URL
                                      referrer:web::Referrer()
                                    transition:loadHTMLTransition
-                       sameDocumentNavigation:NO];
+                       sameDocumentNavigation:NO
+                               hasUserGesture:true];
   }
   [_navigationStates setContext:std::move(context) forNavigation:navigation];
 }
@@ -4021,7 +4094,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
 - (void)stopLoading {
   _stoppedWKNavigation = [_navigationStates lastAddedNavigation];
 
-  base::RecordAction(UserMetricsAction("Stop"));
+  base::RecordAction(base::UserMetricsAction("Stop"));
   // Discard the pending and transient entried before notifying the tab model
   // observers of the change via |-abortLoad|.
   self.navigationManagerImpl->DiscardNonCommittedItems();
@@ -4060,14 +4133,23 @@ registerLoadRequestForURL:(const GURL&)requestURL
   GURL openerURL =
       referrer.length ? GURL(base::SysNSStringToUTF8(referrer)) : _documentURL;
 
-  // TODO(crbug.com/809706): Remove the usage of userIsInteracting and replace
-  // with another boolean that is only true for user java script execution.
-  bool isUserInitiatedNavigationAction =
-      web::GetNavigationActionInitiationType(action) ==
-      web::NavigationActionInitiationType::kUserInitiated;
-  WebState* childWebState = _webStateImpl->CreateNewWebState(
-      requestURL, openerURL,
-      isUserInitiatedNavigationAction || [self userIsInteracting]);
+  // There is no reliable way to tell if there was a user gesture, so this code
+  // checks if user has recently tapped on web view. TODO(crbug.com/809706):
+  // Remove the usage of -userIsInteracting when rdar://19989909 is fixed.
+  bool initiatedByUser = [self userIsInteracting];
+
+  if (UIAccessibilityIsVoiceOverRunning()) {
+    // -userIsInteracting returns NO if VoiceOver is On. Inspect action's
+    // description, which may contain the information about user gesture for
+    // certain link clicks.
+    initiatedByUser = initiatedByUser ||
+                      web::GetNavigationActionInitiationTypeWithVoiceOverOn(
+                          action.description) ==
+                          web::NavigationActionInitiationType::kUserInitiated;
+  }
+
+  WebState* childWebState =
+      _webStateImpl->CreateNewWebState(requestURL, openerURL, initiatedByUser);
   if (!childWebState)
     return nil;
 
@@ -4232,7 +4314,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
     BOOL isMainFrame = action.targetFrame.mainFrame;
     if (isFirstLoadInOpenedWindow && isMainFrame) {
       GURL aboutBlankURL(url::kAboutBlankURL);
-      web::NavigationManager::WebLoadParams loadParams(aboutBlankURL);
+      NavigationManager::WebLoadParams loadParams(aboutBlankURL);
       loadParams.referrer = [self currentReferrer];
       self.webState->GetNavigationManager()->LoadURLWithParams(loadParams);
     }
@@ -4241,10 +4323,13 @@ registerLoadRequestForURL:(const GURL&)requestURL
 
   ui::PageTransition transition =
       [self pageTransitionFromNavigationType:action.navigationType];
-  BOOL allowLoad =
-      self.webStateImpl->ShouldAllowRequest(action.request, transition);
+  BOOL allowLoad = self.webStateImpl->ShouldAllowRequest(
+      action.request, transition, [self isMainFrameNavigationAction:action]);
   if (!allowLoad && action.targetFrame.mainFrame) {
     [_pendingNavigationInfo setCancelled:YES];
+    // Discard the pending item to ensure that the current URL is not
+    // different from what is displayed on the view.
+    [self discardNonCommittedItemsIfLastCommittedWasNotNativeView];
   }
 
   if (allowLoad)
@@ -4319,6 +4404,15 @@ registerLoadRequestForURL:(const GURL&)requestURL
         // Navigation callbacks can only be called for the main frame.
         _webStateImpl->OnNavigationFinished(context);
         transition = context->GetPageTransition();
+        if (!context->HasUserGesture() &&
+            ui::PageTransitionTypeIncludingQualifiersIs(
+                transition, ui::PAGE_TRANSITION_LINK)) {
+          // Link click is not possible without user gesture, so this transition
+          // was incorrectly classified and should be "client redirect" instead.
+          // TODO(crbug.com/549301): Remove this workaround when transition
+          // detection is fixed.
+          transition = ui::PAGE_TRANSITION_CLIENT_REDIRECT;
+        }
       }
       web::DownloadController::FromBrowserState(browserState)
           ->CreateDownloadTask(_webStateImpl, [NSUUID UUID].UUIDString,
@@ -4329,14 +4423,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
     if (isPassKit ||
         base::FeatureList::IsEnabled(web::features::kNewFileDownload)) {
       // Discard the pending item to ensure that the current URL is not
-      // different from what is displayed on the view. URL loaded in a native
-      // view should be excluded to avoid an ugly animation where the web view
-      // is inserted and quickly removed.
-      GURL lastCommittedURL = self.webState->GetLastCommittedURL();
-      BOOL previousItemWasLoadedInNativeView =
-          [self shouldLoadURLInNativeView:lastCommittedURL];
-      if (!previousItemWasLoadedInNativeView)
-        self.navigationManagerImpl->DiscardNonCommittedItems();
+      // different from what is displayed on the view.
+      [self discardNonCommittedItemsIfLastCommittedWasNotNativeView];
     }
     _webStateImpl->SetIsLoading(false);
   }
@@ -4370,11 +4458,13 @@ registerLoadRequestForURL:(const GURL&)requestURL
       // performing characters escaping).
       web::NavigationItem* item = web::GetItemWithUniqueID(
           self.navigationManagerImpl, context->GetNavigationItemUniqueID());
-      if (item) {
-        item->SetVirtualURL(webViewURL);
-        item->SetURL(webViewURL);
+      if (!web::wk_navigation_util::IsWKInternalUrl(webViewURL)) {
+        if (item) {
+          item->SetVirtualURL(webViewURL);
+          item->SetURL(webViewURL);
+        }
+        context->SetUrl(webViewURL);
       }
-      context->SetUrl(webViewURL);
     }
     _webStateImpl->OnNavigationStarted(context);
     return;
@@ -4420,7 +4510,9 @@ registerLoadRequestForURL:(const GURL&)requestURL
   }
 
   std::unique_ptr<web::NavigationContextImpl> navigationContext =
-      [self registerLoadRequestForURL:webViewURL sameDocumentNavigation:NO];
+      [self registerLoadRequestForURL:webViewURL
+               sameDocumentNavigation:NO
+                       hasUserGesture:[_pendingNavigationInfo hasUserGesture]];
   _webStateImpl->OnNavigationStarted(navigationContext.get());
   [_navigationStates setContext:std::move(navigationContext)
                   forNavigation:navigation];
@@ -4449,7 +4541,6 @@ registerLoadRequestForURL:(const GURL&)requestURL
     didFailProvisionalNavigation:(WKNavigation*)navigation
                        withError:(NSError*)error {
   [self didReceiveWebViewNavigationDelegateCallback];
-
   [_navigationStates setState:web::WKNavigationState::PROVISIONALY_FAILED
                 forNavigation:navigation];
 
@@ -4485,10 +4576,29 @@ registerLoadRequestForURL:(const GURL&)requestURL
   } else {
     error = WKWebViewErrorWithSource(error, PROVISIONAL_LOAD);
 
-    if (web::IsWKWebViewSSLCertError(error))
-      [self handleSSLCertError:error forNavigation:navigation];
-    else
-      [self handleLoadError:error forNavigation:navigation];
+    web::NavigationContextImpl* context =
+        [_navigationStates contextForNavigation:navigation];
+    web::NavigationItemImpl* item =
+        context ? web::GetItemWithUniqueID(self.navigationManagerImpl,
+                                           context->GetNavigationItemUniqueID())
+                : nullptr;
+    web::ErrorRetryCommand command = web::ErrorRetryCommand::kDoNothing;
+    if (item) {
+      GURL errorURL =
+          net::GURLWithNSURL(error.userInfo[NSURLErrorFailingURLErrorKey]);
+      command = item->error_retry_state_machine().DidFailProvisionalNavigation(
+          net::GURLWithNSURL(webView.URL), errorURL);
+    }
+
+    if (web::IsWKWebViewSSLCertError(error)) {
+      [self handleSSLCertError:error
+                 forNavigation:navigation
+             errorRetryCommand:command];
+    } else {
+      [self handleLoadError:error
+              forNavigation:navigation
+          errorRetryCommand:command];
+    }
   }
 
   // This must be reset at the end, since code above may need information about
@@ -4536,7 +4646,10 @@ registerLoadRequestForURL:(const GURL&)requestURL
     webViewURL = currentWKItemURL;
   }
 
-  [self displayWebView];
+  // Don't show webview for placeholder navigation to avoid covering the native
+  // content, which may have already been shown.
+  if (!IsPlaceholderUrl(webViewURL))
+    [self displayWebView];
 
   // Record the navigation state.
   [_navigationStates setState:web::WKNavigationState::COMMITTED
@@ -4660,11 +4773,13 @@ registerLoadRequestForURL:(const GURL&)requestURL
 }
 
 - (void)didFinishGoToIndexSameDocumentNavigationWithType:
-    (web::NavigationInitiationType)type {
+            (web::NavigationInitiationType)type
+                                          hasUserGesture:(BOOL)hasUserGesture {
   GURL URL = _webStateImpl->GetLastCommittedURL();
   std::unique_ptr<web::NavigationContextImpl> context =
       web::NavigationContextImpl::CreateNavigationContext(
-          _webStateImpl, URL, ui::PageTransition::PAGE_TRANSITION_FORWARD_BACK,
+          _webStateImpl, URL, hasUserGesture,
+          ui::PageTransition::PAGE_TRANSITION_FORWARD_BACK,
           type == web::NavigationInitiationType::RENDERER_INITIATED);
   context->SetIsSameDocument(true);
   _webStateImpl->SetIsLoading(true);
@@ -4709,7 +4824,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
 
   // If this is a placeholder navigation for an app-specific URL, finish
   // loading by running the completion handler.
-  if (web::GetWebClient()->IsSlimNavigationManagerEnabled()) {
+  if (web::GetWebClient()->IsSlimNavigationManagerEnabled() ||
+      base::FeatureList::IsEnabled(web::features::kWebErrorPages)) {
     // Sometimes |didFinishNavigation| callback arrives after |stopLoading| has
     // been called. Abort in this case.
     if ([_navigationStates stateForNavigation:navigation] ==
@@ -4717,20 +4833,23 @@ registerLoadRequestForURL:(const GURL&)requestURL
       return;
     }
 
-    web::NavigationItemImpl* item = self.currentNavItem;
-    web::ErrorRetryState errorRetryState = item->GetErrorRetryState();
+    web::NavigationItemImpl* item = web::GetItemWithUniqueID(
+        self.navigationManagerImpl, context->GetNavigationItemUniqueID());
 
     if (IsPlaceholderUrl(webViewURL)) {
       GURL originalURL = ExtractUrlFromPlaceholderUrl(webViewURL);
+      if (self.currentNavItem != item &&
+          self.currentNavItem->GetVirtualURL() != originalURL) {
+        // The |didFinishNavigation| callback can arrive after another
+        // navigation has started. Abort in this case.
+        return;
+      }
+
       if (item->GetURL() == webViewURL) {
         // Current navigation item is restored from a placeholder URL as part
         // of session restoration. It is now safe to update the navigation
         // item URL to the original app-specific URL.
         item->SetURL(originalURL);
-      } else if (item->GetVirtualURL() != originalURL) {
-        // The |didFinishNavigation| callback can arrive after another
-        // navigation has started. Abort in this case.
-        return;
       }
 
       const bool isWebUIURL =
@@ -4749,47 +4868,15 @@ registerLoadRequestForURL:(const GURL&)requestURL
       } else if (isWebUIURL) {
         DCHECK(_webUIManager);
         [_webUIManager loadWebUIForURL:item->GetURL()];
-      } else if (context && context->GetError()) {
-        item->SetErrorRetryState(
-            web::ErrorRetryState::kReadyToDisplayErrorForFailedNavigation);
-        [self loadErrorInNativeViewForNavigationItem:item
-                                   navigationContext:context];
-      } else {
-        // This is a back/forward navigation to a native error page.
-        DCHECK_EQ(web::ErrorRetryState::kDisplayingErrorForFailedNavigation,
-                  errorRetryState);
       }
     }
 
-    // Handle state transitions for retrying a previously failed navigation to a
-    // web URL. App-specific URLs should never fail to load so should not change
-    // the error retry state.
-    if (!web::GetWebClient()->IsAppSpecificURL(item->GetURL())) {
-      switch (errorRetryState) {
-        case web::ErrorRetryState::kDisplayingErrorForFailedNavigation:
-          DCHECK(context && (context->GetPageTransition() &
-                             ui::PAGE_TRANSITION_FORWARD_BACK));
-          if (item->GetURL() == webViewURL) {
-            // Shortcut: if WebView already has the original URL (can happen
-            // when WebKit renders page from cache after after repeated
-            // back/forward navigations), skip kNavigatingToFailedNavigationItem
-            // state and just reload the page.
-            [self handleRetryFailedNavigationItem:item];
-          } else {
-            [self handleNavigationToFailedNavigationItem:item];
-          }
-          break;
-        case web::ErrorRetryState::kNavigatingToFailedNavigationItem:
-          [self handleRetryFailedNavigationItem:item];
-          break;
-        case web::ErrorRetryState::kRetryFailedNavigationItem:
-          item->SetErrorRetryState(web::ErrorRetryState::kNoNavigationError);
-          break;
-        case web::ErrorRetryState::kNoNavigationError:
-        case web::ErrorRetryState::kReadyToDisplayErrorForFailedNavigation:
-          break;
-      }
-    }
+    // Handle error display states.
+    web::ErrorRetryCommand command =
+        item->error_retry_state_machine().DidFinishNavigation(webViewURL);
+    [self handleErrorRetryCommand:command
+                   navigationItem:item
+                navigationContext:context];
   }
 
   [_navigationStates setState:web::WKNavigationState::FINISHED
@@ -4810,9 +4897,13 @@ registerLoadRequestForURL:(const GURL&)requestURL
             withError:(NSError*)error {
   [self didReceiveWebViewNavigationDelegateCallback];
 
+  GURL webViewURL = net::GURLWithNSURL(webView.URL);
+
   // This callback should never be triggered for placeholder navigations.
-  if (web::GetWebClient()->IsSlimNavigationManagerEnabled()) {
-    DCHECK(!IsPlaceholderUrl(net::GURLWithNSURL(webView.URL)));
+  auto errorRetryCommand = web::ErrorRetryCommand::kDoNothing;
+  if (web::GetWebClient()->IsSlimNavigationManagerEnabled() ||
+      base::FeatureList::IsEnabled(web::features::kWebErrorPages)) {
+    DCHECK(!IsPlaceholderUrl(webViewURL));
     // Sometimes |didFailNavigation| callback arrives after |stopLoading| has
     // been called. Abort in this case.
     if ([_navigationStates stateForNavigation:navigation] ==
@@ -4820,19 +4911,26 @@ registerLoadRequestForURL:(const GURL&)requestURL
       return;
     }
 
-    // Because the failure happened after didCommitNavigation:, current item
-    // should already have an entry in back-forward history. Indicate this to
-    // the navigation mnager so native error can be displayed without loading
-    // extra placeholders in the web view.
-    self.currentNavItem->SetErrorRetryState(
-        web::ErrorRetryState::kReadyToDisplayErrorForFailedNavigation);
+    web::NavigationContextImpl* context =
+        [_navigationStates contextForNavigation:navigation];
+    web::NavigationItemImpl* item =
+        context ? web::GetItemWithUniqueID(self.navigationManagerImpl,
+                                           context->GetNavigationItemUniqueID())
+                : nullptr;
+    if (item) {
+      GURL errorURL =
+          net::GURLWithNSURL(error.userInfo[NSURLErrorFailingURLErrorKey]);
+      errorRetryCommand = item->error_retry_state_machine().DidFailNavigation(
+          webViewURL, errorURL);
+    }
   }
 
   [_navigationStates setState:web::WKNavigationState::FAILED
                 forNavigation:navigation];
 
   [self handleLoadError:WKWebViewErrorWithSource(error, NAVIGATION)
-          forNavigation:navigation];
+          forNavigation:navigation
+      errorRetryCommand:errorRetryCommand];
   _certVerificationErrors->Clear();
   [self forgetNullWKNavigation:navigation];
 }
@@ -5023,7 +5121,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
       // This URL was not seen before, so register new load request.
       std::unique_ptr<web::NavigationContextImpl> newContext =
           [self registerLoadRequestForURL:webViewURL
-                   sameDocumentNavigation:isSameDocumentNavigation];
+                   sameDocumentNavigation:isSameDocumentNavigation
+                           hasUserGesture:NO];
       [self webPageChangedWithContext:newContext.get()];
       newContext->SetHasCommitted(!isSameDocumentNavigation);
       _webStateImpl->OnNavigationFinished(newContext.get());
@@ -5214,12 +5313,14 @@ registerLoadRequestForURL:(const GURL&)requestURL
 
 - (void)URLDidChangeWithoutDocumentChange:(const GURL&)newURL {
   DCHECK(newURL == net::GURLWithNSURL([_webView URL]));
+  DCHECK(!_documentURL.host().empty() || _documentURL.SchemeIsFile());
 
   if (base::FeatureList::IsEnabled(
           web::features::kCrashOnUnexpectedURLChange)) {
     if (_documentURL.GetOrigin() != newURL.GetOrigin()) {
-      if (newURL.username().find(_documentURL.host()) != std::string::npos ||
-          newURL.password().find(_documentURL.host()) != std::string::npos) {
+      if (!_documentURL.host().empty() &&
+          (newURL.username().find(_documentURL.host()) != std::string::npos ||
+           newURL.password().find(_documentURL.host()) != std::string::npos)) {
         CHECK(false);
       }
     }
@@ -5256,8 +5357,9 @@ registerLoadRequestForURL:(const GURL&)requestURL
       //   2.) Assigning same-origin URL to window.location
       //   3.) Incorrectly handled window.location.replace (crbug.com/307072)
       //   4.) Back-forward same document navigation
-      newNavigationContext =
-          [self registerLoadRequestForURL:newURL sameDocumentNavigation:YES];
+      newNavigationContext = [self registerLoadRequestForURL:newURL
+                                      sameDocumentNavigation:YES
+                                              hasUserGesture:NO];
 
       // Use the current title for items created by same document navigations.
       auto* pendingItem = self.navigationManagerImpl->GetPendingItem();
@@ -5360,7 +5462,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
           [self registerLoadRequestForURL:navigationURL
                                  referrer:self.currentNavItemReferrer
                                transition:self.currentTransition
-                   sameDocumentNavigation:sameDocumentNavigation];
+                   sameDocumentNavigation:sameDocumentNavigation
+                           hasUserGesture:YES];
       WKNavigation* navigation = [self loadPOSTRequest:request];
       [_navigationStates setContext:std::move(navigationContext)
                       forNavigation:navigation];
@@ -5375,11 +5478,15 @@ registerLoadRequestForURL:(const GURL&)requestURL
         [self registerLoadRequestForURL:navigationURL
                                referrer:self.currentNavItemReferrer
                              transition:self.currentTransition
-                 sameDocumentNavigation:sameDocumentNavigation];
+                 sameDocumentNavigation:sameDocumentNavigation
+                         hasUserGesture:YES];
     WKNavigation* navigation = [self loadRequest:request];
     [_navigationStates setContext:std::move(navigationContext)
                     forNavigation:navigation];
     [self reportBackForwardNavigationTypeForFastNavigation:NO];
+    if (self.currentNavItem) {
+      self.currentNavItem->error_retry_state_machine().ResetState();
+    }
   };
 
   // When navigating via WKBackForwardListItem to pages created or updated by
@@ -5416,7 +5523,8 @@ registerLoadRequestForURL:(const GURL&)requestURL
         [self registerLoadRequestForURL:navigationURL
                                referrer:self.currentNavItemReferrer
                              transition:self.currentTransition
-                 sameDocumentNavigation:sameDocumentNavigation];
+                 sameDocumentNavigation:sameDocumentNavigation
+                         hasUserGesture:YES];
     WKNavigation* navigation = nil;
     if (navigationURL == net::GURLWithNSURL([_webView URL])) {
       navigation = [_webView reload];
@@ -5433,6 +5541,9 @@ registerLoadRequestForURL:(const GURL&)requestURL
                   forNavigation:navigation];
     [_navigationStates setContext:std::move(navigationContext)
                     forNavigation:navigation];
+    if (self.currentNavItem) {
+      self.currentNavItem->error_retry_state_machine().ResetState();
+    }
   };
 
   // If the request is not a form submission or resubmission, or the user
@@ -5449,6 +5560,9 @@ registerLoadRequestForURL:(const GURL&)requestURL
   DCHECK(!web::GetWebClient()->IsSlimNavigationManagerEnabled());
   _webStateImpl->ShowRepostFormWarningDialog(
       base::BindBlockArc(^(bool shouldContinue) {
+        if (_isBeingDestroyed)
+          return;
+
         if (shouldContinue)
           webViewNavigationBlock();
         else
@@ -5477,7 +5591,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
   }
 
   UMA_HISTOGRAM_ENUMERATION(
-      kUMAWKWebViewSlowFastBackForwardNavigationKey, type,
+      "Navigation.IOSWKWebViewSlowFastBackForward", type,
       BackForwardNavigationType::BACK_FORWARD_NAVIGATION_TYPE_COUNT);
 }
 
@@ -5485,6 +5599,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
 #pragma mark Testing-Only Methods
 
 - (void)injectWebViewContentView:(CRWWebViewContentView*)webViewContentView {
+  _currentURLLoadWasTrigerred = NO;
   [self removeWebView];
 
   [_containerView displayWebViewContentView:webViewContentView];
@@ -5492,6 +5607,7 @@ registerLoadRequestForURL:(const GURL&)requestURL
 }
 
 - (void)resetInjectedWebViewContentView {
+  _currentURLLoadWasTrigerred = NO;
   [self setWebView:nil];
   [self resetContainerView];
 }

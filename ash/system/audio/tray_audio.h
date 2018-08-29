@@ -21,6 +21,8 @@ class AudioDetailedView;
 class VolumeView;
 }
 
+class DetailedViewDelegate;
+
 // The system tray item for audio input and output.
 class ASH_EXPORT TrayAudio : public TrayImageItem,
                              public chromeos::CrasAudioHandler::AudioObserver,
@@ -53,6 +55,7 @@ class ASH_EXPORT TrayAudio : public TrayImageItem,
   void OnDefaultViewDestroyed() override;
   void OnDetailedViewDestroyed() override;
   bool ShouldShowShelf() const override;
+  views::View* GetItemToRestoreFocusTo() override;
 
   // Overridden from CrasAudioHandler::AudioObserver.
   void OnOutputNodeVolumeChanged(uint64_t node_id, int volume) override;
@@ -77,6 +80,8 @@ class ASH_EXPORT TrayAudio : public TrayImageItem,
   bool pop_up_volume_view_;
 
   tray::AudioDetailedView* audio_detail_view_;
+
+  const std::unique_ptr<DetailedViewDelegate> detailed_view_delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(TrayAudio);
 };

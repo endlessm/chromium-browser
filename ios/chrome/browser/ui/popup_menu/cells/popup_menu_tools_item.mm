@@ -7,6 +7,7 @@
 #include <stdlib.h>
 
 #include "base/logging.h"
+#import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
 #import "ios/chrome/browser/ui/reading_list/number_badge_view.h"
 #import "ios/chrome/browser/ui/reading_list/text_badge_view.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
@@ -19,7 +20,8 @@
 #endif
 
 namespace {
-const int kEnabledColor = 0x1A73E8;
+const int kEnabledDefaultColor = 0x1A73E8;
+const int kEnabledDestructiveColor = 0xEA4334;
 const CGFloat kImageLength = 28;
 const CGFloat kCellHeight = 44;
 const CGFloat kInnerMargin = 11;
@@ -27,6 +29,8 @@ const CGFloat kMargin = 15;
 const CGFloat kTopMargin = 8;
 const CGFloat kTopMarginBadge = 14;
 const CGFloat kMaxHeight = 100;
+NSString* const kToolsMenuTextBadgeAccessibilityIdentifier =
+    @"kToolsMenuTextBadgeAccessibilityIdentifier";
 }  // namespace
 
 @implementation PopupMenuToolsItem
@@ -37,6 +41,7 @@ const CGFloat kMaxHeight = 100;
 @synthesize image = _image;
 @synthesize title = _title;
 @synthesize enabled = _enabled;
+@synthesize destructiveAction = _destructiveAction;
 
 - (instancetype)initWithType:(NSInteger)type {
   self = [super initWithType:type];
@@ -54,6 +59,7 @@ const CGFloat kMaxHeight = 100;
   cell.imageView.image = self.image;
   cell.accessibilityTraits = UIAccessibilityTraitButton;
   cell.userInteractionEnabled = self.enabled;
+  cell.destructiveAction = self.destructiveAction;
   [cell setBadgeNumber:self.badgeNumber];
   [cell setBadgeText:self.badgeText];
 }
@@ -91,6 +97,9 @@ const CGFloat kMaxHeight = 100;
 @property(nonatomic, strong) TextBadgeView* textBadgeView;
 // Constraints between the trailing of the label and the badges.
 @property(nonatomic, strong) NSLayoutConstraint* titleToBadgeConstraint;
+// Color for the title and the image.
+@property(nonatomic, strong, readonly) UIColor* contentColor;
+
 @end
 
 @implementation PopupMenuToolsCell
@@ -100,11 +109,17 @@ const CGFloat kMaxHeight = 100;
 @synthesize textBadgeView = _textBadgeView;
 @synthesize titleLabel = _titleLabel;
 @synthesize titleToBadgeConstraint = _titleToBadgeConstraint;
+@synthesize destructiveAction = _destructiveAction;
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style
               reuseIdentifier:(NSString*)reuseIdentifier {
   self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
   if (self) {
+    UIView* selectedBackgroundView = [[UIView alloc] init];
+    selectedBackgroundView.backgroundColor =
+        [UIColor colorWithWhite:0 alpha:kSelectedItemBackgroundAlpha];
+    self.selectedBackgroundView = selectedBackgroundView;
+
     _titleLabel = [[UILabel alloc] init];
     _titleLabel.numberOfLines = 0;
     _titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
@@ -124,6 +139,8 @@ const CGFloat kMaxHeight = 100;
 
     _textBadgeView = [[TextBadgeView alloc] initWithText:nil];
     _textBadgeView.translatesAutoresizingMaskIntoConstraints = NO;
+    _textBadgeView.accessibilityIdentifier =
+        kToolsMenuTextBadgeAccessibilityIdentifier;
     _textBadgeView.hidden = YES;
 
     [self.contentView addSubview:_titleLabel];
@@ -209,6 +226,20 @@ const CGFloat kMaxHeight = 100;
   }
 }
 
+- (void)setDestructiveAction:(BOOL)destructiveAction {
+  _destructiveAction = destructiveAction;
+  if (self.userInteractionEnabled) {
+    self.titleLabel.textColor = self.contentColor;
+    self.imageView.tintColor = self.contentColor;
+  }
+}
+
+- (UIColor*)contentColor {
+  if (self.destructiveAction)
+    return UIColorFromRGB(kEnabledDestructiveColor);
+  return UIColorFromRGB(kEnabledDefaultColor);
+}
+
 - (void)layoutSubviews {
   [super layoutSubviews];
 
@@ -243,8 +274,8 @@ const CGFloat kMaxHeight = 100;
 - (void)setUserInteractionEnabled:(BOOL)userInteractionEnabled {
   [super setUserInteractionEnabled:userInteractionEnabled];
   if (userInteractionEnabled) {
-    self.titleLabel.textColor = UIColorFromRGB(kEnabledColor);
-    self.imageView.tintColor = UIColorFromRGB(kEnabledColor);
+    self.titleLabel.textColor = self.contentColor;
+    self.imageView.tintColor = self.contentColor;
   } else {
     self.titleLabel.textColor = [[self class] disabledColor];
     self.imageView.tintColor = [[self class] disabledColor];

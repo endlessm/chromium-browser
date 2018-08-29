@@ -283,6 +283,11 @@ public:
 
     Entry(const NameIndex &NameIdx, const Abbrev &Abbr);
 
+  public:
+    Optional<uint64_t> getCUOffset() const override;
+    Optional<uint64_t> getDIESectionOffset() const override;
+    Optional<dwarf::Tag> getTag() const override { return tag(); }
+
     /// Returns the Index into the Compilation Unit list of the owning Name
     /// Index or None if this Accelerator Entry does not have an associated
     /// Compilation Unit. It is up to the user to verify that the returned Index
@@ -292,11 +297,6 @@ public:
     /// so this function will return 0 even without an explicit
     /// DW_IDX_compile_unit attribute.
     Optional<uint64_t> getCUIndex() const;
-
-  public:
-    Optional<uint64_t> getCUOffset() const override;
-    Optional<uint64_t> getDIESectionOffset() const override;
-    Optional<dwarf::Tag> getTag() const override { return tag(); }
 
     /// .debug_names-specific getter, which always succeeds (DWARF v5 index
     /// entries always have a tag).
@@ -319,7 +319,6 @@ public:
     friend class ValueIterator;
   };
 
-private:
   /// Error returned by NameIndex::getEntry to report it has reached the end of
   /// the entry list.
   class SentinelError : public ErrorInfo<SentinelError> {
@@ -330,6 +329,7 @@ private:
     std::error_code convertToErrorCode() const override;
   };
 
+private:
   /// DenseMapInfo for struct Abbrev.
   struct AbbrevMapInfo {
     static Abbrev getEmptyKey();
@@ -372,8 +372,6 @@ public:
     uint32_t StringOffsetsBase;
     uint32_t EntryOffsetsBase;
     uint32_t EntriesBase;
-
-    Expected<Entry> getEntry(uint32_t *Offset) const;
 
     void dumpCUs(ScopedPrinter &W) const;
     void dumpLocalTUs(ScopedPrinter &W) const;
@@ -429,6 +427,11 @@ public:
       return Abbrevs;
     }
 
+    Expected<Entry> getEntry(uint32_t *Offset) const;
+
+    /// Look up all entries in this Name Index matching \c Key.
+    iterator_range<ValueIterator> equal_range(StringRef Key) const;
+
     llvm::Error extract();
     uint32_t getUnitOffset() const { return Base; }
     uint32_t getNextUnitOffset() const { return Base + 4 + Hdr.UnitLength; }
@@ -443,6 +446,10 @@ public:
     /// relies on the fact that this can also be used as an iterator into the
     /// "NameIndices" vector in the Accelerator section.
     const NameIndex *CurrentIndex = nullptr;
+
+    /// Whether this is a local iterator (searches in CurrentIndex only) or not
+    /// (searches all name indices).
+    bool IsLocal;
 
     Optional<Entry> CurrentEntry;
     unsigned DataOffset = 0; ///< Offset into the section.
@@ -463,6 +470,10 @@ public:
     /// accelerator table matching Key. The iterator will run through all Name
     /// Indexes in the section in sequence.
     ValueIterator(const DWARFDebugNames &AccelTable, StringRef Key);
+
+    /// Create a "begin" iterator for looping over all entries in a specific
+    /// Name Index. Other indices in the section will not be visited.
+    ValueIterator(const NameIndex &NI, StringRef Key);
 
     /// End marker.
     ValueIterator() = default;
@@ -488,6 +499,7 @@ public:
 
 private:
   SmallVector<NameIndex, 0> NameIndices;
+  DenseMap<uint32_t, const NameIndex *> CUToNameIndex;
 
 public:
   DWARFDebugNames(const DWARFDataExtractor &AccelSection,
@@ -503,6 +515,10 @@ public:
   using const_iterator = SmallVector<NameIndex, 0>::const_iterator;
   const_iterator begin() const { return NameIndices.begin(); }
   const_iterator end() const { return NameIndices.end(); }
+
+  /// Return the Name Index covering the compile unit at CUOffset, or nullptr if
+  /// there is no Name Index covering that unit.
+  const NameIndex *getCUNameIndex(uint32_t CUOffset);
 };
 
 } // end namespace llvm

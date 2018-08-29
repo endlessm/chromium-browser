@@ -13,7 +13,6 @@
 #include "chrome/browser/vr/elements/content_element.h"
 #include "chrome/browser/vr/elements/disc_button.h"
 #include "chrome/browser/vr/elements/indicator_spec.h"
-#include "chrome/browser/vr/elements/prompt.h"
 #include "chrome/browser/vr/elements/rect.h"
 #include "chrome/browser/vr/elements/repositioner.h"
 #include "chrome/browser/vr/elements/ui_element.h"
@@ -39,28 +38,23 @@ namespace vr {
 
 namespace {
 const std::set<UiElementName> kFloorCeilingBackgroundElements = {
-    kBackgroundFront, kBackgroundLeft,   kBackgroundBack, kBackgroundRight,
-    kBackgroundTop,   kBackgroundBottom, kCeiling,        kFloor};
+    kSolidBackground, kCeiling, kFloor,
+};
 const std::set<UiElementName> kElementsVisibleInBrowsing = {
-    kBackgroundFront,
-    kBackgroundLeft,
-    kBackgroundBack,
-    kBackgroundRight,
-    kBackgroundTop,
-    kBackgroundBottom,
+    kSolidBackground,
     kCeiling,
     kFloor,
     kContentFrame,
     kContentFrameHitPlane,
     kContentQuad,
-    kContentQuadShadow,
     kBackplane,
     kUrlBar,
     kUrlBarBackButton,
-    kUrlBarSeparator,
+    kUrlBarLeftSeparator,
     kUrlBarOriginRegion,
     kUrlBarSecurityButton,
     kUrlBarUrlText,
+    kUrlBarRightSeparator,
     kUrlBarOverflowButton,
     kController,
     kLaser,
@@ -68,22 +62,6 @@ const std::set<UiElementName> kElementsVisibleInBrowsing = {
     kControllerAppButton,
     kControllerHomeButton,
     kIndicatorBackplane,
-};
-const std::set<UiElementName> kElementsVisibleWithExitPrompt = {
-    kBackgroundFront,
-    kBackgroundLeft,
-    kBackgroundBack,
-    kBackgroundRight,
-    kBackgroundTop,
-    kBackgroundBottom,
-    kCeiling,
-    kFloor,
-    kExitPrompt,
-    kController,
-    kLaser,
-    kControllerTouchpadButton,
-    kControllerAppButton,
-    kControllerHomeButton,
 };
 const std::set<UiElementName> kElementsVisibleWithExitWarning = {
     kScreenDimmer, kExitWarningBackground, kExitWarningText};
@@ -263,12 +241,12 @@ TEST_F(UiTest, UiUpdatesForIncognito) {
             fullscreen_background);
 
   model_->incognito = true;
-  // Make sure background has changed for incognito.
+  // Make sure background remains fullscreen colored.
   SkColor incognito_background = SK_ColorBLACK;
   GetBackgroundColor(&incognito_background);
-  EXPECT_EQ(
-      ColorScheme::GetColorScheme(ColorScheme::kModeIncognito).world_background,
-      incognito_background);
+  EXPECT_EQ(ColorScheme::GetColorScheme(ColorScheme::kModeFullscreen)
+                .world_background,
+            incognito_background);
 
   model_->incognito = false;
   SkColor no_longer_incognito_background = SK_ColorBLACK;
@@ -280,10 +258,13 @@ TEST_F(UiTest, UiUpdatesForIncognito) {
   GetBackgroundColor(&no_longer_fullscreen_background);
   EXPECT_EQ(initial_background, no_longer_fullscreen_background);
 
+  // Incognito, but not fullscreen, should show incognito colors.
   model_->incognito = true;
   SkColor incognito_again_background = SK_ColorBLACK;
   GetBackgroundColor(&incognito_again_background);
-  EXPECT_EQ(incognito_background, incognito_again_background);
+  EXPECT_EQ(
+      ColorScheme::GetColorScheme(ColorScheme::kModeIncognito).world_background,
+      incognito_again_background);
 
   model_->incognito = false;
   SkColor no_longer_incognito_again_background = SK_ColorBLACK;
@@ -349,28 +330,6 @@ TEST_F(UiTest, UiModeWebVr) {
   VerifyOnlyElementsVisible("Browsing after WebVR", kElementsVisibleInBrowsing);
 }
 
-TEST_F(UiTest, UiModeVoiceSearch) {
-  CreateScene(kNotInCct, kNotInWebVr);
-
-  EXPECT_EQ(model_->ui_modes.size(), 1u);
-  EXPECT_EQ(model_->ui_modes.back(), kModeBrowsing);
-  VerifyOnlyElementsVisible("Initial", kElementsVisibleInBrowsing);
-
-  ui_->SetSpeechRecognitionEnabled(true);
-  EXPECT_EQ(model_->ui_modes.size(), 2u);
-  EXPECT_EQ(model_->ui_modes[1], kModeVoiceSearch);
-  EXPECT_EQ(model_->ui_modes[0], kModeBrowsing);
-  ui_->SetSpeechRecognitionEnabled(true);
-  VerifyVisibility(kElementsVisibleWithVoiceSearch, true);
-
-  ui_->SetSpeechRecognitionEnabled(false);
-  EXPECT_EQ(model_->ui_modes.size(), 1u);
-  EXPECT_EQ(model_->ui_modes.back(), kModeBrowsing);
-  OnBeginFrame();
-  OnBeginFrame();
-  VerifyOnlyElementsVisible("Browsing", kElementsVisibleInBrowsing);
-}
-
 TEST_F(UiTest, UiModeOmniboxEditing) {
   CreateScene(kNotInCct, kNotInWebVr);
 
@@ -398,38 +357,36 @@ TEST_F(UiTest, UiModeVoiceSearchFromOmnibox) {
 
   EXPECT_EQ(model_->ui_modes.size(), 1u);
   EXPECT_EQ(model_->ui_modes.back(), kModeBrowsing);
-  EXPECT_EQ(NumVisibleInTree(kOmniboxRoot), 0);
-  VerifyOnlyElementsVisible("Initial", kElementsVisibleInBrowsing);
+  EXPECT_TRUE(IsVisible(kContentQuad));
+  EXPECT_FALSE(IsVisible(kOmniboxBackground));
 
   model_->push_mode(kModeEditingOmnibox);
-  OnBeginFrame();
+  EXPECT_FALSE(IsVisible(kContentQuad));
+  EXPECT_TRUE(IsVisible(kOmniboxBackground));
   EXPECT_EQ(model_->ui_modes.size(), 2u);
   EXPECT_EQ(model_->ui_modes[1], kModeEditingOmnibox);
   EXPECT_EQ(model_->ui_modes[0], kModeBrowsing);
-  EXPECT_GT(NumVisibleInTree(kOmniboxRoot), 0);
 
   ui_->SetSpeechRecognitionEnabled(true);
-  EXPECT_EQ(model_->ui_modes.size(), 3u);
+  EXPECT_FALSE(IsVisible(kOmniboxBackground));
+  EXPECT_EQ(model_->ui_modes.size(), 4u);
   EXPECT_EQ(model_->ui_modes[2], kModeVoiceSearch);
   EXPECT_EQ(model_->ui_modes[1], kModeEditingOmnibox);
   EXPECT_EQ(model_->ui_modes[0], kModeBrowsing);
-  OnBeginFrame();
-  EXPECT_EQ(NumVisibleInTree(kOmniboxRoot), 0);
   VerifyVisibility(kElementsVisibleWithVoiceSearch, true);
 
   ui_->SetSpeechRecognitionEnabled(false);
+  EXPECT_TRUE(IsVisible(kOmniboxBackground));
   EXPECT_EQ(model_->ui_modes.size(), 2u);
   EXPECT_EQ(model_->ui_modes[1], kModeEditingOmnibox);
   EXPECT_EQ(model_->ui_modes[0], kModeBrowsing);
-  OnBeginFrame();
-  OnBeginFrame();
-  EXPECT_GT(NumVisibleInTree(kOmniboxRoot), 0);
 
   model_->pop_mode(kModeEditingOmnibox);
   EXPECT_EQ(model_->ui_modes.size(), 1u);
   EXPECT_EQ(model_->ui_modes.back(), kModeBrowsing);
   OnBeginFrame();
-  VerifyOnlyElementsVisible("Browsing", kElementsVisibleInBrowsing);
+  EXPECT_FALSE(IsVisible(kOmniboxBackground));
+  EXPECT_TRUE(IsVisible(kContentQuad));
 }
 
 TEST_F(UiTest, WebVrAutopresented) {
@@ -460,7 +417,7 @@ TEST_F(UiTest, WebVrSplashScreenHiddenWhenTimeoutImminent) {
   VerifyOnlyElementsVisible("Initial", {kSplashScreenText, kWebVrBackground});
 
   ui_->SetWebVrMode(true);
-  EXPECT_TRUE(
+  EXPECT_FALSE(
       RunForSeconds(kSplashScreenMinDurationSeconds + kSmallDelaySeconds * 2));
 
   ui_->OnWebVrTimeoutImminent();
@@ -499,7 +456,6 @@ TEST_F(UiTest, HostedUiInWebVr) {
 TEST_F(UiTest, UiUpdatesForFullscreenChanges) {
   auto visible_in_fullscreen = kFloorCeilingBackgroundElements;
   visible_in_fullscreen.insert(kContentQuad);
-  visible_in_fullscreen.insert(kContentQuadShadow);
   visible_in_fullscreen.insert(kBackplane);
   visible_in_fullscreen.insert(kCloseButton);
   visible_in_fullscreen.insert(kController);
@@ -584,13 +540,12 @@ TEST_F(UiTest, ClickingOmniboxTriggersUnsupportedMode) {
   auto* omnibox = scene_->GetUiElementByName(kUrlBarOriginRegion);
   EXPECT_CALL(*browser_,
               OnUnsupportedMode(UiUnsupportedMode::kNeedsKeyboardUpdate));
-  omnibox->OnHoverEnter({0.5, 0.5});
-  omnibox->OnButtonUp({0.5, 0.5});
+  ClickElement(omnibox);
   ui_->ShowExitVrPrompt(UiUnsupportedMode::kNeedsKeyboardUpdate);
   OnBeginFrame();
   EXPECT_EQ(model_->active_modal_prompt_type,
             ModalPromptType::kModalPromptTypeUpdateKeyboard);
-  EXPECT_TRUE(scene_->GetUiElementByName(kUpdateKeyboardPrompt)->IsVisible());
+  EXPECT_TRUE(scene_->GetUiElementByName(kExitPrompt)->IsVisible());
 }
 
 TEST_F(UiTest, WebInputEditingTriggersUnsupportedMode) {
@@ -607,7 +562,7 @@ TEST_F(UiTest, WebInputEditingTriggersUnsupportedMode) {
   OnBeginFrame();
   EXPECT_EQ(model_->active_modal_prompt_type,
             ModalPromptType::kModalPromptTypeUpdateKeyboard);
-  EXPECT_TRUE(scene_->GetUiElementByName(kUpdateKeyboardPrompt)->IsVisible());
+  EXPECT_TRUE(scene_->GetUiElementByName(kExitPrompt)->IsVisible());
 }
 
 TEST_F(UiTest, ExitWebInputEditingOnAppButtonClick) {
@@ -622,30 +577,18 @@ TEST_F(UiTest, ExitWebInputEditingOnAppButtonClick) {
   EXPECT_FALSE(scene_->GetUiElementByName(kKeyboard)->IsVisible());
 }
 
-TEST_F(UiTest, UiUpdatesForShowingExitPrompt) {
+TEST_F(UiTest, ShowAndHideExitPrompt) {
   CreateScene(kNotInCct, kNotInWebVr);
 
-  // Initial state.
-  VerifyOnlyElementsVisible("Initial", kElementsVisibleInBrowsing);
-
-  // Showing exit VR prompt should make prompt visible.
   model_->active_modal_prompt_type = kModalPromptTypeExitVRForSiteInfo;
-  VerifyVisibility(kElementsVisibleWithExitPrompt, true);
-  EXPECT_EQ(NumVisibleInTree(k2dBrowsingForeground), 0);
-}
+  model_->push_mode(kModeModalPrompt);
+  EXPECT_TRUE(IsVisible(kExitPrompt));
+  EXPECT_TRUE(IsVisible(kContentQuad));
 
-TEST_F(UiTest, UiUpdatesForHidingExitPrompt) {
-  CreateScene(kNotInCct, kNotInWebVr);
-
-  // Initial state.
-  model_->active_modal_prompt_type = kModalPromptTypeExitVRForSiteInfo;
-  VerifyVisibility(kElementsVisibleWithExitPrompt, true);
-  EXPECT_EQ(NumVisibleInTree(k2dBrowsingForeground), 0);
-
-  // Hiding exit VR prompt should make prompt invisible.
   model_->active_modal_prompt_type = kModalPromptTypeNone;
-  EXPECT_TRUE(RunForMs(1000));
-  VerifyOnlyElementsVisible("Prompt invisible", kElementsVisibleInBrowsing);
+  model_->pop_mode(kModeModalPrompt);
+  EXPECT_FALSE(IsVisible(kExitPrompt));
+  EXPECT_TRUE(IsVisible(kContentQuad));
 }
 
 TEST_F(UiTest, PrimaryButtonClickTriggersOnExitPrompt) {
@@ -653,15 +596,16 @@ TEST_F(UiTest, PrimaryButtonClickTriggersOnExitPrompt) {
 
   // Initial state.
   VerifyOnlyElementsVisible("Initial", kElementsVisibleInBrowsing);
-  model_->active_modal_prompt_type = kModalPromptTypeExitVRForSiteInfo;
+  ui_->ShowExitVrPrompt(UiUnsupportedMode::kUnhandledPageInfo);
   OnBeginFrame();
 
-  // Click on 'OK' should trigger UI browser interface and close prompt.
+  // Click on 'EXIT VR' should trigger UI browser interface and close prompt.
   EXPECT_CALL(*browser_,
-              OnExitVrPromptResult(ExitVrPromptChoice::CHOICE_STAY,
+              OnExitVrPromptResult(ExitVrPromptChoice::CHOICE_EXIT,
                                    UiUnsupportedMode::kUnhandledPageInfo));
-  static_cast<Prompt*>(scene_->GetUiElementByName(kExitPrompt))
-      ->ClickPrimaryButtonForTesting();
+  auto* prompt = scene_->GetUiElementByName(kExitPrompt);
+  auto* button = prompt->GetDescendantByType(kTypePromptPrimaryButton);
+  ClickElement(button);
   VerifyOnlyElementsVisible("Prompt cleared", kElementsVisibleInBrowsing);
 }
 
@@ -673,14 +617,33 @@ TEST_F(UiTest, SecondaryButtonClickTriggersOnExitPrompt) {
   model_->active_modal_prompt_type = kModalPromptTypeExitVRForSiteInfo;
   OnBeginFrame();
 
-  // Click on 'Exit VR' should trigger UI browser interface and close prompt.
+  // Click on 'BACK' should trigger UI browser interface and close prompt.
   EXPECT_CALL(*browser_,
-              OnExitVrPromptResult(ExitVrPromptChoice::CHOICE_EXIT,
+              OnExitVrPromptResult(ExitVrPromptChoice::CHOICE_STAY,
                                    UiUnsupportedMode::kUnhandledPageInfo));
 
-  static_cast<Prompt*>(scene_->GetUiElementByName(kExitPrompt))
-      ->ClickSecondaryButtonForTesting();
+  auto* prompt = scene_->GetUiElementByName(kExitPrompt);
+  auto* button = prompt->GetDescendantByType(kTypePromptSecondaryButton);
+  ClickElement(button);
   VerifyOnlyElementsVisible("Prompt cleared", kElementsVisibleInBrowsing);
+}
+
+TEST_F(UiTest, ClickOnPromptBackgroundDoesNothing) {
+  CreateScene(kNotInCct, kNotInWebVr);
+
+  ui_->ShowExitVrPrompt(UiUnsupportedMode::kUnhandledPageInfo);
+  OnBeginFrame();
+
+  EXPECT_CALL(*browser_, OnExitVrPromptResult(testing::_, testing::_)).Times(0);
+  auto* prompt = scene_->GetUiElementByName(kExitPrompt);
+  UiElement* target;
+  // Target the inert icon and text to reliably miss the buttons.
+  target = prompt->GetDescendantByType(kTypePromptIcon);
+  ClickElement(target);
+  target = prompt->GetDescendantByType(kTypePromptText);
+  ClickElement(target);
+
+  EXPECT_EQ(model_->get_mode(), kModeModalPrompt);
 }
 
 TEST_F(UiTest, UiUpdatesForWebVR) {
@@ -815,16 +778,33 @@ TEST_F(UiTest, DontPropagateContentBoundsOnNegligibleChange) {
 
 TEST_F(UiTest, LoadingIndicatorBindings) {
   CreateScene(kNotInCct, kNotInWebVr);
+  UiElement* background = scene_->GetUiElementByName(kLoadingIndicator);
+  UiElement* foreground =
+      scene_->GetUiElementByName(kLoadingIndicatorForeground);
+
   model_->loading = true;
+  model_->load_progress = 0;
+  RunForMs(100);
+  EXPECT_TRUE(
+      VerifyVisibility({kLoadingIndicator, kLoadingIndicatorForeground}, true));
+  EXPECT_EQ(foreground->GetClipRect(), gfx::RectF(0, 0, 0, 1));
+  EXPECT_EQ(foreground->size(), background->size());
+
   model_->load_progress = 0.5f;
-  EXPECT_TRUE(VerifyVisibility({kLoadingIndicator}, true));
-  UiElement* loading_indicator = scene_->GetUiElementByName(kLoadingIndicator);
-  UiElement* loading_indicator_fg = loading_indicator->children().back().get();
-  EXPECT_FLOAT_EQ(loading_indicator->size().width() * 0.5f,
-                  loading_indicator_fg->size().width());
-  float tx =
-      loading_indicator_fg->GetTargetTransform().Apply().matrix().get(0, 3);
-  EXPECT_FLOAT_EQ(loading_indicator->size().width() * 0.25f, tx);
+  EXPECT_TRUE(
+      VerifyVisibility({kLoadingIndicator, kLoadingIndicatorForeground}, true));
+  EXPECT_EQ(foreground->GetClipRect(), gfx::RectF(0, 0, 0.5, 1));
+  EXPECT_EQ(foreground->size(), background->size());
+
+  model_->load_progress = 1.0f;
+  EXPECT_TRUE(
+      VerifyVisibility({kLoadingIndicator, kLoadingIndicatorForeground}, true));
+  EXPECT_EQ(foreground->GetClipRect(), gfx::RectF(0, 0, 1, 1));
+  EXPECT_EQ(foreground->size(), background->size());
+
+  model_->loading = false;
+  EXPECT_TRUE(VerifyVisibility({kLoadingIndicator, kLoadingIndicatorForeground},
+                               false));
 }
 
 TEST_F(UiTest, ExitWarning) {
@@ -896,8 +876,6 @@ TEST_F(UiTest, SpeechRecognitionUiVisibility) {
   VerifyIsAnimating({k2dBrowsingForeground}, {OPACITY}, true);
   VerifyIsAnimating({kSpeechRecognitionListening, kSpeechRecognitionResult},
                     {OPACITY}, false);
-  ui_->SetSpeechRecognitionEnabled(true);
-  EXPECT_TRUE(RunForMs(10));
   VerifyIsAnimating({k2dBrowsingForeground, kSpeechRecognitionListening},
                     {OPACITY}, true);
 
@@ -917,8 +895,8 @@ TEST_F(UiTest, SpeechRecognitionUiVisibility) {
                     true);
 
   // Mock received speech result.
-  model_->speech.recognition_result = base::ASCIIToUTF16("test");
   model_->speech.speech_recognition_state = SPEECH_RECOGNITION_END;
+  ui_->SetRecognitionResult(base::ASCIIToUTF16("test"));
   ui_->SetSpeechRecognitionEnabled(false);
 
   EXPECT_TRUE(RunForMs(10));
@@ -931,10 +909,11 @@ TEST_F(UiTest, SpeechRecognitionUiVisibility) {
                     false);
   VerifyVisibility({k2dBrowsingForeground, kSpeechRecognitionListening}, false);
 
-  // The visibility of Speech Recognition UI should not change at this point.
-  EXPECT_FALSE(RunForMs(10));
+  // The visibility of Speech Recognition UI should not change at this point,
+  // but it will be animating.
+  EXPECT_TRUE(RunForMs(10));
 
-  EXPECT_TRUE(RunForSeconds(kSpeechRecognitionResultTimeoutSeconds));
+  EXPECT_TRUE(RunForMs(kSpeechRecognitionResultTimeoutMs));
   // Start hide speech recognition result and show browsing foreground.
   VerifyIsAnimating({k2dBrowsingForeground, kSpeechRecognitionResult},
                     {OPACITY}, true);
@@ -990,7 +969,6 @@ TEST_F(UiTest, OmniboxSuggestionBindings) {
   EXPECT_EQ(container->children().size(), 0u);
 
   model_->push_mode(kModeEditingOmnibox);
-  OnBeginFrame();
   EXPECT_EQ(container->children().size(), 0u);
   EXPECT_EQ(NumVisibleInTree(kOmniboxSuggestions), 0);
 
@@ -1018,6 +996,9 @@ TEST_F(UiTest, OmniboxSuggestionNavigates) {
       base::string16(), base::string16()));
   OnBeginFrame();
 
+  // Let the omnibox fade in.
+  RunForMs(200);
+
   UiElement* suggestions = scene_->GetUiElementByName(kOmniboxSuggestions);
   ASSERT_NE(suggestions, nullptr);
   UiElement* suggestion = suggestions->children().front().get();
@@ -1025,9 +1006,7 @@ TEST_F(UiTest, OmniboxSuggestionNavigates) {
   EXPECT_CALL(*browser_,
               Navigate(gurl, NavigationMethod::kOmniboxSuggestionSelected))
       .Times(1);
-  suggestion->OnHoverEnter({0, 0});
-  suggestion->OnButtonDown({0, 0});
-  suggestion->OnButtonUp({0, 0});
+  ClickElement(suggestion);
 }
 
 TEST_F(UiTest, ControllerQuiescence) {
@@ -1051,7 +1030,7 @@ TEST_F(UiTest, ControllerQuiescence) {
 
   model_->skips_redraw_when_not_dirty = false;
   model_->controller.quiescent = true;
-  EXPECT_FALSE(RunForMs(1000));
+  EXPECT_TRUE(RunForMs(1000));
   EXPECT_TRUE(IsVisible(kControllerGroup));
 }
 
@@ -1069,7 +1048,7 @@ TEST_F(UiTest, CloseButtonColorBindings) {
       ui_->SetIncognito(false);
       ui_->SetFullscreen(true);
     }
-    ColorScheme scheme = ColorScheme::GetColorScheme(mode);
+    ColorScheme scheme = model_->color_scheme();
     RunForMs(kAnimationTimeMs);
     VerifyButtonColor(button, scheme.disc_button_colors.foreground,
                       scheme.disc_button_colors.background, "normal");
@@ -1250,11 +1229,12 @@ TEST_F(UiTest, ResetRepositioner) {
 
   repositioner->set_laser_direction(kForwardVector);
   repositioner->SetEnabled(true);
-  repositioner->set_laser_direction({0, 1, 0});
+  repositioner->set_laser_direction({1, 0, 0});
   OnBeginFrame();
 
   EXPECT_NE(original, repositioner->world_space_transform());
   repositioner->SetEnabled(false);
+
   model_->controller.recentered = true;
 
   OnBeginFrame();
@@ -1336,10 +1316,6 @@ TEST_F(UiTest, RepositionHostedUi) {
 
   EXPECT_NE(original, hosted_ui->world_space_transform());
   repositioner->SetEnabled(false);
-  model_->controller.recentered = true;
-
-  OnBeginFrame();
-  EXPECT_EQ(original, hosted_ui->world_space_transform());
 }
 
 // Ensures that permissions do not appear after showing hosted UI.
@@ -1384,6 +1360,29 @@ TEST_F(UiTest, LongPressAppButtonInWebVrMode) {
   OnBeginFrame();
   EXPECT_FALSE(IsVisible(kWebVrAudioCaptureIndicator));
   EXPECT_FALSE(IsVisible(kWebVrExclusiveScreenToast));
+}
+
+TEST_F(UiTest, MenuItems) {
+  CreateScene(kNotInCct, kNotInWebVr);
+  model_->overflow_menu_enabled = true;
+
+  EXPECT_EQ(IsVisible(kOverflowMenuNewIncognitoTabItem), true);
+  EXPECT_EQ(IsVisible(kOverflowMenuCloseAllIncognitoTabsItem), false);
+  EXPECT_EQ(IsVisible(kOverflowMenuPreferencesItem), false);
+
+  model_->incognito_tabs.emplace_back(TabModel(0, base::string16()));
+  OnBeginFrame();
+  EXPECT_EQ(IsVisible(kOverflowMenuNewIncognitoTabItem), true);
+  EXPECT_EQ(IsVisible(kOverflowMenuCloseAllIncognitoTabsItem), true);
+
+  model_->incognito = true;
+  OnBeginFrame();
+  EXPECT_EQ(IsVisible(kOverflowMenuNewIncognitoTabItem), false);
+  EXPECT_EQ(IsVisible(kOverflowMenuCloseAllIncognitoTabsItem), true);
+
+  model_->standalone_vr_device = true;
+  OnBeginFrame();
+  EXPECT_EQ(IsVisible(kOverflowMenuPreferencesItem), true);
 }
 
 }  // namespace vr

@@ -20,6 +20,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/certificate_transparency/features.h"
 #include "components/certificate_transparency/tree_state_tracker.h"
 #include "components/prefs/pref_service.h"
 #include "components/variations/variations_associated_data.h"
@@ -112,13 +113,6 @@ void CheckEffectiveConnectionType(IOThread* io_thread,
                           ->GetEffectiveConnectionType());
 }
 
-void CheckSCTsAreSentToTreeTracker(IOThread* io_thread) {
-  EXPECT_EQ(io_thread->ct_tree_tracker(),
-            io_thread->globals()
-                ->system_request_context->cert_transparency_verifier()
-                ->GetObserver());
-}
-
 class IOThreadBrowserTest : public InProcessBrowserTest {
  public:
   IOThreadBrowserTest() {}
@@ -201,12 +195,6 @@ IN_PROC_BROWSER_TEST_F(IOThreadBrowserTest, UpdateDelegateWhitelist) {
   RunOnIOThreadBlocking(
       base::Bind(&CheckCanDelegate,
                  base::Unretained(g_browser_process->io_thread()), true, url));
-}
-
-IN_PROC_BROWSER_TEST_F(IOThreadBrowserTest, SCTsAreSentToTreeTracker) {
-  RunOnIOThreadBlocking(
-      base::BindOnce(&CheckSCTsAreSentToTreeTracker,
-                     base::Unretained(g_browser_process->io_thread())));
 }
 
 class IOThreadEctCommandLineBrowserTest : public IOThreadBrowserTest {

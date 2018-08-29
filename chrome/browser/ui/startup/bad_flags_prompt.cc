@@ -56,6 +56,7 @@ static const char* kBadFlags[] = {
     service_manager::switches::kDisableGpuSandbox,
     service_manager::switches::kDisableSeccompFilterSandbox,
     service_manager::switches::kDisableSetuidSandbox,
+    service_manager::switches::kNoSandbox,
 #if defined(OS_WIN)
     service_manager::switches::kAllowThirdPartyModules,
 #endif
@@ -63,15 +64,13 @@ static const char* kBadFlags[] = {
 #if BUILDFLAG(ENABLE_NACL)
     switches::kNaClDangerousNoSandboxNonSfi,
 #endif
-    switches::kNoSandbox, switches::kSingleProcess,
+    switches::kSingleProcess,
 
     // These flags disable or undermine the Same Origin Policy.
     translate::switches::kTranslateSecurityOrigin,
 
     // These flags undermine HTTPS / connection security.
-#if BUILDFLAG(ENABLE_WEBRTC)
     switches::kDisableWebRtcEncryption,
-#endif
     switches::kIgnoreCertificateErrors,
     invalidation::switches::kSyncAllowInsecureXmppConnection,
 
@@ -140,25 +139,6 @@ void ShowBadFlagsPrompt(content::WebContents* web_contents) {
 // On Android, ShowBadFlagsPrompt doesn't show the warning notification
 // for flags which are not available in about:flags.
 #if !defined(OS_ANDROID)
-  // Flags only available in specific builds, for which to display a warning
-  // "the flag is not implemented in this build", if necessary.
-  struct {
-    const char* name;
-    bool is_invalid;
-  } conditional_flags[] = {
-      {switches::kEnableHeapProfiling,
-       base::trace_event::MemoryDumpManager::
-               GetHeapProfilingModeFromCommandLine() ==
-           base::trace_event::kHeapProfilingModeInvalid},
-  };
-  for (auto conditional_flag : conditional_flags) {
-    if (conditional_flag.is_invalid) {
-      ShowBadFlagsInfoBar(web_contents, IDS_UNIMPLEMENTED_FLAGS_WARNING_MESSAGE,
-                          conditional_flag.name);
-      return;
-    }
-  }
-
   for (const char* flag : kBadFlags) {
     if (base::CommandLine::ForCurrentProcess()->HasSwitch(flag)) {
       ShowBadFlagsInfoBar(web_contents, IDS_BAD_FLAGS_WARNING_MESSAGE, flag);

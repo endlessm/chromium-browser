@@ -1,13 +1,13 @@
-# http://crbug.com/715640
--ServiceWorkerBrowserTest.FetchPageWithSaveData
+# NOTE: if adding an exclusion for an existing failure (e.g. additional test for
+# feature X that is already not working), please add it beside the existing
+# failures. Otherwise please reach out to network-service-dev@.
+
+# https://crbug.com/715640
 -ServiceWorkerBrowserTest.ImportsBustMemcache
 -ServiceWorkerBrowserTest.Reload
 -ServiceWorkerBrowserTest.ResponseFromHTTPSServiceWorkerIsMarkedAsSecure
--ServiceWorkerBrowserTest.ResponseFromHTTPServiceWorkerIsNotMarkedAsSecure
 -ServiceWorkerNavigationPreloadTest.CanceledByInterceptor
 -ServiceWorkerNavigationPreloadTest.RespondWithNavigationPreloadWithMimeSniffing
--ServiceWorkerV8CacheStrategiesAggressiveTest.V8CacheOnCacheStorage
--ServiceWorkerV8CacheStrategiesNormalTest.V8CacheOnCacheStorage
 -ServiceWorkerV8CodeCacheForCacheStorageTest.V8CacheOnCacheStorage
 -ServiceWorkerVersionBrowserTest.ServiceWorkerScriptHeader
 
@@ -15,7 +15,7 @@
 # https://crbug.com/756312
 -ServiceWorkerVersionBrowserV8CacheTest.Restart
 
-# http://crbug.com/721398
+# https://crbug.com/721398
 -ClearSiteDataThrottleBrowserTest.CacheIntegrationTest
 -ClearSiteDataThrottleBrowserTest.CookiesIntegrationTest
 -ClearSiteDataThrottleBrowserTest.Credentials
@@ -27,39 +27,17 @@
 -ClearSiteDataThrottleBrowserTest.StorageServiceWorkersIntegrationTest
 -ClearSiteDataThrottleBrowserTest.Types
 
+# https://crbug.com/820060
+-PreviewsStateBrowserTest.ShouldEnableLoFiModeNavigateBackThenForward
+-PreviewsStateBrowserTest.ShouldEnableLoFiModeOff
+-PreviewsStateBrowserTest.ShouldEnableLoFiModeOn
+-PreviewsStateBrowserTest.ShouldEnableLoFiModeReload
+-PreviewsStateBrowserTest.ShouldEnableLoFiModeReloadDisableLoFi
 
-# Plugin throttle is not implemented. http://crbug.com/764474
--DataUrlNavigationBrowserTest.PDF_BrowserInitiatedNavigation_Allow
--DataUrlNavigationBrowserTest.PDF_FormPost_Block
--DataUrlNavigationBrowserTest.PDF_Navigation_Block
--DataUrlNavigationBrowserTest.PDF_NavigationFromFrame_Block
--DataUrlNavigationBrowserTest.PDF_NavigationFromFrame_TopFrameIsDataURL_Block
-
-# http://crbug.com/820060
--PreviewsStateResourceDispatcherHostBrowserTest.ShouldEnableLoFiModeNavigateBackThenForward
--PreviewsStateResourceDispatcherHostBrowserTest.ShouldEnableLoFiModeOff
--PreviewsStateResourceDispatcherHostBrowserTest.ShouldEnableLoFiModeOn
--PreviewsStateResourceDispatcherHostBrowserTest.ShouldEnableLoFiModeReload
--PreviewsStateResourceDispatcherHostBrowserTest.ShouldEnableLoFiModeReloadDisableLoFi
+# https://crbug.com/837666
+-NavigationHandleImplBrowserTest.RedirectToRendererDebugUrl
 
 -AsyncResourceHandlerBrowserTest/AsyncResourceHandlerBrowserTest.UploadProgress*
--GetUserMediaVideoCaptureBrowserTest.RecoverFromCrashInVideoCaptureProcess
--IsolatedDevToolsProtocolTest.ControlNavigationsChildFrames
--NavigationHandleImplBrowserTest.ErrorCodeOnRedirect
--NavigationHandleImplBrowserTest.RedirectToRendererDebugUrl
--PowerMonitorTest.TestGpuProcess
--PowerMonitorTest.TestRendererProcess
--PowerMonitorTest.TestUtilityProcess
--RenderViewBrowserTest.ConfirmCacheInformationPlumbed
--RequestDataResourceDispatcherHostBrowserTest.Basic
--RequestDataResourceDispatcherHostBrowserTest.BasicCrossSite
--RequestDataResourceDispatcherHostBrowserTest.CrossOriginAuxiliary
--RequestDataResourceDispatcherHostBrowserTest.CrossOriginNested
--RequestDataResourceDispatcherHostBrowserTest.FailedNavigation
--RequestDataResourceDispatcherHostBrowserTest.LinkRelPrefetch
--RequestDataResourceDispatcherHostBrowserTest.LinkRelPrefetchReferrerPolicy
--RequestDataResourceDispatcherHostBrowserTest.SameOriginAuxiliary
--RequestDataResourceDispatcherHostBrowserTest.SameOriginNested
 -WebContentsImplBrowserTest.DownloadImage_Deny_FileImage
 
 # services/network/url_loader.cc should handle failure in
@@ -70,29 +48,11 @@
 # Cross-origin request to file:// URL should be blocked. crbug.com/759230
 -BrowserSideNavigationBrowserDisableWebSecurityTest.ValidateBaseUrlForDataUrl
 
-# This test validates that the renderer does not hang indefinitely in a sync
-# XMLHttpRequest when ResourceDispatcherHostImpl::CancelRequestsForProcess is
-# called to tear down the browser-side request state without signaling
-# completion. With the network service this will be equivalent to a network
-# service process crash.
--ResourceDispatcherHostBrowserTest.SyncXMLHttpRequest_Cancelled
-
-# http://crbug.com/783990
-# Add support for http auth.
--WorkerTest.SharedWorkerHttpAuth
-
-# http://crbug.com/787614
--ResourceDispatcherHostBrowserTest.ContentDispositionEmpty
--ResourceDispatcherHostBrowserTest.ContentDispositionInline
--ResourceDispatcherHostBrowserTest.CrossOriginRedirectBlocked
--ResourceDispatcherHostBrowserTest.CrossSiteAfterCrash
--ResourceDispatcherHostBrowserTest.CrossSiteNavigationNonBuffered
--ResourceDispatcherHostBrowserTest.SniffNoContentTypeNoData
-
 # Cross-origin read blocking (CORB) needs to be implemented in the network
 # service.
 # https://crbug.com/786505 (cross site document blocking)
 # https://crbug.com/792546 (cross site document blocking in network service)
+-CrossSiteDocumentBlockingBaseTest.BlockDocumentsByDefault
 -CrossSiteDocumentBlockingTest.BlockDocuments
 -CrossSiteDocumentBlockingTest.BlockHeaders
 -CrossSiteDocumentBlockingTest.BlockRequestFromErrorPage
@@ -101,12 +61,18 @@
 -CrossSiteDocumentBlockingServiceWorkerTest.NoNetwork
 -CrossSiteDocumentBlockingServiceWorkerTest.NetworkToServiceWorkerResponse
 
-# Flakes https://logs.chromium.org/v/?s=chromium%2Fbb%2Fchromium.linux%2FLinux_Tests__dbg__1_%2F69105%2F%2B%2Frecipes%2Fsteps%2Fnetwork_service_content_browsertests%2F0%2Flogs%2FWebContentsImplBrowserTest.DownloadImage_Allow_FileImage%2F0
--WebContentsImplBrowserTest.DownloadImage_Allow_FileImage
+# Flakes on Android.
+# https://crbug.com/827318
+-RenderThreadImplBrowserTest.NonResourceDispatchIPCTasksDontGoThroughScheduler
 
 # Network service path needs some way to update the per-WebContents load state.
-# http://crbug.com/819663.
+# https://crbug.com/819663.
 -WebContentsImplBrowserTest.UpdateLoadState
 
-# https://crbug.com/808759
--DownloadContentTest.DownloadAttributeBlobURL
+# Previously Fails because of missing support to navigate to filesystem URLs,
+# https://crbug.com/797292. Still failing, cause unknown.
+-BlockedSchemeNavigationBrowserTest.WindowOpenRedirectAndBack/1
+
+# NOTE: if adding an exclusion for an existing failure (e.g. additional test for
+# feature X that is already not working), please add it beside the existing
+# failures. Otherwise please reach out to network-service-dev@.

@@ -14,6 +14,7 @@
 #include "base/callback.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "components/sync/base/model_type.h"
 #include "components/sync/base/time.h"
 #include "components/sync/engine/activation_context.h"
 #include "components/sync/model/fake_model_type_sync_bridge.h"
@@ -200,7 +201,7 @@ class ClientTagBasedModelTypeProcessorTest : public ::testing::Test {
   }
 
   void ModelReadyToSync() {
-    type_processor()->ModelReadyToSync(bridge(), db().CreateMetadataBatch());
+    type_processor()->ModelReadyToSync(db().CreateMetadataBatch());
   }
 
   void OnCommitDataLoaded() { bridge()->OnCommitDataLoaded(); }
@@ -377,6 +378,20 @@ TEST_F(ClientTagBasedModelTypeProcessorTest, InitialSyncWithTombstone) {
   EXPECT_EQ(0U, db().metadata_count());
   EXPECT_EQ(0U, ProcessorEntityCount());
   EXPECT_EQ(0U, worker()->GetNumPendingCommits());
+}
+
+// Test that an initial sync filters out updates for root nodes in the
+// processor.
+TEST_F(ClientTagBasedModelTypeProcessorTest, InitialSyncWithRootNode) {
+  ModelReadyToSync();
+  OnSyncStarting();
+
+  UpdateResponseDataList update;
+  update.push_back(worker()->GenerateTypeRootUpdateData(ModelType::SESSIONS));
+
+  worker()->UpdateFromServer(update);
+  // Root node update should be filtered out.
+  EXPECT_EQ(0U, ProcessorEntityCount());
 }
 
 // Test that subsequent starts don't call MergeSyncData.
@@ -819,6 +834,16 @@ TEST_F(ClientTagBasedModelTypeProcessorTest, ServerCreateItem) {
   EXPECT_TRUE(metadata.has_specifics_hash());
 }
 
+TEST_F(ClientTagBasedModelTypeProcessorTest, IgnoreUpdatesForRootNodes) {
+  InitializeToReadyState();
+  UpdateResponseDataList update;
+  update.push_back(worker()->GenerateTypeRootUpdateData(ModelType::SESSIONS));
+
+  worker()->UpdateFromServer(update);
+  // Root node update should be filtered out.
+  EXPECT_EQ(0U, ProcessorEntityCount());
+}
+
 // Test that an error applying changes from a server update is
 // propagated to the error handler.
 TEST_F(ClientTagBasedModelTypeProcessorTest, ErrorApplyingUpdate) {
@@ -1181,7 +1206,7 @@ TEST_F(ClientTagBasedModelTypeProcessorTest, Disable) {
   bridge()->WriteItem(kKey2, kValue2);
   EXPECT_TRUE(worker()->HasPendingCommitForHash(kHash2));
 
-  bridge()->DisableSync();
+  type_processor()->DisableSync();
   EXPECT_FALSE(type_processor()->IsTrackingMetadata());
 
   // The third item is added after disable.

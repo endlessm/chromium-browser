@@ -40,6 +40,7 @@
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings_factory.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/plugins/chrome_plugin_service_filter.h"
+#include "chrome/browser/policy/developer_tools_policy_handler.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
@@ -61,6 +62,7 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/chrome_pages.h"
+#include "chrome/browser/ui/exclusive_access/keyboard_lock_controller.h"
 #include "chrome/browser/ui/tab_contents/core_tab_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/web_applications/web_app.h"
@@ -129,10 +131,12 @@
 #include "third_party/metrics_proto/omnibox_input_type.pb.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
+#include "ui/base/emoji/emoji_panel_helper.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/favicon_size.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/text_elider.h"
+#include "ui/strings/grit/ui_strings.h"
 
 #if !BUILDFLAG(USE_BROWSER_SPELLCHECKER)
 #include "chrome/browser/renderer_context_menu/spelling_options_submenu_observer.h"
@@ -906,6 +910,16 @@ bool RenderViewContextMenu::IsHTML5Fullscreen() const {
   return controller->IsTabFullscreen();
 }
 
+bool RenderViewContextMenu::IsPressAndHoldEscRequiredToExitFullscreen() const {
+  Browser* browser = chrome::FindBrowserWithWebContents(source_web_contents_);
+  if (!browser)
+    return false;
+
+  KeyboardLockController* controller =
+      browser->exclusive_access_manager()->keyboard_lock_controller();
+  return controller->RequiresPressAndHoldEscToExit();
+}
+
 #if BUILDFLAG(ENABLE_PLUGINS)
 void RenderViewContextMenu::HandleAuthorizeAllPlugins() {
   ChromePluginServiceFilter::GetInstance()->AuthorizeAllPlugins(
@@ -1405,6 +1419,11 @@ void RenderViewContextMenu::AppendEditableItems() {
     AppendSearchProvider();
     menu_model_.AddSeparator(ui::NORMAL_SEPARATOR);
   }
+  if (params_.misspelled_word.empty() && ui::IsEmojiPanelSupported()) {
+    menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_EMOJI,
+                                    IDS_CONTENT_CONTEXT_EMOJI);
+    menu_model_.AddSeparator(ui::NORMAL_SEPARATOR);
+  }
 
 // 'Undo' and 'Redo' for text input with no suggestions and no text selected.
 // We make an exception for OS X as context clicking will select the closest
@@ -1416,8 +1435,12 @@ void RenderViewContextMenu::AppendEditableItems() {
                                   IDS_CONTENT_CONTEXT_REDO);
   menu_model_.AddSeparator(ui::NORMAL_SEPARATOR);
 #else
-  if (!IsDevToolsURL(params_.page_url) && !menu_model_.GetItemCount() &&
-      !content_type_->SupportsGroup(ContextMenuContentType::ITEM_GROUP_PRINT)) {
+  // Also want to show 'Undo' and 'Redo' if 'Emoji' is the only item in the menu
+  // so far.
+  if (!IsDevToolsURL(params_.page_url) &&
+      !content_type_->SupportsGroup(ContextMenuContentType::ITEM_GROUP_PRINT) &&
+      (!menu_model_.GetItemCount() ||
+       menu_model_.GetIndexOfCommandId(IDC_CONTENT_CONTEXT_EMOJI) != -1)) {
     menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_UNDO,
                                     IDS_CONTENT_CONTEXT_UNDO);
     menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_REDO,
@@ -1735,6 +1758,9 @@ bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
       return !!(params_.media_flags &
                 WebContextMenuData::kMediaCanPictureInPicture);
 
+    case IDC_CONTENT_CONTEXT_EMOJI:
+      return params_.is_editable;
+
     default:
       NOTREACHED();
       return false;
@@ -1751,6 +1777,9 @@ bool RenderViewContextMenu::IsCommandIdChecked(int id) const {
 
   if (id == IDC_CONTENT_CONTEXT_CONTROLS)
     return (params_.media_flags & WebContextMenuData::kMediaControls) != 0;
+
+  if (id == IDC_CONTENT_CONTEXT_EMOJI)
+    return false;
 
   // Extension items.
   if (ContextMenuMatcher::IsExtensionsCustomCommandId(id))
@@ -2024,6 +2053,10 @@ void RenderViewContextMenu::ExecuteCommand(int id, int event_flags) {
       ExecPictureInPicture();
       break;
 
+    case IDC_CONTENT_CONTEXT_EMOJI:
+      ui::ShowEmojiPanel();
+      break;
+
     default:
       NOTREACHED();
       break;
@@ -2096,8 +2129,13 @@ bool RenderViewContextMenu::IsDevCommandEnabled(int id) const {
 
     // Don't enable the web inspector if the developer tools are disabled via
     // the preference dev-tools-disabled.
-    if (prefs->GetBoolean(prefs::kDevToolsDisabled))
+    // TODO(pfeldman): Possibly implement handling for
+    // Availability::kDisallowedForForceInstalledExtensions
+    // (https://crbug.com/838146).
+    if (policy::DeveloperToolsPolicyHandler::GetDevToolsAvailability(prefs) ==
+        policy::DeveloperToolsPolicyHandler::Availability::kDisallowed) {
       return false;
+    }
   }
 
   return true;

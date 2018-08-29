@@ -50,6 +50,7 @@
 #include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/DebugCounter.h"
 #include "llvm/Support/RecyclingAllocator.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Scalar.h"
@@ -70,13 +71,16 @@ STATISTIC(NumCSELoad,  "Number of load instructions CSE'd");
 STATISTIC(NumCSECall,  "Number of call instructions CSE'd");
 STATISTIC(NumDSE,      "Number of trivial dead stores removed");
 
+DEBUG_COUNTER(CSECounter, "early-cse",
+              "Controls which instructions are removed");
+
 //===----------------------------------------------------------------------===//
 // SimpleValue
 //===----------------------------------------------------------------------===//
 
 namespace {
 
-/// \brief Struct representing the available values in the scoped hash table.
+/// Struct representing the available values in the scoped hash table.
 struct SimpleValue {
   Instruction *Inst;
 
@@ -239,7 +243,7 @@ bool DenseMapInfo<SimpleValue>::isEqual(SimpleValue LHS, SimpleValue RHS) {
 
 namespace {
 
-/// \brief Struct representing the available call values in the scoped hash
+/// Struct representing the available call values in the scoped hash
 /// table.
 struct CallValue {
   Instruction *Inst;
@@ -305,7 +309,7 @@ bool DenseMapInfo<CallValue>::isEqual(CallValue LHS, CallValue RHS) {
 
 namespace {
 
-/// \brief A simple and fast domtree-based CSE pass.
+/// A simple and fast domtree-based CSE pass.
 ///
 /// This pass does a simple depth-first walk over the dominator tree,
 /// eliminating trivially redundant instructions and using instsimplify to
@@ -329,7 +333,7 @@ public:
       ScopedHashTable<SimpleValue, Value *, DenseMapInfo<SimpleValue>,
                       AllocatorTy>;
 
-  /// \brief A scoped hash table of the current values of all of our simple
+  /// A scoped hash table of the current values of all of our simple
   /// scalar expressions.
   ///
   /// As we walk down the domtree, we look to see if instructions are in this:
@@ -384,7 +388,7 @@ public:
                       InvariantMapAllocator>;
   InvariantHTType AvailableInvariants;
 
-  /// \brief A scoped hash table of the current values of read-only call
+  /// A scoped hash table of the current values of read-only call
   /// values.
   ///
   /// It uses the same generation count as loads.
@@ -392,10 +396,10 @@ public:
       ScopedHashTable<CallValue, std::pair<Instruction *, unsigned>>;
   CallHTType AvailableCalls;
 
-  /// \brief This is the current generation of the memory value.
+  /// This is the current generation of the memory value.
   unsigned CurrentGeneration = 0;
 
-  /// \brief Set up the EarlyCSE runner for a particular function.
+  /// Set up the EarlyCSE runner for a particular function.
   EarlyCSE(const DataLayout &DL, const TargetLibraryInfo &TLI,
            const TargetTransformInfo &TTI, DominatorTree &DT,
            AssumptionCache &AC, MemorySSA *MSSA)
@@ -469,7 +473,7 @@ private:
     bool Processed = false;
   };
 
-  /// \brief Wrapper class to handle memory instructions, including loads,
+  /// Wrapper class to handle memory instructions, including loads,
   /// stores and intrinsic loads and stores defined by the target.
   class ParseMemoryInst {
   public:
@@ -724,14 +728,18 @@ bool EarlyCSE::processNode(DomTreeNode *Node) {
                          ? ConstantInt::getTrue(BB->getContext())
                          : ConstantInt::getFalse(BB->getContext());
         AvailableValues.insert(CondInst, TorF);
-        DEBUG(dbgs() << "EarlyCSE CVP: Add conditional value for '"
-                     << CondInst->getName() << "' as " << *TorF << " in "
-                     << BB->getName() << "\n");
-        // Replace all dominated uses with the known value.
-        if (unsigned Count = replaceDominatedUsesWith(
-                CondInst, TorF, DT, BasicBlockEdge(Pred, BB))) {
-          Changed = true;
-          NumCSECVP += Count;
+        LLVM_DEBUG(dbgs() << "EarlyCSE CVP: Add conditional value for '"
+                          << CondInst->getName() << "' as " << *TorF << " in "
+                          << BB->getName() << "\n");
+        if (!DebugCounter::shouldExecute(CSECounter)) {
+          LLVM_DEBUG(dbgs() << "Skipping due to debug counter\n");
+        } else {
+          // Replace all dominated uses with the known value.
+          if (unsigned Count = replaceDominatedUsesWith(
+                  CondInst, TorF, DT, BasicBlockEdge(Pred, BB))) {
+            Changed = true;
+            NumCSECVP += Count;
+          }
         }
       }
     }
@@ -750,7 +758,11 @@ bool EarlyCSE::processNode(DomTreeNode *Node) {
 
     // Dead instructions should just be removed.
     if (isInstructionTriviallyDead(Inst, &TLI)) {
-      DEBUG(dbgs() << "EarlyCSE DCE: " << *Inst << '\n');
+      LLVM_DEBUG(dbgs() << "EarlyCSE DCE: " << *Inst << '\n');
+      if (!DebugCounter::shouldExecute(CSECounter)) {
+        LLVM_DEBUG(dbgs() << "Skipping due to debug counter\n");
+        continue;
+      }
       salvageDebugInfo(*Inst);
       removeMSSA(Inst);
       Inst->eraseFromParent();
@@ -767,16 +779,17 @@ bool EarlyCSE::processNode(DomTreeNode *Node) {
       auto *CondI =
           dyn_cast<Instruction>(cast<CallInst>(Inst)->getArgOperand(0));
       if (CondI && SimpleValue::canHandle(CondI)) {
-        DEBUG(dbgs() << "EarlyCSE considering assumption: " << *Inst << '\n');
+        LLVM_DEBUG(dbgs() << "EarlyCSE considering assumption: " << *Inst
+                          << '\n');
         AvailableValues.insert(CondI, ConstantInt::getTrue(BB->getContext()));
       } else
-        DEBUG(dbgs() << "EarlyCSE skipping assumption: " << *Inst << '\n');
+        LLVM_DEBUG(dbgs() << "EarlyCSE skipping assumption: " << *Inst << '\n');
       continue;
     }
 
     // Skip sideeffect intrinsics, for the same reason as assume intrinsics.
     if (match(Inst, m_Intrinsic<Intrinsic::sideeffect>())) {
-      DEBUG(dbgs() << "EarlyCSE skipping sideeffect: " << *Inst << '\n');
+      LLVM_DEBUG(dbgs() << "EarlyCSE skipping sideeffect: " << *Inst << '\n');
       continue;
     }
 
@@ -814,7 +827,8 @@ bool EarlyCSE::processNode(DomTreeNode *Node) {
             // Is the condition known to be true?
             if (isa<ConstantInt>(KnownCond) &&
                 cast<ConstantInt>(KnownCond)->isOne()) {
-              DEBUG(dbgs() << "EarlyCSE removing guard: " << *Inst << '\n');
+              LLVM_DEBUG(dbgs()
+                         << "EarlyCSE removing guard: " << *Inst << '\n');
               removeMSSA(Inst);
               Inst->eraseFromParent();
               Changed = true;
@@ -839,29 +853,39 @@ bool EarlyCSE::processNode(DomTreeNode *Node) {
     // If the instruction can be simplified (e.g. X+0 = X) then replace it with
     // its simpler value.
     if (Value *V = SimplifyInstruction(Inst, SQ)) {
-      DEBUG(dbgs() << "EarlyCSE Simplify: " << *Inst << "  to: " << *V << '\n');
-      bool Killed = false;
-      if (!Inst->use_empty()) {
-        Inst->replaceAllUsesWith(V);
-        Changed = true;
+      LLVM_DEBUG(dbgs() << "EarlyCSE Simplify: " << *Inst << "  to: " << *V
+                        << '\n');
+      if (!DebugCounter::shouldExecute(CSECounter)) {
+        LLVM_DEBUG(dbgs() << "Skipping due to debug counter\n");
+      } else {
+        bool Killed = false;
+        if (!Inst->use_empty()) {
+          Inst->replaceAllUsesWith(V);
+          Changed = true;
+        }
+        if (isInstructionTriviallyDead(Inst, &TLI)) {
+          removeMSSA(Inst);
+          Inst->eraseFromParent();
+          Changed = true;
+          Killed = true;
+        }
+        if (Changed)
+          ++NumSimplify;
+        if (Killed)
+          continue;
       }
-      if (isInstructionTriviallyDead(Inst, &TLI)) {
-        removeMSSA(Inst);
-        Inst->eraseFromParent();
-        Changed = true;
-        Killed = true;
-      }
-      if (Changed)
-        ++NumSimplify;
-      if (Killed)
-        continue;
     }
 
     // If this is a simple instruction that we can value number, process it.
     if (SimpleValue::canHandle(Inst)) {
       // See if the instruction has an available value.  If so, use it.
       if (Value *V = AvailableValues.lookup(Inst)) {
-        DEBUG(dbgs() << "EarlyCSE CSE: " << *Inst << "  to: " << *V << '\n');
+        LLVM_DEBUG(dbgs() << "EarlyCSE CSE: " << *Inst << "  to: " << *V
+                          << '\n');
+        if (!DebugCounter::shouldExecute(CSECounter)) {
+          LLVM_DEBUG(dbgs() << "Skipping due to debug counter\n");
+          continue;
+        }
         if (auto *I = dyn_cast<Instruction>(V))
           I->andIRFlags(Inst);
         Inst->replaceAllUsesWith(V);
@@ -917,8 +941,12 @@ bool EarlyCSE::processNode(DomTreeNode *Node) {
                                InVal.DefInst, Inst))) {
         Value *Op = getOrCreateResult(InVal.DefInst, Inst->getType());
         if (Op != nullptr) {
-          DEBUG(dbgs() << "EarlyCSE CSE LOAD: " << *Inst
-                       << "  to: " << *InVal.DefInst << '\n');
+          LLVM_DEBUG(dbgs() << "EarlyCSE CSE LOAD: " << *Inst
+                            << "  to: " << *InVal.DefInst << '\n');
+          if (!DebugCounter::shouldExecute(CSECounter)) {
+            LLVM_DEBUG(dbgs() << "Skipping due to debug counter\n");
+            continue;
+          }
           if (!Inst->use_empty())
             Inst->replaceAllUsesWith(Op);
           removeMSSA(Inst);
@@ -956,8 +984,12 @@ bool EarlyCSE::processNode(DomTreeNode *Node) {
       if (InVal.first != nullptr &&
           isSameMemGeneration(InVal.second, CurrentGeneration, InVal.first,
                               Inst)) {
-        DEBUG(dbgs() << "EarlyCSE CSE CALL: " << *Inst
-                     << "  to: " << *InVal.first << '\n');
+        LLVM_DEBUG(dbgs() << "EarlyCSE CSE CALL: " << *Inst
+                          << "  to: " << *InVal.first << '\n');
+        if (!DebugCounter::shouldExecute(CSECounter)) {
+          LLVM_DEBUG(dbgs() << "Skipping due to debug counter\n");
+          continue;
+        }
         if (!Inst->use_empty())
           Inst->replaceAllUsesWith(InVal.first);
         removeMSSA(Inst);
@@ -1008,7 +1040,11 @@ bool EarlyCSE::processNode(DomTreeNode *Node) {
                     MemInst.getPointerOperand() ||
                 MSSA) &&
                "can't have an intervening store if not using MemorySSA!");
-        DEBUG(dbgs() << "EarlyCSE DSE (writeback): " << *Inst << '\n');
+        LLVM_DEBUG(dbgs() << "EarlyCSE DSE (writeback): " << *Inst << '\n');
+        if (!DebugCounter::shouldExecute(CSECounter)) {
+          LLVM_DEBUG(dbgs() << "Skipping due to debug counter\n");
+          continue;
+        }
         removeMSSA(Inst);
         Inst->eraseFromParent();
         Changed = true;
@@ -1039,13 +1075,17 @@ bool EarlyCSE::processNode(DomTreeNode *Node) {
                  !LastStoreMemInst.isVolatile() &&
                  "Violated invariant");
           if (LastStoreMemInst.isMatchingMemLoc(MemInst)) {
-            DEBUG(dbgs() << "EarlyCSE DEAD STORE: " << *LastStore
-                         << "  due to: " << *Inst << '\n');
-            removeMSSA(LastStore);
-            LastStore->eraseFromParent();
-            Changed = true;
-            ++NumDSE;
-            LastStore = nullptr;
+            LLVM_DEBUG(dbgs() << "EarlyCSE DEAD STORE: " << *LastStore
+                              << "  due to: " << *Inst << '\n');
+            if (!DebugCounter::shouldExecute(CSECounter)) {
+              LLVM_DEBUG(dbgs() << "Skipping due to debug counter\n");
+            } else {
+              removeMSSA(LastStore);
+              LastStore->eraseFromParent();
+              Changed = true;
+              ++NumDSE;
+              LastStore = nullptr;
+            }
           }
           // fallthrough - we can exploit information about this store
         }
@@ -1157,7 +1197,7 @@ PreservedAnalyses EarlyCSEPass::run(Function &F,
 
 namespace {
 
-/// \brief A simple and fast domtree-based CSE pass.
+/// A simple and fast domtree-based CSE pass.
 ///
 /// This pass does a simple depth-first walk over the dominator tree,
 /// eliminating trivially redundant instructions and using instsimplify to

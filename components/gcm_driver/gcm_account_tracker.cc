@@ -15,6 +15,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/gcm_driver/gcm_driver.h"
+#include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "net/base/ip_endpoint.h"
 
@@ -45,10 +46,12 @@ GCMAccountTracker::AccountInfo::~AccountInfo() {
 }
 
 GCMAccountTracker::GCMAccountTracker(
-    std::unique_ptr<gaia::AccountTracker> account_tracker,
+    std::unique_ptr<AccountTracker> account_tracker,
+    ProfileOAuth2TokenService* token_service,
     GCMDriver* driver)
     : OAuth2TokenService::Consumer(kGCMAccountTrackerName),
       account_tracker_(account_tracker.release()),
+      token_service_(token_service),
       driver_(driver),
       shutdown_called_(false),
       reporting_weak_ptr_factory_(this) {}
@@ -69,10 +72,9 @@ void GCMAccountTracker::Start() {
   account_tracker_->AddObserver(this);
   driver_->AddConnectionObserver(this);
 
-  std::vector<gaia::AccountIds> accounts = account_tracker_->GetAccounts();
-  for (std::vector<gaia::AccountIds>::const_iterator iter = accounts.begin();
-       iter != accounts.end();
-       ++iter) {
+  std::vector<AccountIds> accounts = account_tracker_->GetAccounts();
+  for (std::vector<AccountIds>::const_iterator iter = accounts.begin();
+       iter != accounts.end(); ++iter) {
     if (!iter->email.empty()) {
       account_infos_.insert(std::make_pair(
           iter->account_key, AccountInfo(iter->email, TOKEN_NEEDED)));
@@ -101,7 +103,7 @@ void GCMAccountTracker::ScheduleReportTokens() {
       GetTimeToNextTokenReporting());
 }
 
-void GCMAccountTracker::OnAccountSignInChanged(const gaia::AccountIds& ids,
+void GCMAccountTracker::OnAccountSignInChanged(const AccountIds& ids,
                                                bool is_signed_in) {
   if (is_signed_in)
     OnAccountSignedIn(ids);
@@ -183,7 +185,7 @@ void GCMAccountTracker::ReportTokens() {
     return;
   }
 
-  // Wait for gaia::AccountTracker to be done with fetching the user info, as
+  // Wait for AccountTracker to be done with fetching the user info, as
   // well as all of the pending token requests from GCMAccountTracker to be done
   // before you report the results.
   if (!account_tracker_->IsAllUserInfoFetched() ||
@@ -324,20 +326,19 @@ void GCMAccountTracker::GetAllNeededTokens() {
 }
 
 void GCMAccountTracker::GetToken(AccountInfos::iterator& account_iter) {
-  DCHECK(GetTokenService());
   DCHECK_EQ(account_iter->second.state, TOKEN_NEEDED);
 
   OAuth2TokenService::ScopeSet scopes;
   scopes.insert(kGCMGroupServerScope);
   scopes.insert(kGCMCheckinServerScope);
   std::unique_ptr<OAuth2TokenService::Request> request =
-      GetTokenService()->StartRequest(account_iter->first, scopes, this);
+      token_service_->StartRequest(account_iter->first, scopes, this);
 
   pending_token_requests_.push_back(std::move(request));
   account_iter->second.state = GETTING_TOKEN;
 }
 
-void GCMAccountTracker::OnAccountSignedIn(const gaia::AccountIds& ids) {
+void GCMAccountTracker::OnAccountSignedIn(const AccountIds& ids) {
   DVLOG(1) << "Account signed in: " << ids.email;
   AccountInfos::iterator iter = account_infos_.find(ids.account_key);
   if (iter == account_infos_.end()) {
@@ -351,7 +352,7 @@ void GCMAccountTracker::OnAccountSignedIn(const gaia::AccountIds& ids) {
   GetAllNeededTokens();
 }
 
-void GCMAccountTracker::OnAccountSignedOut(const gaia::AccountIds& ids) {
+void GCMAccountTracker::OnAccountSignedOut(const AccountIds& ids) {
   DVLOG(1) << "Account signed out: " << ids.email;
   AccountInfos::iterator iter = account_infos_.find(ids.account_key);
   if (iter == account_infos_.end())
@@ -360,11 +361,6 @@ void GCMAccountTracker::OnAccountSignedOut(const gaia::AccountIds& ids) {
   iter->second.access_token.clear();
   iter->second.state = ACCOUNT_REMOVED;
   ReportTokens();
-}
-
-OAuth2TokenService* GCMAccountTracker::GetTokenService() {
-  DCHECK(account_tracker_->identity_provider());
-  return account_tracker_->identity_provider()->GetTokenService();
 }
 
 }  // namespace gcm

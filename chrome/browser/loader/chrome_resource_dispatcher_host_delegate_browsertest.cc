@@ -58,6 +58,7 @@
 #include "net/test/url_request/url_request_mock_http_job.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_filter.h"
+#include "services/network/public/cpp/features.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 
 using content::ResourceType;
@@ -83,13 +84,14 @@ std::unique_ptr<net::test_server::HttpResponse> HandleTestRequest(
     http_response->set_code(net::HTTP_MOVED_PERMANENTLY);
     http_response->AddCustomHeader("Location", redirect_target);
     return std::move(http_response);
-  } else {
+  } else if (request.relative_url == "/") {
     std::unique_ptr<net::test_server::BasicHttpResponse> http_response(
         new net::test_server::BasicHttpResponse);
     http_response->set_code(net::HTTP_OK);
     http_response->set_content("Success");
     return std::move(http_response);
   }
+  return nullptr;
 }
 
 class TestDispatcherHostDelegate : public ChromeResourceDispatcherHostDelegate {
@@ -472,7 +474,7 @@ IN_PROC_BROWSER_TEST_F(ChromeResourceDispatcherHostDelegateBrowserTest,
       prefs::kGoogleServicesUserAccountId, "account_id");
 
   base::FilePath root_http;
-  PathService::Get(chrome::DIR_TEST_DATA, &root_http);
+  base::PathService::Get(chrome::DIR_TEST_DATA, &root_http);
   root_http = root_http.AppendASCII("mirror_request_header");
 
   struct TestCase {
@@ -590,6 +592,10 @@ IN_PROC_BROWSER_TEST_F(ChromeResourceDispatcherHostDelegateBrowserTest,
 // See https://crbug.com/640545
 IN_PROC_BROWSER_TEST_F(ChromeResourceDispatcherHostDelegateBrowserTest,
                        ThrottlesAddedExactlyOnceToTinySniffedDownloads) {
+  // This code path isn't used when the network service is enabled.
+  if (base::FeatureList::IsEnabled(network::features::kNetworkService))
+    return;
+
   GURL url = embedded_test_server()->GetURL("/downloads/tiny_binary.bin");
   DownloadTestObserverNotInProgress download_observer(
       content::BrowserContext::GetDownloadManager(browser()->profile()), 1);
@@ -603,6 +609,10 @@ IN_PROC_BROWSER_TEST_F(ChromeResourceDispatcherHostDelegateBrowserTest,
 // have their mime type determined before the end of the response is reported.
 IN_PROC_BROWSER_TEST_F(ChromeResourceDispatcherHostDelegateBrowserTest,
                        ThrottlesAddedExactlyOnceToLargeSniffedDownloads) {
+  // This code path isn't used when the network service is enabled.
+  if (base::FeatureList::IsEnabled(network::features::kNetworkService))
+    return;
+
   GURL url = embedded_test_server()->GetURL("/downloads/thisdayinhistory.xls");
   DownloadTestObserverNotInProgress download_observer(
       content::BrowserContext::GetDownloadManager(browser()->profile()), 1);
@@ -616,6 +626,10 @@ IN_PROC_BROWSER_TEST_F(ChromeResourceDispatcherHostDelegateBrowserTest,
 // <a download> click.
 IN_PROC_BROWSER_TEST_F(ChromeResourceDispatcherHostDelegateBrowserTest,
                        ThrottlesAddedExactlyOnceToADownloads) {
+  // This code path isn't used when the network service is enabled.
+  if (base::FeatureList::IsEnabled(network::features::kNetworkService))
+    return;
+
   DownloadTestObserverNotInProgress download_observer(
       content::BrowserContext::GetDownloadManager(browser()->profile()), 1);
   download_observer.StartObserving();

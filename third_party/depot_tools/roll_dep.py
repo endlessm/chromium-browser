@@ -134,19 +134,7 @@ def calculate_roll(full_dir, dependency, gclient_dict, roll_to):
   """Calculates the roll for a dependency by processing gclient_dict, and
   fetching the dependency via git.
   """
-  if dependency not in gclient_dict['deps']:
-    raise Error(
-        '%s is not in the "deps" section of the DEPS file.' % dependency)
-
-  head = None
-  if isinstance(gclient_dict['deps'][dependency], basestring):
-    _, _, head = gclient_dict['deps'][dependency].partition('@')
-  elif (isinstance(gclient_dict['deps'][dependency], collections.Mapping)
-        and 'url' in gclient_dict['deps'][dependency]):
-    _, _, head = gclient_dict['deps'][dependency]['url'].partition('@')
-  else:
-    raise Error('%s is not a valid git dependency.' % dependency)
-
+  head = gclient_eval.GetRevision(gclient_dict, dependency)
   if not head:
     raise Error('%s is unpinned.' % dependency)
   check_call(['git', 'fetch', 'origin', '--quiet'], cwd=full_dir)
@@ -237,7 +225,7 @@ def main():
     # First gather all the information without modifying anything, except for a
     # git fetch.
     deps_path, deps_content = get_deps(current_dir)
-    gclient_dict = gclient_eval.Parse(deps_content, True, True, deps_path)
+    gclient_dict = gclient_eval.Exec(deps_content, True, deps_path)
     is_relative = gclient_dict.get('use_relative_paths', False)
     root_dir = current_dir if is_relative else gclient_root
     rolls = {}

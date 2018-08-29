@@ -11,6 +11,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/MC/MCAsmLayout.h"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCContext.h"
@@ -387,7 +388,8 @@ LLVM_DUMP_METHOD void MCFragment::dump() const {
   case MCFragment::FT_Fill:  {
     const MCFillFragment *FF = cast<MCFillFragment>(this);
     OS << " Value:" << static_cast<unsigned>(FF->getValue())
-       << " Size:" << FF->getSize();
+       << " ValueSize:" << static_cast<unsigned>(FF->getValueSize())
+       << " NumValues:" << FF->getNumValues();
     break;
   }
   case MCFragment::FT_Relaxable:  {

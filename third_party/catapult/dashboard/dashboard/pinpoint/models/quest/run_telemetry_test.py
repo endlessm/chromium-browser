@@ -15,13 +15,13 @@ _DEFAULT_EXTRA_ARGS = [
 
 class RunTelemetryTest(run_test.RunTest):
 
-  def Start(self, change, isolate_hash):
+  def Start(self, change, isolate_server, isolate_hash):
     # For results2 to differentiate between runs, we need to add the
     # Telemetry parameter `--results-label <change>` to the runs.
     extra_args = copy.copy(self._extra_args)
     extra_args += ('--results-label', str(change))
 
-    return self._Start(change, isolate_hash, extra_args)
+    return self._Start(change, isolate_server, isolate_hash, extra_args)
 
   @classmethod
   def FromDict(cls, arguments):
@@ -30,7 +30,11 @@ class RunTelemetryTest(run_test.RunTest):
     benchmark = arguments.get('benchmark')
     if not benchmark:
       raise TypeError('Missing "benchmark" argument.')
-    swarming_extra_args.append(benchmark)
+    if arguments.get('target') == 'performance_test_suite':
+      swarming_extra_args += ('--benchmarks', benchmark)
+    else:
+      # TODO: Remove this hack when all builders build performance_test_suite.
+      swarming_extra_args.append(benchmark)
 
     story = arguments.get('story')
     if story:

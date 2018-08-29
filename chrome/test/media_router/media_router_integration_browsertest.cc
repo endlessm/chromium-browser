@@ -15,7 +15,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "chrome/browser/media/router/media_router_feature.h"
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/media_router/media_cast_mode.h"
@@ -182,11 +182,6 @@ MediaRouterIntegrationBrowserTest::~MediaRouterIntegrationBrowserTest() {
 void MediaRouterIntegrationBrowserTest::TearDownOnMainThread() {
   MediaRouterBaseBrowserTest::TearDownOnMainThread();
   test_navigation_observer_.reset();
-}
-
-void MediaRouterIntegrationBrowserTest::SetUpOnMainThread() {
-  MediaRouterBaseBrowserTest::SetUpOnMainThread();
-  scoped_feature_list_.InitAndEnableFeature(kEnableCastLocalMedia);
 }
 
 void MediaRouterIntegrationBrowserTest::ExecuteJavaScriptAPI(
@@ -439,7 +434,7 @@ base::FilePath MediaRouterIntegrationBrowserTest::GetResourceFile(
   base::FilePath base_dir;
   // ASSERT_TRUE can only be used in void returning functions.
   // Use CHECK instead in non-void returning functions.
-  CHECK(PathService::Get(base::DIR_MODULE, &base_dir));
+  CHECK(base::PathService::Get(base::DIR_MODULE, &base_dir));
   base::FilePath full_path =
       base_dir.Append(kResourcePath).Append(relative_path);
   {
@@ -839,8 +834,14 @@ IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
   RunReconnectSessionTest();
 }
 
+// Flaky on Linux MSAN. https://crbug.com/840165
+#if defined(OS_LINUX) && defined(MEMORY_SANITIZER)
+#define MAYBE_Fail_ReconnectSession DISABLED_Fail_ReconnectSession
+#else
+#define MAYBE_Fail_ReconnectSession Fail_ReconnectSession
+#endif
 IN_PROC_BROWSER_TEST_F(MediaRouterIntegrationBrowserTest,
-                       Fail_ReconnectSession) {
+                       MAYBE_Fail_ReconnectSession) {
   WebContents* web_contents = StartSessionWithTestPageAndChooseSink();
   CheckSessionValidity(web_contents);
   std::string session_id(GetStartedConnectionId(web_contents));

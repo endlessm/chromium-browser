@@ -149,11 +149,11 @@ ManagePasswordsStateTest::CreateFormManagerInternal(bool include_federated) {
     fetcher_.set_federated({&test_local_federated_form()});
   }
   EXPECT_EQ(include_federated ? 1u : 0u,
-            test_form_manager->form_fetcher()->GetFederatedMatches().size());
+            test_form_manager->GetFormFetcher()->GetFederatedMatches().size());
   if (include_federated) {
     EXPECT_EQ(
         test_local_federated_form(),
-        *test_form_manager->form_fetcher()->GetFederatedMatches().front());
+        *test_form_manager->GetFormFetcher()->GetFederatedMatches().front());
   }
   return test_form_manager;
 }
@@ -280,9 +280,7 @@ TEST_F(ManagePasswordsStateTest, PasswordSubmitted) {
   test_stored_forms().push_back(&test_psl_form());
   std::unique_ptr<password_manager::PasswordFormManager> test_form_manager(
       CreateFormManager());
-  test_form_manager->ProvisionallySave(
-      test_submitted_form(),
-      password_manager::PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+  test_form_manager->ProvisionallySave(test_submitted_form());
   passwords_data().OnPendingPassword(std::move(test_form_manager));
 
   EXPECT_THAT(passwords_data().GetCurrentForms(),
@@ -292,7 +290,7 @@ TEST_F(ManagePasswordsStateTest, PasswordSubmitted) {
   EXPECT_EQ(test_submitted_form().origin, passwords_data().origin());
   ASSERT_TRUE(passwords_data().form_manager());
   EXPECT_EQ(test_submitted_form(),
-            passwords_data().form_manager()->pending_credentials());
+            passwords_data().form_manager()->GetPendingCredentials());
   TestAllUpdates();
 }
 
@@ -300,9 +298,7 @@ TEST_F(ManagePasswordsStateTest, PasswordSaved) {
   test_stored_forms().push_back(&test_local_form());
   std::unique_ptr<password_manager::PasswordFormManager> test_form_manager(
       CreateFormManager());
-  test_form_manager->ProvisionallySave(
-      test_submitted_form(),
-      password_manager::PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+  test_form_manager->ProvisionallySave(test_submitted_form());
   passwords_data().OnPendingPassword(std::move(test_form_manager));
   EXPECT_EQ(password_manager::ui::PENDING_PASSWORD_STATE,
             passwords_data().state());
@@ -319,9 +315,7 @@ TEST_F(ManagePasswordsStateTest, PasswordSaved) {
 TEST_F(ManagePasswordsStateTest, PasswordSubmittedFederationsPresent) {
   std::unique_ptr<password_manager::PasswordFormManager> test_form_manager(
       CreateFormManagerWithFederation());
-  test_form_manager->ProvisionallySave(
-      test_submitted_form(),
-      password_manager::PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+  test_form_manager->ProvisionallySave(test_submitted_form());
   passwords_data().OnPendingPassword(std::move(test_form_manager));
 
   EXPECT_THAT(passwords_data().GetCurrentForms(),
@@ -375,16 +369,14 @@ TEST_F(ManagePasswordsStateTest, AutomaticPasswordSave) {
   test_stored_forms().push_back(&test_psl_form());
   std::unique_ptr<password_manager::PasswordFormManager> test_form_manager(
       CreateFormManager());
-  test_form_manager->ProvisionallySave(
-      test_submitted_form(),
-      password_manager::PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+  test_form_manager->ProvisionallySave(test_submitted_form());
 
   passwords_data().OnAutomaticPasswordSave(std::move(test_form_manager));
   EXPECT_EQ(password_manager::ui::CONFIRMATION_STATE, passwords_data().state());
   EXPECT_EQ(test_submitted_form().origin, passwords_data().origin());
   ASSERT_TRUE(passwords_data().form_manager());
   EXPECT_EQ(test_submitted_form(),
-            passwords_data().form_manager()->pending_credentials());
+            passwords_data().form_manager()->GetPendingCredentials());
   TestAllUpdates();
 
   passwords_data().TransitionToState(password_manager::ui::MANAGE_STATE);
@@ -398,9 +390,7 @@ TEST_F(ManagePasswordsStateTest, AutomaticPasswordSave) {
 TEST_F(ManagePasswordsStateTest, AutomaticPasswordSaveWithFederations) {
   std::unique_ptr<password_manager::PasswordFormManager> test_form_manager(
       CreateFormManagerWithFederation());
-  test_form_manager->ProvisionallySave(
-      test_submitted_form(),
-      password_manager::PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+  test_form_manager->ProvisionallySave(test_submitted_form());
 
   passwords_data().OnAutomaticPasswordSave(std::move(test_form_manager));
   EXPECT_THAT(passwords_data().GetCurrentForms(),
@@ -471,9 +461,8 @@ TEST_F(ManagePasswordsStateTest, InactiveOnPSLMatched) {
 TEST_F(ManagePasswordsStateTest, OnInactive) {
   std::unique_ptr<password_manager::PasswordFormManager> test_form_manager(
       CreateFormManager());
-  test_form_manager->ProvisionallySave(
-      test_submitted_form(),
-      password_manager::PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+  test_form_manager->ProvisionallySave(test_submitted_form());
+
   passwords_data().OnPendingPassword(std::move(test_form_manager));
   EXPECT_EQ(password_manager::ui::PENDING_PASSWORD_STATE,
             passwords_data().state());
@@ -488,9 +477,7 @@ TEST_F(ManagePasswordsStateTest, OnInactive) {
 TEST_F(ManagePasswordsStateTest, PendingPasswordAddBlacklisted) {
   std::unique_ptr<password_manager::PasswordFormManager> test_form_manager(
       CreateFormManager());
-  test_form_manager->ProvisionallySave(
-      test_submitted_form(),
-      password_manager::PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+  test_form_manager->ProvisionallySave(test_submitted_form());
   passwords_data().OnPendingPassword(std::move(test_form_manager));
   EXPECT_EQ(password_manager::ui::PENDING_PASSWORD_STATE,
             passwords_data().state());
@@ -524,9 +511,7 @@ TEST_F(ManagePasswordsStateTest, AutoSigninAddBlacklisted) {
 TEST_F(ManagePasswordsStateTest, AutomaticPasswordSaveAddBlacklisted) {
   std::unique_ptr<password_manager::PasswordFormManager> test_form_manager(
       CreateFormManager());
-  test_form_manager->ProvisionallySave(
-      test_submitted_form(),
-      password_manager::PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+  test_form_manager->ProvisionallySave(test_submitted_form());
   passwords_data().OnAutomaticPasswordSave(std::move(test_form_manager));
   EXPECT_EQ(password_manager::ui::CONFIRMATION_STATE, passwords_data().state());
 
@@ -547,9 +532,7 @@ TEST_F(ManagePasswordsStateTest, BackgroundAutofilledAddBlacklisted) {
 TEST_F(ManagePasswordsStateTest, PasswordUpdateAddBlacklisted) {
   std::unique_ptr<password_manager::PasswordFormManager> test_form_manager(
       CreateFormManager());
-  test_form_manager->ProvisionallySave(
-      test_submitted_form(),
-      password_manager::PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+  test_form_manager->ProvisionallySave(test_submitted_form());
   passwords_data().OnUpdatePassword(std::move(test_form_manager));
   EXPECT_EQ(password_manager::ui::PENDING_PASSWORD_UPDATE_STATE,
             passwords_data().state());
@@ -562,9 +545,7 @@ TEST_F(ManagePasswordsStateTest, PasswordUpdateSubmitted) {
   test_stored_forms().push_back(&test_psl_form());
   std::unique_ptr<password_manager::PasswordFormManager> test_form_manager(
       CreateFormManager());
-  test_form_manager->ProvisionallySave(
-      test_submitted_form(),
-      password_manager::PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+  test_form_manager->ProvisionallySave(test_submitted_form());
   passwords_data().OnUpdatePassword(std::move(test_form_manager));
 
   EXPECT_THAT(passwords_data().GetCurrentForms(),
@@ -574,7 +555,7 @@ TEST_F(ManagePasswordsStateTest, PasswordUpdateSubmitted) {
   EXPECT_EQ(test_submitted_form().origin, passwords_data().origin());
   ASSERT_TRUE(passwords_data().form_manager());
   EXPECT_EQ(test_submitted_form(),
-            passwords_data().form_manager()->pending_credentials());
+            passwords_data().form_manager()->GetPendingCredentials());
   TestAllUpdates();
 }
 
@@ -587,9 +568,7 @@ TEST_F(ManagePasswordsStateTest, AndroidPasswordUpdateSubmitted) {
   test_stored_forms().push_back(&android_form);
   std::unique_ptr<password_manager::PasswordFormManager> test_form_manager(
       CreateFormManager());
-  test_form_manager->ProvisionallySave(
-      test_submitted_form(),
-      password_manager::PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+  test_form_manager->ProvisionallySave(test_submitted_form());
   passwords_data().OnUpdatePassword(std::move(test_form_manager));
 
   EXPECT_THAT(passwords_data().GetCurrentForms(),
@@ -600,7 +579,7 @@ TEST_F(ManagePasswordsStateTest, AndroidPasswordUpdateSubmitted) {
   ASSERT_TRUE(passwords_data().form_manager());
   android_form.password_value = test_submitted_form().password_value;
   EXPECT_EQ(android_form,
-            passwords_data().form_manager()->pending_credentials());
+            passwords_data().form_manager()->GetPendingCredentials());
   TestAllUpdates();
 }
 
@@ -608,9 +587,7 @@ TEST_F(ManagePasswordsStateTest, PasswordUpdateSubmittedWithFederations) {
   test_stored_forms().push_back(&test_local_form());
   std::unique_ptr<password_manager::PasswordFormManager> test_form_manager(
       CreateFormManagerWithFederation());
-  test_form_manager->ProvisionallySave(
-      test_submitted_form(),
-      password_manager::PasswordFormManager::IGNORE_OTHER_POSSIBLE_USERNAMES);
+  test_form_manager->ProvisionallySave(test_submitted_form());
   passwords_data().OnUpdatePassword(std::move(test_form_manager));
 
   EXPECT_THAT(passwords_data().GetCurrentForms(),

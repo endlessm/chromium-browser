@@ -67,14 +67,14 @@ std::unique_ptr<net::URLRequest> RequestURL(
       net::MockRead(net::SYNCHRONOUS, net::OK),
   };
   net::StaticSocketDataProvider redirect_socket_data_provider(
-      redirect_mock_reads, arraysize(redirect_mock_reads), nullptr, 0);
+      redirect_mock_reads, base::span<net::MockWrite>());
 
   net::MockRead response_mock_reads[] = {
       net::MockRead("HTTP/1.1 200 OK\r\n\r\n"), net::MockRead("response body"),
       net::MockRead(net::SYNCHRONOUS, net::OK),
   };
   net::StaticSocketDataProvider response_socket_data_provider(
-      response_mock_reads, arraysize(response_mock_reads), nullptr, 0);
+      response_mock_reads, base::span<net::MockWrite>());
   socket_factory->AddSocketDataProvider(&response_socket_data_provider);
   net::TestDelegate test_delegate;
   test_delegate.set_quit_on_complete(true);
@@ -609,7 +609,7 @@ TEST(ChromeNetworkDelegateStaticTest, IsAccessAllowed) {
 
 #if defined(OS_CHROMEOS)
   base::FilePath temp_dir;
-  ASSERT_TRUE(PathService::Get(base::DIR_TEMP, &temp_dir));
+  ASSERT_TRUE(base::PathService::Get(base::DIR_TEMP, &temp_dir));
   // Chrome OS allows the following directories.
   EXPECT_TRUE(IsAccessAllowed("/home/chronos/user/Downloads", ""));
   EXPECT_TRUE(IsAccessAllowed("/home/chronos/user/log", ""));
@@ -642,7 +642,8 @@ TEST(ChromeNetworkDelegateStaticTest, IsAccessAllowed) {
 
   // Files in external storage are allowed.
   base::FilePath external_storage_path;
-  PathService::Get(base::DIR_ANDROID_EXTERNAL_STORAGE, &external_storage_path);
+  base::PathService::Get(base::DIR_ANDROID_EXTERNAL_STORAGE,
+                         &external_storage_path);
   EXPECT_TRUE(IsAccessAllowed(
       external_storage_path.AppendASCII("foo.txt").AsUTF8Unsafe(), ""));
   // The external storage root itself is not allowed.
@@ -672,7 +673,7 @@ class TestingPermissionProfile : public TestingProfile {
 
 class ChromeNetworkDelegateReportingTest : public ChromeNetworkDelegateTest {
  public:
-  ChromeNetworkDelegateReportingTest() = default;
+  ChromeNetworkDelegateReportingTest() : factory_(&profile_) {}
 
   content::MockPermissionManager* mock_permission_manager() {
     return profile_.mock_permission_manager();
@@ -681,11 +682,12 @@ class ChromeNetworkDelegateReportingTest : public ChromeNetworkDelegateTest {
   void Initialize() override {
     ChromeNetworkDelegateTest::Initialize();
     chrome_network_delegate()->set_reporting_permissions_checker(
-        std::make_unique<ReportingPermissionsChecker>(&profile_));
+        factory_.CreateChecker());
   }
 
  protected:
   TestingPermissionProfile profile_;
+  ReportingPermissionsCheckerFactory factory_;
   DISALLOW_COPY_AND_ASSIGN(ChromeNetworkDelegateReportingTest);
 };
 

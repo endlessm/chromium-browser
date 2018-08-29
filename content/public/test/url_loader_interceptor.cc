@@ -6,6 +6,7 @@
 
 #include "base/test/bind_test_util.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/loader/navigation_url_loader_impl.h"
 #include "content/browser/loader/resource_message_filter.h"
 #include "content/browser/loader/url_loader_factory_impl.h"
 #include "content/browser/storage_partition_impl.h"
@@ -64,24 +65,9 @@ class URLLoaderInterceptor::Interceptor
     params.url_request = std::move(url_request);
     params.client = std::move(client);
     params.traffic_annotation = traffic_annotation;
-    // We don't intercept the blob URL for plznavigate requests.
-    if (params.url_request.resource_body_stream_url.is_empty() &&
-        parent_->callback_.Run(&params))
-      return;
 
-    // mock.failed.request is a special request whereby the query indicates what
-    // error code to respond with.
-    if (params.url_request.url.DomainIs("mock.failed.request")) {
-      std::string query = params.url_request.url.query();
-      std::string error_code = query.substr(query.find("=") + 1);
-
-      int error = 0;
-      base::StringToInt(error_code, &error);
-      network::URLLoaderCompletionStatus status;
-      status.error_code = error;
-      params.client->OnComplete(status);
+    if (parent_->Intercept(&params))
       return;
-    }
 
     original_factory_getter_.Run()->CreateLoaderAndStart(
         std::move(params.request), params.routing_id, params.request_id,
@@ -315,6 +301,53 @@ void URLLoaderInterceptor::GetNetworkFactoryCallback(
                                                       this));
 }
 
+bool URLLoaderInterceptor::BeginNavigationCallback(
+    network::mojom::URLLoaderRequest* request,
+    int32_t routing_id,
+    int32_t request_id,
+    uint32_t options,
+    const network::ResourceRequest& url_request,
+    network::mojom::URLLoaderClientPtr* client,
+    const net::MutableNetworkTrafficAnnotationTag& traffic_annotation) {
+  RequestParams params;
+  params.process_id = 0;
+  params.request = std::move(*request);
+  params.routing_id = routing_id;
+  params.request_id = request_id;
+  params.options = options;
+  params.url_request = url_request;
+  params.client = std::move(*client);
+  params.traffic_annotation = traffic_annotation;
+
+  if (Intercept(&params))
+    return true;
+
+  *request = std::move(params.request);
+  *client = std::move(params.client);
+  return false;
+}
+
+bool URLLoaderInterceptor::Intercept(RequestParams* params) {
+  if (callback_.Run(params))
+    return true;
+
+  // mock.failed.request is a special request whereby the query indicates what
+  // error code to respond with.
+  if (params->url_request.url.DomainIs("mock.failed.request")) {
+    std::string query = params->url_request.url.query();
+    std::string error_code = query.substr(query.find("=") + 1);
+
+    int error = 0;
+    base::StringToInt(error_code, &error);
+    network::URLLoaderCompletionStatus status;
+    status.error_code = error;
+    params->client->OnComplete(status);
+    return true;
+  }
+
+  return false;
+}
+
 void URLLoaderInterceptor::SubresourceWrapperBindingError(
     SubresourceWrapper* wrapper) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
@@ -329,11 +362,13 @@ void URLLoaderInterceptor::SubresourceWrapperBindingError(
 }
 
 void URLLoaderInterceptor::InitializeOnIOThread(base::OnceClosure closure) {
-  // Once http://crbug.com/747130 is fixed, the codepath above will work for
-  // the non-network service code path.
   if (base::FeatureList::IsEnabled(network::features::kNetworkService)) {
     URLLoaderFactoryGetter::SetGetNetworkFactoryCallbackForTesting(
         base::BindRepeating(&URLLoaderInterceptor::GetNetworkFactoryCallback,
+                            base::Unretained(this)));
+  } else {
+    NavigationURLLoaderImpl::SetBeginNavigationInterceptorForTesting(
+        base::BindRepeating(&URLLoaderInterceptor::BeginNavigationCallback,
                             base::Unretained(this)));
   }
 
@@ -362,6 +397,9 @@ void URLLoaderInterceptor::ShutdownOnIOThread(base::OnceClosure closure) {
   if (base::FeatureList::IsEnabled(network::features::kNetworkService)) {
     URLLoaderFactoryGetter::SetGetNetworkFactoryCallbackForTesting(
         URLLoaderFactoryGetter::GetNetworkFactoryCallback());
+  } else {
+    NavigationURLLoaderImpl::SetBeginNavigationInterceptorForTesting(
+        NavigationURLLoaderImpl::BeginNavigationInterceptor());
   }
 
   if (!base::FeatureList::IsEnabled(network::features::kNetworkService)) {

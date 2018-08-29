@@ -45,7 +45,9 @@ class ReportingPermissionsCheckerTest : public testing::Test {
  public:
   ReportingPermissionsCheckerTest()
       : thread_bundle_(content::TestBrowserThreadBundle::IO_MAINLOOP),
-        reporting_permissions_checker_(&profile_) {}
+        reporting_permissions_checker_factory_(&profile_),
+        reporting_permissions_checker_(
+            reporting_permissions_checker_factory_.CreateChecker()) {}
 
   content::MockPermissionManager* mock_permission_manager() {
     return profile_.mock_permission_manager();
@@ -54,7 +56,8 @@ class ReportingPermissionsCheckerTest : public testing::Test {
  protected:
   content::TestBrowserThreadBundle thread_bundle_;
   TestingPermissionProfile profile_;
-  ReportingPermissionsChecker reporting_permissions_checker_;
+  ReportingPermissionsCheckerFactory reporting_permissions_checker_factory_;
+  std::unique_ptr<ReportingPermissionsChecker> reporting_permissions_checker_;
   DISALLOW_COPY_AND_ASSIGN(ReportingPermissionsCheckerTest);
 };
 
@@ -72,7 +75,7 @@ TEST_F(ReportingPermissionsCheckerTest, ChecksReportingPermissionsBothGranted) {
       .WillOnce(Return(blink::mojom::PermissionStatus::GRANTED));
 
   std::set<url::Origin> allowed_origins;
-  reporting_permissions_checker_.FilterReportingOrigins(
+  reporting_permissions_checker_->FilterReportingOrigins(
       std::move(origins),
       base::BindOnce(
           [](std::set<url::Origin>* dest, std::set<url::Origin> result) {
@@ -98,7 +101,7 @@ TEST_F(ReportingPermissionsCheckerTest, ChecksReportingPermissionsBothDenied) {
       .WillOnce(Return(blink::mojom::PermissionStatus::DENIED));
 
   std::set<url::Origin> allowed_origins;
-  reporting_permissions_checker_.FilterReportingOrigins(
+  reporting_permissions_checker_->FilterReportingOrigins(
       std::move(origins),
       base::BindOnce(
           [](std::set<url::Origin>* dest, std::set<url::Origin> result) {
@@ -124,7 +127,7 @@ TEST_F(ReportingPermissionsCheckerTest, ChecksReportingPermissionsMixed) {
       .WillOnce(Return(blink::mojom::PermissionStatus::DENIED));
 
   std::set<url::Origin> allowed_origins;
-  reporting_permissions_checker_.FilterReportingOrigins(
+  reporting_permissions_checker_->FilterReportingOrigins(
       std::move(origins),
       base::BindOnce(
           [](std::set<url::Origin>* dest, std::set<url::Origin> result) {

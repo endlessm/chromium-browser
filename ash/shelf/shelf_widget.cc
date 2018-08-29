@@ -6,6 +6,7 @@
 
 #include "ash/animation/animation_change_type.h"
 #include "ash/focus_cycler.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/root_window_controller.h"
@@ -43,9 +44,13 @@ views::View* FindFirstOrLastFocusableChild(views::View* root,
   views::FocusTraversable* dummy_focus_traversable;
   views::View* dummy_focus_traversable_view;
   return search.FindNextFocusableView(
-      root, find_last_child, views::FocusSearch::DOWN,
-      false /*check_starting_view*/, &dummy_focus_traversable,
-      &dummy_focus_traversable_view);
+      root,
+      find_last_child ? views::FocusSearch::SearchDirection::kBackwards
+                      : views::FocusSearch::SearchDirection::kForwards,
+      views::FocusSearch::TraversalDirection::kDown,
+      views::FocusSearch::StartingViewPolicy::kSkipStartingView,
+      views::FocusSearch::AnchoredDialogPolicy::kCanGoIntoAnchoredDialog,
+      &dummy_focus_traversable, &dummy_focus_traversable_view);
 }
 
 }  // namespace
@@ -130,7 +135,7 @@ bool ShelfWidget::IsUsingViewsShelf() {
     case session_manager::SessionState::UNKNOWN:
     case session_manager::SessionState::LOGIN_PRIMARY:
     case session_manager::SessionState::LOGGED_IN_NOT_ACTIVE:
-      return switches::IsUsingViewsLogin();
+      return features::IsViewsLoginEnabled();
   }
 }
 

@@ -15,6 +15,8 @@ echo CORE_COUNT=$CORE_COUNT
 
 REVISION_DIR="$CURRENT_DIR/external_revisions"
 
+git submodule update --init --recursive
+
 # Use tr -d to remove line endings
 GLSLANG_GITURL=$(cat "${REVISION_DIR}/glslang_giturl" | tr -d "\n\r")
 GLSLANG_REVISION=$(cat "${REVISION_DIR}/glslang_revision" | tr -d "\n\r")
@@ -69,9 +71,8 @@ function update_moltenvk () {
 
 function build_moltenvk () {
    echo "Building ${BASEDIR}/MoltenVK"
-   cd "${BASEDIR}"/MoltenVK/External
-   ./makeAll
    cd "${BASEDIR}"/MoltenVK
+   ./fetchDependencies --v-lvl-root "${BUILDDIR}" --glslang-root "${BASEDIR}/glslang"
    xcodebuild -project MoltenVKPackaging.xcodeproj \
     GCC_PREPROCESSOR_DEFINITIONS='$GCC_PREPROCESSOR_DEFINITIONS MVK_LOGGING_ENABLED=0' \
     -scheme "MoltenVK (Release)" build

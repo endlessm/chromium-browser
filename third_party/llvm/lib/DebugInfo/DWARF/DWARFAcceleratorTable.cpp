@@ -385,7 +385,7 @@ llvm::Error DWARFDebugNames::Header::extract(const DWARFDataExtractor &AS,
   BucketCount = AS.getU32(Offset);
   NameCount = AS.getU32(Offset);
   AbbrevTableSize = AS.getU32(Offset);
-  AugmentationStringSize = AS.getU32(Offset);
+  AugmentationStringSize = alignTo(AS.getU32(Offset), 4);
 
   if (!AS.isValidOffsetForDataOfSize(*Offset, AugmentationStringSize))
     return make_error<StringError>(
@@ -394,7 +394,6 @@ llvm::Error DWARFDebugNames::Header::extract(const DWARFDataExtractor &AS,
   AugmentationString.resize(AugmentationStringSize);
   AS.getU8(Offset, reinterpret_cast<uint8_t *>(AugmentationString.data()),
            AugmentationStringSize);
-  *Offset = alignTo(*Offset, 4);
   return Error::success();
 }
 
@@ -535,7 +534,7 @@ DWARFDebugNames::Entry::lookup(dwarf::Index Index) const {
 
 Optional<uint64_t> DWARFDebugNames::Entry::getDIEUnitOffset() const {
   if (Optional<DWARFFormValue> Off = lookup(dwarf::DW_IDX_die_offset))
-    return Off->getAsSectionOffset();
+    return Off->getAsReferenceUVal();
   return None;
 }
 
@@ -602,7 +601,7 @@ Expected<DWARFDebugNames::Entry>
 DWARFDebugNames::NameIndex::getEntry(uint32_t *Offset) const {
   const DWARFDataExtractor &AS = Section.AccelSection;
   if (!AS.isValidOffset(*Offset))
-    return make_error<StringError>("Incorrectly terminated entry list",
+    return make_error<StringError>("Incorrectly terminated entry list.",
                                    inconvertibleErrorCode());
 
   uint32_t AbbrevCode = AS.getULEB128(Offset);
@@ -611,7 +610,7 @@ DWARFDebugNames::NameIndex::getEntry(uint32_t *Offset) const {
 
   const auto AbbrevIt = Abbrevs.find_as(AbbrevCode);
   if (AbbrevIt == Abbrevs.end())
-    return make_error<StringError>("Invalid abbreviation",
+    return make_error<StringError>("Invalid abbreviation.",
                                    inconvertibleErrorCode());
 
   Entry E(*this, *AbbrevIt);
@@ -619,7 +618,7 @@ DWARFDebugNames::NameIndex::getEntry(uint32_t *Offset) const {
   dwarf::FormParams FormParams = {Hdr.Version, 0, dwarf::DwarfFormat::DWARF32};
   for (auto &Value : E.Values) {
     if (!Value.extractValue(AS, Offset, FormParams))
-      return make_error<StringError>("Error extracting index attribute values",
+      return make_error<StringError>("Error extracting index attribute values.",
                                      inconvertibleErrorCode());
   }
   return std::move(E);
@@ -771,6 +770,11 @@ llvm::Error DWARFDebugNames::extract() {
   return Error::success();
 }
 
+iterator_range<DWARFDebugNames::ValueIterator>
+DWARFDebugNames::NameIndex::equal_range(StringRef Key) const {
+  return make_range(ValueIterator(*this, Key), ValueIterator());
+}
+
 LLVM_DUMP_METHOD void DWARFDebugNames::dump(raw_ostream &OS) const {
   ScopedPrinter W(OS);
   for (const NameIndex &NI : NameIndices)
@@ -845,15 +849,28 @@ void DWARFDebugNames::ValueIterator::next() {
   if (getEntryAtCurrentOffset())
     return;
 
-  // Try the next Name Index.
+  // If we're a local iterator, we're done.
+  if (IsLocal) {
+    setEnd();
+    return;
+  }
+
+  // Otherwise, try the next index.
   ++CurrentIndex;
   searchFromStartOfCurrentIndex();
 }
 
 DWARFDebugNames::ValueIterator::ValueIterator(const DWARFDebugNames &AccelTable,
                                               StringRef Key)
-    : CurrentIndex(AccelTable.NameIndices.begin()), Key(Key) {
+    : CurrentIndex(AccelTable.NameIndices.begin()), IsLocal(false), Key(Key) {
   searchFromStartOfCurrentIndex();
+}
+
+DWARFDebugNames::ValueIterator::ValueIterator(
+    const DWARFDebugNames::NameIndex &NI, StringRef Key)
+    : CurrentIndex(&NI), IsLocal(true), Key(Key) {
+  if (!findInCurrentIndex())
+    setEnd();
 }
 
 iterator_range<DWARFDebugNames::ValueIterator>
@@ -861,4 +878,15 @@ DWARFDebugNames::equal_range(StringRef Key) const {
   if (NameIndices.empty())
     return make_range(ValueIterator(), ValueIterator());
   return make_range(ValueIterator(*this, Key), ValueIterator());
+}
+
+const DWARFDebugNames::NameIndex *
+DWARFDebugNames::getCUNameIndex(uint32_t CUOffset) {
+  if (CUToNameIndex.size() == 0 && NameIndices.size() > 0) {
+    for (const auto &NI : *this) {
+      for (uint32_t CU = 0; CU < NI.getCUCount(); ++CU)
+        CUToNameIndex.try_emplace(NI.getCUOffset(CU), &NI);
+    }
+  }
+  return CUToNameIndex.lookup(CUOffset);
 }

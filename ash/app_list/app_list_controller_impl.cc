@@ -4,7 +4,6 @@
 
 #include "ash/app_list/app_list_controller_impl.h"
 
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -13,12 +12,18 @@
 #include "ash/app_list/model/app_list_item.h"
 #include "ash/app_list/presenter/app_list_presenter_delegate_factory.h"
 #include "ash/app_list/presenter/app_list_view_delegate_factory.h"
+#include "ash/public/cpp/app_list/answer_card_contents_registry.h"
+#include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/config.h"
+#include "ash/session/session_controller.h"
 #include "ash/shell.h"
+#include "ash/shell_port.h"
+#include "ash/wallpaper/wallpaper_controller.h"
+#include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/metrics/user_metrics.h"
 #include "extensions/common/constants.h"
-#include "ui/app_list/answer_card_contents_registry.h"
 #include "ui/app_list/views/app_list_main_view.h"
 #include "ui/app_list/views/app_list_view.h"
 #include "ui/app_list/views/contents_view.h"
@@ -54,12 +59,11 @@ namespace ash {
 // TODO(hejq): Get rid of AppListPresenterDelegateFactory and pass in
 // ash::AppListPresenterDelegate directly.
 AppListControllerImpl::AppListControllerImpl()
-    : view_delegate_(this),
-      presenter_(
-          std::make_unique<AppListPresenterDelegateFactory>(
-              std::make_unique<ViewDelegateFactoryImpl>(&view_delegate_)),
-          this),
-      keyboard_observer_(this) {
+    : presenter_(std::make_unique<AppListPresenterDelegateFactory>(
+                     std::make_unique<ViewDelegateFactoryImpl>(this)),
+                 this),
+      keyboard_observer_(this),
+      is_home_launcher_enabled_(app_list::features::IsHomeLauncherEnabled()) {
   model_.AddObserver(this);
 
   // Create only for non-mash. Mash uses window tree embed API to get a
@@ -69,11 +73,24 @@ AppListControllerImpl::AppListControllerImpl()
         std::make_unique<app_list::AnswerCardContentsRegistry>();
   }
 
-  ash::Shell::Get()->AddShellObserver(this);
+  SessionController* session_controller = Shell::Get()->session_controller();
+  session_controller->AddObserver(this);
+
+  // In case of crash-and-restart case where session state starts with ACTIVE
+  // and does not change to trigger OnSessionStateChanged(), notify the current
+  // session state here to ensure that the app list is shown.
+  OnSessionStateChanged(session_controller->GetSessionState());
+
+  Shell::Get()->tablet_mode_controller()->AddObserver(this);
+  Shell::Get()->wallpaper_controller()->AddObserver(this);
+  Shell::Get()->AddShellObserver(this);
 }
 
 AppListControllerImpl::~AppListControllerImpl() {
-  ash::Shell::Get()->RemoveShellObserver(this);
+  Shell::Get()->RemoveShellObserver(this);
+  Shell::Get()->wallpaper_controller()->RemoveObserver(this);
+  Shell::Get()->tablet_mode_controller()->RemoveObserver(this);
+  Shell::Get()->session_controller()->RemoveObserver(this);
   model_.RemoveObserver(this);
 }
 
@@ -84,6 +101,14 @@ void AppListControllerImpl::SetClient(mojom::AppListClientPtr client_ptr) {
 void AppListControllerImpl::BindRequest(
     mojom::AppListControllerRequest request) {
   bindings_.AddBinding(this, std::move(request));
+}
+
+app_list::AppListModel* AppListControllerImpl::GetModel() {
+  return &model_;
+}
+
+app_list::SearchModel* AppListControllerImpl::GetSearchModel() {
+  return &search_model_;
 }
 
 void AppListControllerImpl::AddItem(AppListItemMetadataPtr item_data) {
@@ -152,6 +177,18 @@ void AppListControllerImpl::UpdateSearchBox(const base::string16& text,
   search_model_.search_box()->Update(text, initiated_by_user);
 }
 
+void AppListControllerImpl::PublishSearchResults(
+    std::vector<SearchResultMetadataPtr> results) {
+  std::vector<std::unique_ptr<app_list::SearchResult>> new_results;
+  for (auto& result_metadata : results) {
+    std::unique_ptr<app_list::SearchResult> result =
+        std::make_unique<app_list::SearchResult>();
+    result->SetMetadata(std::move(result_metadata));
+    new_results.push_back(std::move(result));
+  }
+  search_model_.PublishResults(std::move(new_results));
+}
+
 void AppListControllerImpl::SetItemMetadata(const std::string& id,
                                             AppListItemMetadataPtr data) {
   app_list::AppListItem* item = model_.FindItem(id);
@@ -161,6 +198,21 @@ void AppListControllerImpl::SetItemMetadata(const std::string& id,
   // data may not contain valid position or icon. Preserve it in this case.
   if (!data->position.IsValid())
     data->position = item->position();
+
+  // Update the item's position and name based on the metadata.
+  if (!data->position.Equals(item->position()))
+    model_.SetItemPosition(item, data->position);
+
+  if (data->short_name.empty()) {
+    if (data->name != item->name()) {
+      model_.SetItemName(item, data->name);
+    }
+  } else {
+    if (data->name != item->name() || data->short_name != item->short_name()) {
+      model_.SetItemNameAndShortName(item, data->name, data->short_name);
+    }
+  }
+
   // Folder icon is generated on ash side and chrome side passes a null
   // icon here. Skip it.
   if (data->icon.isNull())
@@ -213,9 +265,38 @@ void AppListControllerImpl::SetModelData(
   search_model_.SetSearchEngineIsGoogle(is_search_engine_google);
 }
 
+void AppListControllerImpl::SetSearchResultMetadata(
+    SearchResultMetadataPtr metadata) {
+  app_list::SearchResult* result = search_model_.FindSearchResult(metadata->id);
+  if (result)
+    result->SetMetadata(std::move(metadata));
+}
+
+void AppListControllerImpl::SetSearchResultIsInstalling(const std::string& id,
+                                                        bool is_installing) {
+  app_list::SearchResult* result = search_model_.FindSearchResult(id);
+  if (result)
+    result->SetIsInstalling(is_installing);
+}
+
+void AppListControllerImpl::SetSearchResultPercentDownloaded(
+    const std::string& id,
+    int32_t percent_downloaded) {
+  app_list::SearchResult* result = search_model_.FindSearchResult(id);
+  if (result)
+    result->SetPercentDownloaded(percent_downloaded);
+}
+
+void AppListControllerImpl::NotifySearchResultItemInstalled(
+    const std::string& id) {
+  app_list::SearchResult* result = search_model_.FindSearchResult(id);
+  if (result)
+    result->NotifyItemInstalled();
+}
+
 void AppListControllerImpl::GetIdToAppListIndexMap(
     GetIdToAppListIndexMapCallback callback) {
-  std::unordered_map<std::string, uint16_t> id_to_app_list_index;
+  base::flat_map<std::string, uint16_t> id_to_app_list_index;
   for (size_t i = 0; i < model_.top_level_item_list()->item_count(); ++i)
     id_to_app_list_index[model_.top_level_item_list()->item_at(i)->id()] = i;
   std::move(callback).Run(id_to_app_list_index);
@@ -305,14 +386,28 @@ void AppListControllerImpl::OnAppListItemAdded(app_list::AppListItem* item) {
     client_->OnFolderCreated(item->CloneMetadata());
 }
 
+void AppListControllerImpl::OnSessionStateChanged(
+    session_manager::SessionState state) {
+  if (!IsHomeLauncherEnabledInTabletMode() ||
+      !display::Display::HasInternalDisplay() ||
+      state != session_manager::SessionState::ACTIVE) {
+    return;
+  }
+
+  // Show the app list after signing in in tablet mode.
+  Show(display::Display::InternalDisplayId(),
+       app_list::AppListShowSource::kTabletMode, base::TimeTicks());
+}
+
 void AppListControllerImpl::OnAppListItemWillBeDeleted(
     app_list::AppListItem* item) {
-  if (item->is_folder())
+  if (client_ && item->is_folder())
     client_->OnFolderDeleted(item->CloneMetadata());
 }
 
 void AppListControllerImpl::OnAppListItemUpdated(app_list::AppListItem* item) {
-  client_->OnItemUpdated(item->CloneMetadata());
+  if (client_)
+    client_->OnItemUpdated(item->CloneMetadata());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -382,6 +477,53 @@ void AppListControllerImpl::OnVirtualKeyboardStateChanged(
     keyboard_observer_.Remove(keyboard_controller);
 }
 
+void AppListControllerImpl::OnOverviewModeStarting() {
+  in_overview_mode_ = true;
+  if (!IsHomeLauncherEnabledInTabletMode()) {
+    DismissAppList();
+    return;
+  }
+  UpdateHomeLauncherVisibility();
+}
+
+void AppListControllerImpl::OnOverviewModeEnding() {
+  in_overview_mode_ = false;
+  UpdateHomeLauncherVisibility();
+}
+
+void AppListControllerImpl::OnTabletModeStarted() {
+  if (IsVisible()) {
+    presenter_.GetView()->OnTabletModeChanged(true);
+    return;
+  }
+
+  if (!is_home_launcher_enabled_ || !display::Display::HasInternalDisplay() ||
+      (Shell::Get()->session_controller() &&
+       Shell::Get()->session_controller()->login_status() !=
+           LoginStatus::USER)) {
+    return;
+  }
+  // Show the app list if the tablet mode starts.
+  Show(display::Display::InternalDisplayId(), app_list::kTabletMode,
+       base::TimeTicks());
+  UpdateHomeLauncherVisibility();
+}
+
+void AppListControllerImpl::OnTabletModeEnded() {
+  if (IsVisible())
+    presenter_.GetView()->OnTabletModeChanged(false);
+
+  if (!is_home_launcher_enabled_)
+    return;
+  // Dismiss the app list if the tablet mode ends.
+  DismissAppList();
+}
+
+void AppListControllerImpl::OnWallpaperColorsChanged() {
+  if (IsVisible())
+    presenter_.GetView()->OnWallpaperColorsChanged();
+}
+
 void AppListControllerImpl::OnKeyboardAvailabilityChanged(
     const bool is_available) {
   onscreen_keyboard_shown_ = is_available;
@@ -390,64 +532,143 @@ void AppListControllerImpl::OnKeyboardAvailabilityChanged(
     app_list_view->OnScreenKeyboardShown(is_available);
 }
 
+void AppListControllerImpl::OnWallpaperPreviewStarted() {
+  in_wallpaper_preview_ = true;
+  UpdateHomeLauncherVisibility();
+}
+
+void AppListControllerImpl::OnWallpaperPreviewEnded() {
+  in_wallpaper_preview_ = false;
+  UpdateHomeLauncherVisibility();
+}
+
+bool AppListControllerImpl::IsHomeLauncherEnabledInTabletMode() const {
+  return is_home_launcher_enabled_ && Shell::Get()
+                                          ->tablet_mode_controller()
+                                          ->IsTabletModeWindowManagerEnabled();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Methods of |client_|:
 
 void AppListControllerImpl::StartSearch(const base::string16& raw_query) {
-  client_->StartSearch(raw_query);
+  last_raw_query_ = raw_query;
+  if (client_)
+    client_->StartSearch(raw_query);
 }
 
 void AppListControllerImpl::OpenSearchResult(const std::string& result_id,
                                              int event_flags) {
-  client_->OpenSearchResult(result_id, event_flags);
+  app_list::SearchResult* result = search_model_.FindSearchResult(result_id);
+  if (!result)
+    return;
+
+  UMA_HISTOGRAM_ENUMERATION(app_list::kSearchResultOpenDisplayTypeHistogram,
+                            result->display_type(),
+                            ash::SearchResultDisplayType::kLast);
+
+  // Record the search metric if the SearchResult is not a suggested app.
+  if (result->display_type() != ash::SearchResultDisplayType::kRecommendation) {
+    // Count AppList.Search here because it is composed of search + action.
+    base::RecordAction(base::UserMetricsAction("AppList_OpenSearchResult"));
+
+    UMA_HISTOGRAM_COUNTS_100(app_list::kSearchQueryLength,
+                             last_raw_query_.size());
+
+    if (result->distance_from_origin() >= 0) {
+      UMA_HISTOGRAM_COUNTS_100(app_list::kSearchResultDistanceFromOrigin,
+                               result->distance_from_origin());
+    }
+  }
+
+  if (client_)
+    client_->OpenSearchResult(result_id, event_flags);
 }
 
 void AppListControllerImpl::InvokeSearchResultAction(
     const std::string& result_id,
     int action_index,
     int event_flags) {
-  client_->InvokeSearchResultAction(result_id, action_index, event_flags);
+  if (client_)
+    client_->InvokeSearchResultAction(result_id, action_index, event_flags);
+}
+
+void AppListControllerImpl::GetSearchResultContextMenuModel(
+    const std::string& result_id,
+    GetContextMenuModelCallback callback) {
+  if (client_)
+    client_->GetSearchResultContextMenuModel(result_id, std::move(callback));
+}
+
+void AppListControllerImpl::SearchResultContextMenuItemSelected(
+    const std::string& result_id,
+    int command_id,
+    int event_flags) {
+  if (client_) {
+    client_->SearchResultContextMenuItemSelected(result_id, command_id,
+                                                 event_flags);
+  }
 }
 
 void AppListControllerImpl::ViewShown(int64_t display_id) {
-  client_->ViewShown(display_id);
+  if (client_)
+    client_->ViewShown(display_id);
 }
 
 void AppListControllerImpl::ViewClosing() {
-  client_->ViewClosing();
+  if (client_)
+    client_->ViewClosing();
+}
+
+void AppListControllerImpl::GetWallpaperProminentColors(
+    GetWallpaperProminentColorsCallback callback) {
+  Shell::Get()->wallpaper_controller()->GetWallpaperColors(std::move(callback));
 }
 
 void AppListControllerImpl::ActivateItem(const std::string& id,
                                          int event_flags) {
-  client_->ActivateItem(id, event_flags);
+  if (client_)
+    client_->ActivateItem(id, event_flags);
 }
 
 void AppListControllerImpl::GetContextMenuModel(
     const std::string& id,
     GetContextMenuModelCallback callback) {
-  client_->GetContextMenuModel(id, std::move(callback));
+  if (client_)
+    client_->GetContextMenuModel(id, std::move(callback));
 }
 
 void AppListControllerImpl::ContextMenuItemSelected(const std::string& id,
                                                     int command_id,
                                                     int event_flags) {
-  client_->ContextMenuItemSelected(id, command_id, event_flags);
+  if (client_)
+    client_->ContextMenuItemSelected(id, command_id, event_flags);
+}
+
+void AppListControllerImpl::ShowWallpaperContextMenu(
+    const gfx::Point& onscreen_location,
+    ui::MenuSourceType source_type) {
+  ShellPort::Get()->ShowContextMenu(onscreen_location, source_type);
 }
 
 void AppListControllerImpl::OnVisibilityChanged(bool visible) {
-  client_->OnAppListVisibilityChanged(visible);
+  if (client_)
+    client_->OnAppListVisibilityChanged(visible);
 }
 
 void AppListControllerImpl::OnTargetVisibilityChanged(bool visible) {
-  client_->OnAppListTargetVisibilityChanged(visible);
+  if (client_)
+    client_->OnAppListTargetVisibilityChanged(visible);
 }
 
 void AppListControllerImpl::StartVoiceInteractionSession() {
-  client_->StartVoiceInteractionSession();
+  if (client_)
+    client_->StartVoiceInteractionSession();
 }
 
 void AppListControllerImpl::ToggleVoiceInteractionSession() {
-  client_->ToggleVoiceInteractionSession();
+  if (client_)
+    client_->ToggleVoiceInteractionSession();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -510,6 +731,16 @@ std::unique_ptr<app_list::AppListItem> AppListControllerImpl::CreateAppListItem(
 app_list::AppListFolderItem* AppListControllerImpl::FindFolderItem(
     const std::string& folder_id) {
   return model_.FindFolderItem(folder_id);
+}
+
+void AppListControllerImpl::UpdateHomeLauncherVisibility() {
+  if (!IsHomeLauncherEnabledInTabletMode() || !presenter_.GetWindow())
+    return;
+
+  if (in_overview_mode_ || in_wallpaper_preview_)
+    presenter_.GetWindow()->Hide();
+  else
+    presenter_.GetWindow()->Show();
 }
 
 }  // namespace ash

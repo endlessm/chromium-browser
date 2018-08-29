@@ -41,7 +41,7 @@ MediaSinkInternal CreateSinkForDisplay(const Display& display,
   const std::string sink_name =
       l10n_util::GetStringFUTF8(IDS_MEDIA_ROUTER_WIRED_DISPLAY_SINK_NAME,
                                 base::FormatNumber(display_index));
-  MediaSink sink(sink_id, sink_name, SinkIconType::GENERIC,
+  MediaSink sink(sink_id, sink_name, SinkIconType::WIRED_DISPLAY,
                  MediaRouteProviderId::WIRED_DISPLAY);
   MediaSinkInternal sink_internal;
   sink_internal.set_sink(sink);
@@ -427,7 +427,13 @@ void WiredDisplayMediaRouteProvider::ReportSinkAvailability(
 
 void WiredDisplayMediaRouteProvider::RemovePresentationById(
     const std::string& presentation_id) {
-  presentations_.erase(presentation_id);
+  auto entry = presentations_.find(presentation_id);
+  if (entry == presentations_.end())
+    return;
+  media_router_->OnPresentationConnectionStateChanged(
+      entry->second.route().media_route_id(),
+      mojom::MediaRouter::PresentationConnectionState::TERMINATED);
+  presentations_.erase(entry);
   NotifyRouteObservers();
 }
 

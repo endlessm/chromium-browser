@@ -75,12 +75,13 @@ ExclusiveAccessManager::GetExclusiveAccessExitBubbleType() const {
 }
 
 void ExclusiveAccessManager::UpdateExclusiveAccessExitBubbleContent(
-    ExclusiveAccessBubbleHideCallback bubble_first_hide_callback) {
+    ExclusiveAccessBubbleHideCallback bubble_first_hide_callback,
+    bool force_update) {
   GURL url = GetExclusiveAccessBubbleURL();
   ExclusiveAccessBubbleType bubble_type = GetExclusiveAccessExitBubbleType();
 
   exclusive_access_context_->UpdateExclusiveAccessExitBubbleContent(
-      url, bubble_type, std::move(bubble_first_hide_callback));
+      url, bubble_type, std::move(bubble_first_hide_callback), force_update);
 }
 
 GURL ExclusiveAccessManager::GetExclusiveAccessBubbleURL() const {
@@ -88,17 +89,6 @@ GURL ExclusiveAccessManager::GetExclusiveAccessBubbleURL() const {
   if (!result.is_valid())
     result = mouse_lock_controller_.GetURLForExclusiveAccessBubble();
   return result;
-}
-
-// static
-bool ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled() {
-#if defined(OS_MACOSX)
-  // Always enabled on Mac (the mouse cursor tracking required to implement the
-  // non-simplified version is not implemented).
-  return true;
-#else
-  return base::FeatureList::IsEnabled(features::kSimplifiedFullscreenUI);
-#endif
 }
 
 void ExclusiveAccessManager::OnTabDeactivated(WebContents* web_contents) {

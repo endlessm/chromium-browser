@@ -43,6 +43,7 @@
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/base/ime/input_method.h"
+#include "ui/base/ime/input_method_keyboard_controller.h"
 #include "ui/base/ime/text_edit_commands.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/base/ime/text_input_type.h"
@@ -158,8 +159,8 @@ void OmniboxViewViews::Init() {
 
   if (location_bar_view_) {
     // Initialize the popup view using the same font.
-    popup_view_.reset(new OmniboxPopupContentsView(GetFontList(), this, model(),
-                                                   location_bar_view_));
+    popup_view_.reset(
+        new OmniboxPopupContentsView(this, model(), location_bar_view_));
   }
 
   // Override the default FocusableBorder from Textfield, since the
@@ -386,6 +387,10 @@ void OmniboxViewViews::RemovedFromWidget() {
   scoped_observer_.RemoveAll();
 }
 
+bool OmniboxViewViews::ShouldDoLearning() {
+  return location_bar_view_ && !location_bar_view_->profile()->IsOffTheRecord();
+}
+
 void OmniboxViewViews::SetTextAndSelectedRange(const base::string16& text,
                                                const gfx::Range& range) {
   SetText(text);
@@ -423,12 +428,44 @@ bool OmniboxViewViews::HandleEarlyTabActions(const ui::KeyEvent& event) {
   if (!model()->popup_model()->IsOpen())
     return false;
 
-  if (event.IsShiftDown() &&
-      (model()->popup_model()->selected_line_state() ==
-          OmniboxPopupModel::KEYWORD))
+  if (event.IsShiftDown() && (model()->popup_model()->selected_line_state() ==
+                              OmniboxPopupModel::KEYWORD)) {
     model()->ClearKeyword();
-  else
-    model()->OnUpOrDownKeyPressed(event.IsShiftDown() ? -1 : 1);
+    return true;
+  }
+
+  // If tabbing forwards (shift is not pressed) and tab switch button is not
+  // selected, selected it.
+  if (model()->popup_model()->SelectedLineHasTabMatch() &&
+      model()->popup_model()->selected_line_state() ==
+          OmniboxPopupModel::NORMAL &&
+      !event.IsShiftDown()) {
+    model()->popup_model()->SetSelectedLineState(OmniboxPopupModel::TAB_SWITCH);
+    return true;
+  }
+
+  // If tabbing backwards (shift is pressed), handle cases involving selecting
+  // the tab switch button.
+  if (event.IsShiftDown()) {
+    // If tab switch button is focused, unfocus it.
+    if (model()->popup_model()->selected_line_state() ==
+        OmniboxPopupModel::TAB_SWITCH) {
+      model()->popup_model()->SetSelectedLineState(OmniboxPopupModel::NORMAL);
+      return true;
+    }
+    // Otherwise, if at top of results, do nothing.
+    if (model()->popup_model()->selected_line() == 0)
+      return false;
+  }
+
+  // Translate tab and shift-tab into down and up respectively.
+  model()->OnUpOrDownKeyPressed(event.IsShiftDown() ? -1 : 1);
+  // If we shift-tabbed (and actually moved) to a suggestion with a tab
+  // switch button, select it.
+  if (event.IsShiftDown() &&
+      model()->popup_model()->SelectedLineHasTabMatch()) {
+    model()->popup_model()->SetSelectedLineState(OmniboxPopupModel::TAB_SWITCH);
+  }
 
   return true;
 }
@@ -523,11 +560,9 @@ void OmniboxViewViews::ClearAccessibilityLabel() {
   friendly_suggestion_text_prefix_length_ = 0;
 }
 
-bool OmniboxViewViews::UnapplySteadyStateElisions(bool home_key_pressed) {
-  if (!base::FeatureList::IsEnabled(
-          omnibox::kUIExperimentHideSteadyStateUrlSchemeAndSubdomains)) {
+bool OmniboxViewViews::UnapplySteadyStateElisions(UnelisionGesture gesture) {
+  if (!OmniboxFieldTrial::IsHideSteadyStateUrlSchemeAndSubdomainsEnabled())
     return false;
-  }
 
   // No need to update the text if the user is already inputting text.
   if (model()->user_input_in_progress())
@@ -536,21 +571,35 @@ bool OmniboxViewViews::UnapplySteadyStateElisions(bool home_key_pressed) {
   // If everything is selected, the user likely does not intend to edit the URL.
   // But if the Home key is pressed, the user probably does want to interact
   // with the beginning of the URL - in which case we unelide.
-  if (IsSelectAll() && !home_key_pressed)
+  if (IsSelectAll() && gesture != UnelisionGesture::HOME_KEY_PRESSED)
     return false;
 
-  model()->SetInputInProgress(true);
-
-  base::string16 full_url = model()->GetCurrentPermanentUrlText();
+  base::string16 full_url =
+      controller()->GetToolbarModel()->GetFormattedFullURL();
   size_t start, end;
   GetSelectionBounds(&start, &end);
 
-  // TODO(tommycli): Before this code goes into production, investigate
-  // whether using the offsets provided by FormatURL makes more sense.
+  // Find the length of the prefix that was chopped off to form the elided URL.
+  // This simple logic only works because we elide only prefixes from the full
+  // URL. Otherwise, we would have to use the FormatURL offset adjustments.
   size_t offset = full_url.find(GetText());
   if (offset != base::string16::npos) {
-    start += offset;
-    end += offset;
+    if (start != end && gesture == UnelisionGesture::MOUSE_RELEASE &&
+        !model()->ClassifiesAsSearch(GetSelectedText())) {
+      // For user selections that look like a URL instead of a Search:
+      // If we are uneliding at the end of a drag-select (on mouse release),
+      // and the selection spans to the beginning of the elided URL, ensure that
+      // the new selection spans to the beginning of the unelided URL too.
+      // i.e. google.com/maps => https://www.google.com/maps
+      //      ^^^^^^^^^^         ^^^^^^^^^^^^^^^^^^^^^^
+      if (start != 0)
+        start += offset;
+      if (end != 0)
+        end += offset;
+    } else {
+      start += offset;
+      end += offset;
+    }
 
     // Since we are changing the text in the double-click event handler, we
     // need to fix the cached indices of the double-clicked word.
@@ -559,6 +608,7 @@ bool OmniboxViewViews::UnapplySteadyStateElisions(bool home_key_pressed) {
 
   // Update the text to the full unelided URL. The caret is positioned at 0, as
   // otherwise we will spuriously scroll the text to the end of the new string.
+  model()->SetUserText(full_url);
   SetWindowTextAndCaretPos(full_url, 0, false, false);
   SelectRange(gfx::Range(start, end));
   return true;
@@ -593,7 +643,7 @@ bool OmniboxViewViews::OnAfterPossibleChange(bool allow_keyword_ui_change) {
   // keystroke, tap gesture, and caret placement. Ignore selection changes while
   // the mouse is down, as we generally defer handling that until mouse release.
   if (state_changes.selection_differs && !is_mouse_pressed_ &&
-      UnapplySteadyStateElisions(false)) {
+      UnapplySteadyStateElisions(UnelisionGesture::OTHER)) {
     something_changed = true;
     state_changes.text_differs = true;
   }
@@ -632,7 +682,14 @@ bool OmniboxViewViews::IsImeShowingPopup() const {
 }
 
 void OmniboxViewViews::ShowImeIfNeeded() {
-  GetInputMethod()->ShowImeIfNeeded();
+  if (auto* input_method = GetInputMethod())
+    input_method->ShowImeIfNeeded();
+}
+
+void OmniboxViewViews::HideImeIfNeeded() {
+  if (auto* input_method = GetInputMethod()) {
+    input_method->GetInputMethodKeyboardController()->DismissVirtualKeyboard();
+  }
 }
 
 int OmniboxViewViews::GetOmniboxTextLength() const {
@@ -671,8 +728,8 @@ bool OmniboxViewViews::IsItemForCommandIdDynamic(int command_id) const {
 base::string16 OmniboxViewViews::GetLabelForCommandId(int command_id) const {
   DCHECK_EQ(IDS_PASTE_AND_GO, command_id);
   return l10n_util::GetStringUTF16(
-      model()->IsPasteAndSearch(GetClipboardText()) ?
-          IDS_PASTE_AND_SEARCH : IDS_PASTE_AND_GO);
+      model()->ClassifiesAsSearch(GetClipboardText()) ? IDS_PASTE_AND_SEARCH
+                                                      : IDS_PASTE_AND_GO);
 }
 
 const char* OmniboxViewViews::GetClassName() const {
@@ -705,7 +762,8 @@ bool OmniboxViewViews::OnMousePressed(const ui::MouseEvent& event) {
   // This ensures that when the user makes a double-click partial select, we
   // perform the unelision at the same time as we make the partial selection,
   // which is on mousedown.
-  if (!select_all_on_mouse_release_ && UnapplySteadyStateElisions(false))
+  if (!select_all_on_mouse_release_ &&
+      UnapplySteadyStateElisions(UnelisionGesture::OTHER))
     TextChanged();
 
   return handled;
@@ -717,8 +775,8 @@ bool OmniboxViewViews::OnMouseDragged(const ui::MouseEvent& event) {
 
   bool handled = views::Textfield::OnMouseDragged(event);
 
-  if (HasSelection() ||
-      ExceededDragThreshold(event.location() - GetLastClickLocation())) {
+  if (HasSelection() || ExceededDragThreshold(event.root_location() -
+                                              GetLastClickRootLocation())) {
     select_all_on_mouse_release_ = false;
   }
 
@@ -739,7 +797,7 @@ void OmniboxViewViews::OnMouseReleased(const ui::MouseEvent& event) {
   // Make an unelision check on mouse release. This handles the drag selection
   // case, in which we defer uneliding until mouse release.
   is_mouse_pressed_ = false;
-  if (UnapplySteadyStateElisions(false))
+  if (UnapplySteadyStateElisions(UnelisionGesture::MOUSE_RELEASE))
     TextChanged();
 }
 
@@ -897,7 +955,7 @@ void OmniboxViewViews::OnFocus() {
   GetRenderText()->SetElideBehavior(gfx::NO_ELIDE);
 
   // Focus changes can affect the visibility of any keyword hint.
-  if (model()->is_keyword_hint())
+  if (location_bar_view_ && model()->is_keyword_hint())
     location_bar_view_->Layout();
 
 // The user must be starting a session in the same tab as a previous one
@@ -907,7 +965,8 @@ void OmniboxViewViews::OnFocus() {
 // or navigating, because we'd like to show them the promo at the time when
 // it would be immediately useful.
 #if BUILDFLAG(ENABLE_DESKTOP_IN_PRODUCT_HELP)
-  if (controller()->GetToolbarModel()->ShouldDisplayURL()) {
+  if (location_bar_view_ &&
+      controller()->GetToolbarModel()->ShouldDisplayURL()) {
     feature_engagement::NewTabTrackerFactory::GetInstance()
         ->GetForProfile(location_bar_view_->profile())
         ->OnOmniboxFocused();
@@ -924,7 +983,12 @@ void OmniboxViewViews::OnBlur() {
 
   // Revert the URL if the user has not made any changes. If steady-state
   // elisions is on, this will also re-elide the URL.
-  if (model()->user_input_in_progress() &&
+  //
+  // Because merely Alt-Tabbing to another window and back should not change the
+  // Omnibox state, we only revert the text only if the Omnibox is blurred in
+  // favor of some other View in the same Widget.
+  if (GetWidget() && GetWidget()->IsActive() &&
+      model()->user_input_in_progress() &&
       text() == model()->GetCurrentPermanentUrlText()) {
     RevertAll();
   }
@@ -1089,10 +1153,21 @@ bool OmniboxViewViews::HandleKeyEvent(views::Textfield* textfield,
 #endif
   switch (event.key_code()) {
     case ui::VKEY_RETURN:
-      model()->AcceptInput(alt || command
-                               ? WindowOpenDisposition::NEW_FOREGROUND_TAB
-                               : WindowOpenDisposition::CURRENT_TAB,
-                           false);
+      if (model()->popup_model()->SelectedLineHasTabMatch() &&
+          model()->popup_model()->selected_line_state() ==
+              OmniboxPopupModel::TAB_SWITCH) {
+        popup_view_->OpenMatch(WindowOpenDisposition::SWITCH_TO_TAB);
+      } else {
+        if (alt) {
+          model()->AcceptInput(WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                               false);
+        } else if (command) {
+          model()->AcceptInput(WindowOpenDisposition::NEW_BACKGROUND_TAB,
+                               false);
+        } else {
+          model()->AcceptInput(WindowOpenDisposition::CURRENT_TAB, false);
+        }
+      }
       return true;
 
     case ui::VKEY_ESCAPE:
@@ -1165,7 +1240,7 @@ bool OmniboxViewViews::HandleKeyEvent(views::Textfield* textfield,
     case ui::VKEY_HOME:
       // The Home key indicates that the user wants to move the cursor to the
       // beginning of the full URL, so it should always trigger an unelide.
-      if (UnapplySteadyStateElisions(true)) {
+      if (UnapplySteadyStateElisions(UnelisionGesture::HOME_KEY_PRESSED)) {
         if (shift) {
           // After uneliding, we need to move the end of the selection range
           // to the beginning of the full unelided URL.
@@ -1204,8 +1279,8 @@ void OmniboxViewViews::OnAfterCutOrCopy(ui::ClipboardType clipboard_type) {
   cb->ReadText(clipboard_type, &selected_text);
   GURL url;
   bool write_url;
-  model()->AdjustTextForCopy(GetSelectedRange().GetMin(), IsSelectAll(),
-                             &selected_text, &url, &write_url);
+  model()->AdjustTextForCopy(GetSelectedRange().GetMin(), &selected_text, &url,
+                             &write_url);
   if (IsSelectAll())
     UMA_HISTOGRAM_COUNTS(OmniboxEditModel::kCutOrCopyAllTextHistogram, 1);
 
@@ -1216,15 +1291,14 @@ void OmniboxViewViews::OnAfterCutOrCopy(ui::ClipboardType clipboard_type) {
 void OmniboxViewViews::OnWriteDragData(ui::OSExchangeData* data) {
   GURL url;
   bool write_url;
-  bool is_all_selected = IsSelectAll();
   base::string16 selected_text = GetSelectedText();
-  model()->AdjustTextForCopy(GetSelectedRange().GetMin(), is_all_selected,
-                             &selected_text, &url, &write_url);
+  model()->AdjustTextForCopy(GetSelectedRange().GetMin(), &selected_text, &url,
+                             &write_url);
   data->SetString(selected_text);
   if (write_url) {
     gfx::Image favicon;
     base::string16 title = selected_text;
-    if (is_all_selected)
+    if (IsSelectAll())
       model()->GetDataForURLExport(&url, &title, &favicon);
     button_drag_utils::SetURLAndDragImage(url, title, favicon.AsImageSkia(),
                                           nullptr, *GetWidget(), data);
@@ -1236,8 +1310,8 @@ void OmniboxViewViews::OnGetDragOperationsForTextfield(int* drag_operations) {
   base::string16 selected_text = GetSelectedText();
   GURL url;
   bool write_url;
-  model()->AdjustTextForCopy(GetSelectedRange().GetMin(), IsSelectAll(),
-                             &selected_text, &url, &write_url);
+  model()->AdjustTextForCopy(GetSelectedRange().GetMin(), &selected_text, &url,
+                             &write_url);
   if (write_url)
     *drag_operations |= ui::DragDropTypes::DRAG_LINK;
 }

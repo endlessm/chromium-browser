@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.ntp;
 import android.graphics.Canvas;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
 import android.support.v4.view.ViewCompat;
 import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
@@ -27,7 +28,6 @@ import org.chromium.chrome.browser.NativePageHost;
 import org.chromium.chrome.browser.UrlConstants;
 import org.chromium.chrome.browser.compositor.layouts.content.InvalidationAwareThumbnailProvider;
 import org.chromium.chrome.browser.download.DownloadManagerService;
-import org.chromium.chrome.browser.metrics.StartupMetrics;
 import org.chromium.chrome.browser.ntp.NewTabPageView.NewTabPageManager;
 import org.chromium.chrome.browser.ntp.snippets.SuggestionsSource;
 import org.chromium.chrome.browser.omnibox.LocationBarVoiceRecognitionHandler;
@@ -216,10 +216,12 @@ public class NewTabPage
             RecordHistogram.recordTimesHistogram(
                     "Tab.NewTabOnload", loadTimeMs, TimeUnit.MILLISECONDS);
             mIsLoaded = true;
-            StartupMetrics.getInstance().recordOpenedNTP();
             NewTabPageUma.recordNTPImpression(NewTabPageUma.NTP_IMPRESSION_REGULAR);
             // If not visible when loading completes, wait until onShown is received.
             if (!mTab.isHidden()) recordNTPShown();
+            if (mTab.getUrl().contains(UrlConstants.CONTENT_SUGGESTIONS_SUFFIX)) {
+                mNewTabPageView.scrollToSuggestions();
+            }
         }
     }
 
@@ -415,6 +417,15 @@ public class NewTabPage
      */
     public void setSearchProviderLogoAlpha(float alpha) {
         mNewTabPageView.setSearchProviderLogoAlpha(alpha);
+    }
+
+    /**
+     * Set the search box background drawable.
+     *
+     * @param drawable The search box background.
+     */
+    public void setSearchBoxBackground(Drawable drawable) {
+        mNewTabPageView.setSearchBoxBackground(drawable);
     }
 
     /**

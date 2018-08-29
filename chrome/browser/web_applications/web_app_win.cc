@@ -188,7 +188,7 @@ bool CreateShortcutsInPaths(
   }
 
   base::FilePath chrome_exe;
-  if (!PathService::Get(base::FILE_EXE, &chrome_exe)) {
+  if (!base::PathService::Get(base::FILE_EXE, &chrome_exe)) {
     NOTREACHED();
     return false;
   }
@@ -305,7 +305,7 @@ void GetShortcutLocationsAndDeleteShortcuts(
   if (was_pinned_to_taskbar) {
     // Determine if there is a link to this app in the TaskBar pin directory.
     base::FilePath taskbar_pin_path;
-    if (PathService::Get(base::DIR_TASKBAR_PINS, &taskbar_pin_path)) {
+    if (base::PathService::Get(base::DIR_TASKBAR_PINS, &taskbar_pin_path)) {
       std::vector<base::FilePath> taskbar_pin_files =
           FindAppShortcutsByProfileAndTitle(taskbar_pin_path, profile_path,
                                             title);
@@ -343,7 +343,7 @@ void CreateIconAndSetRelaunchDetails(
                                                     shortcut_info.profile_path);
 
   base::FilePath chrome_exe;
-  if (!PathService::Get(base::FILE_EXE, &chrome_exe)) {
+  if (!base::PathService::Get(base::FILE_EXE, &chrome_exe)) {
     NOTREACHED();
     return;
   }

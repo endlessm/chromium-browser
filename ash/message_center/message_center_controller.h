@@ -7,10 +7,12 @@
 
 #include "ash/ash_export.h"
 #include "ash/public/interfaces/ash_message_center_controller.mojom.h"
-#include "ash/system/web_notification/fullscreen_notification_blocker.h"
-#include "ash/system/web_notification/inactive_user_notification_blocker.h"
-#include "ash/system/web_notification/session_state_notification_blocker.h"
+#include "ash/system/message_center/arc/arc_notification_manager.h"
+#include "ash/system/message_center/fullscreen_notification_blocker.h"
+#include "ash/system/message_center/inactive_user_notification_blocker.h"
+#include "ash/system/message_center/session_state_notification_blocker.h"
 #include "base/macros.h"
+#include "components/arc/common/notifications.mojom.h"
 #include "mojo/public/cpp/bindings/associated_binding.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 
@@ -37,6 +39,8 @@ class ASH_EXPORT MessageCenterController
   // mojom::AshMessageCenterController:
   void SetClient(
       mojom::AshMessageCenterClientAssociatedPtrInfo client) override;
+  void SetArcNotificationsInstance(
+      arc::mojom::NotificationsInstancePtr arc_notification_instance) override;
   void ShowClientNotification(
       const message_center::Notification& notification,
       const base::UnguessableToken& display_token) override;
@@ -46,6 +50,12 @@ class ASH_EXPORT MessageCenterController
   void NotifierEnabledChanged(const message_center::NotifierId& notifier_id,
                               bool enabled) override;
   void GetActiveNotifications(GetActiveNotificationsCallback callback) override;
+
+  // Handles get app id calls from ArcNotificationManager.
+  using GetAppIdByPackageNameCallback =
+      base::OnceCallback<void(const std::string& app_id)>;
+  void GetArcAppIdByPackageName(const std::string& package_name,
+                                GetAppIdByPackageNameCallback callback);
 
   InactiveUserNotificationBlocker*
   inactive_user_notification_blocker_for_testing() {
@@ -87,6 +97,8 @@ class ASH_EXPORT MessageCenterController
   mojo::BindingSet<mojom::AshMessageCenterController> binding_set_;
 
   mojom::AshMessageCenterClientAssociatedPtr client_;
+
+  std::unique_ptr<ArcNotificationManager> arc_notification_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(MessageCenterController);
 };

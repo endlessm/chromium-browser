@@ -58,12 +58,6 @@ class Anomaly(internal_only_model.InternalOnlyModel):
   start_revision = ndb.IntegerProperty(indexed=True)
   end_revision = ndb.IntegerProperty(indexed=True)
 
-  # The group this alert belongs to.
-  # TODO(qyearsley): If the old AnomalyGroup entities can be removed and
-  # all recent groups have the kind AlertGroup, then the optional argument
-  # kind=alert_group.AlertGroup can be added.
-  group = ndb.KeyProperty(indexed=True)
-
   # The revisions to use for display, if different than point id.
   display_start = ndb.IntegerProperty(indexed=False)
   display_end = ndb.IntegerProperty(indexed=False)
@@ -171,10 +165,18 @@ class Anomaly(internal_only_model.InternalOnlyModel):
     return utils.TestMetadataKey(self.test)
 
   @classmethod
+  @ndb.synctasklet
   def GetAlertsForTest(cls, test_key, limit=None):
-    return cls.query(cls.test.IN([
+    result = yield cls.GetAlertsForTestAsync(test_key, limit=limit)
+    raise ndb.Return(result)
+
+  @classmethod
+  @ndb.tasklet
+  def GetAlertsForTestAsync(cls, test_key, limit=None):
+    result = yield cls.query(cls.test.IN([
         utils.TestMetadataKey(test_key),
-        utils.OldStyleTestKey(test_key)])).fetch(limit=limit)
+        utils.OldStyleTestKey(test_key)])).fetch_async(limit=limit)
+    raise ndb.Return(result)
 
 
 def GetBotNamesFromAlerts(alerts):

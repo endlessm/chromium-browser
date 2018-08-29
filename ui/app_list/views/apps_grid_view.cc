@@ -12,16 +12,16 @@
 
 #include "ash/app_list/model/app_list_folder_item.h"
 #include "ash/app_list/model/app_list_item.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/app_list_features.h"
+#include "ash/public/cpp/app_list/app_list_switches.h"
 #include "base/guid.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/ranges.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
-#include "ui/app_list/app_list_constants.h"
-#include "ui/app_list/app_list_features.h"
 #include "ui/app_list/app_list_metrics.h"
-#include "ui/app_list/app_list_switches.h"
 #include "ui/app_list/app_list_util.h"
 #include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/pagination_controller.h"
@@ -911,11 +911,11 @@ void AppsGridView::OnGestureEvent(ui::GestureEvent* event) {
     return;
   }
 
-  // Gesture events should not be passed to ancestor views if it occurs inside
-  // the folder bounds even it is not handled. This prevents user from closing
-  // the folder when scrolling inside it.
+  // Scroll begin events should not be passed to ancestor views if it occurs
+  // inside the folder bounds even it is not handled. This prevents user from
+  // closing the folder when scrolling inside it.
   if (pagination_controller_->OnGestureEvent(*event, GetContentsBounds()) ||
-      folder_delegate_) {
+      (folder_delegate_ && event->type() == ui::ET_GESTURE_SCROLL_BEGIN)) {
     event->SetHandled();
   }
 }
@@ -2204,9 +2204,14 @@ bool AppsGridView::IsPointWithinBottomDragBuffer(
       display::Screen::GetScreen()->GetDisplayNearestView(
           GetWidget()->GetNativeView());
 
-  return point_in_screen.y() >
-             GetBoundsInScreen().height() - kPageFlipZoneSize &&
-         point_in_screen.y() < display.work_area().height();
+  const int kBottomDragBufferMin =
+      GetBoundsInScreen().bottom() - kPageFlipZoneSize;
+  const int kBottomDragBufferMax =
+      display.bounds().bottom() -
+      (contents_view_->app_list_view()->is_side_shelf() ? 0 : kShelfSize);
+
+  return point_in_screen.y() > kBottomDragBufferMin &&
+         point_in_screen.y() < kBottomDragBufferMax;
 }
 
 void AppsGridView::ButtonPressed(views::Button* sender,
@@ -2299,7 +2304,6 @@ void AppsGridView::SelectedPageChanged(int old_selected, int new_selected) {
 }
 
 void AppsGridView::TransitionStarted() {
-  contents_view_->app_list_view()->SetIsIgnoringScrollEvents(true);
   CancelContextMenusOnCurrentPage();
   pagination_animation_start_frame_number_ =
       GetCompositorActivatedFrameCount(layer()->GetCompositor());
@@ -2315,7 +2319,6 @@ void AppsGridView::TransitionChanged() {
 }
 
 void AppsGridView::TransitionEnded() {
-  contents_view_->app_list_view()->SetIsIgnoringScrollEvents(false);
   const base::TimeDelta duration =
       pagination_model_.GetTransitionAnimationSlideDuration();
 

@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "ash/public/cpp/app_list/answer_card_contents_registry.h"
 #include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
@@ -22,7 +23,6 @@
 #include "content/public/common/renderer_preferences.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
-#include "ui/app_list/answer_card_contents_registry.h"
 #include "ui/app_list/views/app_list_view.h"
 #include "ui/aura/window.h"
 #include "ui/views/controls/native/native_view_host.h"
@@ -169,9 +169,6 @@ AnswerCardWebContents::AnswerCardWebContents(Profile* profile)
     web_view_->SetResizeBackgroundColor(SK_ColorTRANSPARENT);
 
     token_ = AnswerCardContentsRegistry::Get()->Register(web_view_.get());
-  } else {
-    remote_view_provider_ = std::make_unique<views::RemoteViewProvider>(
-        web_contents_->GetNativeView());
   }
 }
 
@@ -198,14 +195,18 @@ const base::UnguessableToken& AnswerCardWebContents::GetToken() const {
   return token_;
 }
 
+gfx::Size AnswerCardWebContents::GetPreferredSize() const {
+  return preferred_size_;
+}
+
 void AnswerCardWebContents::ResizeDueToAutoResize(
     content::WebContents* web_contents,
     const gfx::Size& new_size) {
-  delegate()->UpdatePreferredSize(this);
-  if (web_view_)
-    web_view_->SetPreferredSize(new_size);
+  if (preferred_size_ == new_size)
+    return;
 
-  // TODO(https://crbug.com/812434): Support preferred size change for mash.
+  preferred_size_ = new_size;
+  delegate()->UpdatePreferredSize(this);
 }
 
 content::WebContents* AnswerCardWebContents::OpenURLFromTab(
@@ -232,7 +233,7 @@ content::WebContents* AnswerCardWebContents::OpenURLFromTab(
 
   base::RecordAction(base::UserMetricsAction("SearchAnswer_OpenedUrl"));
 
-  return new_tab_params.target_contents;
+  return new_tab_params.navigated_or_inserted_contents;
 }
 
 bool AnswerCardWebContents::HandleContextMenu(
@@ -265,11 +266,13 @@ void AnswerCardWebContents::DidFinishNavigation(
 }
 
 void AnswerCardWebContents::DidStopLoading() {
-  if (!remote_view_provider_) {
+  if (web_view_) {
     delegate()->OnContentsReady(this);
     return;
   }
 
+  remote_view_provider_ = std::make_unique<views::RemoteViewProvider>(
+      web_contents_->GetNativeView());
   remote_view_provider_->GetEmbedToken(
       base::BindOnce(&AnswerCardWebContents::OnGotEmbedTokenAndNotify,
                      weak_ptr_factory_.GetWeakPtr()));

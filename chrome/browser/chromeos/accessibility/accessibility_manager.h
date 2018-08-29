@@ -21,7 +21,6 @@
 #include "chrome/browser/chromeos/accessibility/chromevox_panel.h"
 #include "chrome/browser/extensions/api/braille_display_private/braille_controller.h"
 #include "components/prefs/pref_change_registrar.h"
-#include "components/session_manager/core/session_manager_observer.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -57,6 +56,7 @@ enum AccessibilityNotificationType {
   ACCESSIBILITY_TOGGLE_CARET_HIGHLIGHT,
   ACCESSIBILITY_TOGGLE_CURSOR_HIGHLIGHT,
   ACCESSIBILITY_TOGGLE_FOCUS_HIGHLIGHT,
+  ACCESSIBILITY_TOGGLE_DICTATION,
 };
 
 struct AccessibilityStatusEventDetails {
@@ -96,7 +96,6 @@ class AccessibilityManager
       public extensions::api::braille_display_private::BrailleObserver,
       public extensions::ExtensionRegistryObserver,
       public user_manager::UserManager::UserSessionStateObserver,
-      public session_manager::SessionManagerObserver,
       public input_method::InputMethodManager::Observer {
  public:
   // Creates an instance of AccessibilityManager, this should be called once,
@@ -187,6 +186,12 @@ class AccessibilityManager
   // Returns if select-to-speak is enabled.
   bool IsSelectToSpeakEnabled() const;
 
+  // Requests that the Select-to-Speak extension change its state.
+  void RequestSelectToSpeakStateChange();
+
+  // Called when the Select-to-Speak extension state has changed.
+  void OnSelectToSpeakStateChanged(ash::mojom::SelectToSpeakState state);
+
   // Invoked to enable or disable switch access.
   void SetSwitchAccessEnabled(bool enabled);
 
@@ -270,7 +275,7 @@ class AccessibilityManager
   void SetSwitchAccessKeys(const std::set<int>& key_codes);
 
   // Starts or stops dictation (type what you speak).
-  void ToggleDictation();
+  bool ToggleDictation();
 
   // Sets the focus ring color.
   void SetFocusRingColor(SkColor color);
@@ -303,6 +308,8 @@ class AccessibilityManager
       extensions::api::braille_display_private::BrailleController* controller);
   void FlushForTesting();
   void SetFocusRingObserverForTest(base::RepeatingCallback<void()> observer);
+  void SetSelectToSpeakStateObserverForTest(
+      base::RepeatingCallback<void()> observer);
 
  protected:
   AccessibilityManager();
@@ -312,7 +319,6 @@ class AccessibilityManager
   void PostLoadChromeVox();
   void PostUnloadChromeVox();
   void PostSwitchChromeVoxProfile();
-  void ReloadChromeVoxPanel();
 
   void PostUnloadSelectToSpeak();
   void UpdateAlwaysShowMenuFromPref();
@@ -362,9 +368,6 @@ class AccessibilityManager
   void InputMethodChanged(input_method::InputMethodManager* manager,
                           Profile* profile,
                           bool show_message) override;
-
-  // session_manager::SessionManagerObserver
-  void OnSessionStateChanged() override;
 
   // Profile which has the current a11y context.
   Profile* profile_;
@@ -425,6 +428,8 @@ class AccessibilityManager
   std::unique_ptr<DictationChromeos> dictation_;
 
   base::RepeatingCallback<void()> focus_ring_observer_for_test_;
+
+  base::RepeatingCallback<void()> select_to_speak_state_observer_for_test_;
 
   base::WeakPtrFactory<AccessibilityManager> weak_ptr_factory_;
 

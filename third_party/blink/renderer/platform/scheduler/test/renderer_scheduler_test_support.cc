@@ -10,25 +10,25 @@
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "third_party/blink/renderer/platform/scheduler/base/task_queue_manager_impl.h"
+#include "third_party/blink/renderer/platform/scheduler/base/test/task_queue_manager_for_test.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.h"
 #include "third_party/blink/renderer/platform/scheduler/test/lazy_thread_controller_for_test.h"
-#include "third_party/blink/renderer/platform/scheduler/test/task_queue_manager_for_test.h"
 
 namespace blink {
 namespace scheduler {
 
 std::unique_ptr<WebMainThreadScheduler> CreateWebMainThreadSchedulerForTests() {
   return std::make_unique<scheduler::MainThreadSchedulerImpl>(
-      std::make_unique<TaskQueueManagerForTest>(
+      std::make_unique<base::sequence_manager::TaskQueueManagerForTest>(
           std::make_unique<LazyThreadControllerForTest>()),
       base::nullopt);
 }
 
 void RunIdleTasksForTesting(WebMainThreadScheduler* scheduler,
-                            const base::Closure& callback) {
+                            base::OnceClosure callback) {
   MainThreadSchedulerImpl* scheduler_impl =
       static_cast<MainThreadSchedulerImpl*>(scheduler);
-  scheduler_impl->RunIdleTasksForTesting(callback);
+  scheduler_impl->RunIdleTasksForTesting(std::move(callback));
 }
 
 scoped_refptr<base::SequencedTaskRunner> GetSequencedTaskRunnerForTesting() {

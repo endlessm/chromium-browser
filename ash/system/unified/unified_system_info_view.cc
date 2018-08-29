@@ -5,6 +5,7 @@
 #include "ash/system/unified/unified_system_info_view.h"
 
 #include "ash/resources/vector_icons/vector_icons.h"
+#include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/date/clock_observer.h"
@@ -13,13 +14,17 @@
 #include "ash/system/model/enterprise_domain_model.h"
 #include "ash/system/model/system_tray_model.h"
 #include "ash/system/power/power_status.h"
+#include "ash/system/supervised/supervised_icon_string.h"
+#include "ash/system/tray/system_tray_controller.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "ash/system/tray/tray_constants.h"
+#include "ash/system/tray/tray_popup_utils.h"
 #include "base/i18n/time_formatting.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/separator.h"
@@ -180,13 +185,54 @@ void BatteryView::ConfigureLabel(views::Label* label) {
   label->SetEnabledColor(kUnifiedMenuSecondaryTextColor);
 }
 
+// A base class of the views showing device management state.
+class ManagedStateView : public views::Button {
+ public:
+  ~ManagedStateView() override = default;
+
+ protected:
+  ManagedStateView(views::ButtonListener* listener,
+                   int label_id,
+                   const gfx::VectorIcon& icon);
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(ManagedStateView);
+};
+
+ManagedStateView::ManagedStateView(views::ButtonListener* listener,
+                                   int label_id,
+                                   const gfx::VectorIcon& icon)
+    : Button(listener) {
+  SetLayoutManager(std::make_unique<views::BoxLayout>(
+      views::BoxLayout::kHorizontal, gfx::Insets(), kUnifiedSystemInfoSpacing));
+
+  auto* label = new views::Label;
+  label->SetAutoColorReadabilityEnabled(false);
+  label->SetSubpixelRenderingEnabled(false);
+  label->SetEnabledColor(kUnifiedMenuSecondaryTextColor);
+  label->SetText(l10n_util::GetStringUTF16(label_id));
+  AddChildView(label);
+
+  auto* image = new views::ImageView;
+  image->SetImage(gfx::CreateVectorIcon(icon, kUnifiedMenuSecondaryTextColor));
+  image->SetPreferredSize(
+      gfx::Size(kUnifiedSystemInfoHeight, kUnifiedSystemInfoHeight));
+  AddChildView(image);
+
+  TrayPopupUtils::ConfigureTrayPopupButton(this);
+}
+
 // A view that shows whether the device is enterprise managed or not. It updates
 // by observing EnterpriseDomainModel.
-class EnterpriseManagedView : public views::View,
+class EnterpriseManagedView : public ManagedStateView,
+                              public views::ButtonListener,
                               public EnterpriseDomainObserver {
  public:
   EnterpriseManagedView();
   ~EnterpriseManagedView() override;
+
+  // views::ButtonListener:
+  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
 
   // EnterpriseDomainObserver:
   void OnEnterpriseDomainChanged() override;
@@ -201,28 +247,12 @@ class EnterpriseManagedView : public views::View,
   DISALLOW_COPY_AND_ASSIGN(EnterpriseManagedView);
 };
 
-EnterpriseManagedView::EnterpriseManagedView() {
+EnterpriseManagedView::EnterpriseManagedView()
+    : ManagedStateView(this,
+                       IDS_ASH_ENTERPRISE_DEVICE_MANAGED_SHORT,
+                       kSystemMenuBusinessIcon) {
   DCHECK(Shell::Get());
   Shell::Get()->system_tray_model()->enterprise_domain()->AddObserver(this);
-
-  SetLayoutManager(std::make_unique<views::BoxLayout>(
-      views::BoxLayout::kHorizontal, gfx::Insets(), kUnifiedSystemInfoSpacing));
-
-  auto* label = new views::Label;
-  label->SetAutoColorReadabilityEnabled(false);
-  label->SetSubpixelRenderingEnabled(false);
-  label->SetEnabledColor(kUnifiedMenuSecondaryTextColor);
-  label->SetText(
-      l10n_util::GetStringUTF16(IDS_ASH_ENTERPRISE_DEVICE_MANAGED_SHORT));
-  AddChildView(label);
-
-  auto* image = new views::ImageView;
-  image->SetImage(gfx::CreateVectorIcon(kSystemMenuBusinessIcon,
-                                        kUnifiedMenuSecondaryTextColor));
-  image->SetPreferredSize(
-      gfx::Size(kUnifiedSystemInfoHeight, kUnifiedSystemInfoHeight));
-  AddChildView(image);
-
   Update();
 }
 
@@ -247,6 +277,11 @@ bool EnterpriseManagedView::GetTooltipText(const gfx::Point& p,
   }
 }
 
+void EnterpriseManagedView::ButtonPressed(views::Button* sender,
+                                          const ui::Event& event) {
+  Shell::Get()->system_tray_controller()->ShowEnterpriseInfo();
+}
+
 void EnterpriseManagedView::OnEnterpriseDomainChanged() {
   Update();
 }
@@ -258,10 +293,40 @@ void EnterpriseManagedView::Update() {
              !model->enterprise_display_domain().empty());
 }
 
+// A view that shows whether the user is supervised or a child.
+class SupervisedUserView : public ManagedStateView {
+ public:
+  SupervisedUserView();
+  ~SupervisedUserView() override = default;
+
+  // views::View:
+  bool GetTooltipText(const gfx::Point& p,
+                      base::string16* tooltip) const override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(SupervisedUserView);
+};
+
+SupervisedUserView::SupervisedUserView()
+    : ManagedStateView(nullptr,
+                       IDS_ASH_STATUS_TRAY_SUPERVISED_LABEL,
+                       GetSupervisedUserIcon()) {
+  SetVisible(Shell::Get()->session_controller()->IsUserSupervised());
+}
+
+bool SupervisedUserView::GetTooltipText(const gfx::Point& p,
+                                        base::string16* tooltip) const {
+  if (Shell::Get()->session_controller()->IsUserSupervised())
+    return false;
+  *tooltip = GetSupervisedUserMessage();
+  return true;
+}
+
 }  // namespace
 
 UnifiedSystemInfoView::UnifiedSystemInfoView()
-    : enterprise_managed_(new EnterpriseManagedView()) {
+    : enterprise_managed_(new EnterpriseManagedView()),
+      supervised_(new SupervisedUserView()) {
   auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::kHorizontal, kUnifiedMenuItemPadding,
       kUnifiedSystemInfoSpacing));
@@ -282,6 +347,7 @@ UnifiedSystemInfoView::UnifiedSystemInfoView()
   layout->SetFlexForView(spacing, 1);
 
   AddChildView(enterprise_managed_);
+  AddChildView(supervised_);
 }
 
 UnifiedSystemInfoView::~UnifiedSystemInfoView() = default;

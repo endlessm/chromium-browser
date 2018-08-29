@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/guid.h"
+#include "base/ios/ios_util.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task_scheduler/task_scheduler.h"
@@ -168,7 +169,9 @@ class AutofillControllerTest : public ChromeWebTest {
   void SetUpKeyValueData();
 
   // Blocks until suggestion retrieval has completed.
-  void WaitForSuggestionRetrieval();
+  // If |wait_for_trigger| is yes, wait for the call to
+  // |retrieveSuggestionsForForm| to avoid considering a former call.
+  void WaitForSuggestionRetrieval(BOOL wait_for_trigger);
 
   // Fails if the specified metric was not registered the given number of times.
   void ExpectMetric(const std::string& histogram_name, int sum);
@@ -181,9 +184,6 @@ class AutofillControllerTest : public ChromeWebTest {
   }
 
  private:
-  // Weak pointer to AutofillAgent, owned by the AutofillController.
-  __weak AutofillAgent* autofill_agent_;
-
   // Histogram tester for these tests.
   std::unique_ptr<base::HistogramTester> histogram_tester_;
 
@@ -210,12 +210,11 @@ void AutofillControllerTest::SetUp() {
   AutofillAgent* agent = [[AutofillAgent alloc]
       initWithPrefService:chrome_browser_state_->GetPrefs()
                  webState:web_state()];
-  autofill_agent_ = agent;
   InfoBarManagerImpl::CreateForWebState(web_state());
   autofill_controller_ = [[AutofillController alloc]
            initWithBrowserState:chrome_browser_state_.get()
                        webState:web_state()
-                  autofillAgent:autofill_agent_
+                  autofillAgent:agent
       passwordGenerationManager:nullptr
                 downloadEnabled:NO];
   suggestion_controller_ = [[TestSuggestionController alloc]
@@ -234,12 +233,15 @@ void AutofillControllerTest::TearDown() {
   ChromeWebTest::TearDown();
 }
 
-void AutofillControllerTest::WaitForSuggestionRetrieval() {
+void AutofillControllerTest::WaitForSuggestionRetrieval(BOOL wait_for_trigger) {
   // Wait for the message queue to ensure that JS events fired in the tests
   // trigger TestSuggestionController's retrieveSuggestionsForFormNamed: method
   // and set suggestionRetrievalComplete to NO.
-  WaitForBackgroundTasks();
-
+  if (wait_for_trigger) {
+    WaitForCondition(^bool {
+      return ![suggestion_controller() suggestionRetrievalComplete];
+    });
+  }
   // Now we can wait for suggestionRetrievalComplete to be set to YES.
   WaitForCondition(^bool {
     return [suggestion_controller() suggestionRetrievalComplete];
@@ -352,7 +354,7 @@ TEST_F(AutofillControllerTest, ProfileSuggestions) {
   SetUpForSuggestions(kProfileFormHtml);
   ui::test::uiview_utils::ForceViewRendering(web_state()->GetView());
   ExecuteJavaScript(@"document.forms[0].name.focus()");
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/YES);
   ExpectMetric("Autofill.AddressSuggestionsCount", 1);
   ExpectHappinessMetric(AutofillMetrics::SUGGESTIONS_SHOWN);
   EXPECT_EQ(1U, [suggestion_controller() suggestions].count);
@@ -367,7 +369,7 @@ TEST_F(AutofillControllerTest, ProfileSuggestionsTwoAnonymousForms) {
       [NSString stringWithFormat:@"%@%@", kProfileFormHtml, kProfileFormHtml]);
   ui::test::uiview_utils::ForceViewRendering(web_state()->GetView());
   ExecuteJavaScript(@"document.forms[0].name.focus()");
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/YES);
   ExpectMetric("Autofill.AddressSuggestionsCount", 1);
   ExpectHappinessMetric(AutofillMetrics::SUGGESTIONS_SHOWN);
   EXPECT_EQ(1U, [suggestion_controller() suggestions].count);
@@ -382,7 +384,7 @@ TEST_F(AutofillControllerTest, ProfileSuggestionsFromSelectField) {
   SetUpForSuggestions(kProfileFormHtml);
   ui::test::uiview_utils::ForceViewRendering(web_state()->GetView());
   ExecuteJavaScript(@"document.forms[0].state.focus()");
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/YES);
   ExpectMetric("Autofill.AddressSuggestionsCount", 1);
   ExpectHappinessMetric(AutofillMetrics::SUGGESTIONS_SHOWN);
   EXPECT_EQ(1U, [suggestion_controller() suggestions].count);
@@ -419,7 +421,7 @@ TEST_F(AutofillControllerTest, MultipleProfileSuggestions) {
   WaitForBackgroundTasks();
   ui::test::uiview_utils::ForceViewRendering(web_state()->GetView());
   ExecuteJavaScript(@"document.forms[0].name.focus()");
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/YES);
   ExpectMetric("Autofill.AddressSuggestionsCount", 2);
   ExpectHappinessMetric(AutofillMetrics::SUGGESTIONS_SHOWN);
   EXPECT_EQ(2U, [suggestion_controller() suggestions].count);
@@ -483,7 +485,7 @@ TEST_F(AutofillControllerTest, KeyValueSuggestions) {
   // Focus element.
   ExecuteJavaScript(@"document.forms[0].greeting.value='B'");
   ExecuteJavaScript(@"document.forms[0].greeting.focus()");
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/YES);
   EXPECT_EQ(1U, [suggestion_controller() suggestions].count);
   FormSuggestion* suggestion = [suggestion_controller() suggestions][0];
   EXPECT_NSEQ(@"Bonjour", suggestion.value);
@@ -494,12 +496,13 @@ TEST_F(AutofillControllerTest, KeyValueSuggestions) {
 // happen in practice and should not result in a crash or incorrect behavior.
 TEST_F(AutofillControllerTest, KeyValueTypedSuggestions) {
   SetUpKeyValueData();
-  ExecuteJavaScript(@"document.forms[0].greeting.select()");
+  ExecuteJavaScript(@"document.forms[0].greeting.focus()");
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/YES);
   ExecuteJavaScript(@"event = document.createEvent('TextEvent');");
   ExecuteJavaScript(
       @"event.initTextEvent('textInput', true, true, window, 'B');");
   ExecuteJavaScript(@"document.forms[0].greeting.dispatchEvent(event);");
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/YES);
   EXPECT_EQ(1U, [suggestion_controller() suggestions].count);
   FormSuggestion* suggestion = [suggestion_controller() suggestions][0];
   EXPECT_NSEQ(@"Bonjour", suggestion.value);
@@ -508,11 +511,18 @@ TEST_F(AutofillControllerTest, KeyValueTypedSuggestions) {
 // Checks that focusing on and typing on one field, then changing focus before
 // typing again, result in suggestions.
 TEST_F(AutofillControllerTest, KeyValueFocusChange) {
+#if !TARGET_IPHONE_SIMULATOR
+  if (!base::ios::IsRunningOnIOS11OrLater()) {
+    // TODO(crbug.com/836808): This test hangs on iOS10 devices when there are
+    // no breakpoint.
+    return;
+  }
+#endif
   SetUpKeyValueData();
 
   // Focus the dummy field and confirm no suggestions are presented.
   ExecuteJavaScript(@"document.forms[0].dummy.focus()");
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/YES);
   EXPECT_EQ(0U, [suggestion_controller() suggestions].count);
 
   // Enter 'B' in the dummy field and confirm no suggestions are presented.
@@ -520,17 +530,18 @@ TEST_F(AutofillControllerTest, KeyValueFocusChange) {
   ExecuteJavaScript(
       @"event.initTextEvent('textInput', true, true, window, 'B');");
   ExecuteJavaScript(@"document.forms[0].dummy.dispatchEvent(event);");
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/YES);
   EXPECT_EQ(0U, [suggestion_controller() suggestions].count);
 
   // Enter 'B' in the greeting field and confirm that one suggestion ("Bonjour")
   // is presented.
-  ExecuteJavaScript(@"document.forms[0].greeting.select()");
+  ExecuteJavaScript(@"document.forms[0].greeting.focus()");
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/YES);
   ExecuteJavaScript(@"event = document.createEvent('TextEvent');");
   ExecuteJavaScript(
       @"event.initTextEvent('textInput', true, true, window, 'B');");
   ExecuteJavaScript(@"document.forms[0].greeting.dispatchEvent(event);");
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/YES);
   EXPECT_EQ(1U, [suggestion_controller() suggestions].count);
   FormSuggestion* suggestion = [suggestion_controller() suggestions][0];
   EXPECT_NSEQ(@"Bonjour", suggestion.value);
@@ -544,7 +555,7 @@ TEST_F(AutofillControllerTest, NoKeyValueSuggestionsWithoutTyping) {
 
   // Focus element.
   ExecuteJavaScript(@"document.forms[0].greeting.focus()");
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/YES);
   EXPECT_EQ(0U, [suggestion_controller() suggestions].count);
 }
 
@@ -602,7 +613,7 @@ TEST_F(AutofillControllerTest, CreditCardImport) {
 // entry with the "credit card interaction" bit set to true.
 TEST_F(AutofillControllerTest, HttpCreditCard) {
   LoadHtml(kCreditCardAutofocusFormHtml, GURL("http://chromium.test"));
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/NO);
 
   web::SSLStatus ssl_status =
       web_state()->GetNavigationManager()->GetLastCommittedItem()->GetSSL();
@@ -617,7 +628,7 @@ TEST_F(AutofillControllerTest, HttpCreditCard) {
 // navigation entry with the "credit card interaction" bit set to true.
 TEST_F(AutofillControllerTest, HttpNoCreditCard) {
   LoadHtml(kNoCreditCardFormHtml, GURL("http://chromium.test"));
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/NO);
 
   web::SSLStatus ssl_status =
       web_state()->GetNavigationManager()->GetLastCommittedItem()->GetSSL();
@@ -632,7 +643,7 @@ TEST_F(AutofillControllerTest, HttpNoCreditCard) {
 // navigation entry with the "credit card interaction" bit set to true.
 TEST_F(AutofillControllerTest, HttpsCreditCard) {
   LoadHtml(kCreditCardAutofocusFormHtml, GURL("https://chromium.test"));
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/NO);
 
   web::SSLStatus ssl_status =
       web_state()->GetNavigationManager()->GetLastCommittedItem()->GetSSL();
@@ -647,7 +658,7 @@ TEST_F(AutofillControllerTest, HttpsCreditCard) {
 // navigation entry with the "credit card interaction" bit set to true.
 TEST_F(AutofillControllerTest, HttpsNoCreditCard) {
   LoadHtml(kNoCreditCardFormHtml, GURL("https://chromium.test"));
-  WaitForSuggestionRetrieval();
+  WaitForSuggestionRetrieval(/*wait_for_trigger=*/NO);
 
   web::SSLStatus ssl_status =
       web_state()->GetNavigationManager()->GetLastCommittedItem()->GetSSL();

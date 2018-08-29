@@ -336,7 +336,7 @@ static AArch64_AM::ShiftExtendType getShiftTypeForNode(SDValue N) {
   }
 }
 
-/// \brief Determine whether it is worth it to fold SHL into the addressing
+/// Determine whether it is worth it to fold SHL into the addressing
 /// mode.
 static bool isWorthFoldingSHL(SDValue V) {
   assert(V.getOpcode() == ISD::SHL && "invalid opcode");
@@ -360,7 +360,7 @@ static bool isWorthFoldingSHL(SDValue V) {
   return true;
 }
 
-/// \brief Determine whether it is worth to fold V into an extended register.
+/// Determine whether it is worth to fold V into an extended register.
 bool AArch64DAGToDAGISel::isWorthFolding(SDValue V) const {
   // Trivial if we are optimizing for code size or if there is only
   // one use of the value.
@@ -743,14 +743,16 @@ bool AArch64DAGToDAGISel::SelectAddrModeIndexed(SDValue N, unsigned Size,
     if (!GAN)
       return true;
 
-    const GlobalValue *GV = GAN->getGlobal();
-    unsigned Alignment = GV->getAlignment();
-    Type *Ty = GV->getValueType();
-    if (Alignment == 0 && Ty->isSized())
-      Alignment = DL.getABITypeAlignment(Ty);
+    if (GAN->getOffset() % Size == 0) {
+      const GlobalValue *GV = GAN->getGlobal();
+      unsigned Alignment = GV->getAlignment();
+      Type *Ty = GV->getValueType();
+      if (Alignment == 0 && Ty->isSized())
+        Alignment = DL.getABITypeAlignment(Ty);
 
-    if (Alignment >= Size)
-      return true;
+      if (Alignment >= Size)
+        return true;
+    }
   }
 
   if (CurDAG->isBaseWithConstantOffset(N)) {
@@ -824,7 +826,7 @@ static SDValue Widen(SelectionDAG *CurDAG, SDValue N) {
   return SDValue(Node, 0);
 }
 
-/// \brief Check if the given SHL node (\p N), can be used to form an
+/// Check if the given SHL node (\p N), can be used to form an
 /// extended register for an addressing mode.
 bool AArch64DAGToDAGISel::SelectExtendedSHL(SDValue N, unsigned Size,
                                             bool WantExtend, SDValue &Offset,
@@ -1551,8 +1553,9 @@ static bool isBitfieldExtractOpFromAnd(SelectionDAG *CurDAG, SDNode *N,
   // Bail out on large immediates. This happens when no proper
   // combining/constant folding was performed.
   if (!BiggerPattern && (SrlImm <= 0 || SrlImm >= VT.getSizeInBits())) {
-    DEBUG((dbgs() << N
-           << ": Found large shift immediate, this should not happen\n"));
+    LLVM_DEBUG(
+        (dbgs() << N
+                << ": Found large shift immediate, this should not happen\n"));
     return false;
   }
 
@@ -1694,8 +1697,9 @@ static bool isBitfieldExtractOpFromShr(SDNode *N, unsigned &Opc, SDValue &Opd0,
   // Missing combines/constant folding may have left us with strange
   // constants.
   if (ShlImm >= VT.getSizeInBits()) {
-    DEBUG((dbgs() << N
-           << ": Found large shift immediate, this should not happen\n"));
+    LLVM_DEBUG(
+        (dbgs() << N
+                << ": Found large shift immediate, this should not happen\n"));
     return false;
   }
 
@@ -2655,7 +2659,7 @@ bool AArch64DAGToDAGISel::SelectCMP_SWAP(SDNode *N) {
 void AArch64DAGToDAGISel::Select(SDNode *Node) {
   // If we have a custom node, we already have selected!
   if (Node->isMachineOpcode()) {
-    DEBUG(errs() << "== "; Node->dump(CurDAG); errs() << "\n");
+    LLVM_DEBUG(errs() << "== "; Node->dump(CurDAG); errs() << "\n");
     Node->setNodeId(-1);
     return;
   }
@@ -2752,9 +2756,9 @@ void AArch64DAGToDAGISel::Select(SDNode *Node) {
     }
     SDValue Extract = CurDAG->getTargetExtractSubreg(SubReg, SDLoc(Node), VT,
                                                      Node->getOperand(0));
-    DEBUG(dbgs() << "ISEL: Custom selection!\n=> ");
-    DEBUG(Extract->dumpr(CurDAG));
-    DEBUG(dbgs() << "\n");
+    LLVM_DEBUG(dbgs() << "ISEL: Custom selection!\n=> ");
+    LLVM_DEBUG(Extract->dumpr(CurDAG));
+    LLVM_DEBUG(dbgs() << "\n");
     ReplaceNode(Node, Extract.getNode());
     return;
   }

@@ -4,10 +4,6 @@
 
 #import "chrome/browser/ui/views/frame/browser_native_widget_window_mac.h"
 
-#if !defined(GOOGLE_CHROME_BUILD)
-#import "chrome/browser/ui/views/frame/macviews_under_construction_window_mac.h"
-#endif
-
 #import <AppKit/AppKit.h>
 
 namespace {
@@ -18,8 +14,10 @@ constexpr NSInteger kTitleBarHeight = 37;
 
 @interface NSWindow (PrivateAPI)
 + (Class)frameViewClassForStyleMask:(NSUInteger)windowStyle;
-- (void)beginWindowDragWithEvent:(NSEvent*)event
-    NS_DEPRECATED_MAC(10_10, 10_11, "Use performWindowDragWithEvent: instead.");
+
+// Available in later point releases of 10.10. On 10.11+, use the public
+// -performWindowDragWithEvent: instead.
+- (void)beginWindowDragWithEvent:(NSEvent*)event;
 @end
 
 // Weak lets Chrome launch even if a future macOS doesn't have NSThemeFrame.
@@ -74,11 +72,14 @@ WEAK_IMPORT_ATTRIBUTE
   return NSZeroRect;
 }
 
-// Lets the window be dragged by its title bar on 10.10.
+// Lets the window be dragged by its title bar on 10.11 and older.
 - (void)mouseDown:(NSEvent*)event {
-  if (@available(macOS 10.11, *))
-    ;  // Not needed on 10.11 and up.
-  else if (@available(macOS 10.10, *))
+  if (@available(macOS 10.12, *))
+    ;  // Not needed on 10.12 and up.
+  else if (@available(macOS 10.11, *))
+    [self.window performWindowDragWithEvent:event];
+  else if ([self.window
+               respondsToSelector:@selector(beginWindowDragWithEvent:)])
     [self.window beginWindowDragWithEvent:event];
   else
     NOTREACHED();
@@ -105,16 +106,6 @@ WEAK_IMPORT_ATTRIBUTE
 // subclasses are known to override it and return NO.
 - (BOOL)_usesCustomDrawing {
   return NO;
-}
-
-// NSWindow overrides.
-
-- (void)orderWindow:(NSWindowOrderingMode)place relativeTo:(NSInteger)otherWin {
-  [super orderWindow:place relativeTo:otherWin];
-#if !defined(GOOGLE_CHROME_BUILD)
-  if (place != NSWindowOut)
-    [MacViewsUnderConstructionWindow attachToWindow:self];
-#endif
 }
 
 @end

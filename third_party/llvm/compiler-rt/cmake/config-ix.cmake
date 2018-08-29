@@ -125,7 +125,7 @@ set(COMPILER_RT_SUPPORTED_ARCH)
 # platform. We use the results of these tests to build only the various target
 # runtime libraries supported by our current compilers cross-compiling
 # abilities.
-set(SIMPLE_SOURCE ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/simple.cc)
+set(SIMPLE_SOURCE ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/simple.c)
 file(WRITE ${SIMPLE_SOURCE} "#include <stdlib.h>\n#include <stdio.h>\nint main() { printf(\"hello, world\"); }\n")
 
 # Detect whether the current target platform is 32-bit or 64-bit, and setup
@@ -174,6 +174,7 @@ endmacro()
 
 set(ARM64 aarch64)
 set(ARM32 arm armhf)
+set(HEXAGON hexagon)
 set(X86 i386)
 set(X86_64 x86_64)
 set(MIPS32 mips mipsel)
@@ -219,6 +220,7 @@ set(ALL_XRAY_SUPPORTED_ARCH ${X86_64})
 else()
 set(ALL_XRAY_SUPPORTED_ARCH ${X86_64} ${ARM32} ${ARM64} ${MIPS32} ${MIPS64} powerpc64le)
 endif()
+set(ALL_SHADOWCALLSTACK_SUPPORTED_ARCH ${X86_64} ${ARM64})
 
 if(APPLE)
   include(CompilerRTDarwinUtils)
@@ -429,6 +431,9 @@ if(APPLE)
   list_intersect(XRAY_SUPPORTED_ARCH
     ALL_XRAY_SUPPORTED_ARCH
     SANITIZER_COMMON_SUPPORTED_ARCH)
+  list_intersect(SHADOWCALLSTACK_SUPPORTED_ARCH
+    ALL_SHADOWCALLSTACK_SUPPORTED_ARCH
+    SANITIZER_COMMON_SUPPORTED_ARCH)
 
 else()
   # Architectures supported by compiler-rt libraries.
@@ -455,6 +460,8 @@ else()
   filter_available_targets(ESAN_SUPPORTED_ARCH ${ALL_ESAN_SUPPORTED_ARCH})
   filter_available_targets(SCUDO_SUPPORTED_ARCH ${ALL_SCUDO_SUPPORTED_ARCH})
   filter_available_targets(XRAY_SUPPORTED_ARCH ${ALL_XRAY_SUPPORTED_ARCH})
+  filter_available_targets(SHADOWCALLSTACK_SUPPORTED_ARCH
+    ${ALL_SHADOWCALLSTACK_SUPPORTED_ARCH})
 endif()
 
 if (MSVC)
@@ -600,15 +607,22 @@ else()
 endif()
 
 if (COMPILER_RT_HAS_SANITIZER_COMMON AND XRAY_SUPPORTED_ARCH AND
-    OS_NAME MATCHES "Darwin|Linux|FreeBSD|NetBSD")
+    OS_NAME MATCHES "Darwin|Linux|FreeBSD|NetBSD|OpenBSD")
   set(COMPILER_RT_HAS_XRAY TRUE)
 else()
   set(COMPILER_RT_HAS_XRAY FALSE)
 endif()
 
 if (COMPILER_RT_HAS_SANITIZER_COMMON AND FUZZER_SUPPORTED_ARCH AND
-    OS_NAME MATCHES "Android|Darwin|Linux|NetBSD|FreeBSD|Fuchsia")
+    OS_NAME MATCHES "Android|Darwin|Linux|NetBSD|FreeBSD|OpenBSD|Fuchsia")
   set(COMPILER_RT_HAS_FUZZER TRUE)
 else()
   set(COMPILER_RT_HAS_FUZZER FALSE)
+endif()
+
+if (COMPILER_RT_HAS_SANITIZER_COMMON AND SHADOWCALLSTACK_SUPPORTED_ARCH AND
+    OS_NAME MATCHES "Linux|Android")
+  set(COMPILER_RT_HAS_SHADOWCALLSTACK TRUE)
+else()
+  set(COMPILER_RT_HAS_SHADOWCALLSTACK FALSE)
 endif()

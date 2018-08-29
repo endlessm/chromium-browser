@@ -58,7 +58,6 @@
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/buildflags/buildflags.h"
-#include "net/http/http_server_properties.h"
 #include "net/http/transport_security_state.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "services/preferences/public/cpp/in_process_service_factory.h"
@@ -400,10 +399,6 @@ OffTheRecordProfileImpl::CreateRequestContextForStoragePartition(
 
 content::ResourceContext* OffTheRecordProfileImpl::GetResourceContext() {
   return io_data_->GetResourceContext();
-}
-
-net::SSLConfigService* OffTheRecordProfileImpl::GetSSLConfigService() {
-  return profile_->GetSSLConfigService();
 }
 
 content::BrowserPluginGuestManager* OffTheRecordProfileImpl::GetGuestManager() {

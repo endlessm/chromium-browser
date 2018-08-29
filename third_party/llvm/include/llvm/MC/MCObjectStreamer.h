@@ -26,7 +26,7 @@ class MCAsmBackend;
 class raw_ostream;
 class raw_pwrite_stream;
 
-/// \brief Streaming object file generation interface.
+/// Streaming object file generation interface.
 ///
 /// This class provides an implementation of the MCStreamer interface which is
 /// suitable for use with the assembler backend. Specific object file formats
@@ -34,9 +34,6 @@ class raw_pwrite_stream;
 /// to that file format or custom semantics expected by the object writer
 /// implementation.
 class MCObjectStreamer : public MCStreamer {
-  std::unique_ptr<MCObjectWriter> ObjectWriter;
-  std::unique_ptr<MCAsmBackend> TAB;
-  std::unique_ptr<MCCodeEmitter> Emitter;
   std::unique_ptr<MCAssembler> Assembler;
   MCSection::iterator CurInsertionPoint;
   bool EmitEHFrame;
@@ -51,7 +48,7 @@ class MCObjectStreamer : public MCStreamer {
 
 protected:
   MCObjectStreamer(MCContext &Context, std::unique_ptr<MCAsmBackend> TAB,
-                   raw_pwrite_stream &OS,
+                   std::unique_ptr<MCObjectWriter> OW,
                    std::unique_ptr<MCCodeEmitter> Emitter);
   ~MCObjectStreamer();
 
@@ -88,11 +85,13 @@ protected:
   /// will be used as a symbol offset within the fragment.
   void flushPendingLabels(MCFragment *F, uint64_t FOffset = 0);
 
+  void addFragmentAtoms();
+
 public:
   void visitUsedSymbol(const MCSymbol &Sym) override;
 
   MCAssembler &getAssembler() { return *Assembler; }
-
+  MCAssembler *getAssemblerPtr() override;
   /// \name MCStreamer Interface
   /// @{
 
@@ -108,7 +107,7 @@ public:
   void EmitInstruction(const MCInst &Inst, const MCSubtargetInfo &STI,
                        bool = false) override;
 
-  /// \brief Emit an instruction to a special fragment, because this instruction
+  /// Emit an instruction to a special fragment, because this instruction
   /// can change its size during relaxation.
   virtual void EmitInstToFragment(const MCInst &Inst, const MCSubtargetInfo &);
 

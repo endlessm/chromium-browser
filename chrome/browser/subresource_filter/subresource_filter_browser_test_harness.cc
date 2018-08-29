@@ -65,7 +65,7 @@ void SubresourceFilterBrowserTest::SetUpOnMainThread() {
       ->SetIsAfterStartupForTesting();
 
   base::FilePath test_data_dir;
-  ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir));
+  ASSERT_TRUE(base::PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir));
   embedded_test_server()->ServeFilesFromDirectory(test_data_dir);
   host_resolver()->AddSimulatedFailure("host-with-dns-lookup-failure");
 
@@ -73,7 +73,7 @@ void SubresourceFilterBrowserTest::SetUpOnMainThread() {
   content::SetupCrossSiteRedirector(embedded_test_server());
 
   // Add content/test/data for cross_site_iframe_factory.html
-  ASSERT_TRUE(PathService::Get(content::DIR_TEST_DATA, &test_data_dir));
+  ASSERT_TRUE(base::PathService::Get(content::DIR_TEST_DATA, &test_data_dir));
   embedded_test_server()->ServeFilesFromDirectory(test_data_dir);
 
   ASSERT_TRUE(embedded_test_server()->Start());
@@ -229,13 +229,10 @@ void SubresourceFilterBrowserTest::ResetConfiguration(Configuration config) {
 }
 
 void SubresourceFilterBrowserTest::ResetConfigurationToEnableOnPhishingSites(
-    bool measure_performance,
-    bool whitelist_site_on_reload) {
+    bool measure_performance) {
   Configuration config = Configuration::MakePresetForLiveRunOnPhishingSites();
   config.activation_options.performance_measurement_rate =
       measure_performance ? 1.0 : 0.0;
-  config.activation_options.should_whitelist_site_on_reload =
-      whitelist_site_on_reload;
   ResetConfiguration(std::move(config));
 }
 

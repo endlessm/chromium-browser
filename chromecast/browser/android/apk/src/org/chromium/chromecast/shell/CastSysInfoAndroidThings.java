@@ -16,6 +16,6 @@ import org.chromium.base.annotations.JNINamespace;
 public final class CastSysInfoAndroidThings {
     @CalledByNative
     private static String getReleaseChannel() {
-        return new UpdateManager().getChannel();
+        return UpdateManager.getInstance().getChannel();
     }
 }

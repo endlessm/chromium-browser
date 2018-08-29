@@ -6,7 +6,6 @@
 
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -79,12 +78,6 @@ class FakeSpeechRecognitionManager : public content::SpeechRecognitionManager {
       int session_id) const override {
     DCHECK(session_id_ == session_id);
     return session_ctx_;
-  }
-
-  int GetSession(int render_process_id,
-                 int render_frame_id,
-                 int request_id) const override {
-    return session_id_;
   }
 
   void FakeSpeechRecognitionEvent(FakeRecognitionEvent event) {

@@ -89,7 +89,7 @@
 #include "base/win/windows_version.h"
 #include "chrome/browser/apps/app_launch_for_metro_restart_win.h"
 #if defined(GOOGLE_CHROME_BUILD)
-#include "chrome/browser/conflicts/problematic_programs_updater_win.h"
+#include "chrome/browser/conflicts/incompatible_applications_updater_win.h"
 #endif  // defined(GOOGLE_CHROME_BUILD)
 #include "chrome/browser/notifications/notification_platform_bridge_win.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
@@ -373,6 +373,19 @@ bool StartupBrowserCreatorImpl::Launch(Profile* profile,
   DCHECK(profile);
   profile_ = profile;
 
+#if defined(OS_WIN)
+  // If the command line has the kNotificationLaunchId switch, then this
+  // Launch() call is from notification_helper.exe to process toast activation.
+  // Delegate to the notification system; do not open a browser window here.
+  if (command_line_.HasSwitch(switches::kNotificationLaunchId)) {
+    if (NotificationPlatformBridgeWin::HandleActivation(command_line_)) {
+      RecordLaunchModeHistogram(LM_WIN_PLATFORM_NOTIFICATION);
+      return true;
+    }
+    return false;
+  }
+#endif  // defined(OS_WIN)
+
   if (command_line_.HasSwitch(switches::kAppId)) {
     std::string app_id = command_line_.GetSwitchValueASCII(switches::kAppId);
     const Extension* extension = GetPlatformApp(profile, app_id);
@@ -389,19 +402,6 @@ bool StartupBrowserCreatorImpl::Launch(Profile* profile,
       return true;
     }
   }
-
-#if defined(OS_WIN)
-  // If the command line has the kNotificationLaunchId switch, then this
-  // Launch() call is from notification_helper.exe to process toast activation.
-  // Delegate to the notification system; do not open a browser window here.
-  if (command_line_.HasSwitch(switches::kNotificationLaunchId)) {
-    if (NotificationPlatformBridgeWin::HandleActivation(command_line_)) {
-      RecordLaunchModeHistogram(LM_WIN_PLATFORM_NOTIFICATION);
-      return true;
-    }
-    return false;
-  }
-#endif  // defined(OS_WIN)
 
   // Open the required browser windows and tabs. First, see if
   // we're being run as an application window. If so, the user
@@ -679,9 +679,8 @@ void StartupBrowserCreatorImpl::DetermineURLsAndLaunch(
     // Check if there are any incompatible applications cached from the last
     // Chrome run.
     has_incompatible_applications =
-        ProblematicProgramsUpdater::
-            IsIncompatibleApplicationsWarningEnabled() &&
-        ProblematicProgramsUpdater::HasCachedPrograms();
+        IncompatibleApplicationsUpdater::IsWarningEnabled() &&
+        IncompatibleApplicationsUpdater::HasCachedApplications();
   }
 #endif
   const auto session_startup_pref =

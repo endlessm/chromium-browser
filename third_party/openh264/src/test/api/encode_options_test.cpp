@@ -36,6 +36,7 @@ bool EncodeDecodeTestAPIBase::InitialEncDec (int iWidth, int iHeight) {
 
   //set a fixed random value
   iRandValue = rand() % 256;
+  memset (buf_.data(), iRandValue, frameSize);
   return true;
 }
 
@@ -1956,8 +1957,8 @@ TEST_F (EncodeDecodeTestAPI, ProfileLevelSetting) {
   sParam.iEntropyCodingModeFlag = rand() % 2;
   sParam.sSpatialLayers[0].iSpatialBitrate = sParam.iTargetBitrate = 3000;
 
-  int TraceLevel = WELS_LOG_DEBUG;
-  encoder_->SetOption (ENCODER_OPTION_TRACE_LEVEL, &TraceLevel);
+//  int TraceLevel = WELS_LOG_DEBUG;
+//  encoder_->SetOption (ENCODER_OPTION_TRACE_LEVEL, &TraceLevel);
   //decoder_->SetOption (DECODER_OPTION_TRACE_LEVEL, &TraceLevel);
   iEncProfileIdc = profileList[rand() % 11];
   iEncLevelIdc =  levelList[rand() % 18];
@@ -1979,7 +1980,7 @@ TEST_F (EncodeDecodeTestAPI, ProfileLevelSetting) {
   }
 
   ASSERT_TRUE (iDecProfileIdc == iEncProfileIdc) << "enc_profile = " << iEncProfileIdc << "  dec_profile = " <<
-    iDecProfileIdc;
+      iDecProfileIdc;
 
   //check whether the level is changed according to level limitation
   ELevelIdc uiLevel = LEVEL_UNKNOWN;
@@ -2158,11 +2159,6 @@ TEST_F (EncodeDecodeTestAPI, UnsupportedVideoSizeInput) {
 
   ASSERT_TRUE (InitialEncDec (iSrcWidth, iSrcHeight));
 
-  int frameSize = EncPic.iPicWidth * EncPic.iPicHeight * 3 / 2;
-  int lumaSize = EncPic.iPicWidth * EncPic.iPicHeight;
-  memset (buf_.data(), iRandValue, lumaSize);
-  memset (buf_.data() + lumaSize, rand() % 256, (frameSize - lumaSize));
-
   iRet = encoder_->EncodeFrame (&EncPic, &info);
 
   ASSERT_TRUE (iRet == cmResultSuccess) << "rv = " << iRet;
@@ -2217,8 +2213,8 @@ TEST_F (EncodeDecodeTestAPI,  TemporalLayerChangeDuringEncoding) {
   prepareParamDefault (1, iSliceNum, iWidth, iHeight, fFrameRate, &sParam);
   sParam.iTemporalLayerNum = 2;
 
-  //int TraceLevel = WELS_LOG_DEBUG;
-  //encoder_->SetOption (ENCODER_OPTION_TRACE_LEVEL, &TraceLevel);
+//  int TraceLevel = WELS_LOG_DEBUG;
+//  encoder_->SetOption (ENCODER_OPTION_TRACE_LEVEL, &TraceLevel);
   iRet = encoder_->InitializeExt (&sParam);
   ASSERT_TRUE (iRet == cmResultSuccess) << "InitializeExt: iRet = " << iRet << " at " << sParam.iPicWidth << "x" <<
                                         sParam.iPicHeight;
@@ -2264,4 +2260,120 @@ TEST_F (EncodeDecodeTestAPI,  TemporalLayerChangeDuringEncoding) {
   iRet = encoder_->Uninitialize();
   ASSERT_TRUE (iRet == cmResultSuccess) << "rv = " << iRet;
 
+}
+
+TEST_F (EncodeDecodeTestAPI,  TemporalLayerChangeDuringEncoding_Specific) {
+  int iWidth       = 320;
+  int iHeight      = 192;
+  float fFrameRate = 15;
+  int iSliceNum    = 1;
+  int iRet = 0;
+  int iTotalFrame  = (rand() % 20) + 3;
+  int iFrameNum = 0;
+  SEncParamExt sParam;
+  encoder_->GetDefaultParams (&sParam);
+  prepareParamDefault (1, iSliceNum, iWidth, iHeight, fFrameRate, &sParam);
+
+  int originalTemporalLayerNum = 1;
+  int originalBR = 500000;
+  float originalFR = 7.5;
+  int iSteps[3] = {2, 1, 3};
+  int iStepIdx = 0;
+  bool bSetOption = false;
+
+  sParam.iTemporalLayerNum = originalTemporalLayerNum;
+  sParam.iNumRefFrame = 1;
+
+// int TraceLevel = WELS_LOG_INFO;
+//  encoder_->SetOption (ENCODER_OPTION_TRACE_LEVEL, &TraceLevel);
+  iRet = encoder_->InitializeExt (&sParam);
+  ASSERT_TRUE (iRet == cmResultSuccess) << "InitializeExt: iRet = " << iRet << " at " << sParam.iPicWidth << "x" <<
+                                        sParam.iPicHeight;
+
+  ASSERT_TRUE (InitialEncDec (iWidth, iHeight));
+
+  int frameSize = EncPic.iPicWidth * EncPic.iPicHeight * 3 / 2;
+  do {
+    FileInputStream fileStream;
+    ASSERT_TRUE (fileStream.Open ("res/CiscoVT2people_320x192_12fps.yuv"));
+
+    while (fileStream.read (buf_.data(), frameSize) == frameSize) {
+
+      if ( (iStepIdx < 3) && (iFrameNum == ((iTotalFrame / 3) * (iStepIdx + 1)))) {
+        sParam.iTemporalLayerNum = originalTemporalLayerNum * iSteps[iStepIdx];
+        sParam.iTargetBitrate = sParam.sSpatialLayers[0].iSpatialBitrate = originalBR * iSteps[iStepIdx];
+        sParam.fMaxFrameRate = sParam.sSpatialLayers[0].fFrameRate = originalFR * pow (2.0f, iSteps[iStepIdx]);
+        encoder_->SetOption (ENCODER_OPTION_SVC_ENCODE_PARAM_EXT, &sParam);
+
+        bSetOption = true;
+        iStepIdx += 1;
+      }
+
+      iRet = encoder_->EncodeFrame (&EncPic, &info);
+      EXPECT_TRUE (iRet == cmResultSuccess) << "rv = " << iRet;
+
+      if (bSetOption) {
+        if ((iStepIdx == 1) || (iStepIdx == 3)) {
+          EXPECT_TRUE (info.eFrameType == videoFrameTypeIDR) << "iStepIdx=" << iStepIdx << "iFrameNum=" << iFrameNum << "iTotalFrame=" << iTotalFrame;
+        } else {
+          EXPECT_TRUE (info.eFrameType != videoFrameTypeIDR) << "iStepIdx=" << iStepIdx << "iFrameNum=" << iFrameNum << "iTotalFrame=" << iTotalFrame;
+        }
+
+        bSetOption = false;
+      }
+
+
+    }
+    iFrameNum++;
+  } while (iFrameNum < iTotalFrame);
+
+  iRet = encoder_->Uninitialize();
+  ASSERT_TRUE (iRet == cmResultSuccess) << "rv = " << iRet;
+
+}
+
+TEST_F (EncodeDecodeTestAPI, ENCODER_OPTION_IDR_INTERVAL) {
+  int iSpatialLayerNum = 1;
+  int iWidth       = WelsClip3 ((((rand() % MAX_WIDTH) >> 1)  + 1) << 1, 1 << iSpatialLayerNum, MAX_WIDTH);
+  int iHeight      = WelsClip3 ((((rand() % MAX_HEIGHT) >> 1)  + 1) << 1, 1 << iSpatialLayerNum, MAX_HEIGHT);
+  float fFrameRate = rand() + 0.5f;
+  int iSliceNum        = 1;
+  encoder_->GetDefaultParams (&param_);
+  prepareParamDefault (iSpatialLayerNum, iSliceNum, iWidth, iHeight, fFrameRate, &param_);
+  param_.iTemporalLayerNum = 1;
+
+  int iTraceLevel = WELS_LOG_QUIET;
+  int rv = encoder_->SetOption (ENCODER_OPTION_TRACE_LEVEL, &iTraceLevel);
+  EXPECT_TRUE (rv == cmResultSuccess);
+
+  rv = encoder_->InitializeExt (&param_);
+  ASSERT_TRUE (rv == cmResultSuccess);
+
+  InitialEncDec (param_.iPicWidth, param_.iPicHeight);
+  EncodeOneFrame (0);
+  EXPECT_TRUE (info.eFrameType == videoFrameTypeIDR);
+
+  int iLastIdrIdx = 0;
+  int iFrame = 1;
+  int iTtlAttempt = (rand() % 5) + 2;
+  for (int iAtt = 0; iAtt < iTtlAttempt; iAtt++) {
+    int kiTargetIntraPeriod = WelsClip3 ((rand() % ENCODE_FRAME_NUM) - 1, -1, ENCODE_FRAME_NUM);
+    rv = encoder_->SetOption (ENCODER_OPTION_IDR_INTERVAL, &kiTargetIntraPeriod);
+    EXPECT_TRUE (rv == cmResultSuccess);
+
+    int iEncFrameNum = kiTargetIntraPeriod * 3;
+    for (int i = 0; i < iEncFrameNum; i++) {
+      EncodeOneFrame (0);
+
+      if ((kiTargetIntraPeriod <= 0) || (((iFrame - iLastIdrIdx) % kiTargetIntraPeriod) == 0)) {
+        EXPECT_TRUE (info.eFrameType == videoFrameTypeIDR) << "kiTargetIntraPeriod " << kiTargetIntraPeriod <<
+            " info.eFrameType " << info.eFrameType << " Frame " << i;
+        iLastIdrIdx = iFrame;
+      } else {
+        EXPECT_FALSE (info.eFrameType == videoFrameTypeIDR);
+      }
+
+      iFrame ++;
+    }
+  }
 }

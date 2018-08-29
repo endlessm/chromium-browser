@@ -18,7 +18,7 @@
 #include "ash/test_shell_delegate.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -274,7 +274,7 @@ TEST_F(TrayUserTest, AvatarChange) {
   const gfx::ImageSkia red_icon =
       CreateImageSkiaWithColor(kTrayItemSize, kTrayItemSize, SK_ColorRED);
   mojom::UserSessionPtr user = controller()->GetUserSession(0)->Clone();
-  user->user_info->avatar = red_icon;
+  user->user_info->avatar->image = red_icon;
   controller()->UpdateUserSession(std::move(user));
   EXPECT_TRUE(gfx::test::AreImagesEqual(
       gfx::Image(red_icon),

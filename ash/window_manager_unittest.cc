@@ -59,6 +59,7 @@ class WindowTreeClientDelegate : public aura::WindowTreeClientDelegate {
       aura::WindowTreeHostMus* window_tree_host) override {}
   void OnLostConnection(aura::WindowTreeClient* client) override {}
   void OnPointerEventObserved(const ui::PointerEvent& event,
+                              int64_t display_id,
                               aura::Window* target) override {}
   aura::PropertyConverter* GetPropertyConverter() override {
     return &property_converter_;
@@ -92,7 +93,12 @@ void OnEmbed(bool success) {
   ASSERT_TRUE(success);
 }
 
-TEST_F(WindowManagerServiceTest, OpenWindow) {
+#if defined(ADDRESS_SANITIZER)
+#define MAYBE_OpenWindow DISABLED_OpenWindow
+#else
+#define MAYBE_OpenWindow OpenWindow
+#endif
+TEST_F(WindowManagerServiceTest, MAYBE_OpenWindow) {
   display::ScreenBase screen;
   screen.display_list().AddDisplay(
       display::Display(1, gfx::Rect(0, 0, 200, 200)),

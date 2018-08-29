@@ -15,7 +15,7 @@ from py_utils import memory_debug  # pylint: disable=import-error
 from py_utils import logging_util  # pylint: disable=import-error
 
 from telemetry.core import exceptions
-from telemetry import decorators
+from telemetry.core import platform as platform_module
 from telemetry.internal.actions import page_action
 from telemetry.internal.browser import browser_finder
 from telemetry.internal.results import results_options
@@ -48,6 +48,8 @@ def AddCommandLineArgs(parser):
   group = optparse.OptionGroup(parser, 'Page set repeat options')
   group.add_option('--pageset-repeat', default=1, type='int',
                    help='Number of times to repeat the entire pageset.')
+  group.add_option('--smoke-test-mode', action='store_true',
+                   help='run this test in smoke test mode so do not repeat.')
   group.add_option('--max-failures', default=None, type='int',
                    help='Maximum number of test failures before aborting '
                    'the run. Defaults to the number specified by the '
@@ -95,7 +97,8 @@ def CaptureLogsAsArtifacts(results, test_name):
 
 
 def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
-  def ProcessError(exc=None):
+  def ProcessError(exc, log_message):
+    logging.exception(log_message)
     state.DumpStateUponFailure(story, results)
 
     # Dump app crash, if present
@@ -124,16 +127,19 @@ def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
       if isinstance(test, story_test.StoryTest):
         test.Measure(state.platform, results)
     except (legacy_page_test.Failure, exceptions.TimeoutException,
-            exceptions.LoginException, exceptions.ProfilingException,
-            py_utils.TimeoutException) as exc:
-      ProcessError(exc)
+            exceptions.LoginException, py_utils.TimeoutException) as exc:
+      ProcessError(exc, log_message='Handleable error')
     except exceptions.Error as exc:
-      ProcessError(exc)
+      ProcessError(
+          exc, log_message='Handleable error. Will try to restart shared state')
+      # The caller (|Run| function) will catch this exception, destory and
+      # create a new shared state.
       raise
     except page_action.PageActionNotSupported as exc:
       results.Skip('Unsupported page action: %s' % exc)
-    except Exception:
-      ProcessError()
+    except Exception as exc:
+      ProcessError(exc, log_message=('Unhandleable error. '
+                                     'Benchmark run will be interrupted'))
       raise
     finally:
       has_existing_exception = (sys.exc_info() != (None, None, None))
@@ -159,7 +165,7 @@ def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
 
 
 def Run(test, story_set, finder_options, results, max_failures=None,
-        expectations=None, metadata=None, max_num_values=sys.maxint):
+        expectations=None, max_num_values=sys.maxint):
   """Runs a given test against a given page_set with the given options.
 
   Stop execution for unexpected exceptions such as KeyboardInterrupt.
@@ -194,7 +200,10 @@ def Run(test, story_set, finder_options, results, max_failures=None,
   state = None
   device_info_diags = {}
   try:
-    for storyset_repeat_counter in xrange(finder_options.pageset_repeat):
+    pageset_repeat = finder_options.pageset_repeat
+    if finder_options.smoke_test_mode:
+      pageset_repeat = 1
+    for storyset_repeat_counter in xrange(pageset_repeat):
       for story in stories:
         start_timestamp = time.time()
         if not state:
@@ -217,14 +226,16 @@ def Run(test, story_set, finder_options, results, max_failures=None,
             continue
 
         try:
-          state.platform.WaitForBatteryTemperature(35)
-          _WaitForThermalThrottlingIfNeeded(state.platform)
+          if state.platform:
+            state.platform.WaitForBatteryTemperature(35)
+            _WaitForThermalThrottlingIfNeeded(state.platform)
           _RunStoryAndProcessErrorIfNeeded(story, results, state, test)
 
           num_values = len(results.all_page_specific_values)
           # TODO(#4259): Convert this to an exception-based failure
           if num_values > max_num_values:
             msg = 'Too many values: %d > %d' % (num_values, max_num_values)
+            logging.error(msg)
             results.Fail(msg)
 
           device_info_diags = _MakeDeviceInfoDiagnostics(state)
@@ -242,7 +253,7 @@ def Run(test, story_set, finder_options, results, max_failures=None,
         finally:
           has_existing_exception = sys.exc_info() != (None, None, None)
           try:
-            if state:
+            if state and state.platform:
               _CheckThermalThrottling(state.platform)
             results.DidRunPage(story)
             story_run.SetDuration(time.time() - start_timestamp)
@@ -257,7 +268,7 @@ def Run(test, story_set, finder_options, results, max_failures=None,
           logging.error('Too many failures. Aborting.')
           return
   finally:
-    results.PopulateHistogramSet(metadata)
+    results.PopulateHistogramSet()
 
     for name, diag in device_info_diags.iteritems():
       results.AddSharedDiagnostic(name, diag)
@@ -298,17 +309,22 @@ def RunBenchmark(benchmark, finder_options):
   benchmark_metadata = benchmark.GetMetadata()
   possible_browser = browser_finder.FindBrowser(finder_options)
   expectations = benchmark.expectations
-  if not possible_browser:
-    print ('Cannot find browser of type %s. To list out all '
-           'available browsers, rerun your command with '
-           '--browser=list' %  finder_options.browser_options.browser_type)
-    return 1
 
-  can_run_on_platform = benchmark._CanRunOnPlatform(possible_browser.platform,
-                                                    finder_options)
+  target_platform = None
+  if possible_browser:
+    target_platform = possible_browser.platform
+  else:
+    target_platform = platform_module.GetHostPlatform()
 
-  expectations_disabled = expectations.IsBenchmarkDisabled(
-      possible_browser.platform, finder_options)
+  can_run_on_platform = benchmark._CanRunOnPlatform(
+      target_platform, finder_options)
+
+  expectations_disabled = False
+  # For now, test expectations are only applicable in the cases where the
+  # testing target involves a browser.
+  if possible_browser:
+    expectations_disabled = expectations.IsBenchmarkDisabled(
+        possible_browser.platform, finder_options)
 
   if expectations_disabled or not can_run_on_platform:
     print '%s is disabled on the selected browser' % benchmark.Name()
@@ -335,13 +351,6 @@ def RunBenchmark(benchmark, finder_options):
   pt = benchmark.CreatePageTest(finder_options)
   pt.__name__ = benchmark.__class__.__name__
 
-  disabled_attr_name = decorators.DisabledAttributeName(benchmark)
-  # pylint: disable=protected-access
-  pt._disabled_strings = getattr(benchmark, disabled_attr_name, set())
-  if hasattr(benchmark, '_enabled_strings'):
-    # pylint: disable=protected-access
-    pt._enabled_strings = benchmark._enabled_strings
-
   stories = benchmark.CreateStorySet(finder_options)
 
   if isinstance(pt, legacy_page_test.LegacyPageTest):
@@ -356,8 +365,7 @@ def RunBenchmark(benchmark, finder_options):
       benchmark_enabled=True) as results:
     try:
       Run(pt, stories, finder_options, results, benchmark.max_failures,
-          expectations=expectations, metadata=benchmark.GetMetadata(),
-          max_num_values=benchmark.MAX_NUM_VALUES)
+          expectations=expectations, max_num_values=benchmark.MAX_NUM_VALUES)
       return_code = 1 if results.had_failures else 0
       # We want to make sure that all expectations are linked to real stories,
       # this will log error messages if names do not match what is in the set.
@@ -383,7 +391,6 @@ def RunBenchmark(benchmark, finder_options):
     try:
       if finder_options.upload_results:
         results.UploadTraceFilesToCloud()
-        results.UploadProfilingFilesToCloud()
         results.UploadArtifactsToCloud()
     finally:
       duration = time.time() - start
@@ -482,7 +489,7 @@ def _CheckThermalThrottling(platform):
 
 def _MakeDeviceInfoDiagnostics(state):
   if not state or not state.platform:
-    return
+    return {}
 
   device_info_data = {
       reserved_infos.ARCHITECTURES.name: state.platform.GetArchName(),

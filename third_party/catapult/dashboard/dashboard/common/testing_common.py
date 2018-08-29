@@ -17,6 +17,7 @@ from google.appengine.ext import deferred
 from google.appengine.ext import ndb
 from google.appengine.ext import testbed
 
+from dashboard.common import datastore_hooks
 from dashboard.common import stored_object
 from dashboard.common import utils
 from dashboard.models import graph_data
@@ -56,6 +57,7 @@ class TestCase(unittest.TestCase):
     self.testbed.init_urlfetch_stub()
     self.mock_get_request = None
     self._PatchIsInternalUser()
+    datastore_hooks.InstallHooks()
 
   def tearDown(self):
     self.testbed.deactivate()
@@ -212,7 +214,8 @@ def _AddRowsFromDict(container_key, row_dict):
   for int_id in sorted(row_dict):
     rows.append(
         graph_data.Row(id=int_id, parent=container_key, **row_dict[int_id]))
-  ndb.put_multi(rows)
+  ndb.Future.wait_all(
+      [r.put_async() for r in rows] + [rows[0].UpdateParentAsync()])
   return rows
 
 
@@ -221,7 +224,8 @@ def _AddRowsFromIterable(container_key, row_ids):
   rows = []
   for int_id in sorted(row_ids):
     rows.append(graph_data.Row(id=int_id, parent=container_key, value=int_id))
-  ndb.put_multi(rows)
+  ndb.Future.wait_all(
+      [r.put_async() for r in rows] + [rows[0].UpdateParentAsync()])
   return rows
 
 

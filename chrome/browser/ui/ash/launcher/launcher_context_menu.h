@@ -13,15 +13,16 @@
 class ChromeLauncherController;
 
 // A base class for browser, extension, and ARC shelf item context menus.
-class LauncherContextMenu : public ui::SimpleMenuModel,
-                            public ui::SimpleMenuModel::Delegate {
+class LauncherContextMenu : public ui::SimpleMenuModel::Delegate {
  public:
   // Menu item command ids, used by subclasses and tests.
   // These are used in histograms, do not remove/renumber entries. Only add at
   // the end just before MENU_ITEM_COUNT. If you're adding to this enum with the
   // intention that it will be logged, add checks to ensure stability of the
   // enum and update the ChromeOSUICommands enum listing in
-  // tools/metrics/histograms/enums.xml.
+  // tools/metrics/histograms/enums.xml. Besides LAUNCH_APP_SHORTCUT_FIRST and
+  // LAUNCH_APP_SHORTCUT_LAST, these enums must not overlap with enums in
+  // AppContextMenu::CommandId.
   enum MenuItem {
     MENU_OPEN_NEW = 0,
     MENU_CLOSE = 1,
@@ -32,6 +33,10 @@ class LauncherContextMenu : public ui::SimpleMenuModel,
     LAUNCH_TYPE_WINDOW = 6,
     MENU_NEW_WINDOW = 7,
     MENU_NEW_INCOGNITO_WINDOW = 8,
+    // Range of command ids reserved for launching app shortcuts from context
+    // menu for Android app. Must overlap with AppContextMenu::CommandId.
+    LAUNCH_APP_SHORTCUT_FIRST = 1000,
+    LAUNCH_APP_SHORTCUT_LAST = 1999,
     MENU_ITEM_COUNT
   };
 
@@ -42,6 +47,10 @@ class LauncherContextMenu : public ui::SimpleMenuModel,
       ChromeLauncherController* controller,
       const ash::ShelfItem* item,
       int64_t display_id);
+
+  using GetMenuModelCallback =
+      base::OnceCallback<void(std::unique_ptr<ui::MenuModel>)>;
+  virtual void GetMenuModel(GetMenuModelCallback callback) = 0;
 
   // ui::SimpleMenuModel::Delegate overrides:
   bool IsCommandIdChecked(int command_id) const override;
@@ -57,13 +66,15 @@ class LauncherContextMenu : public ui::SimpleMenuModel,
   const ash::ShelfItem& item() const { return item_; }
 
   // Add menu item for pin/unpin.
-  void AddPinMenu();
+  void AddPinMenu(ui::SimpleMenuModel* menu_model);
 
   // Helper method to execute common commands. Returns true if handled.
   bool ExecuteCommonCommand(int command_id, int event_flags);
 
   // Helper method to add touchable or normal context menu options.
-  void AddContextMenuOption(MenuItem type, int string_id);
+  void AddContextMenuOption(ui::SimpleMenuModel* menu_model,
+                            MenuItem type,
+                            int string_id);
 
   // Helper method to get the gfx::VectorIcon for a |type|. Returns an empty
   // gfx::VectorIcon if there is no icon for this |type|.

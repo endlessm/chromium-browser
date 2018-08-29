@@ -10,9 +10,7 @@
 #ifndef LLVM_MC_MCWASMOBJECTWRITER_H
 #define LLVM_MC_MCWASMOBJECTWRITER_H
 
-#include "llvm/ADT/Triple.h"
-#include "llvm/BinaryFormat/Wasm.h"
-#include "llvm/Support/DataTypes.h"
+#include <memory>
 
 namespace llvm {
 
@@ -39,7 +37,7 @@ public:
   /// @}
 };
 
-/// \brief Construct a new Wasm writer instance.
+/// Construct a new Wasm writer instance.
 ///
 /// \param MOTW - The target specific Wasm writer subclass.
 /// \param OS - The stream to write to.

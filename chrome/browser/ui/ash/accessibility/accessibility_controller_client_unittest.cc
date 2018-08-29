@@ -38,6 +38,7 @@ class TestAccessibilityController : ash::mojom::AccessibilityController {
   void BrailleDisplayStateChanged(bool connected) override {}
   void SetFocusHighlightRect(const gfx::Rect& bounds_in_screen) override {}
   void SetAccessibilityPanelFullscreen(bool fullscreen) override {}
+  void SetSelectToSpeakState(ash::mojom::SelectToSpeakState state) override {}
 
   bool was_client_set() const { return was_client_set_; }
 
@@ -69,7 +70,11 @@ class FakeAccessibilityControllerClient : public AccessibilityControllerClient {
     last_a11y_gesture_ = gesture;
   }
 
-  void ToggleDictation() override { ++toggle_dictation_count_; }
+  void ToggleDictation(ToggleDictationCallback callback) override {
+    ++toggle_dictation_count_;
+    dictation_on_ = !dictation_on_;
+    std::move(callback).Run(dictation_on_);
+  }
 
   void SilenceSpokenFeedback() override { ++silence_spoken_feedback_count_; }
 
@@ -86,6 +91,10 @@ class FakeAccessibilityControllerClient : public AccessibilityControllerClient {
     spoken_feedback_toggle_count_down_ = tick_count;
   }
 
+  void RequestSelectToSpeakStateChange() override {
+    ++select_to_speak_state_changes_;
+  }
+
   ash::mojom::AccessibilityAlert last_a11y_alert_ =
       ash::mojom::AccessibilityAlert::NONE;
   int32_t last_sound_key_ = -1;
@@ -95,9 +104,11 @@ class FakeAccessibilityControllerClient : public AccessibilityControllerClient {
   int on_two_finger_touch_start_count_ = 0;
   int on_two_finger_touch_stop_count_ = 0;
   int spoken_feedback_toggle_count_down_ = -1;
+  int select_to_speak_state_changes_ = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(FakeAccessibilityControllerClient);
+  bool dictation_on_ = false;
 };
 
 }  // namespace
@@ -148,7 +159,7 @@ TEST_F(AccessibilityControllerClientTest, MethodCalls) {
 
   // Tests ToggleDictation method call.
   EXPECT_EQ(0, client.toggle_dictation_count_);
-  client.ToggleDictation();
+  client.ToggleDictation(base::BindOnce([](bool b) {}));
   EXPECT_EQ(1, client.toggle_dictation_count_);
 
   EXPECT_EQ(0, client.silence_spoken_feedback_count_);
@@ -177,4 +188,8 @@ TEST_F(AccessibilityControllerClientTest, MethodCalls) {
   const int tick_count = 2;
   client.PlaySpokenFeedbackToggleCountdown(tick_count);
   EXPECT_EQ(tick_count, client.spoken_feedback_toggle_count_down_);
+
+  // Tests RequestSelectToSpeakStateChange method call.
+  client.RequestSelectToSpeakStateChange();
+  EXPECT_EQ(1, client.select_to_speak_state_changes_);
 }

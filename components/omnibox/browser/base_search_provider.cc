@@ -158,7 +158,9 @@ AutocompleteMatch BaseSearchProvider::CreateSearchSuggestion(
       /*answer_type=*/base::string16(),
       /*answer=*/nullptr,
       /*suggest_query_params=*/std::string(),
-      /*deletion_url=*/std::string(), from_keyword_provider,
+      /*deletion_url=*/std::string(),
+      /*image_dominant_color=*/std::string(),
+      /*image_url=*/std::string(), from_keyword_provider,
       /*relevance=*/0,
       /*relevance_from_server=*/false,
       /*should_prefetch=*/false,
@@ -247,6 +249,8 @@ AutocompleteMatch BaseSearchProvider::CreateSearchSuggestion(
   if (!template_url)
     return match;
   match.keyword = template_url->keyword();
+  match.image_dominant_color = suggestion.image_dominant_color();
+  match.image_url = suggestion.image_url();
   match.contents = suggestion.match_contents();
   match.contents_class = suggestion.match_contents_class();
   match.answer_contents = suggestion.answer_contents();
@@ -307,9 +311,8 @@ AutocompleteMatch BaseSearchProvider::CreateSearchSuggestion(
   // This is the destination URL sans assisted query stats.  This must be set
   // so the AutocompleteController can properly de-dupe; the controller will
   // eventually overwrite it before it reaches the user.
-  match.destination_url =
-      GURL(search_url.ReplaceSearchTerms(*match.search_terms_args.get(),
-                                         search_terms_data));
+  match.destination_url = GURL(search_url.ReplaceSearchTerms(
+      *match.search_terms_args, search_terms_data));
 
   // Search results don't look like URLs.
   match.transition = suggestion.from_keyword_provider() ?
@@ -485,7 +488,7 @@ bool BaseSearchProvider::ParseSuggestResults(
           default_result_relevance, is_keyword_result, results))
     return false;
 
-  for (const GURL& url : results->answers_image_urls)
+  for (const GURL& url : results->prefetch_image_urls)
     client_->PrefetchImage(url);
 
   field_trial_triggered_ |= results->field_trial_triggered;

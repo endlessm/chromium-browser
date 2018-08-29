@@ -445,7 +445,7 @@ public class CustomTabsConnection {
                 try (TraceEvent e = TraceEvent.scoped("WarmupInternalFinishInitialization")) {
                     // (4)
                     Profile profile = Profile.getLastUsedProfile();
-                    new LoadingPredictor(profile).startInitialization();
+                    WarmupManager.getInstance().startPreconnectPredictorInitialization(profile);
 
                     // (5)
                     // The throttling database uses shared preferences, that can cause a
@@ -937,11 +937,6 @@ public class CustomTabsConnection {
         return mClientManager.shouldSpeculateLoadOnCellularForSession(session);
     }
 
-    /** TODO(mattcary): remove when downstream uses are removed **/
-    public boolean shouldPrerenderOnCellularForSession(CustomTabsSessionToken session) {
-        return mClientManager.shouldSpeculateLoadOnCellularForSession(session);
-    }
-
     /** @see ClientManager#shouldSendNavigationInfoForSession(CustomTabsSessionToken) */
     public boolean shouldSendNavigationInfoForSession(CustomTabsSessionToken session) {
         return mClientManager.shouldSendNavigationInfoForSession(session);
@@ -1094,9 +1089,12 @@ public class CustomTabsConnection {
      * @param metricName Name of the page load metric.
      * @param navigationStartTick Absolute navigation start time, as TimeTicks taken from native.
      * @param offsetMs Offset in ms from navigationStart for the page load metric.
+     *
+     * @return Whether the metric has been dispatched to the client.
      */
     boolean notifySinglePageLoadMetric(CustomTabsSessionToken session, String metricName,
             long navigationStartTick, long offsetMs) {
+        if (!mClientManager.shouldGetPageLoadMetrics(session)) return false;
         if (!mNativeTickOffsetUsComputed) {
             // Compute offset from time ticks to uptimeMillis.
             mNativeTickOffsetUsComputed = true;
@@ -1344,8 +1342,7 @@ public class CustomTabsConnection {
         tab.addObserver(observer);
 
         // Updating post message as soon as we have a valid WebContents.
-        mClientManager.resetPostMessageHandlerForSession(
-                session, tab.getContentViewCore().getWebContents());
+        mClientManager.resetPostMessageHandlerForSession(session, tab.getWebContents());
 
         LoadUrlParams loadParams = new LoadUrlParams(url);
         String referrer = getReferrer(session, extrasIntent);

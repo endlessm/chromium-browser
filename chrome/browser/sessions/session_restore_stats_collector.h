@@ -91,7 +91,7 @@ class SessionRestoreStatsCollector
     base::TimeDelta foreground_tab_first_loaded;
 
     // The time elapsed between |restore_started| and reception of the first
-    // NOTIFICATION_RENDER_WIDGET_HOST_DID_COMPLETE_RESIZE_OR_REPAINT event for
+    // NOTIFICATION_RENDER_WIDGET_HOST_DID_UPDATE_VISUAL_PROPERTIES event for
     // any of the tabs involved in the session restore. If this is zero it is
     // because it has not been recorded (all visible tabs were closed or
     // switched away from before they were painted). Corresponds to
@@ -258,6 +258,12 @@ class SessionRestoreStatsCollector::StatsReportingDelegate {
   // use of the tab.
   virtual void ReportTabTimeSinceActive(base::TimeDelta elapsed) = 0;
 
+  // Called when a tab starts being tracked. Logs the relative time since last
+  // use of the tab. The |engagement| is a value that is typically between
+  // 0 and 100, but is technically unbounded. See
+  // chrome/browser/engagement/site_engagement_service.h for details.
+  virtual void ReportTabSiteEngagementScore(double engagement) = 0;
+
  private:
   DISALLOW_COPY_AND_ASSIGN(StatsReportingDelegate);
 };
@@ -274,6 +280,7 @@ class SessionRestoreStatsCollector::UmaStatsReportingDelegate
   void ReportTabDeferred() override;
   void ReportDeferredTabLoaded() override;
   void ReportTabTimeSinceActive(base::TimeDelta elapsed) override;
+  void ReportTabSiteEngagementScore(double engagement) override;
 
  private:
   // Has ReportTabDeferred been called?

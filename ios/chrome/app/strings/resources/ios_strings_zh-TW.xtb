@@ -81,6 +81,7 @@
 <translation id="2381405137052800939">基本</translation>
 <translation id="2386793615875593361">已選取 1 張</translation>
 <translation id="2435457462613246316">顯示密碼</translation>
+<translation id="2481538920734869610">新增帳戶</translation>
 <translation id="2523363575747517183">這個網站不斷嘗試開啟其他應用程式。</translation>
 <translation id="2529021024822217800">全部開啟</translation>
 <translation id="2572712655377361602">裝置政策禁止您存取相片</translation>
@@ -112,6 +113,7 @@
 <translation id="2909437209446960244">最近開啟的分頁</translation>
 <translation id="291754862089661335">將這個方框對準 QR 圖碼或條碼</translation>
 <translation id="2921219216347069551">無法分享網頁</translation>
+<translation id="2923448633003185837">貼上並前往</translation>
 <translation id="292639812446257861">標示為未讀取</translation>
 <translation id="2933759065870693102">閃光燈</translation>
 <translation id="2969979262385602596">無法登入，請稍後再試。</translation>
@@ -131,6 +133,7 @@
 <translation id="3252394070589632019"><ph name="VALUE" />，<ph name="ADDITIONAL_INFO" /> (第 <ph name="INDEX" /> 項建議，共 <ph name="NUM_SUGGESTIONS" /> 項)</translation>
 <translation id="3268451620468152448">開啟的分頁</translation>
 <translation id="3277021493514034324">已複製網站網址</translation>
+<translation id="3290875554372353449">選擇帳戶</translation>
 <translation id="3324193307694657476">地址 2</translation>
 <translation id="3329904751041170572">無法連上伺服器。</translation>
 <translation id="3335947283844343239">重新開啟先前關閉的分頁</translation>
@@ -151,6 +154,7 @@
 <translation id="3588820906588687999">在新分頁中開啟圖片</translation>
 <translation id="3603009562372709545">複製連結網址</translation>
 <translation id="3607167657931203000">自動填入資料</translation>
+<translation id="3609785682760573515">同步處理中...</translation>
 <translation id="3628119975092896051">閱讀清單可供離線存取。如要將網頁加入閱讀清單，請輕觸 <ph name="SHARE_OPENING_ICON" />。</translation>
 <translation id="3638472932233958418">預先載入網頁</translation>
 <translation id="3691593122358196899">已將書籤加入「<ph name="FOLDER_TITLE" />」</translation>
@@ -171,6 +175,7 @@
 <translation id="4049507953662678203">請確定您已連上網路，然後再試一次。</translation>
 <translation id="4084682180776658562">書籤</translation>
 <translation id="411254640334432676">下載失敗。</translation>
+<translation id="4112644173421521737">搜尋</translation>
 <translation id="4121993058175073134">如要傳送淨匯出資料，請在「設定」應用程式中設定你的電子郵件帳戶。</translation>
 <translation id="4124987746317609294">時間範圍</translation>
 <translation id="4172051516777682613">一律顯示</translation>
@@ -338,10 +343,12 @@
 <translation id="7159472599653637159">切換為行動版網站</translation>
 <translation id="7167621057293532233">資料類型</translation>
 <translation id="7175593937868963913">撰寫電子郵件</translation>
+<translation id="7180611975245234373">重新整理</translation>
 <translation id="7189598951263744875">分享...</translation>
 <translation id="7203585745079012652">語音答覆</translation>
 <translation id="722055596168483966">享有個人化的 Google 服務</translation>
 <translation id="7272437679830969316">無法驗證你的身分，因此未複製密碼。</translation>
+<translation id="7285236536143823449">是，我同意</translation>
 <translation id="7291368939935408496">正在準備匯出密碼...</translation>
 <translation id="7336264872878993241">已下載 <ph name="PERCENT" /> %</translation>
 <translation id="7346909386216857016">好，我知道了</translation>
@@ -356,6 +363,7 @@
 <translation id="750493650310597496">已選取 0 個項目</translation>
 <translation id="7514365320538308">下載</translation>
 <translation id="7537586195939242955">很抱歉，目前無法將您的通行票證加到 Passbook。</translation>
+<translation id="7554791636758816595">新增分頁</translation>
 <translation id="7561196759112975576">一律使用</translation>
 <translation id="7603852183842204213">已封鎖彈出式視窗 (<ph name="NUMBER_OF_BLOCKED_POPUPS" />)</translation>
 <translation id="7605594153474022051">同步處理功能無法正常運作</translation>

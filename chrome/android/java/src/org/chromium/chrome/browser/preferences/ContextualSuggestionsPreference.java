@@ -7,12 +7,11 @@ package org.chromium.chrome.browser.preferences;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
-import android.preference.Preference;
 import android.preference.PreferenceFragment;
 import android.support.annotation.Nullable;
 import android.text.SpannableString;
-import android.view.View;
 
+import org.chromium.base.VisibleForTesting;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.contextual_suggestions.ContextualSuggestionsBridge;
@@ -30,10 +29,11 @@ import org.chromium.ui.text.SpanApplier;
  */
 public class ContextualSuggestionsPreference
         extends PreferenceFragment implements EnabledStateMonitor.Observer {
-    private static final String PREF_CONTEXTUAL_SUGGESTIONS_SWITCH =
-            "contextual_suggestions_switch";
+    static final String PREF_CONTEXTUAL_SUGGESTIONS_SWITCH = "contextual_suggestions_switch";
     private static final String PREF_CONTEXTUAL_SUGGESTIONS_MESSAGE =
             "contextual_suggestions_message";
+
+    private static EnabledStateMonitor sEnabledStateMonitorForTesting;
 
     private ChromeSwitchPreference mSwitch;
     private EnabledStateMonitor mEnabledStateMonitor;
@@ -45,7 +45,9 @@ public class ContextualSuggestionsPreference
         getActivity().setTitle(R.string.prefs_contextual_suggestions);
 
         mSwitch = (ChromeSwitchPreference) findPreference(PREF_CONTEXTUAL_SUGGESTIONS_SWITCH);
-        mEnabledStateMonitor = new EnabledStateMonitor(this);
+        mEnabledStateMonitor = sEnabledStateMonitorForTesting != null
+                ? sEnabledStateMonitorForTesting
+                : new EnabledStateMonitor(this);
         initialize();
     }
 
@@ -73,22 +75,20 @@ public class ContextualSuggestionsPreference
     private void initialize() {
         final TextMessagePreference message =
                 (TextMessagePreference) findPreference(PREF_CONTEXTUAL_SUGGESTIONS_MESSAGE);
+        final NoUnderlineClickableSpan span = new NoUnderlineClickableSpan((widget) -> {
+            Context context = getActivity();
+            if (ChromeSigninController.get().isSignedIn()) {
+                Intent intent = PreferencesLauncher.createIntentForSettingsPage(
+                        context, SyncCustomizationFragment.class.getName());
+                IntentUtils.safeStartActivity(context, intent);
+            } else {
+                startActivity(AccountSigninActivity.createIntentForDefaultSigninFlow(
+                        context, SigninAccessPoint.SETTINGS, false));
+            }
+        });
         final SpannableString spannable = SpanApplier.applySpans(
                 getResources().getString(R.string.contextual_suggestions_message),
-                new SpanApplier.SpanInfo("<link>", "</link>", new NoUnderlineClickableSpan() {
-                    @Override
-                    public void onClick(View widget) {
-                        Context context = getActivity();
-                        if (ChromeSigninController.get().isSignedIn()) {
-                            Intent intent = PreferencesLauncher.createIntentForSettingsPage(
-                                    context, SyncCustomizationFragment.class.getName());
-                            IntentUtils.safeStartActivity(context, intent);
-                        } else {
-                            startActivity(AccountSigninActivity.createIntentForDefaultSigninFlow(
-                                    context, SigninAccessPoint.SETTINGS, false));
-                        }
-                    }
-                }));
+                new SpanApplier.SpanInfo("<link>", "</link>", span));
         message.setTitle(spannable);
 
         updateSwitch();
@@ -105,17 +105,18 @@ public class ContextualSuggestionsPreference
             }
             return true;
         });
-        mSwitch.setManagedPreferenceDelegate(new ManagedPreferenceDelegate() {
-            @Override
-            public boolean isPreferenceControlledByPolicy(Preference preference) {
-                return ContextualSuggestionsBridge.isEnterprisePolicyManaged();
-            }
-        });
+        mSwitch.setManagedPreferenceDelegate(
+                preference -> ContextualSuggestionsBridge.isEnterprisePolicyManaged());
     }
 
     /** Helper method to update the enabled state of the switch. */
     private void updateSwitch() {
         mSwitch.setEnabled(EnabledStateMonitor.getSettingsEnabled());
         mSwitch.setChecked(EnabledStateMonitor.getEnabledState());
+    }
+
+    @VisibleForTesting
+    static void setEnabledStateMonitorForTesting(EnabledStateMonitor monitor) {
+        sEnabledStateMonitorForTesting = monitor;
     }
 }

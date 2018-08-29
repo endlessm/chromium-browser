@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 //
 /// \file
-/// \brief The AMDGPU target machine contains all of the hardware specific
+/// The AMDGPU target machine contains all of the hardware specific
 /// information  needed to emit code for R600 and SI GPUs.
 //
 //===----------------------------------------------------------------------===//
@@ -147,6 +147,7 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   initializeR600PacketizerPass(*PR);
   initializeR600ExpandSpecialInstrsPassPass(*PR);
   initializeR600VectorRegMergerPass(*PR);
+  initializeGlobalISel(*PR);
   initializeAMDGPUDAGToDAGISelPass(*PR);
   initializeSILowerI1CopiesPass(*PR);
   initializeSIFixSGPRCopiesPass(*PR);
@@ -160,6 +161,7 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPUAnnotateKernelFeaturesPass(*PR);
   initializeAMDGPUAnnotateUniformValuesPass(*PR);
   initializeAMDGPUArgumentUsageInfoPass(*PR);
+  initializeAMDGPULowerKernelAttributesPass(*PR);
   initializeAMDGPULowerIntrinsicsPass(*PR);
   initializeAMDGPUOpenCLEnqueuedBlockLoweringPass(*PR);
   initializeAMDGPUPromoteAllocaPass(*PR);
@@ -167,7 +169,6 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPURewriteOutArgumentsPass(*PR);
   initializeAMDGPUUnifyMetadataPass(*PR);
   initializeSIAnnotateControlFlowPass(*PR);
-  initializeSIInsertWaitsPass(*PR);
   initializeSIInsertWaitcntsPass(*PR);
   initializeSIWholeQuadModePass(*PR);
   initializeSILowerControlFlowPass(*PR);
@@ -403,6 +404,10 @@ void AMDGPUTargetMachine::adjustPassManager(PassManagerBuilder &Builder) {
       // Add infer address spaces pass to the opt pipeline after inlining
       // but before SROA to increase SROA opportunities.
       PM.add(createInferAddressSpacesPass());
+
+      // This should run after inlining to have any chance of doing anything,
+      // and before other cleanup optimizations.
+      PM.add(createAMDGPULowerKernelAttributesPass());
   });
 }
 
@@ -620,7 +625,8 @@ void AMDGPUPassConfig::addIRPasses() {
   }
 
   // Handle uses of OpenCL image2d_t, image3d_t and sampler_t arguments.
-  addPass(createAMDGPUOpenCLImageTypeLoweringPass());
+  if (TM.getTargetTriple().getArch() == Triple::r600)
+    addPass(createR600OpenCLImageTypeLoweringPass());
 
   // Replace OpenCL enqueued block function pointers with global variables.
   addPass(createAMDGPUOpenCLEnqueuedBlockLoweringPass());
@@ -875,10 +881,7 @@ void GCNPassConfig::addPreEmitPass() {
   addPass(&PostRAHazardRecognizerID);
 
   addPass(createSIMemoryLegalizerPass());
-  if (EnableSIInsertWaitcntsPass)
-    addPass(createSIInsertWaitcntsPass());
-  else
-    addPass(createSIInsertWaitsPass());
+  addPass(createSIInsertWaitcntsPass());
   addPass(createSIShrinkInstructionsPass());
   addPass(&SIInsertSkipsPassID);
   addPass(createSIDebuggerInsertNopsPass());

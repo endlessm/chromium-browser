@@ -12,8 +12,8 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chromeos/components/proximity_auth/proximity_auth_pref_manager.h"
+#include "components/account_id/account_id.h"
 #include "components/prefs/pref_change_registrar.h"
-#include "components/signin/core/account_id/account_id.h"
 
 class PrefService;
 
@@ -50,6 +50,8 @@ class ProximityAuthProfilePrefManager : public ProximityAuthPrefManager {
   bool IsEasyUnlockAllowed() const override;
   void SetIsEasyUnlockEnabled(bool is_easy_unlock_enabled) const override;
   bool IsEasyUnlockEnabled() const override;
+  void SetEasyUnlockEnabledStateSet() const override;
+  bool IsEasyUnlockEnabledStateSet() const override;
   void SetLastPasswordEntryTimestampMs(int64_t timestamp_ms) override;
   int64_t GetLastPasswordEntryTimestampMs() const override;
   void SetLastPromotionCheckTimestampMs(int64_t timestamp_ms) override;

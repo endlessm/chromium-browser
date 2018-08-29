@@ -107,6 +107,27 @@ double GetDeviceScaleFactor() {
   return device_scale_factor;
 }
 
+// Returns a string corresponding to |value|. The returned string satisfies
+// ABNF: 1*DIGIT [ "." 1*DIGIT ]
+std::string DoubleToSpecCompliantString(double value) {
+  DCHECK_LE(0.0, value);
+  std::string result = base::NumberToString(value);
+  DCHECK(!result.empty());
+  if (value >= 1.0)
+    return result;
+
+  DCHECK_LE(0.0, value);
+  DCHECK_GT(1.0, value);
+
+  // Check if there is at least one character before period.
+  if (result.at(0) != '.')
+    return result;
+
+  // '.' is the first character in |result|. Prefix one digit before the
+  // period to make it spec compliant.
+  return "0" + result;
+}
+
 }  // namespace
 
 namespace client_hints {
@@ -136,29 +157,26 @@ unsigned long RoundRtt(const std::string& host,
   return std::round(rtt_msec / kGranularityMsec) * kGranularityMsec;
 }
 
-double RoundMbps(const std::string& host,
-                 const base::Optional<double>& downlink_mbps) {
+double RoundKbpsToMbps(const std::string& host,
+                       const base::Optional<int32_t>& downlink_kbps) {
   // Limit the size of the buckets and the maximum reported value to reduce
   // fingerprinting.
   static const size_t kGranularityKbps = 50;
   static const double kMaxDownlinkKbps = 10.0 * 1000;
 
-  double downlink_kbps = 0;
-  if (!downlink_mbps.has_value()) {
-    // Throughput is unavailable. So, return the fastest value.
-    downlink_kbps = kMaxDownlinkKbps;
-  } else {
-    downlink_kbps = downlink_mbps.value() * 1000;
-  }
-  downlink_kbps *= GetRandomMultiplier(host);
+  // If downlink is unavailable, return the fastest value.
+  double randomized_downlink_kbps = downlink_kbps.value_or(kMaxDownlinkKbps);
+  randomized_downlink_kbps *= GetRandomMultiplier(host);
 
-  downlink_kbps = std::min(downlink_kbps, kMaxDownlinkKbps);
+  randomized_downlink_kbps =
+      std::min(randomized_downlink_kbps, kMaxDownlinkKbps);
 
-  DCHECK_LE(0, downlink_kbps);
-  DCHECK_GE(kMaxDownlinkKbps, downlink_kbps);
+  DCHECK_LE(0, randomized_downlink_kbps);
+  DCHECK_GE(kMaxDownlinkKbps, randomized_downlink_kbps);
   // Round down to the nearest kGranularityKbps kbps value.
   double downlink_kbps_rounded =
-      std::round(downlink_kbps / kGranularityKbps) * kGranularityKbps;
+      std::round(randomized_downlink_kbps / kGranularityKbps) *
+      kGranularityKbps;
 
   // Convert from Kbps to Mbps.
   return downlink_kbps_rounded / 1000;
@@ -174,7 +192,7 @@ GetAdditionalNavigationRequestClientHintsHeaders(
   DCHECK_EQ(blink::kWebEffectiveConnectionTypeMappingCount,
             net::EFFECTIVE_CONNECTION_TYPE_4G + 1u);
   DCHECK_EQ(blink::kWebEffectiveConnectionTypeMappingCount,
-            net::EFFECTIVE_CONNECTION_TYPE_LAST);
+            static_cast<size_t>(net::EFFECTIVE_CONNECTION_TYPE_LAST));
 
   // Get the client hint headers.
   if (!url.is_valid())
@@ -224,7 +242,7 @@ GetAdditionalNavigationRequestClientHintsHeaders(
     additional_headers->SetHeader(
         blink::kClientHintsHeaderMapping[static_cast<int>(
             blink::mojom::WebClientHintsType::kDeviceMemory)],
-        base::NumberToString(device_memory));
+        DoubleToSpecCompliantString(device_memory));
   }
 
   if (web_client_hints.IsEnabled(blink::mojom::WebClientHintsType::kDpr)) {
@@ -234,7 +252,7 @@ GetAdditionalNavigationRequestClientHintsHeaders(
     additional_headers->SetHeader(
         blink::kClientHintsHeaderMapping[static_cast<int>(
             blink::mojom::WebClientHintsType::kDpr)],
-        base::NumberToString(device_scale_factor * zoom_factor));
+        DoubleToSpecCompliantString(device_scale_factor * zoom_factor));
   }
 
   if (web_client_hints.IsEnabled(
@@ -276,7 +294,7 @@ GetAdditionalNavigationRequestClientHintsHeaders(
     additional_headers->SetHeader(
         blink::kClientHintsHeaderMapping[static_cast<int>(
             blink::mojom::WebClientHintsType::kDownlink)],
-        base::NumberToString(internal::RoundMbps(
+        DoubleToSpecCompliantString(internal::RoundKbpsToMbps(
             url.host(), estimator->GetDownstreamThroughputKbps())));
   }
 
@@ -284,7 +302,7 @@ GetAdditionalNavigationRequestClientHintsHeaders(
     DCHECK_EQ(blink::kWebEffectiveConnectionTypeMappingCount,
               net::EFFECTIVE_CONNECTION_TYPE_4G + 1u);
     DCHECK_EQ(blink::kWebEffectiveConnectionTypeMappingCount,
-              net::EFFECTIVE_CONNECTION_TYPE_LAST);
+              static_cast<size_t>(net::EFFECTIVE_CONNECTION_TYPE_LAST));
 
     int effective_connection_type =
         static_cast<int>(estimator->GetEffectiveConnectionType());

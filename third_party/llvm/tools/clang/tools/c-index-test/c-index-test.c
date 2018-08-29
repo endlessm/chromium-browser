@@ -64,7 +64,7 @@ extern char *basename(const char *);
 extern char *dirname(char *);
 #endif
 
-/** \brief Return the default parsing options. */
+/** Return the default parsing options. */
 static unsigned getDefaultParsingOptions() {
   unsigned options = CXTranslationUnit_DetailedPreprocessingRecord;
 
@@ -82,6 +82,8 @@ static unsigned getDefaultParsingOptions() {
     options |= CXTranslationUnit_CreatePreambleOnFirstParse;
   if (getenv("CINDEXTEST_KEEP_GOING"))
     options |= CXTranslationUnit_KeepGoing;
+  if (getenv("CINDEXTEST_LIMIT_SKIP_FUNCTION_BODIES_TO_PREAMBLE"))
+    options |= CXTranslationUnit_LimitSkipFunctionBodiesToPreamble;
 
   return options;
 }
@@ -149,7 +151,7 @@ static void ModifyPrintingPolicyAccordingToEnv(CXPrintingPolicy Policy) {
   }
 }
 
-/** \brief Returns 0 in case of success, non-zero in case of a failure. */
+/** Returns 0 in case of success, non-zero in case of a failure. */
 static int checkForErrors(CXTranslationUnit TU);
 
 static void describeLibclangFailure(enum CXErrorCode Err) {
@@ -662,7 +664,7 @@ static void ValidateCommentXML(const char *Str, const char *CommentSchemaFile) {
     printf(" CommentXMLValid");
   else if (status > 0) {
     xmlErrorPtr Error = xmlGetLastError();
-    printf(" CommentXMLInvalid [not vaild XML: %s]", Error->message);
+    printf(" CommentXMLInvalid [not valid XML: %s]", Error->message);
   } else
     printf(" libXMLError");
 

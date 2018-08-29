@@ -21,13 +21,13 @@ class FormatTestTextProto : public ::testing::Test {
 protected:
   static std::string format(llvm::StringRef Code, unsigned Offset,
                             unsigned Length, const FormatStyle &Style) {
-    DEBUG(llvm::errs() << "---\n");
-    DEBUG(llvm::errs() << Code << "\n\n");
+    LLVM_DEBUG(llvm::errs() << "---\n");
+    LLVM_DEBUG(llvm::errs() << Code << "\n\n");
     std::vector<tooling::Range> Ranges(1, tooling::Range(Offset, Length));
     tooling::Replacements Replaces = reformat(Style, Code, Ranges);
     auto Result = applyAllReplacements(Code, Replaces);
     EXPECT_TRUE(static_cast<bool>(Result));
-    DEBUG(llvm::errs() << "\n" << *Result << "\n\n");
+    LLVM_DEBUG(llvm::errs() << "\n" << *Result << "\n\n");
     return *Result;
   }
 
@@ -36,6 +36,7 @@ protected:
   }
 
   static void verifyFormat(llvm::StringRef Code, const FormatStyle &Style) {
+    EXPECT_EQ(Code.str(), format(Code, Style)) << "Expected code is not stable";
     EXPECT_EQ(Code.str(), format(test::messUp(Code), Style));
   }
 
@@ -418,8 +419,10 @@ TEST_F(FormatTestTextProto, FormatsExtensions) {
       "}");
 }
 
-TEST_F(FormatTestTextProto, NoSpaceAfterPercent) {
+TEST_F(FormatTestTextProto, SpacesAroundPercents) {
   verifyFormat("key: %d");
+  verifyFormat("key: 0x%04x");
+  verifyFormat("key: \"%d %d\"");
 }
 
 TEST_F(FormatTestTextProto, FormatsRepeatedListInitializers) {
@@ -466,6 +469,7 @@ TEST_F(FormatTestTextProto, AcceptsOperatorAsKey) {
                "    ccccccccccccccccccccccc: <\n"
                "      operator: 1\n"
                "      operator: 2\n"
+               "      operator: 3\n"
                "      operator { key: value }\n"
                "    >\n"
                "  >\n"
@@ -490,6 +494,17 @@ TEST_F(FormatTestTextProto, PutsMultipleEntriesInExtensionsOnNewlines) {
                "    key: value\n"
                "  }\n"
                "}", Style);
+}
+
+TEST_F(FormatTestTextProto, BreaksAfterBraceFollowedByClosingBraceOnNextLine) {
+  FormatStyle Style = getGoogleStyle(FormatStyle::LK_TextProto);
+  Style.ColumnLimit = 60;
+  verifyFormat("keys: [\n"
+               "  data: { item: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }\n"
+               "]");
+  verifyFormat("keys: <\n"
+               "  data: { item: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }\n"
+               ">");
 }
 
 } // end namespace tooling

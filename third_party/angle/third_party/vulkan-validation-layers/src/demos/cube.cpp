@@ -261,6 +261,8 @@ struct Demo {
 #elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
     void run();
     void create_window();
+#elif defined(VK_USE_PLATFORM_MACOS_MVK)
+    void run();
 #elif defined(VK_USE_PLATFORM_MIR_KHR)
 #elif defined(VK_USE_PLATFORM_DISPLAY_KHR)
     vk::Result create_display_surface();
@@ -1215,7 +1217,6 @@ void Demo::init_vk() {
     uint32_t gpu_count;
     result = inst.enumeratePhysicalDevices(&gpu_count, nullptr);
     VERIFY(result == vk::Result::eSuccess);
-    assert(gpu_count > 0);
 
     if (gpu_count > 0) {
         std::unique_ptr<vk::PhysicalDevice[]> physical_devices(new vk::PhysicalDevice[gpu_count]);
@@ -2668,6 +2669,14 @@ void Demo::create_window() {
     wl_shell_surface_set_toplevel(shell_surface);
     wl_shell_surface_set_title(shell_surface, APP_SHORT_NAME);
 }
+#elif defined(VK_USE_PLATFORM_MACOS_MVK)
+void Demo::run() {
+    draw();
+    curFrame++;
+    if (frameCount != UINT32_MAX && curFrame == frameCount) {
+        quit = true;
+    }
+}
 #elif defined(VK_USE_PLATFORM_MIR_KHR)
 #elif defined(VK_USE_PLATFORM_DISPLAY_KHR)
 
@@ -2973,23 +2982,13 @@ int main(int argc, char **argv) {
 #elif defined(VK_USE_PLATFORM_IOS_MVK) || defined(VK_USE_PLATFORM_MACOS_MVK)
 
 // Global function invoked from NS or UI views and controllers to create demo
-static void demo_main(struct Demo &demo, void *view) {
-    const char *argv[] = {"CubeSample"};
-    int argc = sizeof(argv) / sizeof(char *);
+static void demo_main(struct Demo &demo, void *view, int argc, const char *argv[]) {
 
     demo.init(argc, (char **)argv);
     demo.window = view;
     demo.init_vk_swapchain();
     demo.prepare();
     demo.spin_angle = 0.4f;
-}
-
-// Global function invoked from NS or UI views and controllers on each demo frame
-static void demo_update_and_draw(struct Demo &demo) {
-    // Wait for work to finish before updating MVP.
-    vkDeviceWaitIdle(demo.device);
-    demo.update_data_buffer();
-    demo.draw();
 }
 
 #else

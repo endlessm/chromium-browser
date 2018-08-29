@@ -15,6 +15,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -65,6 +66,30 @@ class ProfileDestructionWatcher final : public content::NotificationObserver {
   Profile* profile_;
   bool* destroyed_;
   content::NotificationRegistrar registrar_;
+};
+
+// Waits for |browser| to be removed from BrowserList and then calls |callback|.
+// This is used to ensure that the Browser object and its window are destroyed
+// after a call to BrowserWindow::Close, since base::RunLoop::RunUntilIdle
+// doesn't ensure this on Mac.
+class BrowserRemovedWaiter final : public BrowserListObserver {
+ public:
+  BrowserRemovedWaiter(Browser* browser, base::OnceClosure callback)
+      : browser_(browser), callback_(std::move(callback)) {
+    BrowserList::AddObserver(this);
+  }
+  ~BrowserRemovedWaiter() override = default;
+
+  void OnBrowserRemoved(Browser* browser) override {
+    if (browser == browser_) {
+      BrowserList::RemoveObserver(this);
+      std::move(callback_).Run();
+    }
+  }
+
+ private:
+  Browser* browser_;
+  base::OnceClosure callback_;
 };
 
 void OriginalProfileNeverDestroyed(Profile* profile) {
@@ -298,8 +323,11 @@ IN_PROC_BROWSER_TEST_F(IndependentOTRProfileManagerTest,
     otr_browser = CreateBrowser(otr_profile2);
     watcher2.Watch(otr_profile2, &destroyed2);
   }
+  base::RunLoop run_loop;
+  BrowserRemovedWaiter removed_waiter(otr_browser,
+                                      run_loop.QuitWhenIdleClosure());
   otr_browser->window()->Close();
-  base::RunLoop().RunUntilIdle();
+  run_loop.Run();
   ASSERT_FALSE(base::ContainsValue(*BrowserList::GetInstance(), otr_browser));
   EXPECT_TRUE(destroyed2);
 
@@ -323,8 +351,11 @@ IN_PROC_BROWSER_TEST_F(IndependentOTRProfileManagerTest,
   }
   bool destroyed = false;
   watcher.Watch(otr_profile, &destroyed);
+  base::RunLoop run_loop;
+  BrowserRemovedWaiter removed_waiter(otr_browser,
+                                      run_loop.QuitWhenIdleClosure());
   otr_browser->window()->Close();
-  base::RunLoop().RunUntilIdle();
+  run_loop.Run();
   ASSERT_FALSE(base::ContainsValue(*BrowserList::GetInstance(), otr_browser));
   EXPECT_TRUE(destroyed);
 }

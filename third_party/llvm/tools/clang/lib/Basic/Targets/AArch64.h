@@ -33,6 +33,7 @@ class LLVM_LIBRARY_VISIBILITY AArch64TargetInfo : public TargetInfo {
   unsigned Crypto;
   unsigned Unaligned;
   unsigned HasFullFP16;
+  unsigned HasDotProd;
   llvm::AArch64::ArchKind ArchKind;
 
   static const Builtin::Info BuiltinInfo[];
@@ -80,6 +81,11 @@ public:
   validateConstraintModifier(StringRef Constraint, char Modifier, unsigned Size,
                              std::string &SuggestedModifier) const override;
   const char *getClobbers() const override;
+
+  StringRef getConstraintRegister(StringRef Constraint,
+                                  StringRef Expression) const override {
+    return Expression;
+  }
 
   int getEHDataRegisterNumber(unsigned RegNo) const override;
 };

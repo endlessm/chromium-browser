@@ -12,8 +12,8 @@
 #include "build/build_config.h"
 #include "chrome/browser/ui/translate/translate_bubble_model.h"
 #include "chrome/browser/ui/translate/translate_bubble_view_state_transition.h"
-#include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/test/views/chrome_views_test_base.h"
 #include "components/translate/core/browser/translate_prefs.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -26,29 +26,8 @@
 #include "ui/views/controls/button/menu_button.h"
 #include "ui/views/controls/combobox/combobox.h"
 #include "ui/views/controls/styled_label.h"
-#include "ui/views/test/views_test_base.h"
 #include "ui/views/widget/widget.h"
 
-// On Mac, menus block in a nested runloop, so any tests that trigger
-// the menu either hang, or pass only because of a race condition with
-// app activation. Disable until either tests can be rewritten or Mac
-// menus are made asynchronous.
-#if defined(OS_MACOSX)
-#define MAYBE_OptionsMenuNeverTranslateLanguage \
-  DISABLED_OptionsMenuNeverTranslateLanguage
-#define MAYBE_OptionsMenuNeverTranslateSite \
-  DISABLED_OptionsMenuNeverTranslateSite
-#define MAYBE_OptionsMenuRespectsBlacklistSite \
-  DISABLED_OptionsMenuRespectsBlacklistSite
-#define MAYBE_AlwaysTranslateLanguageMenuItem \
-  DISABLED_AlwaysTranslateLanguageMenuItem
-#else
-#define MAYBE_OptionsMenuNeverTranslateLanguage \
-  OptionsMenuNeverTranslateLanguage
-#define MAYBE_OptionsMenuNeverTranslateSite OptionsMenuNeverTranslateSite
-#define MAYBE_OptionsMenuRespectsBlacklistSite OptionsMenuRespectsBlacklistSite
-#define MAYBE_AlwaysTranslateLanguageMenuItem AlwaysTranslateLanguageMenuItem
-#endif
 
 namespace {
 
@@ -171,16 +150,13 @@ class MockTranslateBubbleModel : public TranslateBubbleModel {
 
 }  // namespace
 
-class TranslateBubbleViewTest : public views::ViewsTestBase {
+class TranslateBubbleViewTest : public ChromeViewsTestBase {
  public:
   TranslateBubbleViewTest() {}
 
  protected:
   void SetUp() override {
-    views::ViewsTestBase::SetUp();
-    // Set the ChromeLayoutProvider as the default layout provider.
-    test_views_delegate()->set_layout_provider(
-        ChromeLayoutProvider::CreateLayoutProvider());
+    ChromeViewsTestBase::SetUp();
 
     // The bubble needs the parent as an anchor.
     views::Widget::InitParams params =
@@ -216,7 +192,7 @@ class TranslateBubbleViewTest : public views::ViewsTestBase {
     bubble_->GetWidget()->CloseNow();
     anchor_widget_.reset();
 
-    views::ViewsTestBase::TearDown();
+    ChromeViewsTestBase::TearDown();
   }
 
   bool denial_button_clicked() { return mock_model_->translation_declined_; }
@@ -245,7 +221,7 @@ TEST_F(TranslateBubbleViewTest, TranslateButton) {
   EXPECT_TRUE(mock_model_->translate_called_);
 }
 
-TEST_F(TranslateBubbleViewTest, MAYBE_OptionsMenuNeverTranslateLanguage) {
+TEST_F(TranslateBubbleViewTest, OptionsMenuNeverTranslateLanguage) {
   CreateAndShowBubble();
 
   EXPECT_FALSE(bubble_->GetWidget()->IsClosed());
@@ -262,7 +238,7 @@ TEST_F(TranslateBubbleViewTest, MAYBE_OptionsMenuNeverTranslateLanguage) {
   EXPECT_TRUE(bubble_->GetWidget()->IsClosed());
 }
 
-TEST_F(TranslateBubbleViewTest, MAYBE_OptionsMenuNeverTranslateSite) {
+TEST_F(TranslateBubbleViewTest, OptionsMenuNeverTranslateSite) {
   // NEVER_TRANSLATE_SITE should only show up for sites that can be blacklisted.
   mock_model_->SetCanBlacklistSite(true);
   CreateAndShowBubble();
@@ -433,7 +409,7 @@ TEST_F(TranslateBubbleViewTest, CancelButtonReturningError) {
   EXPECT_EQ(TranslateBubbleModel::VIEW_STATE_ERROR, bubble_->GetViewState());
 }
 
-TEST_F(TranslateBubbleViewTest, MAYBE_OptionsMenuRespectsBlacklistSite) {
+TEST_F(TranslateBubbleViewTest, OptionsMenuRespectsBlacklistSite) {
   mock_model_->SetCanBlacklistSite(false);
   CreateAndShowBubble();
 
@@ -447,7 +423,7 @@ TEST_F(TranslateBubbleViewTest, MAYBE_OptionsMenuRespectsBlacklistSite) {
             0);
 }
 
-TEST_F(TranslateBubbleViewTest, MAYBE_AlwaysTranslateLanguageMenuItem) {
+TEST_F(TranslateBubbleViewTest, AlwaysTranslateLanguageMenuItem) {
   CreateAndShowBubble();
 
   TriggerOptionsMenu();

@@ -9,7 +9,6 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
@@ -138,7 +137,7 @@ class ZipFileInstallerTest : public testing::Test {
 
   void RunInstaller(const std::string& zip_name, bool expect_error) {
     base::FilePath original_path;
-    ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &original_path));
+    ASSERT_TRUE(base::PathService::Get(chrome::DIR_TEST_DATA, &original_path));
     original_path = original_path.AppendASCII("extensions")
                         .AppendASCII("zipfile_installer")
                         .AppendASCII(zip_name);

@@ -41,9 +41,6 @@
 #if defined(HAVE_UNISTD_H)
 # include <unistd.h>
 #endif
-#if defined(HAVE_SYS_UIO_H) && defined(HAVE_WRITEV)
-#  include <sys/uio.h>
-#endif
 
 #if defined(__CYGWIN__)
 #include <io.h>
@@ -62,7 +59,7 @@
 #endif
 #endif
 
-#ifdef LLVM_ON_WIN32
+#ifdef _WIN32
 #include "Windows/WindowsSupport.h"
 #endif
 
@@ -458,24 +455,38 @@ raw_ostream &raw_ostream::operator<<(const FormattedBytes &FB) {
   return *this;
 }
 
-/// indent - Insert 'NumSpaces' spaces.
-raw_ostream &raw_ostream::indent(unsigned NumSpaces) {
-  static const char Spaces[] = "                                "
-                               "                                "
-                               "                ";
+template <char C>
+static raw_ostream &write_padding(raw_ostream &OS, unsigned NumChars) {
+  static const char Chars[] = {C, C, C, C, C, C, C, C, C, C, C, C, C, C, C, C,
+                               C, C, C, C, C, C, C, C, C, C, C, C, C, C, C, C,
+                               C, C, C, C, C, C, C, C, C, C, C, C, C, C, C, C,
+                               C, C, C, C, C, C, C, C, C, C, C, C, C, C, C, C,
+                               C, C, C, C, C, C, C, C, C, C, C, C, C, C, C, C};
 
   // Usually the indentation is small, handle it with a fastpath.
-  if (NumSpaces < array_lengthof(Spaces))
-    return write(Spaces, NumSpaces);
+  if (NumChars < array_lengthof(Chars))
+    return OS.write(Chars, NumChars);
 
-  while (NumSpaces) {
-    unsigned NumToWrite = std::min(NumSpaces,
-                                   (unsigned)array_lengthof(Spaces)-1);
-    write(Spaces, NumToWrite);
-    NumSpaces -= NumToWrite;
+  while (NumChars) {
+    unsigned NumToWrite = std::min(NumChars,
+                                   (unsigned)array_lengthof(Chars)-1);
+    OS.write(Chars, NumToWrite);
+    NumChars -= NumToWrite;
   }
-  return *this;
+  return OS;
 }
+
+/// indent - Insert 'NumSpaces' spaces.
+raw_ostream &raw_ostream::indent(unsigned NumSpaces) {
+  return write_padding<' '>(*this, NumSpaces);
+}
+
+/// write_zeros - Insert 'NumZeros' nulls.
+raw_ostream &raw_ostream::write_zeros(unsigned NumZeros) {
+  return write_padding<'\0'>(*this, NumZeros);
+}
+
+void raw_ostream::anchor() {}
 
 //===----------------------------------------------------------------------===//
 //  Formatted Output
@@ -534,7 +545,7 @@ raw_fd_ostream::raw_fd_ostream(int fd, bool shouldClose, bool unbuffered)
 
   // Get the starting position.
   off_t loc = ::lseek(FD, 0, SEEK_CUR);
-#ifdef LLVM_ON_WIN32
+#ifdef _WIN32
   // MSVCRT's _lseek(SEEK_CUR) doesn't return -1 for pipes.
   sys::fs::file_status Status;
   std::error_code EC = status(FD, Status);
@@ -587,7 +598,7 @@ void raw_fd_ostream::write_impl(const char *Ptr, size_t Size) {
   // It is observed that Linux returns EINVAL for a very large write (>2G).
   // Make it a reasonably small value.
   MaxWriteSize = 1024 * 1024 * 1024;
-#elif defined(LLVM_ON_WIN32)
+#elif defined(_WIN32)
   // Writing a large size of output to Windows console returns ENOMEM. It seems
   // that, prior to Windows 8, WriteFile() is redirecting to WriteConsole(), and
   // the latter has a size limit (66000 bytes or less, depending on heap usage).
@@ -640,7 +651,7 @@ void raw_fd_ostream::close() {
 uint64_t raw_fd_ostream::seek(uint64_t off) {
   assert(SupportsSeeking && "Stream does not support seeking!");
   flush();
-#ifdef LLVM_ON_WIN32
+#ifdef _WIN32
   pos = ::_lseeki64(FD, off, SEEK_SET);
 #elif defined(HAVE_LSEEK64)
   pos = ::lseek64(FD, off, SEEK_SET);
@@ -730,6 +741,8 @@ bool raw_fd_ostream::has_colors() const {
   return sys::Process::FileDescriptorHasColors(FD);
 }
 
+void raw_fd_ostream::anchor() {}
+
 //===----------------------------------------------------------------------===//
 //  outs(), errs(), nulls()
 //===----------------------------------------------------------------------===//
@@ -807,3 +820,5 @@ uint64_t raw_null_ostream::current_pos() const {
 
 void raw_null_ostream::pwrite_impl(const char *Ptr, size_t Size,
                                    uint64_t Offset) {}
+
+void raw_pwrite_stream::anchor() {}

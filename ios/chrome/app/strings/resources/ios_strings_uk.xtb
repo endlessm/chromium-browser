@@ -81,6 +81,7 @@
 <translation id="2381405137052800939">Основні</translation>
 <translation id="2386793615875593361">Вибрано 1</translation>
 <translation id="2435457462613246316">Показати пароль</translation>
+<translation id="2481538920734869610">ДОД. ОБЛ. ЗАПИС</translation>
 <translation id="2523363575747517183">Цей веб-сайт періодично намагається відкрити інший додаток.</translation>
 <translation id="2529021024822217800">Відкрити всі</translation>
 <translation id="2572712655377361602">пристрою</translation>
@@ -112,6 +113,7 @@
 <translation id="2909437209446960244">Останні вкладки</translation>
 <translation id="291754862089661335">Розмістіть QR-код або штрих-код у цій рамці</translation>
 <translation id="2921219216347069551">Неможливо поділитися</translation>
+<translation id="2923448633003185837">Вставити й перейти</translation>
 <translation id="292639812446257861">Позначити як непрочитані</translation>
 <translation id="2933759065870693102">Ліхтарик</translation>
 <translation id="2969979262385602596">Не вдалося ввійти. Спробуйте пізніше.</translation>
@@ -131,6 +133,7 @@
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> з <ph name="NUM_SUGGESTIONS" /></translation>
 <translation id="3268451620468152448">Відкриті вкладки</translation>
 <translation id="3277021493514034324">Адресу сайту скопійовано</translation>
+<translation id="3290875554372353449">Виберіть обліковий запис</translation>
 <translation id="3324193307694657476">Адреса 2</translation>
 <translation id="3329904751041170572">Не вдалось під’єднатися до сервера.</translation>
 <translation id="3335947283844343239">Знову відкрити закриту вкладку</translation>
@@ -151,6 +154,7 @@
 <translation id="3588820906588687999">Відкрити зображення в новій вкладці</translation>
 <translation id="3603009562372709545">Копіювати URL-адресу посилання</translation>
 <translation id="3607167657931203000">Дані автозаповнення</translation>
+<translation id="3609785682760573515">Синхронізація…</translation>
 <translation id="3628119975092896051">Ваш список читання доступний офлайн. Щоб додати до нього сторінку, торкніться опції <ph name="SHARE_OPENING_ICON" />.</translation>
 <translation id="3638472932233958418">Попер.завантаж.стор.</translation>
 <translation id="3691593122358196899">Закладку збережено в папці "<ph name="FOLDER_TITLE" />"</translation>
@@ -171,6 +175,7 @@
 <translation id="4049507953662678203">Переконайтеся, що з’єднання з мережею встановлено, і повторіть спробу.</translation>
 <translation id="4084682180776658562">Закладка</translation>
 <translation id="411254640334432676">Не завантажено.</translation>
+<translation id="4112644173421521737">Пошук</translation>
 <translation id="4121993058175073134">Щоб надсил. дані про чистий експорт, налашт. обл. запис у програмі Налаштування.</translation>
 <translation id="4124987746317609294">Період часу</translation>
 <translation id="4172051516777682613">Завжди показувати</translation>
@@ -338,10 +343,12 @@
 <translation id="7159472599653637159">Мобільний сайт</translation>
 <translation id="7167621057293532233">Типи даних</translation>
 <translation id="7175593937868963913">Написати лист</translation>
+<translation id="7180611975245234373">Оновити</translation>
 <translation id="7189598951263744875">Поділитися...</translation>
 <translation id="7203585745079012652">Озвучувати відповіді</translation>
 <translation id="722055596168483966">Персоналізувати служби Google</translation>
 <translation id="7272437679830969316">Не вдалося підтвердити особу. Пароль не скопійовано.</translation>
+<translation id="7285236536143823449">ТАК, УВІМКНУТИ</translation>
 <translation id="7291368939935408496">Готуються паролі…</translation>
 <translation id="7336264872878993241">Завантажено <ph name="PERCENT" />%</translation>
 <translation id="7346909386216857016">OK</translation>
@@ -356,6 +363,7 @@
 <translation id="750493650310597496">Вибрано 0</translation>
 <translation id="7514365320538308">Завантажити</translation>
 <translation id="7537586195939242955">Не вдалося внести дані в Passbook.</translation>
+<translation id="7554791636758816595">Нова вкладка</translation>
 <translation id="7561196759112975576">Завжди</translation>
 <translation id="7603852183842204213">Сплив.вікна блок. (<ph name="NUMBER_OF_BLOCKED_POPUPS" />)</translation>
 <translation id="7605594153474022051">Синхронізація не працює</translation>

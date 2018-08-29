@@ -239,7 +239,7 @@ const char *ARMAsmBackend::reasonForFixupRelaxation(const MCFixup &Fixup,
   }
   case ARM::fixup_arm_thumb_cb: {
     // If we have a Thumb CBZ or CBNZ instruction and its target is the next
-    // instruction it is is actually out of range for the instruction.
+    // instruction it is actually out of range for the instruction.
     // It will be changed to a NOP.
     int64_t Offset = (Value & ~1);
     if (Offset == 2)
@@ -359,8 +359,7 @@ static uint32_t joinHalfWords(uint32_t FirstHalf, uint32_t SecondHalf,
 unsigned ARMAsmBackend::adjustFixupValue(const MCAssembler &Asm,
                                          const MCFixup &Fixup,
                                          const MCValue &Target, uint64_t Value,
-                                         bool IsResolved, MCContext &Ctx,
-                                         bool IsLittleEndian) const {
+                                         bool IsResolved, MCContext &Ctx) const {
   unsigned Kind = Fixup.getKind();
 
   // MachO tries to make .o files that look vaguely pre-linked, so for MOVW/MOVT
@@ -755,7 +754,7 @@ bool ARMAsmBackend::shouldForceRelocation(const MCAssembler &Asm,
   // Create relocations for unconditional branches to function symbols with
   // different execution mode in ELF binaries.
   if (Sym && Sym->isELF()) {
-    unsigned Type = dyn_cast<MCSymbolELF>(Sym)->getType();
+    unsigned Type = cast<MCSymbolELF>(Sym)->getType();
     if ((Type == ELF::STT_FUNC || Type == ELF::STT_GNU_IFUNC)) {
       if (Asm.isThumbFunc(Sym) && (FixupKind == ARM::fixup_arm_uncondbranch))
         return true;
@@ -885,8 +884,7 @@ void ARMAsmBackend::applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,
                                bool IsResolved) const {
   unsigned NumBytes = getFixupKindNumBytes(Fixup.getKind());
   MCContext &Ctx = Asm.getContext();
-  Value = adjustFixupValue(Asm, Fixup, Target, Value, IsResolved, Ctx,
-                           IsLittleEndian);
+  Value = adjustFixupValue(Asm, Fixup, Target, Value, IsResolved, Ctx);
   if (!Value)
     return; // Doesn't change encoding.
 
@@ -912,7 +910,7 @@ void ARMAsmBackend::applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,
 
 namespace CU {
 
-/// \brief Compact unwind encoding values.
+/// Compact unwind encoding values.
 enum CompactUnwindEncodings {
   UNWIND_ARM_MODE_MASK                         = 0x0F000000,
   UNWIND_ARM_MODE_FRAME                        = 0x01000000,
@@ -1153,11 +1151,11 @@ static MachO::CPUSubTypeARM getMachOSubTypeFromArch(StringRef Arch) {
   }
 }
 
-MCAsmBackend *llvm::createARMAsmBackend(const Target &T,
-                                        const MCSubtargetInfo &STI,
-                                        const MCRegisterInfo &MRI,
-                                        const MCTargetOptions &Options,
-                                        bool isLittle) {
+static MCAsmBackend *createARMAsmBackend(const Target &T,
+                                         const MCSubtargetInfo &STI,
+                                         const MCRegisterInfo &MRI,
+                                         const MCTargetOptions &Options,
+                                         bool isLittle) {
   const Triple &TheTriple = STI.getTargetTriple();
   switch (TheTriple.getObjectFormat()) {
   default:
@@ -1187,19 +1185,5 @@ MCAsmBackend *llvm::createARMBEAsmBackend(const Target &T,
                                           const MCSubtargetInfo &STI,
                                           const MCRegisterInfo &MRI,
                                           const MCTargetOptions &Options) {
-  return createARMAsmBackend(T, STI, MRI, Options, false);
-}
-
-MCAsmBackend *llvm::createThumbLEAsmBackend(const Target &T,
-                                            const MCSubtargetInfo &STI,
-                                            const MCRegisterInfo &MRI,
-                                            const MCTargetOptions &Options) {
-  return createARMAsmBackend(T, STI, MRI, Options, true);
-}
-
-MCAsmBackend *llvm::createThumbBEAsmBackend(const Target &T,
-                                            const MCSubtargetInfo &STI,
-                                            const MCRegisterInfo &MRI,
-                                            const MCTargetOptions &Options) {
   return createARMAsmBackend(T, STI, MRI, Options, false);
 }

@@ -16,6 +16,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/border.h"
 #include "ui/views/controls/button/menu_button.h"
 
 constexpr int kMenuHighlightFadeDurationMs = 800;
@@ -25,6 +26,9 @@ HostedAppMenuButton::HostedAppMenuButton(BrowserView* browser_view)
   SetInkDropMode(InkDropMode::ON);
   // Disable focus ring for consistency with sibling buttons and AppMenuButton.
   SetFocusPainter(nullptr);
+  // Avoid the native theme border, which would crop the icon (see
+  // https://crbug.com/831968).
+  SetBorder(nullptr);
   // This name is guaranteed not to change during the lifetime of this button.
   // Get the app name only, aka "Google Docs" instead of "My Doc - Google Docs",
   // because the menu applies to the entire app.
@@ -33,6 +37,9 @@ HostedAppMenuButton::HostedAppMenuButton(BrowserView* browser_view)
   SetAccessibleName(app_name);
   SetTooltipText(
       l10n_util::GetStringFUTF16(IDS_HOSTED_APPMENU_TOOLTIP, app_name));
+  int size = GetLayoutConstant(HOSTED_APP_MENU_BUTTON_SIZE);
+  SetMinSize(gfx::Size(size, size));
+  SetHorizontalAlignment(gfx::ALIGN_CENTER);
 }
 
 HostedAppMenuButton::~HostedAppMenuButton() {}
@@ -40,7 +47,6 @@ HostedAppMenuButton::~HostedAppMenuButton() {}
 void HostedAppMenuButton::SetIconColor(SkColor color) {
   SetImage(views::Button::STATE_NORMAL,
            gfx::CreateVectorIcon(kBrowserToolsIcon, color));
-  set_ink_drop_base_color(color);
 }
 
 void HostedAppMenuButton::StartHighlightAnimation(base::TimeDelta duration) {
@@ -62,11 +68,6 @@ void HostedAppMenuButton::OnMenuButtonClicked(views::MenuButton* source,
            browser, AppMenu::NO_FLAGS);
 
   menu()->RunMenu(this);
-}
-
-gfx::Size HostedAppMenuButton::CalculatePreferredSize() const {
-  int size = GetLayoutConstant(HOSTED_APP_MENU_BUTTON_SIZE);
-  return gfx::Size(size, size);
 }
 
 void HostedAppMenuButton::FadeHighlightOff() {

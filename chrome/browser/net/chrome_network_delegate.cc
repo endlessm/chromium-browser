@@ -60,6 +60,7 @@
 #include "net/url_request/url_request.h"
 
 #if defined(OS_ANDROID)
+#include "base/android/path_utils.h"
 #include "chrome/browser/io_thread.h"
 #endif
 
@@ -148,7 +149,7 @@ bool IsAccessAllowedInternal(const base::FilePath& path,
   };
 
   base::FilePath temp_dir;
-  if (PathService::Get(base::DIR_TEMP, &temp_dir))
+  if (base::PathService::Get(base::DIR_TEMP, &temp_dir))
     whitelist.push_back(temp_dir);
 
   // The actual location of "/home/chronos/user/Xyz" is the Xyz directory under
@@ -165,9 +166,14 @@ bool IsAccessAllowedInternal(const base::FilePath& path,
 #elif defined(OS_ANDROID)
   // Access to files in external storage is allowed.
   base::FilePath external_storage_path;
-  PathService::Get(base::DIR_ANDROID_EXTERNAL_STORAGE, &external_storage_path);
+  base::PathService::Get(base::DIR_ANDROID_EXTERNAL_STORAGE,
+                         &external_storage_path);
   if (external_storage_path.IsParent(path))
     return true;
+
+  auto all_download_dirs = base::android::GetAllPrivateDownloadsDirectories();
+  for (const auto& dir : all_download_dirs)
+    whitelist.push_back(dir);
 
   // Whitelist of other allowed directories.
   static const base::FilePath::CharType* const kLocalAccessWhiteList[] = {

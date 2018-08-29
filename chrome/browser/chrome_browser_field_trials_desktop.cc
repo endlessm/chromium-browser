@@ -53,7 +53,6 @@ namespace chrome {
 namespace {
 
 void SetupStunProbeTrial() {
-#if BUILDFLAG(ENABLE_WEBRTC)
   std::map<std::string, std::string> params;
   if (!variations::GetVariationParams("StunProbeTrial2", &params))
     return;
@@ -70,7 +69,6 @@ void SetupStunProbeTrial() {
 
   base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       switches::kWebRtcStunProbeTrialParameter, cmd_param);
-#endif
 }
 
 #if defined(OS_WIN)
@@ -92,7 +90,7 @@ void RecordChromeModuleInfo(
 
   GUID guid;
   DWORD age;
-  pe.GetDebugId(&guid, &age);
+  pe.GetDebugId(&guid, &age, /* pdb_file= */ nullptr);
   module.age = age;
   static_assert(sizeof(module.identifier) >= sizeof(guid),
                 "Identifier field must be able to contain a GUID.");

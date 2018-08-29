@@ -81,6 +81,7 @@ En del webbplatser kan till exempel svara genom att visa annonser som inte baser
 <translation id="2381405137052800939">Grunderna</translation>
 <translation id="2386793615875593361">1 markerat foto</translation>
 <translation id="2435457462613246316">Visa lösenord</translation>
+<translation id="2481538920734869610">LÄGG TILL KONTO</translation>
 <translation id="2523363575747517183">Webbplatsen försöker öppna ett annat program upprepade gånger.</translation>
 <translation id="2529021024822217800">Öppna alla</translation>
 <translation id="2572712655377361602">Åtkomsten till bilderna har blockerats av en enhetspolicy</translation>
@@ -112,6 +113,7 @@ En del webbplatser kan till exempel svara genom att visa annonser som inte baser
 <translation id="2909437209446960244">Senaste flikarna</translation>
 <translation id="291754862089661335">Passa in QR-koden eller streckkoden i den här rutan</translation>
 <translation id="2921219216347069551">Kan inte dela sidan</translation>
+<translation id="2923448633003185837">Klistra in och öppna</translation>
 <translation id="292639812446257861">Markera som oläst</translation>
 <translation id="2933759065870693102">Ficklampa</translation>
 <translation id="2969979262385602596">Det gick inte att logga in. Försök igen senare.</translation>
@@ -131,6 +133,7 @@ En del webbplatser kan till exempel svara genom att visa annonser som inte baser
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> av <ph name="NUM_SUGGESTIONS" /></translation>
 <translation id="3268451620468152448">Öppna flikar</translation>
 <translation id="3277021493514034324">Webbplatsens webbadress har kopierats</translation>
+<translation id="3290875554372353449">Välj ett konto</translation>
 <translation id="3324193307694657476">Adressrad 2</translation>
 <translation id="3329904751041170572">Det gick inte att ansluta till servern.</translation>
 <translation id="3335947283844343239">Öppna stängd flik igen</translation>
@@ -151,6 +154,7 @@ En del webbplatser kan till exempel svara genom att visa annonser som inte baser
 <translation id="3588820906588687999">Öppna bild på ny flik</translation>
 <translation id="3603009562372709545">Kopiera länkens webbadress</translation>
 <translation id="3607167657931203000">Autofyll uppgifter</translation>
+<translation id="3609785682760573515">Synkroniserar ...</translation>
 <translation id="3628119975092896051">Läslistan är tillgänglig offline. Om du vill lägga till en sida i läslistan trycker du på <ph name="SHARE_OPENING_ICON" />.</translation>
 <translation id="3638472932233958418">Läs in webbsidor i förväg</translation>
 <translation id="3691593122358196899">Bokmärkt i <ph name="FOLDER_TITLE" /></translation>
@@ -171,6 +175,7 @@ En del webbplatser kan till exempel svara genom att visa annonser som inte baser
 <translation id="4049507953662678203">Kontrollera att du är ansluten till nätverket och försök igen.</translation>
 <translation id="4084682180776658562">Infoga bokmärke</translation>
 <translation id="411254640334432676">Nedladdningen misslyckades.</translation>
+<translation id="4112644173421521737">Sök</translation>
 <translation id="4121993058175073134">Ange ett e-postkonto i appen Inställningar om du vill skicka nätverksexportdata.</translation>
 <translation id="4124987746317609294">Tidsintervall</translation>
 <translation id="4172051516777682613">Visa alltid</translation>
@@ -185,7 +190,7 @@ En del webbplatser kan till exempel svara genom att visa annonser som inte baser
 <translation id="4359125752503270327">Sidan öppnas i en annan app.</translation>
 <translation id="4370827530403103842">Det går inte att synkronisera. Tryck här för att åtgärda detta.</translation>
 <translation id="4375040482473363939">Sök med QR-koder</translation>
-<translation id="4378154925671717803">Telefon</translation>
+<translation id="4378154925671717803">Mobil</translation>
 <translation id="441868831736628555">Sekretessmeddelande</translation>
 <translation id="4460091562821778167">Fråga alltid vilken app som ska användas</translation>
 <translation id="4496373720959965247">Lägg till flikar och byt mellan sidor</translation>
@@ -338,10 +343,12 @@ Din data krypterades med lösenfrasen den <ph name="TIME" />. Ange den om du vil
 <translation id="7159472599653637159">Använd mobilversion</translation>
 <translation id="7167621057293532233">Datatyper</translation>
 <translation id="7175593937868963913">Skriv ett e-postmeddelande</translation>
+<translation id="7180611975245234373">Uppdatera</translation>
 <translation id="7189598951263744875">Dela ...</translation>
 <translation id="7203585745079012652">Läs upp svaren</translation>
 <translation id="722055596168483966">Anpassa Googles tjänster</translation>
 <translation id="7272437679830969316">Det gick inte att verifiera din identitet. Lösenordet har inte kopierats.</translation>
+<translation id="7285236536143823449">JA</translation>
 <translation id="7291368939935408496">Lösenorden förbereds …</translation>
 <translation id="7336264872878993241"><ph name="PERCENT" /> procent har laddats ned</translation>
 <translation id="7346909386216857016">Ok, jag förstår</translation>
@@ -356,6 +363,7 @@ Din data krypterades med lösenfrasen den <ph name="TIME" />. Ange den om du vil
 <translation id="750493650310597496">0 valda</translation>
 <translation id="7514365320538308">Ladda ned</translation>
 <translation id="7537586195939242955">Det går tyvärr inte att installera det här objektet i Passbook just nu.</translation>
+<translation id="7554791636758816595">Ny flik</translation>
 <translation id="7561196759112975576">Alltid</translation>
 <translation id="7603852183842204213">Popup blockeras (<ph name="NUMBER_OF_BLOCKED_POPUPS" />)</translation>
 <translation id="7605594153474022051">Det går inte att synkronisera</translation>

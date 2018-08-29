@@ -11,6 +11,8 @@
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/ui/popup_menu/cells/popup_menu_footer_item.h"
 #import "ios/chrome/browser/ui/popup_menu/cells/popup_menu_item.h"
+#import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
+#import "ios/chrome/browser/ui/popup_menu/popup_menu_table_view_controller_commands.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -25,12 +27,34 @@ const CGFloat kPopupMenuVerticalInsets = 7;
 const CGFloat kScrollIndicatorVerticalInsets = 11;
 }  // namespace
 
+@interface PopupMenuTableViewController ()
+// Whether the -viewDidAppear: callback has been called.
+@property(nonatomic, assign) BOOL viewDidAppear;
+@end
+
 @implementation PopupMenuTableViewController
 
 @dynamic tableViewModel;
 @synthesize baseViewController = _baseViewController;
 @synthesize commandHandler = _commandHandler;
 @synthesize dispatcher = _dispatcher;
+@synthesize itemToHighlight = _itemToHighlight;
+@synthesize viewDidAppear = _viewDidAppear;
+
+- (instancetype)init {
+  return [super initWithTableViewStyle:UITableViewStyleGrouped
+                           appBarStyle:ChromeTableViewControllerStyleNoAppBar];
+}
+
+#pragma mark - Properties
+
+- (void)setItemToHighlight:(TableViewItem<PopupMenuItem>*)itemToHighlight {
+  DCHECK_GT(self.tableViewModel.numberOfSections, 0L);
+  _itemToHighlight = itemToHighlight;
+  if (itemToHighlight && self.viewDidAppear) {
+    [self highlightItem:itemToHighlight repeat:YES];
+  }
+}
 
 #pragma mark - UIViewController
 
@@ -41,7 +65,7 @@ const CGFloat kScrollIndicatorVerticalInsets = 11;
                                                  kPopupMenuVerticalInsets, 0);
   self.tableView.scrollIndicatorInsets = UIEdgeInsetsMake(
       kScrollIndicatorVerticalInsets, 0, kScrollIndicatorVerticalInsets, 0);
-  self.tableView.rowHeight = UITableViewAutomaticDimension;
+  self.tableView.rowHeight = 0;
   self.tableView.sectionHeaderHeight = 0;
   self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
   // Adding a tableHeaderView is needed to prevent a wide inset on top of the
@@ -49,6 +73,14 @@ const CGFloat kScrollIndicatorVerticalInsets = 11;
   self.tableView.tableHeaderView = [[UIView alloc]
       initWithFrame:CGRectMake(0.0f, 0.0f, self.tableView.bounds.size.width,
                                0.01f)];
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+  [super viewDidAppear:animated];
+  self.viewDidAppear = YES;
+  if (self.itemToHighlight) {
+    [self highlightItem:self.itemToHighlight repeat:YES];
+  }
 }
 
 - (void)setPopupMenuItems:
@@ -86,6 +118,8 @@ const CGFloat kScrollIndicatorVerticalInsets = 11;
       width = MAX(width, ceil(sizeForCell.width));
       height += ceil(sizeForCell.height);
     }
+    // Add the separator height (only available the non-final sections).
+    height += [self tableView:self.tableView heightForFooterInSection:section];
   }
   height +=
       self.tableView.contentInset.top + self.tableView.contentInset.bottom;
@@ -109,13 +143,50 @@ const CGFloat kScrollIndicatorVerticalInsets = 11;
   return kFooterHeight;
 }
 
+- (CGFloat)tableView:(UITableView*)tableView
+    heightForRowAtIndexPath:(NSIndexPath*)indexPath {
+  TableViewItem<PopupMenuItem>* item =
+      [self.tableViewModel itemAtIndexPath:indexPath];
+  return [item cellSizeForWidth:self.view.bounds.size.width].height;
+}
+
 #pragma mark - Private
+
+// Highlights the |item| and |repeat| the highlighting once.
+- (void)highlightItem:(TableViewItem<PopupMenuItem>*)item repeat:(BOOL)repeat {
+  NSIndexPath* indexPath = [self.tableViewModel indexPathForItem:item];
+  [self.tableView selectRowAtIndexPath:indexPath
+                              animated:YES
+                        scrollPosition:UITableViewScrollPositionNone];
+  dispatch_after(
+      dispatch_time(DISPATCH_TIME_NOW,
+                    (int64_t)(kHighlightAnimationDuration * NSEC_PER_SEC)),
+      dispatch_get_main_queue(), ^{
+        [self unhighlightItem:item repeat:repeat];
+      });
+}
+
+// Removes the highlight from |item| and |repeat| the highlighting once.
+- (void)unhighlightItem:(TableViewItem<PopupMenuItem>*)item
+                 repeat:(BOOL)repeat {
+  NSIndexPath* indexPath = [self.tableViewModel indexPathForItem:item];
+  [self.tableView deselectRowAtIndexPath:indexPath animated:YES];
+  if (!repeat)
+    return;
+
+  dispatch_after(
+      dispatch_time(DISPATCH_TIME_NOW,
+                    (int64_t)(kHighlightAnimationDuration * NSEC_PER_SEC)),
+      dispatch_get_main_queue(), ^{
+        [self highlightItem:item repeat:NO];
+      });
+}
 
 // Executes the action associated with |identifier|, using |origin| as the point
 // of origin of the action if one is needed.
 - (void)executeActionForItem:(TableViewItem<PopupMenuItem>*)item
                       origin:(CGPoint)origin {
-  NSInteger identifier = item.actionIdentifier;
+  PopupMenuAction identifier = item.actionIdentifier;
   switch (identifier) {
     case PopupMenuActionReload:
       base::RecordAction(UserMetricsAction("MobileMenuReload"));
@@ -166,11 +237,20 @@ const CGFloat kScrollIndicatorVerticalInsets = 11;
       base::RecordAction(UserMetricsAction("MobileMenuReportAnIssue"));
       [self.dispatcher
           showReportAnIssueFromViewController:self.baseViewController];
+      // Dismisses the popup menu without animation to allow the snapshot to be
+      // taken without the menu presented.
+      [self.dispatcher dismissPopupMenuAnimated:NO];
       break;
     case PopupMenuActionHelp:
       base::RecordAction(UserMetricsAction("MobileMenuHelp"));
       [self.dispatcher showHelpPage];
       break;
+#if !defined(NDEBUG)
+    case PopupMenuActionViewSource:
+      [self.dispatcher viewSource];
+      break;
+#endif  // !defined(NDEBUG)
+
     case PopupMenuActionBookmarks:
       base::RecordAction(UserMetricsAction("MobileMenuAllBookmarks"));
       [self.dispatcher showBookmarksManager];
@@ -203,10 +283,22 @@ const CGFloat kScrollIndicatorVerticalInsets = 11;
       // No metrics for this item.
       [self.commandHandler navigateToPageForItem:item];
       break;
+    case PopupMenuActionPasteAndGo:
+      base::RecordAction(UserMetricsAction("MobileMenuPasteAndGo"));
+      // TODO(crbug.com/821560):Implement this.
+      break;
+    case PopupMenuActionVoiceSearch:
+      base::RecordAction(UserMetricsAction("MobileMenuVoiceSearch"));
+      [self.dispatcher startVoiceSearch];
+      break;
+    case PopupMenuActionQRCodeSearch:
+      base::RecordAction(UserMetricsAction("MobileMenuScanQRCode"));
+      [self.dispatcher showQRScanner];
+      break;
   }
 
   // Close the tools menu.
-  [self.dispatcher dismissPopupMenu];
+  [self.dispatcher dismissPopupMenuAnimated:YES];
 }
 
 @end

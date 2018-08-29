@@ -25,9 +25,9 @@ define i64 @foo(i64 %a, i64 %b) local_unnamed_addr #0 !dbg !8 {
 entry:
   tail call void @llvm.dbg.value(metadata i64 %a, metadata !13, metadata !16), !dbg !17
   tail call void @llvm.dbg.value(metadata i64 %b, metadata !14, metadata !16), !dbg !18
-  tail call void @llvm.dbg.value(metadata i64 %add, metadata !15, metadata !16), !dbg !19
   %cmp = icmp eq i64 %a, %b, !dbg !20
   %add = add nsw i64 %b, 1, !dbg !22
+  tail call void @llvm.dbg.value(metadata i64 %add, metadata !15, metadata !16), !dbg !19
   %retval.0 = select i1 %cmp, i64 %add, i64 0, !dbg !23
   ret i64 %retval.0, !dbg !24
 }
@@ -50,7 +50,7 @@ attributes #1 = { nounwind readnone speculatable }
 !5 = !{i32 2, !"Debug Info Version", i32 3}
 !6 = !{i32 1, !"wchar_size", i32 4}
 !7 = !{!"clang version 6.0.0 "}
-!8 = distinct !DISubprogram(name: "foo", scope: !1, file: !1, line: 2, type: !9, isLocal: false, isDefinition: true, scopeLine: 3, flags: DIFlagPrototyped, isOptimized: true, unit: !0, variables: !12)
+!8 = distinct !DISubprogram(name: "foo", scope: !1, file: !1, line: 2, type: !9, isLocal: false, isDefinition: true, scopeLine: 3, flags: DIFlagPrototyped, isOptimized: true, unit: !0, retainedNodes: !12)
 !9 = !DISubroutineType(types: !10)
 !10 = !{!11, !11, !11}
 !11 = !DIBasicType(name: "long long int", size: 64, encoding: DW_ATE_signed)

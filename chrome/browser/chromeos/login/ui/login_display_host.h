@@ -10,6 +10,7 @@
 
 #include "base/callback_forward.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "chrome/browser/chromeos/customization/customization_document.h"
 #include "chrome/browser/chromeos/login/auth/auth_prewarmer.h"
 #include "chrome/browser/chromeos/login/oobe_screen.h"
@@ -35,14 +36,16 @@ class WizardController;
 //                                   /       |
 //                LoginDisplayHostCommon   MockLoginDisplayHost
 //                      /      |
-//   LoginDisplayHostViews   LoginDisplayHostWebUI
+//   LoginDisplayHostMojo    LoginDisplayHostWebUI
 //
 //
 // - LoginDisplayHost defines the generic interface.
 // - LoginDisplayHostCommon is UI-agnostic code shared between the views and
 //   webui hosts.
 // - MockLoginDisplayHost is for tests.
-// - LoginDisplayHostViews is for the login screen, which is written in views.
+// - LoginDisplayHostMojo is for the login screen which is a mojo controller
+//   (ie, ash/public/interfaces/login_screen.mojom,
+//    ash/login/login_screen_controller.h).
 // - LoginDisplayHostWebUI is for OOBE, which is written in HTML/JS/CSS.
 class LoginDisplayHost {
  public:
@@ -122,8 +125,11 @@ class LoginDisplayHost {
   // Returns whether current host is for voice interaction OOBE.
   virtual bool IsVoiceInteractionOobe() = 0;
 
-  // Update the visibility of the gaia dialog.
-  virtual void UpdateGaiaDialogVisibility(bool visible) = 0;
+  // Update the visibility of the gaia dialog. If available, |account| is
+  // preloaded in the gaia dialog.
+  virtual void UpdateGaiaDialogVisibility(
+      bool visible,
+      const base::Optional<AccountId>& account) = 0;
 
   // Update the size of the gaia dialog.
   virtual void UpdateGaiaDialogSize(int width, int height) = 0;

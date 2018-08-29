@@ -69,25 +69,18 @@ void TestContextSupport::SetScheduleOverlayPlaneCallback(
   schedule_overlay_plane_callback_ = schedule_overlay_plane_callback;
 }
 
-void TestContextSupport::Swap() {}
-
-void TestContextSupport::SwapWithBounds(const std::vector<gfx::Rect>& rects) {}
-
-void TestContextSupport::PartialSwapBuffers(const gfx::Rect& sub_buffer) {}
-
-void TestContextSupport::CommitOverlayPlanes() {}
-
 void TestContextSupport::ScheduleOverlayPlane(
     int plane_z_order,
     gfx::OverlayTransform plane_transform,
     unsigned overlay_texture_id,
     const gfx::Rect& display_bounds,
     const gfx::RectF& uv_rect,
-    bool enable_blend) {
+    bool enable_blend,
+    unsigned gpu_fence_id) {
   if (!schedule_overlay_plane_callback_.is_null()) {
     schedule_overlay_plane_callback_.Run(plane_z_order, plane_transform,
                                          overlay_texture_id, display_bounds,
-                                         uv_rect);
+                                         uv_rect, enable_blend, gpu_fence_id);
   }
 }
 

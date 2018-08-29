@@ -10,6 +10,7 @@
 #include "base/feature_list.h"
 #include "base/memory/singleton.h"
 #include "build/build_config.h"
+#include "chrome/browser/vr/service/browser_xr_device.h"
 #include "chrome/common/chrome_features.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/service_manager_connection.h"
@@ -18,6 +19,11 @@
 #include "device/vr/vr_device_provider.h"
 
 #if defined(OS_ANDROID)
+
+#if BUILDFLAG(ENABLE_ARCORE)
+#include "device/vr/android/arcore/arcore_device_provider_factory.h"
+#endif
+
 #include "device/vr/android/gvr/gvr_device_provider.h"
 #endif
 
@@ -41,7 +47,15 @@ VRDeviceManager* VRDeviceManager::GetInstance() {
     ProviderList providers;
 
 #if defined(OS_ANDROID)
-    providers.emplace_back(std::make_unique<device::GvrDeviceProvider>());
+    // TODO(https://crbug.com/828321): when we support multiple devices and
+    // choosing based on session parameters, add both.
+    if (base::FeatureList::IsEnabled(features::kWebXrHitTest)) {
+#if BUILDFLAG(ENABLE_ARCORE)
+      providers.emplace_back(device::ARCoreDeviceProviderFactory::Create());
+#endif
+    } else {
+      providers.emplace_back(std::make_unique<device::GvrDeviceProvider>());
+    }
 #endif
 
 #if BUILDFLAG(ENABLE_OPENVR)
@@ -99,8 +113,9 @@ void VRDeviceManager::AddService(VRServiceImpl* service) {
   InitializeProviders();
 
   for (const DeviceMap::value_type& map_entry : devices_) {
-    if (!map_entry.second->IsFallbackDevice() || devices_.size() == 1)
-      service->ConnectDevice(map_entry.second);
+    if (!map_entry.second->GetDevice()->IsFallbackDevice() ||
+        devices_.size() == 1)
+      service->ConnectDevice(map_entry.second.get());
   }
 
   if (AreAllProvidersInitialized())
@@ -131,16 +146,18 @@ void VRDeviceManager::AddDevice(device::VRDevice* device) {
   // TODO(offenwanger): This has the potential to cause device change events to
   // fire in rapid succession. This should be discussed and resolved when we
   // start to actually add and remove devices.
-  if (devices_.size() == 1 && devices_.begin()->second->IsFallbackDevice()) {
-    device::VRDevice* device = devices_.begin()->second;
+  if (devices_.size() == 1 &&
+      devices_.begin()->second->GetDevice()->IsFallbackDevice()) {
+    BrowserXrDevice* device = devices_.begin()->second.get();
     for (VRServiceImpl* service : services_)
       service->RemoveDevice(device);
   }
 
-  devices_[device->GetId()] = device;
+  devices_[device->GetId()] = std::make_unique<BrowserXrDevice>(device);
   if (!device->IsFallbackDevice() || devices_.size() == 1) {
+    BrowserXrDevice* device_to_add = devices_[device->GetId()].get();
     for (VRServiceImpl* service : services_)
-      service->ConnectDevice(device);
+      service->ConnectDevice(device_to_add);
   }
 }
 
@@ -152,12 +169,13 @@ void VRDeviceManager::RemoveDevice(device::VRDevice* device) {
   DCHECK(it != devices_.end());
 
   for (VRServiceImpl* service : services_)
-    service->RemoveDevice(device);
+    service->RemoveDevice(it->second.get());
 
   devices_.erase(it);
 
-  if (devices_.size() == 1 && devices_.begin()->second->IsFallbackDevice()) {
-    device::VRDevice* device = devices_.begin()->second;
+  if (devices_.size() == 1 &&
+      devices_.begin()->second->GetDevice()->IsFallbackDevice()) {
+    BrowserXrDevice* device = devices_.begin()->second.get();
     for (VRServiceImpl* service : services_)
       service->ConnectDevice(device);
   }
@@ -179,7 +197,7 @@ device::VRDevice* VRDeviceManager::GetDevice(unsigned int index) {
   if (iter == devices_.end())
     return nullptr;
 
-  return iter->second;
+  return iter->second->GetDevice();
 }
 
 void VRDeviceManager::InitializeProviders() {

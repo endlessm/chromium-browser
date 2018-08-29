@@ -5,10 +5,7 @@ include_rules = [
   "+android_webview/grit",
   "+android_webview/jni",
   "+android_webview/public/browser",
-
   "+cc",
-  "-cc/blink",
-
   "+components/autofill/android",
   "+components/autofill/content/browser",
   "+components/autofill/core/browser",
@@ -17,6 +14,7 @@ include_rules = [
   "+components/crash/content/browser",
   "+components/crash/core",
   "+components/download/public/common",
+  "+components/heap_profiling",
   "+components/navigation_interception",
   "+components/policy/core/browser",
   "+components/policy/core/common",
@@ -54,7 +52,7 @@ include_rules = [
 
   "+printing",
 
-  "+services/network/public/cpp",
+  "+services/network/public",
   "+services/service_manager/public/cpp",
 
   "+storage/browser/quota",

@@ -41,6 +41,7 @@ foreach(arch ${MSAN_SUPPORTED_ARCH})
             $<TARGET_OBJECTS:RTSanitizerCommon.${arch}>
             $<TARGET_OBJECTS:RTSanitizerCommonLibc.${arch}>
             $<TARGET_OBJECTS:RTSanitizerCommonCoverage.${arch}>
+            $<TARGET_OBJECTS:RTSanitizerCommonSymbolizer.${arch}>
             $<TARGET_OBJECTS:RTUbsan.${arch}>
     CFLAGS ${MSAN_RTL_CFLAGS}
     PARENT_TARGET msan)
@@ -53,7 +54,7 @@ foreach(arch ${MSAN_SUPPORTED_ARCH})
     PARENT_TARGET msan)
   list(APPEND MSAN_RUNTIME_LIBRARIES clang_rt.msan-${arch}
                                      clang_rt.msan_cxx-${arch})
-  if(UNIX)
+  if(SANITIZER_USE_SYMBOLS)
     add_sanitizer_rt_symbols(clang_rt.msan
       ARCHS ${arch}
       EXTRA msan.syms.extra)

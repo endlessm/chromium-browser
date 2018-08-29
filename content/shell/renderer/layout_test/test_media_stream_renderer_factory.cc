@@ -9,7 +9,6 @@
 #include "third_party/blink/public/platform/web_media_stream.h"
 #include "third_party/blink/public/platform/web_media_stream_track.h"
 #include "third_party/blink/public/web/web_media_stream_registry.h"
-#include "url/gurl.h"
 
 using namespace blink;
 
@@ -20,15 +19,11 @@ static const int kVideoCaptureHeight = 288;
 static const int kVideoCaptureFrameDurationMs = 33;
 
 bool IsMockMediaStreamWithVideo(const WebMediaStream& web_stream) {
-#if BUILDFLAG(ENABLE_WEBRTC)
   if (web_stream.IsNull())
     return false;
   WebVector<WebMediaStreamTrack> video_tracks;
   web_stream.VideoTracks(video_tracks);
   return video_tracks.size() > 0;
-#else
-  return false;
-#endif
 }
 
 }  // namespace
@@ -58,8 +53,7 @@ scoped_refptr<MediaStreamAudioRenderer>
 TestMediaStreamRendererFactory::GetAudioRenderer(
     const blink::WebMediaStream& web_stream,
     int render_frame_id,
-    const std::string& device_id,
-    const url::Origin& security_origin) {
+    const std::string& device_id) {
   return nullptr;
 }
 

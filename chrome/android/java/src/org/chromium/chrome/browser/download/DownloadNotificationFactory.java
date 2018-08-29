@@ -47,16 +47,6 @@ public final class DownloadNotificationFactory {
     // Limit file name to 25 characters. TODO(qinmin): use different limit for different devices?
     public static final int MAX_FILE_NAME_LENGTH = 25;
 
-    // TODO(jming): Eventually move this to DownloadNotificationStore.
-    enum DownloadStatus {
-        IN_PROGRESS,
-        PAUSED,
-        SUCCESSFUL,
-        FAILED,
-        DELETED,
-        SUMMARY // TODO(jming): Remove when summary notification is no longer in-use.
-    }
-
     /**
      * Builds a downloads notification based on the status of the download and its information.
      * @param context of the download.
@@ -64,8 +54,9 @@ public final class DownloadNotificationFactory {
      * @param downloadUpdate information about the download (ie. contentId, fileName, icon, etc).
      * @return Notification that is built based on these parameters.
      */
-    public static Notification buildNotification(
-            Context context, DownloadStatus downloadStatus, DownloadUpdate downloadUpdate) {
+    public static Notification buildNotification(Context context,
+            DownloadNotificationService2.DownloadStatus downloadStatus,
+            DownloadUpdate downloadUpdate) {
         ChromeNotificationBuilder builder =
                 NotificationBuilderFactory
                         .createChromeNotificationBuilder(
@@ -83,20 +74,14 @@ public final class DownloadNotificationFactory {
                 Preconditions.checkNotNull(downloadUpdate.getContentId());
                 Preconditions.checkArgument(downloadUpdate.getNotificationId() != -1);
 
-                boolean indeterminate = downloadUpdate.getProgress().isIndeterminate()
-                        || downloadUpdate.getIsDownloadPending();
                 if (downloadUpdate.getIsDownloadPending()) {
                     contentText =
                             DownloadUtils.getPendingStatusString(downloadUpdate.getPendingState());
-                } else if (indeterminate || downloadUpdate.getTimeRemainingInMillis() < 0) {
-                    // TODO(dimich): Enable the byte count back in M59. See bug 704049 for more info
-                    // and details of what was temporarily reverted (for M58).
-                    contentText = context.getResources().getString(R.string.download_started);
                 } else {
-                    contentText = DownloadUtils.getTimeOrFilesLeftString(context,
-                            downloadUpdate.getProgress(),
-                            downloadUpdate.getTimeRemainingInMillis());
+                    contentText = DownloadUtils.getProgressTextForNotification(
+                            downloadUpdate.getProgress());
                 }
+
                 iconId = downloadUpdate.getIsDownloadPending()
                         ? R.drawable.ic_download_pending
                         : android.R.drawable.stat_sys_download;
@@ -137,19 +122,22 @@ public final class DownloadNotificationFactory {
                                         context, cancelIntent, downloadUpdate.getNotificationId()));
 
                 if (!downloadUpdate.getIsDownloadPending()) {
+                    boolean indeterminate = downloadUpdate.getProgress().isIndeterminate();
                     builder.setProgress(100,
                             indeterminate ? -1 : downloadUpdate.getProgress().getPercentage(),
                             indeterminate);
                 }
 
-                if (!indeterminate
+                if (!downloadUpdate.getProgress().isIndeterminate()
+                        && downloadUpdate.getTimeRemainingInMillis() >= 0
                         && !LegacyHelpers.isLegacyOfflinePage(downloadUpdate.getContentId())) {
-                    String percentText = DownloadUtils.getPercentageString(
-                            downloadUpdate.getProgress().getPercentage());
+                    String subText = DownloadUtils.formatRemainingTime(
+                            context, downloadUpdate.getTimeRemainingInMillis());
+
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        builder.setSubText(percentText);
+                        builder.setSubText(subText);
                     } else {
-                        builder.setContentInfo(percentText);
+                        builder.setContentInfo(subText);
                     }
                 }
 
@@ -193,11 +181,19 @@ public final class DownloadNotificationFactory {
 
                 break;
 
-            case SUCCESSFUL:
+            case COMPLETED:
                 Preconditions.checkArgument(downloadUpdate.getNotificationId() != -1);
 
-                contentText =
-                        context.getResources().getString(R.string.download_notification_completed);
+                if (downloadUpdate.getTotalBytes() > 0) {
+                    contentText = context.getResources().getString(
+                            R.string.download_notification_completed_with_size,
+                            DownloadUtils.getStringForBytes(
+                                    context, downloadUpdate.getTotalBytes()));
+                } else {
+                    contentText = context.getResources().getString(
+                            R.string.download_notification_completed);
+                }
+
                 iconId = R.drawable.offline_pin;
 
                 if (downloadUpdate.getIsOpenable()) {
@@ -241,18 +237,6 @@ public final class DownloadNotificationFactory {
                 contentText = DownloadUtils.getFailStatusString(downloadUpdate.getFailState());
                 break;
 
-            case SUMMARY:
-                Preconditions.checkArgument(downloadUpdate.getIconId() != -1);
-
-                iconId = downloadUpdate.getIconId();
-                contentText = "";
-                builder.setContentTitle(
-                               context.getString(R.string.download_notification_summary_title))
-                        .setSubText(context.getString(R.string.menu_downloads))
-                        .setSmallIcon(iconId)
-                        .setGroupSummary(true);
-                break;
-
             default:
                 iconId = -1;
                 contentText = "";
@@ -270,8 +254,8 @@ public final class DownloadNotificationFactory {
         }
         if (downloadUpdate.getIcon() != null) builder.setLargeIcon(downloadUpdate.getIcon());
         if (!downloadUpdate.getIsTransient() && downloadUpdate.getNotificationId() != -1
-                && downloadStatus != DownloadStatus.SUCCESSFUL
-                && downloadStatus != DownloadStatus.FAILED) {
+                && downloadStatus != DownloadNotificationService2.DownloadStatus.COMPLETED
+                && downloadStatus != DownloadNotificationService2.DownloadStatus.FAILED) {
             Intent downloadHomeIntent = buildActionIntent(
                     context, ACTION_NOTIFICATION_CLICKED, null, downloadUpdate.getIsOffTheRecord());
             builder.setContentIntent(

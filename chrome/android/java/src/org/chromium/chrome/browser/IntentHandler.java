@@ -92,6 +92,11 @@ public class IntentHandler {
     public static final String EXTRA_TAB_ID = "com.android.chrome.tab_id";
 
     /**
+     * Parcelable FullscreenOptions to use when creating a new Tab.
+     */
+    public static final String EXTRA_FULLSCREEN_OPTIONS = "com.android.chrome.fullscreen_options";
+
+    /**
      * The tab id of the parent tab, if any.
      */
     public static final String EXTRA_PARENT_TAB_ID = "com.android.chrome.parent_tab_id";
@@ -202,6 +207,8 @@ public class IntentHandler {
     private static final String PACKAGE_MESSENGER = "com.google.android.apps.messaging";
     private static final String PACKAGE_LINE = "jp.naver.line.android";
     private static final String PACKAGE_WHATSAPP = "com.whatsapp";
+    private static final String PACKAGE_YAHOO_MAIL = "com.yahoo.mobile.client.android.mail";
+    private static final String PACKAGE_VIBER = "com.viber.voip";
     private static final String FACEBOOK_REFERRER_URL = "android-app://m.facebook.com";
     private static final String FACEBOOK_INTERNAL_BROWSER_REFERRER = "http://m.facebook.com";
     private static final String TWITTER_LINK_PREFIX = "http://t.co/";
@@ -225,6 +232,8 @@ public class IntentHandler {
         WHATSAPP,
         GSA,
         WEBAPK,
+        YAHOO_MAIL,
+        VIBER,
         // Update ClientAppId in enums.xml when adding new items.
         INDEX_BOUNDARY
     }
@@ -352,6 +361,10 @@ public class IntentHandler {
             return ExternalAppId.CHROME;
         } else if (packageName.startsWith(WEBAPK_PACKAGE_PREFIX)) {
             return ExternalAppId.WEBAPK;
+        } else if (packageName.equals(PACKAGE_YAHOO_MAIL)) {
+            return ExternalAppId.YAHOO_MAIL;
+        } else if (packageName.equals(PACKAGE_VIBER)) {
+            return ExternalAppId.VIBER;
         }
         return ExternalAppId.OTHER;
     }

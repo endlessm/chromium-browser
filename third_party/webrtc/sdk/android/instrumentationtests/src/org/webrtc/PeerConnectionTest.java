@@ -59,8 +59,8 @@ public class PeerConnectionTest {
   }
 
   private static class ObserverExpectations
-      implements PeerConnection.Observer, VideoRenderer.Callbacks, DataChannel.Observer,
-                 StatsObserver, RTCStatsCollectorCallback, RtpReceiver.Observer {
+      implements PeerConnection.Observer, VideoSink, DataChannel.Observer, StatsObserver,
+                 RTCStatsCollectorCallback, RtpReceiver.Observer {
     private final String name;
     private int expectedIceCandidates = 0;
     private int expectedErrors = 0;
@@ -75,7 +75,7 @@ public class PeerConnectionTest {
     private Queue<String> expectedAddStreamLabels = new ArrayDeque<>();
     private Queue<String> expectedRemoveStreamLabels = new ArrayDeque<>();
     private final List<IceCandidate> gotIceCandidates = new ArrayList<>();
-    private Map<MediaStream, WeakReference<VideoRenderer>> renderers = new IdentityHashMap<>();
+    private Map<MediaStream, WeakReference<VideoSink>> videoSinks = new IdentityHashMap<>();
     private DataChannel dataChannel;
     private Queue<DataChannel.Buffer> expectedBuffers = new ArrayDeque<>();
     private Queue<DataChannel.State> expectedStateChanges = new ArrayDeque<>();
@@ -140,13 +140,12 @@ public class PeerConnectionTest {
     @Override
     // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
     @SuppressWarnings("NoSynchronizedMethodCheck")
-    public synchronized void renderFrame(VideoRenderer.I420Frame frame) {
+    public synchronized void onFrame(VideoFrame frame) {
       assertTrue(expectedWidth > 0);
       assertTrue(expectedHeight > 0);
-      assertEquals(expectedWidth, frame.rotatedWidth());
-      assertEquals(expectedHeight, frame.rotatedHeight());
+      assertEquals(expectedWidth, frame.getRotatedWidth());
+      assertEquals(expectedHeight, frame.getRotatedHeight());
       --expectedFramesDelivered;
-      VideoRenderer.renderFrameDone(frame);
     }
 
     // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
@@ -225,15 +224,14 @@ public class PeerConnectionTest {
     // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
     @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onAddStream(MediaStream stream) {
-      assertEquals(expectedAddStreamLabels.remove(), stream.label());
+      assertEquals(expectedAddStreamLabels.remove(), stream.getId());
       for (AudioTrack track : stream.audioTracks) {
         assertEquals("audio", track.kind());
       }
       for (VideoTrack track : stream.videoTracks) {
         assertEquals("video", track.kind());
-        VideoRenderer renderer = createVideoRenderer(this);
-        track.addRenderer(renderer);
-        assertNull(renderers.put(stream, new WeakReference<VideoRenderer>(renderer)));
+        track.addSink(this);
+        assertNull(videoSinks.put(stream, new WeakReference<VideoSink>(this)));
       }
       gotRemoteStreams.add(stream);
     }
@@ -248,12 +246,13 @@ public class PeerConnectionTest {
     // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
     @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void onRemoveStream(MediaStream stream) {
-      assertEquals(expectedRemoveStreamLabels.remove(), stream.label());
-      WeakReference<VideoRenderer> renderer = renderers.remove(stream);
-      assertNotNull(renderer);
-      assertNotNull(renderer.get());
-      assertEquals(1, stream.videoTracks.size());
-      stream.videoTracks.get(0).removeRenderer(renderer.get());
+      assertEquals(expectedRemoveStreamLabels.remove(), stream.getId());
+      WeakReference<VideoSink> videoSink = videoSinks.remove(stream);
+      assertNotNull(videoSink);
+      assertNotNull(videoSink.get());
+      for (VideoTrack videoTrack : stream.videoTracks) {
+        videoTrack.removeSink(videoSink.get());
+      }
       gotRemoteStreams.remove(stream);
     }
 
@@ -510,7 +509,7 @@ public class PeerConnectionTest {
 
   // Sets the expected resolution for an ObserverExpectations once a frame
   // has been captured.
-  private static class ExpectedResolutionSetter implements VideoRenderer.Callbacks {
+  private static class ExpectedResolutionSetter implements VideoSink {
     private ObserverExpectations observer;
 
     public ExpectedResolutionSetter(ObserverExpectations observer) {
@@ -520,12 +519,13 @@ public class PeerConnectionTest {
     @Override
     // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
     @SuppressWarnings("NoSynchronizedMethodCheck")
-    public synchronized void renderFrame(VideoRenderer.I420Frame frame) {
+    public synchronized void onFrame(VideoFrame frame) {
       // Because different camera devices (fake & physical) produce different
       // resolutions, we only sanity-check the set sizes,
-      assertTrue(frame.rotatedWidth() > 0);
-      assertTrue(frame.rotatedHeight() > 0);
-      observer.setExpectedResolution(frame.rotatedWidth(), frame.rotatedHeight());
+      assertTrue(frame.getRotatedWidth() > 0);
+      assertTrue(frame.getRotatedHeight() > 0);
+      observer.setExpectedResolution(frame.getRotatedWidth(), frame.getRotatedHeight());
+      frame.retain();
     }
   }
 
@@ -584,21 +584,16 @@ public class PeerConnectionTest {
 
   static int videoWindowsMapped = -1;
 
-  private static VideoRenderer createVideoRenderer(VideoRenderer.Callbacks videoCallbacks) {
-    return new VideoRenderer(videoCallbacks);
-  }
-
   // Return a weak reference to test that ownership is correctly held by
   // PeerConnection, not by test code.
   private static WeakReference<MediaStream> addTracksToPC(PeerConnectionFactory factory,
       PeerConnection pc, VideoSource videoSource, String streamLabel, String videoTrackId,
-      String audioTrackId, VideoRenderer.Callbacks videoCallbacks) {
+      String audioTrackId, VideoSink videoSink) {
     MediaStream lMS = factory.createLocalMediaStream(streamLabel);
     VideoTrack videoTrack = factory.createVideoTrack(videoTrackId, videoSource);
     assertNotNull(videoTrack);
-    VideoRenderer videoRenderer = createVideoRenderer(videoCallbacks);
-    assertNotNull(videoRenderer);
-    videoTrack.addRenderer(videoRenderer);
+    assertNotNull(videoSink);
+    videoTrack.addSink(videoSink);
     lMS.addTrack(videoTrack);
     // Just for fun, let's remove and re-add the track.
     lMS.removeTrack(videoTrack);
@@ -648,8 +643,7 @@ public class PeerConnectionTest {
   @Test
   @SmallTest
   public void testCreationWithConfig() throws Exception {
-    PeerConnectionFactory.Options options = new PeerConnectionFactory.Options();
-    PeerConnectionFactory factory = new PeerConnectionFactory(options);
+    PeerConnectionFactory factory = PeerConnectionFactory.builder().createPeerConnectionFactory();
     List<PeerConnection.IceServer> iceServers = Arrays.asList(
         PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
         PeerConnection.IceServer.builder("turn:fake.example.com")
@@ -675,7 +669,8 @@ public class PeerConnectionTest {
     // have those.
     PeerConnectionFactory.Options options = new PeerConnectionFactory.Options();
     options.networkIgnoreMask = 0;
-    PeerConnectionFactory factory = new PeerConnectionFactory(options);
+    PeerConnectionFactory factory =
+        PeerConnectionFactory.builder().setOptions(options).createPeerConnectionFactory();
 
     List<PeerConnection.IceServer> iceServers = new ArrayList<>();
     iceServers.add(
@@ -914,7 +909,8 @@ public class PeerConnectionTest {
     // have those.
     PeerConnectionFactory.Options options = new PeerConnectionFactory.Options();
     options.networkIgnoreMask = 0;
-    PeerConnectionFactory factory = new PeerConnectionFactory(options);
+    PeerConnectionFactory factory =
+        PeerConnectionFactory.builder().setOptions(options).createPeerConnectionFactory();
 
     List<PeerConnection.IceServer> iceServers = new ArrayList<>();
     iceServers.add(
@@ -1059,8 +1055,6 @@ public class PeerConnectionTest {
     System.gc();
   }
 
-  // Flaky on Android. See webrtc:7761
-  @DisabledTest
   @Test
   @MediumTest
   public void testTrackRemovalAndAddition() throws Exception {
@@ -1068,7 +1062,8 @@ public class PeerConnectionTest {
     // have those.
     PeerConnectionFactory.Options options = new PeerConnectionFactory.Options();
     options.networkIgnoreMask = 0;
-    PeerConnectionFactory factory = new PeerConnectionFactory(options);
+    PeerConnectionFactory factory =
+        PeerConnectionFactory.builder().setOptions(options).createPeerConnectionFactory();
 
     List<PeerConnection.IceServer> iceServers = new ArrayList<>();
     iceServers.add(
@@ -1198,19 +1193,17 @@ public class PeerConnectionTest {
     VideoTrack offererVideoTrack = oLMS.get().videoTracks.get(0);
     // Note that when we call removeTrack, we regain responsibility for
     // disposing of the track.
+    offeringExpectations.expectRenegotiationNeeded();
     oLMS.get().removeTrack(offererVideoTrack);
     negotiate(offeringPC, offeringExpectations, answeringPC, answeringExpectations);
 
     // Make sure the track was really removed.
-    // TODO(deadbeef): Currently the expectation is that the video track's
-    // state will be set to "ended". However, in the future, it's likely that
-    // the video track will be completely removed from the remote stream
-    // (as it is on the C++ level).
     MediaStream aRMS = answeringExpectations.gotRemoteStreams.iterator().next();
-    assertEquals(aRMS.videoTracks.get(0).state(), MediaStreamTrack.State.ENDED);
+    assertTrue(aRMS.videoTracks.isEmpty());
 
     // Add the video track to test if the answeringPC will create a new track
     // for the updated remote description.
+    offeringExpectations.expectRenegotiationNeeded();
     oLMS.get().addTrack(offererVideoTrack);
     // The answeringPC sets the updated remote description with a track added.
     // So the onAddTrack callback is expected to be called once.
@@ -1221,8 +1214,10 @@ public class PeerConnectionTest {
     // Finally, remove both the audio and video tracks, which should completely
     // remove the remote stream. This used to trigger an assert.
     // See: https://bugs.chromium.org/p/webrtc/issues/detail?id=5128
+    offeringExpectations.expectRenegotiationNeeded();
     oLMS.get().removeTrack(offererVideoTrack);
     AudioTrack offererAudioTrack = oLMS.get().audioTracks.get(0);
+    offeringExpectations.expectRenegotiationNeeded();
     oLMS.get().removeTrack(offererAudioTrack);
 
     answeringExpectations.expectRemoveStream("offeredMediaStream");
@@ -1261,8 +1256,7 @@ public class PeerConnectionTest {
   @Test
   @MediumTest
   public void testRemoteStreamUpdatedWhenTracksAddedOrRemoved() throws Exception {
-    PeerConnectionFactory.Options options = new PeerConnectionFactory.Options();
-    PeerConnectionFactory factory = new PeerConnectionFactory(options);
+    PeerConnectionFactory factory = PeerConnectionFactory.builder().createPeerConnectionFactory();
 
     // This test is fine with no ICE servers.
     List<PeerConnection.IceServer> iceServers = new ArrayList<>();

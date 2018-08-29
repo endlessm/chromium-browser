@@ -42,6 +42,12 @@
       url(../images/filetype/2x/filetype_folder_shared.png) 2x);
 }
 
+.team-drive-root[file-type-icon='folder'] {
+  background-image: -webkit-image-set(
+      url(../images/filetype/filetype_team_drive.png) 1x,
+      url(../images/filetype/2x/filetype_team_drive.png) 2x);
+}
+
 tree .tree-item[selected] > .tree-row > [file-type-icon='folder'] {
   background-image: -webkit-image-set(
       url(../images/filetype/filetype_folder_active.png) 1x,
@@ -52,6 +58,13 @@ tree .tree-item[selected] > .tree-row > .shared[file-type-icon='folder'] {
   background-image: -webkit-image-set(
       url(../images/filetype/filetype_folder_shared_active.png) 1x,
       url(../images/filetype/2x/filetype_folder_shared_active.png) 2x);
+}
+
+tree .tree-item[selected] > .tree-row >
+.team-drive-root[file-type-icon='folder'] {
+  background-image: -webkit-image-set(
+      url(../images/filetype/filetype_team_drive_active.png) 1x,
+      url(../images/filetype/2x/filetype_team_drive_active.png) 2x);
 }
 
 /* TODO(fukino): Check if 'form' is in use, and remove this if possible. */
@@ -234,7 +247,8 @@ tree .tree-item[selected] > .tree-row > .shared[file-type-icon='folder'] {
       url(../images/volumes/2x/service_drive_active.png) 2x);
 }
 
-[volume-type-icon='team_drives_grand_root'],[volume-type-icon='team_drive'] {
+[volume-type-icon='team_drives_grand_root'],
+[volume-type-icon='team_drive'] {
   background-image: -webkit-image-set(
       url(../images/volumes/team_drive.png) 1x,
       url(../images/volumes/2x/team_drive.png) 2x);
@@ -415,4 +429,32 @@ cr-menu-item[command='#install-new-extension'] .icon.start {
   background-image: -webkit-image-set(
       url(../images/volumes/recent_active.png) 1x,
       url(../images/volumes/2x/recent_active.png) 2x);
+}
+
+[root-type-icon='crostini'],
+[volume-type-icon='crostini'] {
+  /* Need !important to override inline style applied to provided volumes. */
+  background-image: -webkit-image-set(
+      url(../images/volumes/linux_files.png) 1x,
+      url(../images/volumes/2x/linux_files.png) 2x) !important;
+}
+
+.tree-row[selected] [root-type-icon='crostini'],
+.tree-row[selected] [volume-type-icon='crostini'] {
+  /* Need !important to override inline style applied to provided volumes. */
+  background-image: -webkit-image-set(
+      url(../images/volumes/linux_files_active.png) 1x,
+      url(../images/volumes/2x/linux_files_active.png) 2x) !important;
+}
+
+[volume-type-icon='android_files'] {
+  background-image: -webkit-image-set(
+      url(../images/volumes/android.png) 1x,
+      url(../images/volumes/2x/android.png) 2x);
+}
+
+.tree-row[selected] [volume-type-icon='android_files'] {
+  background-image: -webkit-image-set(
+      url(../images/volumes/android_active.png) 1x,
+      url(../images/volumes/2x/android_active.png) 2x);
 }

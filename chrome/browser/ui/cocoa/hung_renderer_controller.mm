@@ -10,6 +10,7 @@
 #include "base/macros.h"
 #include "base/scoped_observer.h"
 #include "base/strings/sys_string_conversions.h"
+#include "chrome/browser/hang_monitor/hang_crash_dump.h"
 #import "chrome/browser/ui/cocoa/multi_key_equivalent_button.h"
 #import "chrome/browser/ui/cocoa/tab_contents/favicon_util_mac.h"
 #include "chrome/browser/ui/hung_renderer/hung_renderer_core.h"
@@ -18,15 +19,12 @@
 #include "chrome/common/logging_chrome.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/notification_source.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_process_host_observer.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
+#include "content/public/browser/render_widget_host_observer.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/result_codes.h"
 #include "skia/ext/skia_utils_mac.h"
@@ -74,7 +72,7 @@ HungRendererController* g_hung_renderer_controller_instance = nil;
 
 class HungRendererObserverBridge : public content::WebContentsObserver,
                                    public content::RenderProcessHostObserver,
-                                   public content::NotificationObserver {
+                                   public content::RenderWidgetHostObserver {
  public:
   HungRendererObserverBridge(WebContents* web_contents,
                              content::RenderWidgetHost* hung_widget,
@@ -82,11 +80,10 @@ class HungRendererObserverBridge : public content::WebContentsObserver,
       : content::WebContentsObserver(web_contents),
         hung_process_(hung_widget->GetProcess()),
         process_observer_(this),
+        widget_observer_(this),
         controller_(controller) {
     process_observer_.Add(hung_process_);
-    notification_registrar_.Add(
-        this, content::NOTIFICATION_RENDER_WIDGET_HOST_DESTROYED,
-        content::Source<content::RenderWidgetHost>(hung_widget));
+    widget_observer_.Add(hung_widget);
   }
 
   ~HungRendererObserverBridge() override = default;
@@ -101,17 +98,15 @@ class HungRendererObserverBridge : public content::WebContentsObserver,
   void WebContentsDestroyed() override { [controller_ renderProcessGone]; }
 
   // RenderProcessHostObserver overrides:
-  void RenderProcessExited(content::RenderProcessHost* host,
-                           base::TerminationStatus status,
-                           int exit_code) override {
+  void RenderProcessExited(
+      content::RenderProcessHost* host,
+      const content::ChildProcessTerminationInfo& info) override {
     [controller_ renderProcessGone];
   }
 
-  // NotificationObserver overrides:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override {
-    DCHECK_EQ(content::NOTIFICATION_RENDER_WIDGET_HOST_DESTROYED, type);
+  // RenderWidgetHostObserver overrides:
+  void RenderWidgetHostDestroyed(
+      content::RenderWidgetHost* widget_host) override {
     [controller_ renderProcessGone];
   }
 
@@ -121,9 +116,10 @@ class HungRendererObserverBridge : public content::WebContentsObserver,
   ScopedObserver<content::RenderProcessHost, content::RenderProcessHostObserver>
       process_observer_;
 
-  HungRendererController* controller_;  // weak
+  ScopedObserver<content::RenderWidgetHost, content::RenderWidgetHostObserver>
+      widget_observer_;
 
-  content::NotificationRegistrar notification_registrar_;
+  HungRendererController* controller_;  // weak
 
   DISALLOW_COPY_AND_ASSIGN(HungRendererObserverBridge);
 };
@@ -213,8 +209,11 @@ class HungRendererObserverBridge : public content::WebContentsObserver,
 }
 
 - (IBAction)kill:(id)sender {
-  if (hungWidget_)
-    hungWidget_->GetProcess()->Shutdown(content::RESULT_CODE_HUNG);
+  if (hungWidget_) {
+    auto* rph = hungWidget_->GetProcess();
+    CrashDumpHungChildProcess(rph->GetProcess().Handle());
+    rph->Shutdown(content::RESULT_CODE_HUNG);
+  }
 
   // Cannot call performClose:, because the close button is disabled.
   [self close];
@@ -265,6 +264,13 @@ class HungRendererObserverBridge : public content::WebContentsObserver,
   // button depressed just when new activity was detected.
   hungContents_ = nullptr;
   hungWidget_ = nullptr;
+
+  // Reset the observer now. It is not necessarily the case that this class
+  // actually holds a reference to the containing BrowserWindow, and if it does
+  // not, the BrowserWindow's destructor can run *before* this object is cleaned
+  // up by the autorelease pool. This can't happen in practice, but it can
+  // happen in tests.
+  hungContentsObserver_.reset();
 
   [self autorelease];
 }

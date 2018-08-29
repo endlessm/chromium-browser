@@ -83,9 +83,9 @@ bool RegUsageInfoCollector::runOnMachineFunction(MachineFunction &MF) {
   const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
   const TargetMachine &TM = MF.getTarget();
 
-  DEBUG(dbgs() << " -------------------- " << getPassName()
-               << " -------------------- \n");
-  DEBUG(dbgs() << "Function Name : " << MF.getName() << "\n");
+  LLVM_DEBUG(dbgs() << " -------------------- " << getPassName()
+                    << " -------------------- \n");
+  LLVM_DEBUG(dbgs() << "Function Name : " << MF.getName() << "\n");
 
   std::vector<uint32_t> RegMask;
 
@@ -101,7 +101,7 @@ bool RegUsageInfoCollector::runOnMachineFunction(MachineFunction &MF) {
 
   PRUI->setTargetMachine(&TM);
 
-  DEBUG(dbgs() << "Clobbered Registers: ");
+  LLVM_DEBUG(dbgs() << "Clobbered Registers: ");
 
   const BitVector &UsedPhysRegsMask = MRI->getUsedPhysRegsMask();
   auto SetRegAsDefined = [&RegMask] (unsigned Reg) {
@@ -110,19 +110,18 @@ bool RegUsageInfoCollector::runOnMachineFunction(MachineFunction &MF) {
   // Scan all the physical registers. When a register is defined in the current
   // function set it and all the aliasing registers as defined in the regmask.
   for (unsigned PReg = 1, PRegE = TRI->getNumRegs(); PReg < PRegE; ++PReg) {
-    // If a register is in the UsedPhysRegsMask set then mark it as defined.
-    // All it's aliases will also be in the set, so we can skip setting
-    // as defined all the aliases here.
-    if (UsedPhysRegsMask.test(PReg)) {
-      SetRegAsDefined(PReg);
-      continue;
-    }
     // If a register is defined by an instruction mark it as defined together
     // with all it's aliases.
     if (!MRI->def_empty(PReg)) {
       for (MCRegAliasIterator AI(PReg, TRI, true); AI.isValid(); ++AI)
         SetRegAsDefined(*AI);
+      continue;
     }
+    // If a register is in the UsedPhysRegsMask set then mark it as defined.
+    // All clobbered aliases will also be in the set, so we can skip setting
+    // as defined all the aliases here.
+    if (UsedPhysRegsMask.test(PReg))
+      SetRegAsDefined(PReg);
   }
 
   if (!TargetFrameLowering::isSafeForNoCSROpt(F)) {
@@ -135,15 +134,15 @@ bool RegUsageInfoCollector::runOnMachineFunction(MachineFunction &MF) {
     }
   } else {
     ++NumCSROpt;
-    DEBUG(dbgs() << MF.getName()
-                 << " function optimized for not having CSR.\n");
+    LLVM_DEBUG(dbgs() << MF.getName()
+                      << " function optimized for not having CSR.\n");
   }
 
   for (unsigned PReg = 1, PRegE = TRI->getNumRegs(); PReg < PRegE; ++PReg)
     if (MachineOperand::clobbersPhysReg(&(RegMask[0]), PReg))
-      DEBUG(dbgs() << printReg(PReg, TRI) << " ");
+      LLVM_DEBUG(dbgs() << printReg(PReg, TRI) << " ");
 
-  DEBUG(dbgs() << " \n----------------------------------------\n");
+  LLVM_DEBUG(dbgs() << " \n----------------------------------------\n");
 
   PRUI->storeUpdateRegUsageInfo(&F, std::move(RegMask));
 

@@ -9,7 +9,6 @@ from __future__ import print_function
 
 from infra_libs import ts_mon
 
-from chromite.cbuildbot import chroot_lib
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import prebuilts
 from chromite.cbuildbot.stages import generic_stages
@@ -628,16 +627,6 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
     return super(CommitQueueCompletionStage, self)._IsFailureFatal(
         failing, inflight, no_stat, self_destructed=self_destructed)
 
-  def HandleSuccess(self):
-    """Handle a successful Commit Queue."""
-    super(CommitQueueCompletionStage, self).HandleSuccess()
-
-    manager = self._run.attrs.manifest_manager
-    version = manager.current_version
-    if version:
-      chroot_manager = chroot_lib.ChrootManager(self._build_root)
-      chroot_manager.SetChrootVersion(version)
-
   def HandleFailure(self, failing, inflight, no_stat, self_destructed):
     """Handle a build failure or timeout in the Commit Queue.
 
@@ -745,6 +734,10 @@ class PreCQCompletionStage(generic_stages.BuilderStage):
 
   def PerformStage(self):
     # Update Gerrit and Google Storage with the Pre-CQ status.
+    if not self.sync_stage.pool:
+      logging.warning('No validation pool available. Skipping PreCQCompletion.')
+      return
+
     if self.success:
       self.sync_stage.pool.HandlePreCQPerConfigSuccess()
     else:

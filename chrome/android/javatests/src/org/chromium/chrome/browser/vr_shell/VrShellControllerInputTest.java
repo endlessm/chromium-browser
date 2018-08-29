@@ -13,6 +13,7 @@ import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_V
 
 import android.support.test.filters.MediumTest;
 import android.support.v7.widget.RecyclerView;
+import android.view.View;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -29,12 +30,10 @@ import org.chromium.chrome.browser.vr_shell.rules.ChromeTabbedActivityVrTestRule
 import org.chromium.chrome.browser.vr_shell.util.VrTransitionUtils;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.ChromeTabUtils;
-import org.chromium.content.browser.test.util.Coordinates;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.DOMUtils;
-import org.chromium.content_public.browser.ContentViewCore;
-import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.browser.RenderCoordinates;
 
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -63,12 +62,13 @@ public class VrShellControllerInputTest {
         mController.recenterView();
     }
 
-    private void waitForPageToBeScrollable(final ContentViewCore cvc) {
+    private void waitForPageToBeScrollable(final RenderCoordinates coord) {
+        final View view = mVrTestRule.getActivity().getActivityTab().getContentView();
         CriteriaHelper.pollUiThread(new Criteria() {
             @Override
             public boolean isSatisfied() {
-                return cvc.computeVerticalScrollRange() > cvc.getContainerView().getHeight()
-                        && cvc.computeHorizontalScrollRange() > cvc.getContainerView().getWidth();
+                return coord.getContentHeightPixInt() > view.getHeight()
+                        && coord.getContentWidthPixInt() > view.getWidth();
             }
         }, POLL_TIMEOUT_LONG_MS, POLL_CHECK_INTERVAL_LONG_MS);
     }
@@ -80,12 +80,11 @@ public class VrShellControllerInputTest {
     @Test
     @MediumTest
     public void testControllerScrolling() throws InterruptedException {
-        mVrTestRule.loadUrl(
-                VrTestFramework.getHtmlTestFile("test_controller_scrolling"), PAGE_LOAD_TIMEOUT_S);
-        final WebContents wc = mVrTestRule.getActivity().getActivityTab().getWebContents();
-        Coordinates coord = Coordinates.createFor(wc);
-        waitForPageToBeScrollable(
-                mVrTestRule.getActivity().getActivityTab().getActiveContentViewCore());
+        mVrTestRule.loadUrl(VrTestFramework.getFileUrlForHtmlTestFile("test_controller_scrolling"),
+                PAGE_LOAD_TIMEOUT_S);
+        final RenderCoordinates coord =
+                RenderCoordinates.fromWebContents(mVrTestRule.getWebContents());
+        waitForPageToBeScrollable(coord);
 
         // Test that scrolling down works
         int startScrollPoint = coord.getScrollYPixInt();
@@ -131,12 +130,11 @@ public class VrShellControllerInputTest {
     @Test
     @MediumTest
     public void testControllerFlingScrolling() throws InterruptedException {
-        mVrTestRule.loadUrl(
-                VrTestFramework.getHtmlTestFile("test_controller_scrolling"), PAGE_LOAD_TIMEOUT_S);
-        final WebContents wc = mVrTestRule.getActivity().getActivityTab().getWebContents();
-        Coordinates coord = Coordinates.createFor(wc);
-        waitForPageToBeScrollable(
-                mVrTestRule.getActivity().getActivityTab().getActiveContentViewCore());
+        mVrTestRule.loadUrl(VrTestFramework.getFileUrlForHtmlTestFile("test_controller_scrolling"),
+                PAGE_LOAD_TIMEOUT_S);
+        final RenderCoordinates coord =
+                RenderCoordinates.fromWebContents(mVrTestRule.getWebContents());
+        waitForPageToBeScrollable(coord);
 
         // Arbitrary, but valid values to trigger fling scrolling
         int scrollSteps = 2;
@@ -202,13 +200,13 @@ public class VrShellControllerInputTest {
     @Test
     @MediumTest
     public void testControllerClicksRegisterOnWebpage() throws InterruptedException {
-        mVrTestRule.loadUrl(
-                VrTestFramework.getHtmlTestFile("test_controller_clicks_register_on_webpage"),
+        mVrTestRule.loadUrl(VrTestFramework.getFileUrlForHtmlTestFile(
+                                    "test_controller_clicks_register_on_webpage"),
                 PAGE_LOAD_TIMEOUT_S);
 
         mController.performControllerClick();
         ChromeTabUtils.waitForTabPageLoaded(mVrTestRule.getActivity().getActivityTab(),
-                VrTestFramework.getHtmlTestFile("test_navigation_2d_page"));
+                VrTestFramework.getFileUrlForHtmlTestFile("test_navigation_2d_page"));
     }
 
     /*
@@ -221,20 +219,20 @@ public class VrShellControllerInputTest {
         VrTransitionUtils.forceEnterVr();
         VrTransitionUtils.waitForVrEntry(POLL_TIMEOUT_LONG_MS);
         // Fill history with enough items to scroll
-        mVrTestRule.loadUrl(
-                VrTestFramework.getHtmlTestFile("test_navigation_2d_page"), PAGE_LOAD_TIMEOUT_S);
-        mVrTestRule.loadUrl(
-                VrTestFramework.getHtmlTestFile("test_controller_scrolling"), PAGE_LOAD_TIMEOUT_S);
-        mVrTestRule.loadUrl(
-                VrTestFramework.getHtmlTestFile("generic_webvr_page"), PAGE_LOAD_TIMEOUT_S);
-        mVrTestRule.loadUrl(
-                VrTestFramework.getHtmlTestFile("test_navigation_webvr_page"), PAGE_LOAD_TIMEOUT_S);
-        mVrTestRule.loadUrl(
-                VrTestFramework.getHtmlTestFile("test_webvr_autopresent"), PAGE_LOAD_TIMEOUT_S);
-        mVrTestRule.loadUrl(
-                VrTestFramework.getHtmlTestFile("generic_webxr_page"), PAGE_LOAD_TIMEOUT_S);
-        mVrTestRule.loadUrl(
-                VrTestFramework.getHtmlTestFile("test_gamepad_button"), PAGE_LOAD_TIMEOUT_S);
+        mVrTestRule.loadUrl(VrTestFramework.getFileUrlForHtmlTestFile("test_navigation_2d_page"),
+                PAGE_LOAD_TIMEOUT_S);
+        mVrTestRule.loadUrl(VrTestFramework.getFileUrlForHtmlTestFile("test_controller_scrolling"),
+                PAGE_LOAD_TIMEOUT_S);
+        mVrTestRule.loadUrl(VrTestFramework.getFileUrlForHtmlTestFile("generic_webvr_page"),
+                PAGE_LOAD_TIMEOUT_S);
+        mVrTestRule.loadUrl(VrTestFramework.getFileUrlForHtmlTestFile("test_navigation_webvr_page"),
+                PAGE_LOAD_TIMEOUT_S);
+        mVrTestRule.loadUrl(VrTestFramework.getFileUrlForHtmlTestFile("test_webvr_autopresent"),
+                PAGE_LOAD_TIMEOUT_S);
+        mVrTestRule.loadUrl(VrTestFramework.getFileUrlForHtmlTestFile("generic_webxr_page"),
+                PAGE_LOAD_TIMEOUT_S);
+        mVrTestRule.loadUrl(VrTestFramework.getFileUrlForHtmlTestFile("test_gamepad_button"),
+                PAGE_LOAD_TIMEOUT_S);
 
         mVrTestRule.loadUrl("chrome://history", PAGE_LOAD_TIMEOUT_S);
 
@@ -270,9 +268,10 @@ public class VrShellControllerInputTest {
     @RetryOnFailure(message = "Very rarely, button press not registered (race condition?)")
     public void testAppButtonExitsFullscreen() throws InterruptedException, TimeoutException {
         mVrTestFramework.loadUrlAndAwaitInitialization(
-                VrTestFramework.getHtmlTestFile("test_navigation_2d_page"), PAGE_LOAD_TIMEOUT_S);
+                VrTestFramework.getFileUrlForHtmlTestFile("test_navigation_2d_page"),
+                PAGE_LOAD_TIMEOUT_S);
         // Enter fullscreen
-        DOMUtils.clickNode(mVrTestFramework.getFirstTabCvc(), "fullscreen",
+        DOMUtils.clickNode(mVrTestFramework.getFirstTabWebContents(), "fullscreen",
                 false /* goThroughRootAndroidView */);
         VrTestFramework.waitOnJavaScriptStep(mVrTestFramework.getFirstTabWebContents());
         Assert.assertTrue(DOMUtils.isFullscreen(mVrTestFramework.getFirstTabWebContents()));

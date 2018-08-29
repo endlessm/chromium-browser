@@ -56,7 +56,7 @@ constexpr int kSubmitButtonSizeDp = 20;
 constexpr int kCapsLockIconSizeDp = 20;
 
 // Color of the password field text.
-constexpr SkColor kTextColor = SkColorSetARGBMacro(0xAB, 0xFF, 0xFF, 0xFF);
+constexpr SkColor kTextColor = SkColorSetARGB(0xAB, 0xFF, 0xFF, 0xFF);
 
 // Width and height of the easy unlock icon.
 constexpr const int kEasyUnlockIconSizeDp = 20;
@@ -520,6 +520,7 @@ void LoginPasswordView::Backspace() {
 void LoginPasswordView::SetPlaceholderText(
     const base::string16& placeholder_text) {
   textfield_->set_placeholder_text(placeholder_text);
+  SchedulePaint();
 }
 
 void LoginPasswordView::SetReadOnly(bool read_only) {

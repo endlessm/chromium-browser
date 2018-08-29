@@ -85,6 +85,13 @@ void tools::gcc::Common::ConstructJob(Compilation &C, const JobAction &JA,
           A->getOption().matches(options::OPT_W_Group))
         continue;
 
+      // Don't forward -mno-unaligned-access since GCC doesn't understand
+      // it and because it doesn't affect the assembly or link steps.
+      if ((isa<AssembleJobAction>(JA) || isa<LinkJobAction>(JA)) &&
+          (A->getOption().matches(options::OPT_munaligned_access) ||
+           A->getOption().matches(options::OPT_mno_unaligned_access)))
+        continue;
+
       A->render(Args, CmdArgs);
     }
   }
@@ -219,37 +226,6 @@ void tools::gcc::Compiler::RenderExtraToolArgs(const JobAction &JA,
 void tools::gcc::Linker::RenderExtraToolArgs(const JobAction &JA,
                                              ArgStringList &CmdArgs) const {
   // The types are (hopefully) good enough.
-}
-
-static bool addXRayRuntime(const ToolChain &TC, const ArgList &Args,
-                           ArgStringList &CmdArgs) {
-  // Do not add the XRay runtime to shared libraries.
-  if (Args.hasArg(options::OPT_shared))
-    return false;
-
-  if (Args.hasFlag(options::OPT_fxray_instrument,
-                   options::OPT_fnoxray_instrument, false)) {
-    CmdArgs.push_back("-whole-archive");
-    CmdArgs.push_back(TC.getCompilerRTArgString(Args, "xray", false));
-    CmdArgs.push_back("-no-whole-archive");
-    return true;
-  }
-
-  return false;
-}
-
-static void linkXRayRuntimeDeps(const ToolChain &TC, const ArgList &Args,
-                                ArgStringList &CmdArgs) {
-  CmdArgs.push_back("--no-as-needed");
-  CmdArgs.push_back("-lpthread");
-  if (TC.getTriple().getOS() != llvm::Triple::OpenBSD)
-    CmdArgs.push_back("-lrt");
-  CmdArgs.push_back("-lm");
-
-  if (TC.getTriple().getOS() != llvm::Triple::FreeBSD &&
-      TC.getTriple().getOS() != llvm::Triple::NetBSD &&
-      TC.getTriple().getOS() != llvm::Triple::OpenBSD)
-    CmdArgs.push_back("-ldl");
 }
 
 static const char *getLDMOption(const llvm::Triple &T, const ArgList &Args) {
@@ -459,8 +435,11 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   ToolChain.AddFilePathLibArgs(Args, CmdArgs);
 
-  if (D.isUsingLTO())
-    AddGoldPlugin(ToolChain, Args, CmdArgs, D.getLTOMode() == LTOK_Thin, D);
+  if (D.isUsingLTO()) {
+    assert(!Inputs.empty() && "Must have at least one input.");
+    AddGoldPlugin(ToolChain, Args, CmdArgs, Output, Inputs[0],
+                  D.getLTOMode() == LTOK_Thin);
+  }
 
   if (Args.hasArg(options::OPT_Z_Xlinker__no_demangle))
     CmdArgs.push_back("--no-demangle");
@@ -496,7 +475,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
         linkSanitizerRuntimeDeps(ToolChain, CmdArgs);
 
       if (NeedsXRayDeps)
-        linkXRayRuntimeDeps(ToolChain, Args, CmdArgs);
+        linkXRayRuntimeDeps(ToolChain, CmdArgs);
 
       bool WantPthread = Args.hasArg(options::OPT_pthread) ||
                          Args.hasArg(options::OPT_pthreads);
@@ -555,6 +534,10 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   // Add OpenMP offloading linker script args if required.
   AddOpenMPLinkerScript(getToolChain(), C, Output, Inputs, Args, CmdArgs, JA);
+
+  // Add HIP offloading linker script args if required.
+  AddHIPLinkerScript(getToolChain(), C, Output, Inputs, Args, CmdArgs, JA,
+                     *this);
 
   C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs, Inputs));
 }
@@ -1566,7 +1549,7 @@ static bool findBiarchMultilibs(const Driver &D,
 /// all subcommands; this relies on gcc translating the majority of
 /// command line options.
 
-/// \brief Less-than for GCCVersion, implementing a Strict Weak Ordering.
+/// Less-than for GCCVersion, implementing a Strict Weak Ordering.
 bool Generic_GCC::GCCVersion::isOlderThan(int RHSMajor, int RHSMinor,
                                           int RHSPatch,
                                           StringRef RHSPatchSuffix) const {
@@ -1600,7 +1583,7 @@ bool Generic_GCC::GCCVersion::isOlderThan(int RHSMajor, int RHSMinor,
   return false;
 }
 
-/// \brief Parse a GCCVersion object out of a string of text.
+/// Parse a GCCVersion object out of a string of text.
 ///
 /// This is the primary means of forming GCCVersion objects.
 /*static*/
@@ -1615,21 +1598,29 @@ Generic_GCC::GCCVersion Generic_GCC::GCCVersion::Parse(StringRef VersionText) {
   GoodVersion.MajorStr = First.first.str();
   if (First.second.empty())
     return GoodVersion;
-  if (Second.first.getAsInteger(10, GoodVersion.Minor) || GoodVersion.Minor < 0)
+  StringRef MinorStr = Second.first;
+  if (Second.second.empty()) {
+    if (size_t EndNumber = MinorStr.find_first_not_of("0123456789")) {
+      GoodVersion.PatchSuffix = MinorStr.substr(EndNumber);
+      MinorStr = MinorStr.slice(0, EndNumber);
+    }
+  }
+  if (MinorStr.getAsInteger(10, GoodVersion.Minor) || GoodVersion.Minor < 0)
     return BadVersion;
-  GoodVersion.MinorStr = Second.first.str();
+  GoodVersion.MinorStr = MinorStr.str();
 
   // First look for a number prefix and parse that if present. Otherwise just
   // stash the entire patch string in the suffix, and leave the number
   // unspecified. This covers versions strings such as:
   //   5        (handled above)
   //   4.4
+  //   4.4-patched
   //   4.4.0
   //   4.4.x
   //   4.4.2-rc4
   //   4.4.x-patched
   // And retains any patch number it finds.
-  StringRef PatchText = GoodVersion.PatchSuffix = Second.second.str();
+  StringRef PatchText = Second.second;
   if (!PatchText.empty()) {
     if (size_t EndNumber = PatchText.find_first_not_of("0123456789")) {
       // Try to parse the number and any suffix.
@@ -1650,7 +1641,7 @@ static llvm::StringRef getGCCToolchainDir(const ArgList &Args) {
   return GCC_INSTALL_PREFIX;
 }
 
-/// \brief Initialize a GCCInstallationDetector from the driver.
+/// Initialize a GCCInstallationDetector from the driver.
 ///
 /// This performs all of the autodetection and sets up the various paths.
 /// Once constructed, a GCCInstallationDetector is essentially immutable.
@@ -1707,18 +1698,21 @@ void Generic_GCC::GCCInstallationDetector::init(
   // in /usr. This avoids accidentally enforcing the system GCC version
   // when using a custom toolchain.
   if (GCCToolchainDir == "" || GCCToolchainDir == D.SysRoot + "/usr") {
-    for (StringRef CandidateTriple : ExtraTripleAliases) {
-      if (ScanGentooGccConfig(TargetTriple, Args, CandidateTriple))
-        return;
-    }
-    for (StringRef CandidateTriple : CandidateTripleAliases) {
-      if (ScanGentooGccConfig(TargetTriple, Args, CandidateTriple))
-        return;
-    }
-    for (StringRef CandidateTriple : CandidateBiarchTripleAliases) {
-      if (ScanGentooGccConfig(TargetTriple, Args, CandidateTriple, true))
-        return;
-    }
+    SmallVector<StringRef, 16> GentooTestTriples;
+    // Try to match an exact triple as target triple first.
+    // e.g. crossdev -S x86_64-gentoo-linux-gnu will install gcc libs for
+    // x86_64-gentoo-linux-gnu. But "clang -target x86_64-gentoo-linux-gnu"
+    // may pick the libraries for x86_64-pc-linux-gnu even when exact matching
+    // triple x86_64-gentoo-linux-gnu is present.
+    GentooTestTriples.push_back(TargetTriple.str());
+    // Check rest of triples.
+    GentooTestTriples.append(ExtraTripleAliases.begin(),
+                             ExtraTripleAliases.end());
+    GentooTestTriples.append(CandidateTripleAliases.begin(),
+                             CandidateTripleAliases.end());
+    if (ScanGentooConfigs(TargetTriple, Args, GentooTestTriples,
+                          CandidateBiarchTripleAliases))
+      return;
   }
 
   // Loop over the various components which exist and select the best GCC
@@ -1731,6 +1725,9 @@ void Generic_GCC::GCCInstallationDetector::init(
       const std::string LibDir = Prefix + Suffix.str();
       if (!D.getVFS().exists(LibDir))
         continue;
+      // Try to match the exact target triple first.
+      ScanLibDirForGCCTriple(TargetTriple, Args, LibDir, TargetTriple.str());
+      // Try rest of possible triples.
       for (StringRef Candidate : ExtraTripleAliases) // Try these first.
         ScanLibDirForGCCTriple(TargetTriple, Args, LibDir, Candidate);
       for (StringRef Candidate : CandidateTripleAliases)
@@ -1803,6 +1800,7 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
   // Non-Solaris is much simpler - most systems just go with "/usr".
   if (SysRoot.empty() && TargetTriple.getOS() == llvm::Triple::Linux) {
     // Yet, still look for RHEL devtoolsets.
+    Prefixes.push_back("/opt/rh/devtoolset-7/root/usr");
     Prefixes.push_back("/opt/rh/devtoolset-6/root/usr");
     Prefixes.push_back("/opt/rh/devtoolset-4/root/usr");
     Prefixes.push_back("/opt/rh/devtoolset-3/root/usr");
@@ -1822,22 +1820,20 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
   // lifetime or initialization issues.
   static const char *const AArch64LibDirs[] = {"/lib64", "/lib"};
   static const char *const AArch64Triples[] = {
-      "aarch64-none-linux-gnu", "aarch64-linux-gnu", "aarch64-linux-android",
-      "aarch64-redhat-linux", "aarch64-suse-linux"};
+      "aarch64-none-linux-gnu", "aarch64-linux-gnu", "aarch64-redhat-linux",
+      "aarch64-suse-linux"};
   static const char *const AArch64beLibDirs[] = {"/lib"};
   static const char *const AArch64beTriples[] = {"aarch64_be-none-linux-gnu",
                                                  "aarch64_be-linux-gnu"};
 
   static const char *const ARMLibDirs[] = {"/lib"};
-  static const char *const ARMTriples[] = {"arm-linux-gnueabi",
-                                           "arm-linux-androideabi"};
+  static const char *const ARMTriples[] = {"arm-linux-gnueabi"};
   static const char *const ARMHFTriples[] = {"arm-linux-gnueabihf",
                                              "armv7hl-redhat-linux-gnueabi",
                                              "armv6hl-suse-linux-gnueabi",
                                              "armv7hl-suse-linux-gnueabi"};
   static const char *const ARMebLibDirs[] = {"/lib"};
-  static const char *const ARMebTriples[] = {"armeb-linux-gnueabi",
-                                             "armeb-linux-androideabi"};
+  static const char *const ARMebTriples[] = {"armeb-linux-gnueabi"};
   static const char *const ARMebHFTriples[] = {
       "armeb-linux-gnueabihf", "armebv7hl-redhat-linux-gnueabi"};
 
@@ -1847,16 +1843,14 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
       "x86_64-pc-linux-gnu",    "x86_64-redhat-linux6E",
       "x86_64-redhat-linux",    "x86_64-suse-linux",
       "x86_64-manbo-linux-gnu", "x86_64-linux-gnu",
-      "x86_64-slackware-linux", "x86_64-linux-android",
-      "x86_64-unknown-linux"};
+      "x86_64-slackware-linux", "x86_64-unknown-linux"};
   static const char *const X32LibDirs[] = {"/libx32"};
   static const char *const X86LibDirs[] = {"/lib32", "/lib"};
   static const char *const X86Triples[] = {
       "i686-linux-gnu",       "i686-pc-linux-gnu",     "i486-linux-gnu",
       "i386-linux-gnu",       "i386-redhat-linux6E",   "i686-redhat-linux",
       "i586-redhat-linux",    "i386-redhat-linux",     "i586-suse-linux",
-      "i486-slackware-linux", "i686-montavista-linux", "i686-linux-android",
-      "i586-linux-gnu"};
+      "i486-slackware-linux", "i686-montavista-linux", "i586-linux-gnu"};
 
   static const char *const MIPSLibDirs[] = {"/lib"};
   static const char *const MIPSTriples[] = {"mips-linux-gnu", "mips-mti-linux",
@@ -1875,13 +1869,6 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
       "mips64el-linux-gnu", "mips-mti-linux-gnu", "mips-img-linux-gnu",
       "mips64el-linux-gnuabi64"};
 
-  static const char *const MIPSELAndroidLibDirs[] = {"/lib", "/libr2",
-                                                     "/libr6"};
-  static const char *const MIPSELAndroidTriples[] = {"mipsel-linux-android"};
-  static const char *const MIPS64ELAndroidLibDirs[] = {"/lib64", "/lib",
-                                                       "/libr2", "/libr6"};
-  static const char *const MIPS64ELAndroidTriples[] = {
-      "mips64el-linux-android"};
 
   static const char *const PPCLibDirs[] = {"/lib32", "/lib"};
   static const char *const PPCTriples[] = {
@@ -1958,6 +1945,66 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
     return;
   }
 
+  // Android targets should not use GNU/Linux tools or libraries.
+  if (TargetTriple.isAndroid()) {
+    static const char *const AArch64AndroidTriples[] = {
+        "aarch64-linux-android"};
+    static const char *const ARMAndroidTriples[] = {"arm-linux-androideabi"};
+    static const char *const MIPSELAndroidTriples[] = {"mipsel-linux-android"};
+    static const char *const MIPS64ELAndroidTriples[] = {
+        "mips64el-linux-android"};
+    static const char *const X86AndroidTriples[] = {"i686-linux-android"};
+    static const char *const X86_64AndroidTriples[] = {"x86_64-linux-android"};
+
+    switch (TargetTriple.getArch()) {
+    case llvm::Triple::aarch64:
+      LibDirs.append(begin(AArch64LibDirs), end(AArch64LibDirs));
+      TripleAliases.append(begin(AArch64AndroidTriples),
+                           end(AArch64AndroidTriples));
+      break;
+    case llvm::Triple::arm:
+    case llvm::Triple::thumb:
+      LibDirs.append(begin(ARMLibDirs), end(ARMLibDirs));
+      TripleAliases.append(begin(ARMAndroidTriples), end(ARMAndroidTriples));
+      break;
+    case llvm::Triple::mipsel:
+      LibDirs.append(begin(MIPSELLibDirs), end(MIPSELLibDirs));
+      TripleAliases.append(begin(MIPSELAndroidTriples),
+                           end(MIPSELAndroidTriples));
+      BiarchLibDirs.append(begin(MIPS64ELLibDirs), end(MIPS64ELLibDirs));
+      BiarchTripleAliases.append(begin(MIPS64ELAndroidTriples),
+                                 end(MIPS64ELAndroidTriples));
+      break;
+    case llvm::Triple::mips64el:
+      LibDirs.append(begin(MIPS64ELLibDirs), end(MIPS64ELLibDirs));
+      TripleAliases.append(begin(MIPS64ELAndroidTriples),
+                           end(MIPS64ELAndroidTriples));
+      BiarchLibDirs.append(begin(MIPSELLibDirs), end(MIPSELLibDirs));
+      BiarchTripleAliases.append(begin(MIPSELAndroidTriples),
+                                 end(MIPSELAndroidTriples));
+      break;
+    case llvm::Triple::x86_64:
+      LibDirs.append(begin(X86_64LibDirs), end(X86_64LibDirs));
+      TripleAliases.append(begin(X86_64AndroidTriples),
+                           end(X86_64AndroidTriples));
+      BiarchLibDirs.append(begin(X86LibDirs), end(X86LibDirs));
+      BiarchTripleAliases.append(begin(X86AndroidTriples),
+                                 end(X86AndroidTriples));
+      break;
+    case llvm::Triple::x86:
+      LibDirs.append(begin(X86LibDirs), end(X86LibDirs));
+      TripleAliases.append(begin(X86AndroidTriples), end(X86AndroidTriples));
+      BiarchLibDirs.append(begin(X86_64LibDirs), end(X86_64LibDirs));
+      BiarchTripleAliases.append(begin(X86_64AndroidTriples),
+                                 end(X86_64AndroidTriples));
+      break;
+    default:
+      break;
+    }
+
+    return;
+  }
+
   switch (TargetTriple.getArch()) {
   case llvm::Triple::aarch64:
     LibDirs.append(begin(AArch64LibDirs), end(AArch64LibDirs));
@@ -2019,22 +2066,11 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
     BiarchTripleAliases.append(begin(MIPS64Triples), end(MIPS64Triples));
     break;
   case llvm::Triple::mipsel:
-    if (TargetTriple.isAndroid()) {
-      LibDirs.append(begin(MIPSELAndroidLibDirs), end(MIPSELAndroidLibDirs));
-      TripleAliases.append(begin(MIPSELAndroidTriples),
-                           end(MIPSELAndroidTriples));
-      BiarchLibDirs.append(begin(MIPS64ELAndroidLibDirs),
-                           end(MIPS64ELAndroidLibDirs));
-      BiarchTripleAliases.append(begin(MIPS64ELAndroidTriples),
-                                 end(MIPS64ELAndroidTriples));
-
-    } else {
-      LibDirs.append(begin(MIPSELLibDirs), end(MIPSELLibDirs));
-      TripleAliases.append(begin(MIPSELTriples), end(MIPSELTriples));
-      TripleAliases.append(begin(MIPSTriples), end(MIPSTriples));
-      BiarchLibDirs.append(begin(MIPS64ELLibDirs), end(MIPS64ELLibDirs));
-      BiarchTripleAliases.append(begin(MIPS64ELTriples), end(MIPS64ELTriples));
-    }
+    LibDirs.append(begin(MIPSELLibDirs), end(MIPSELLibDirs));
+    TripleAliases.append(begin(MIPSELTriples), end(MIPSELTriples));
+    TripleAliases.append(begin(MIPSTriples), end(MIPSTriples));
+    BiarchLibDirs.append(begin(MIPS64ELLibDirs), end(MIPS64ELLibDirs));
+    BiarchTripleAliases.append(begin(MIPS64ELTriples), end(MIPS64ELTriples));
     break;
   case llvm::Triple::mips64:
     LibDirs.append(begin(MIPS64LibDirs), end(MIPS64LibDirs));
@@ -2043,23 +2079,11 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
     BiarchTripleAliases.append(begin(MIPSTriples), end(MIPSTriples));
     break;
   case llvm::Triple::mips64el:
-    if (TargetTriple.isAndroid()) {
-      LibDirs.append(begin(MIPS64ELAndroidLibDirs),
-                     end(MIPS64ELAndroidLibDirs));
-      TripleAliases.append(begin(MIPS64ELAndroidTriples),
-                           end(MIPS64ELAndroidTriples));
-      BiarchLibDirs.append(begin(MIPSELAndroidLibDirs),
-                           end(MIPSELAndroidLibDirs));
-      BiarchTripleAliases.append(begin(MIPSELAndroidTriples),
-                                 end(MIPSELAndroidTriples));
-
-    } else {
-      LibDirs.append(begin(MIPS64ELLibDirs), end(MIPS64ELLibDirs));
-      TripleAliases.append(begin(MIPS64ELTriples), end(MIPS64ELTriples));
-      BiarchLibDirs.append(begin(MIPSELLibDirs), end(MIPSELLibDirs));
-      BiarchTripleAliases.append(begin(MIPSELTriples), end(MIPSELTriples));
-      BiarchTripleAliases.append(begin(MIPSTriples), end(MIPSTriples));
-    }
+    LibDirs.append(begin(MIPS64ELLibDirs), end(MIPS64ELLibDirs));
+    TripleAliases.append(begin(MIPS64ELTriples), end(MIPS64ELTriples));
+    BiarchLibDirs.append(begin(MIPSELLibDirs), end(MIPSELLibDirs));
+    BiarchTripleAliases.append(begin(MIPSELTriples), end(MIPSELTriples));
+    BiarchTripleAliases.append(begin(MIPSTriples), end(MIPSTriples));
     break;
   case llvm::Triple::ppc:
     LibDirs.append(begin(PPCLibDirs), end(PPCLibDirs));
@@ -2224,6 +2248,22 @@ void Generic_GCC::GCCInstallationDetector::ScanLibDirForGCCTriple(
   }
 }
 
+bool Generic_GCC::GCCInstallationDetector::ScanGentooConfigs(
+    const llvm::Triple &TargetTriple, const ArgList &Args,
+    const SmallVectorImpl<StringRef> &CandidateTriples,
+    const SmallVectorImpl<StringRef> &CandidateBiarchTriples) {
+  for (StringRef CandidateTriple : CandidateTriples) {
+    if (ScanGentooGccConfig(TargetTriple, Args, CandidateTriple))
+      return true;
+  }
+
+  for (StringRef CandidateTriple : CandidateBiarchTriples) {
+    if (ScanGentooGccConfig(TargetTriple, Args, CandidateTriple, true))
+      return true;
+  }
+  return false;
+}
+
 bool Generic_GCC::GCCInstallationDetector::ScanGentooGccConfig(
     const llvm::Triple &TargetTriple, const ArgList &Args,
     StringRef CandidateTriple, bool NeedsBiarchSuffix) {
@@ -2236,23 +2276,53 @@ bool Generic_GCC::GCCInstallationDetector::ScanGentooGccConfig(
     for (StringRef Line : Lines) {
       Line = Line.trim();
       // CURRENT=triple-version
-      if (Line.consume_front("CURRENT=")) {
-        const std::pair<StringRef, StringRef> ActiveVersion =
-          Line.rsplit('-');
-        // Note: Strictly speaking, we should be reading
-        // /etc/env.d/gcc/${CURRENT} now. However, the file doesn't
-        // contain anything new or especially useful to us.
-        const std::string GentooPath = D.SysRoot + "/usr/lib/gcc/" +
-                                       ActiveVersion.first.str() + "/" +
-                                       ActiveVersion.second.str();
+      if (!Line.consume_front("CURRENT="))
+        continue;
+      // Process the config file pointed to by CURRENT.
+      llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> ConfigFile =
+          D.getVFS().getBufferForFile(D.SysRoot + "/etc/env.d/gcc/" +
+                                      Line.str());
+      std::pair<StringRef, StringRef> ActiveVersion = Line.rsplit('-');
+      // List of paths to scan for libraries.
+      SmallVector<StringRef, 4> GentooScanPaths;
+      // Scan the Config file to find installed GCC libraries path.
+      // Typical content of the GCC config file:
+      // LDPATH="/usr/lib/gcc/x86_64-pc-linux-gnu/4.9.x:/usr/lib/gcc/
+      // (continued from previous line) x86_64-pc-linux-gnu/4.9.x/32"
+      // MANPATH="/usr/share/gcc-data/x86_64-pc-linux-gnu/4.9.x/man"
+      // INFOPATH="/usr/share/gcc-data/x86_64-pc-linux-gnu/4.9.x/info"
+      // STDCXX_INCDIR="/usr/lib/gcc/x86_64-pc-linux-gnu/4.9.x/include/g++-v4"
+      // We are looking for the paths listed in LDPATH=... .
+      if (ConfigFile) {
+        SmallVector<StringRef, 2> ConfigLines;
+        ConfigFile.get()->getBuffer().split(ConfigLines, "\n");
+        for (StringRef ConfLine : ConfigLines) {
+          ConfLine = ConfLine.trim();
+          if (ConfLine.consume_front("LDPATH=")) {
+            // Drop '"' from front and back if present.
+            ConfLine.consume_back("\"");
+            ConfLine.consume_front("\"");
+            // Get all paths sperated by ':'
+            ConfLine.split(GentooScanPaths, ':', -1, /*AllowEmpty*/ false);
+          }
+        }
+      }
+      // Test the path based on the version in /etc/env.d/gcc/config-{tuple}.
+      std::string basePath = "/usr/lib/gcc/" + ActiveVersion.first.str() + "/"
+          + ActiveVersion.second.str();
+      GentooScanPaths.push_back(StringRef(basePath));
+
+      // Scan all paths for GCC libraries.
+      for (const auto &GentooScanPath : GentooScanPaths) {
+        std::string GentooPath = D.SysRoot + std::string(GentooScanPath);
         if (D.getVFS().exists(GentooPath + "/crtbegin.o")) {
           if (!ScanGCCForMultilibs(TargetTriple, Args, GentooPath,
                                    NeedsBiarchSuffix))
-            return false;
+            continue;
 
           Version = GCCVersion::Parse(ActiveVersion.second);
           GCCInstallPath = GentooPath;
-          GCCParentLibPath = GentooPath + "/../../..";
+          GCCParentLibPath = GentooPath + std::string("/../../..");
           GCCTriple.setTriple(ActiveVersion.first);
           IsValid = true;
           return true;
@@ -2370,12 +2440,9 @@ void Generic_GCC::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
     return;
 
   switch (GetCXXStdlibType(DriverArgs)) {
-  case ToolChain::CST_Libcxx: {
-    std::string Path = findLibCxxIncludePath();
-    if (!Path.empty())
-      addSystemInclude(DriverArgs, CC1Args, Path);
+  case ToolChain::CST_Libcxx:
+    addLibCxxIncludePaths(DriverArgs, CC1Args);
     break;
-  }
 
   case ToolChain::CST_Libstdcxx:
     addLibStdCxxIncludePaths(DriverArgs, CC1Args);
@@ -2383,9 +2450,12 @@ void Generic_GCC::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   }
 }
 
-std::string Generic_GCC::findLibCxxIncludePath() const {
+void
+Generic_GCC::addLibCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
+                                   llvm::opt::ArgStringList &CC1Args) const {
   // FIXME: The Linux behavior would probaby be a better approach here.
-  return getDriver().SysRoot + "/usr/include/c++/v1";
+  addSystemInclude(DriverArgs, CC1Args,
+                   getDriver().SysRoot + "/usr/include/c++/v1");
 }
 
 void
@@ -2395,7 +2465,7 @@ Generic_GCC::addLibStdCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
   // FIXME: If we have a valid GCCInstallation, use it.
 }
 
-/// \brief Helper to add the variant paths of a libstdc++ installation.
+/// Helper to add the variant paths of a libstdc++ installation.
 bool Generic_GCC::addLibStdCXXIncludePaths(
     Twine Base, Twine Suffix, StringRef GCCTriple, StringRef GCCMultiarchTriple,
     StringRef TargetMultiarchTriple, Twine IncludeSuffix,

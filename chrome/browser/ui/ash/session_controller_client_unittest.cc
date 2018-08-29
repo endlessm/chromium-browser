@@ -27,9 +27,9 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "components/account_id/account_id.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -478,7 +478,8 @@ TEST_F(SessionControllerClientTest, SendUserSession) {
   // Simulate login.
   const AccountId account_id(
       AccountId::FromUserEmailGaiaId("user@test.com", "5555555555"));
-  user_manager()->AddUser(account_id);
+  const user_manager::User* user = user_manager()->AddUser(account_id);
+  TestingProfile* user_profile = CreateTestingProfile(user);
   session_manager_.CreateSession(
       account_id,
       chromeos::ProfileHelper::GetUserIdHashByUserIdForTesting(
@@ -489,6 +490,9 @@ TEST_F(SessionControllerClientTest, SendUserSession) {
 
   // User session was sent.
   EXPECT_EQ(1, session_controller.update_user_session_count());
+  ASSERT_TRUE(session_controller.last_user_session());
+  EXPECT_EQ(content::BrowserContext::GetServiceUserIdFor(user_profile),
+            session_controller.last_user_session()->user_info->service_user_id);
 
   // Simulate a request for an update where nothing changed.
   client.SendUserSession(*user_manager()->GetLoggedInUsers()[0]);

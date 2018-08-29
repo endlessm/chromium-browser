@@ -3,12 +3,12 @@ include_rules = [
   "+cc/debug",
   "+cc/output",
   "+chromeos/cryptohome",
+  "+components/account_id",
   "+components/exo",
   "+components/pref_registry",
   "+components/prefs",
   "+components/quirks",
   "+components/session_manager",
-  "+components/signin/core/account_id",
   "+components/strings",
   "+components/sync",
   "+components/ui_devtools",
@@ -22,13 +22,14 @@ include_rules = [
   "+media",
   "+mash/public/mojom",
   "+mash/shelf/public",
-  "+mojo/common",
   "+mojo/public",
   "+services/catalog/public",
   "+services/preferences/public",
+  "+services/service_manager/embedder",
   "+services/service_manager/public",
   "+services/ui/common",
   "+services/ui/public",
+  "+services/ui/ws2",
   "+services/viz/public",
   "+skia/ext",
   "+third_party/cros_system_api",
@@ -48,6 +49,7 @@ include_rules = [
   # Ash can talk to public interfaces for mini-apps.
   "+ash/components/autoclick/public",
   "+ash/components/quick_launch/public",
+  "+ash/components/tap_visualizer/public",
 
   # Ash sits above content. Exceptions live in //ash/content.
   "-content",
@@ -57,6 +59,7 @@ include_rules = [
   "-chromeos",
   "+chromeos/accelerometer",
   "+chromeos/audio",
+  "+chromeos/chromeos_features.h",
   "+chromeos/chromeos_switches.h",
   "+chromeos/chromeos_paths.h",
   "+chromeos/components/proximity_auth/logging/logging.h",
@@ -66,6 +69,7 @@ include_rules = [
   "+chromeos/dbus/power_manager",
   "+chromeos/dbus/power_manager_client.h",
   "+chromeos/dbus/power_policy_controller.h",
+  "+chromeos/dbus/services/cros_dbus_service.h",
   "+chromeos/dbus/session_manager_client.h",
   "+chromeos/dbus/shill_device_client.h",
   "+chromeos/dbus/system_clock_client.h",
@@ -75,6 +79,7 @@ include_rules = [
   # TODO(jamescook): Eliminate this. http://crbug.com/644355
   "+chromeos/network",
   "+chromeos/services/assistant/public" ,
+  "+chromeos/services/assistant/test_support",
   "+chromeos/services/multidevice_setup/public/mojom",
   # TODO(jamescook): Eliminate this. http://crbug.com/644361
   "+chromeos/settings/timezone_settings.h",
@@ -110,6 +115,12 @@ specific_include_rules = {
   "app_launch_unittest.cc": [
     "+ash/components/quick_launch/public",
   ],
+  "message_center_controller\.*": [
+    "+components/arc/common/notifications.mojom.h"
+  ],
+  "policy_recommendation_restorer_unittest.cc": [
+    "+components/sync_preferences/testing_pref_service_syncable.h"
+  ],
   "root_window_controller\.*": [
     "+ash/host"
   ],
@@ -126,9 +137,6 @@ specific_include_rules = {
     "+ash/host/ash_window_tree_host_mus.h",
     "+ash/host/ash_window_tree_host_mus_mirroring_unified.h",
     "+ash/host/ash_window_tree_host_mus_unified.h",
-  ],
-  "touch_transformer_controller\.*": [
-    "+ash/host"
   ],
   "window_manager.cc": [
     "+ash/host/ash_window_tree_host.h"

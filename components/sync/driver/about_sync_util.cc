@@ -14,6 +14,7 @@
 #include "base/values.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/sync/driver/sync_service.h"
+#include "components/sync/driver/sync_token_status.h"
 #include "components/sync/engine/cycle/sync_cycle_snapshot.h"
 #include "components/sync/engine/sync_status.h"
 #include "components/sync/engine/sync_string_conversions.h"
@@ -21,6 +22,7 @@
 #include "components/sync/protocol/proto_enum_conversions.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/time_format.h"
+#include "url/gurl.h"
 
 namespace syncer {
 
@@ -56,6 +58,7 @@ const char kSetIncludeSpecifics[] = "setIncludeSpecifics";
 const char kUserEventsVisibilityCallback[] =
     "chrome.sync.userEventsVisibilityCallback";
 const char kWriteUserEvent[] = "writeUserEvent";
+const char kTriggerRefresh[] = "triggerRefresh";
 
 // Other strings.
 const char kCommit[] = "commit";
@@ -218,7 +221,7 @@ std::string GetLastSyncedTimeString(base::Time last_synced_time) {
       time_since_last_sync));
 }
 
-std::string GetConnectionStatus(const SyncService::SyncTokenStatus& status) {
+std::string GetConnectionStatus(const SyncTokenStatus& status) {
   switch (status.connection_status) {
     case CONNECTION_NOT_ATTEMPTED:
       return "not attempted";
@@ -241,20 +244,12 @@ std::string GetConnectionStatus(const SyncService::SyncTokenStatus& status) {
 
 }  // namespace
 
-std::unique_ptr<base::DictionaryValue> ConstructAboutInformation_DEPRECATED(
-    SyncService* service,
-    version_info::Channel channel) {
-  return ConstructAboutInformation(
-      service, service->GetAuthenticatedAccountInfo(), channel);
-}
-
 // This function both defines the structure of the message to be returned and
 // its contents.  Most of the message consists of simple fields in about:sync
 // which are grouped into sections and populated with the help of the SyncStat
 // classes defined above.
 std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
     SyncService* service,
-    AccountInfo primary_account_info,
     version_info::Channel channel) {
   auto about_info = std::make_unique<base::DictionaryValue>();
 
@@ -292,9 +287,9 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
   Stat<std::string>* last_synced = section_local->AddStringStat("Last Synced");
   Stat<bool>* is_setup_complete =
       section_local->AddBoolStat("Sync First-Time Setup Complete");
-  Stat<std::string>* backend_initialization =
-      section_local->AddStringStat("Sync Backend Initialization");
-  Stat<bool>* is_syncing = section_local->AddBoolStat("Syncing");
+  Stat<std::string>* engine_initialization_state =
+      section_local->AddStringStat("Sync Engine State");
+  Stat<bool>* is_syncing = section_local->AddBoolStat("Sync Cycle Ongoing");
   Stat<bool>* is_local_sync_enabled =
       section_local->AddBoolStat("Local Sync Backend Enabled");
   Stat<std::string>* local_backend_path =
@@ -394,8 +389,7 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
   SyncStatus full_status;
   bool is_status_valid = service->QueryDetailedSyncStatus(&full_status);
   const SyncCycleSnapshot& snapshot = service->GetLastCycleSnapshot();
-  const SyncService::SyncTokenStatus& token_status =
-      service->GetSyncTokenStatus();
+  const SyncTokenStatus& token_status = service->GetSyncTokenStatus();
 
   // Summary.
   if (is_status_valid)
@@ -410,7 +404,7 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
     sync_id->Set(full_status.sync_id);
   if (is_status_valid && !full_status.invalidator_client_id.empty())
     invalidator_id->Set(full_status.invalidator_client_id);
-  username->Set(primary_account_info.email);
+  username->Set(service->GetAuthenticatedAccountInfo().email);
 
   // Credentials.
   request_token_time->Set(GetTimeStr(token_status.token_request_time, "n/a"));
@@ -424,7 +418,8 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
   server_connection->Set(GetConnectionStatus(token_status));
   last_synced->Set(GetLastSyncedTimeString(service->GetLastSyncedTime()));
   is_setup_complete->Set(service->IsFirstSetupComplete());
-  backend_initialization->Set(service->GetEngineInitializationStateString());
+  engine_initialization_state->Set(
+      service->GetEngineInitializationStateString());
   if (is_status_valid)
     is_syncing->Set(full_status.syncing);
   is_local_sync_enabled->Set(service->IsLocalSyncEnabled());

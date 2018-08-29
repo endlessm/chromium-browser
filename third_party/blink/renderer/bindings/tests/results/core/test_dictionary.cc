@@ -8,14 +8,14 @@
 // DO NOT MODIFY!
 
 // clang-format off
-#include "test_dictionary.h"
+#include "third_party/blink/renderer/bindings/tests/results/core/test_dictionary.h"
 
-#include "bindings/tests/idls/core/test_interface_garbage_collected.h"
-#include "bindings/tests/idls/core/test_interface_implementation.h"
-#include "bindings/tests/idls/core/test_object.h"
-#include "core/dom/element.h"
-#include "core/dom/events/event_target.h"
-#include "platform/wtf/vector.h"
+#include "third_party/blink/renderer/bindings/tests/idls/core/test_interface_garbage_collected.h"
+#include "third_party/blink/renderer/bindings/tests/idls/core/test_interface_implementation.h"
+#include "third_party/blink/renderer/bindings/tests/idls/core/test_object.h"
+#include "third_party/blink/renderer/core/dom/element.h"
+#include "third_party/blink/renderer/core/dom/events/event_target.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
@@ -57,12 +57,12 @@ void TestDictionary::setDoubleOrNullOrDoubleOrNullSequenceMember(const DoubleOrD
   double_or_null_or_double_or_null_sequence_member_ = value;
 }
 
-void TestDictionary::setDoubleOrNullRecordMember(const Vector<std::pair<String, Optional<double>>>& value) {
+void TestDictionary::setDoubleOrNullRecordMember(const Vector<std::pair<String, base::Optional<double>>>& value) {
   double_or_null_record_member_ = value;
   has_double_or_null_record_member_ = true;
 }
 
-void TestDictionary::setDoubleOrNullSequenceMember(const Vector<Optional<double>>& value) {
+void TestDictionary::setDoubleOrNullSequenceMember(const Vector<base::Optional<double>>& value) {
   double_or_null_sequence_member_ = value;
   has_double_or_null_sequence_member_ = true;
 }
@@ -217,7 +217,7 @@ void TestDictionary::Trace(blink::Visitor* visitor) {
   visitor->Trace(test_interface_or_null_member_);
   visitor->Trace(test_interface_sequence_member_);
   visitor->Trace(test_object_sequence_member_);
-  visitor->Trace(uint8_array_member_);
+  visitor->Trace(uint_8_array_member_);
   visitor->Trace(union_in_record_member_);
   visitor->Trace(union_member_with_sequence_default_);
   visitor->Trace(union_or_null_record_member_);

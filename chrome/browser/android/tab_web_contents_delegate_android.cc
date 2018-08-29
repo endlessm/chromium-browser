@@ -26,6 +26,7 @@
 #include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/ui/android/bluetooth_chooser_android.h"
 #include "chrome/browser/ui/android/infobars/framebust_block_infobar.h"
 #include "chrome/browser/ui/blocked_content/popup_blocker_tab_helper.h"
@@ -40,6 +41,7 @@
 #include "chrome/common/url_constants.h"
 #include "components/app_modal/javascript_dialog_manager.h"
 #include "components/infobars/core/infobar.h"
+#include "components/security_state/content/content_utils.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
@@ -47,6 +49,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/browser/security_style_explanations.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/file_chooser_params.h"
 #include "content/public/common/media_stream_request.h"
@@ -363,7 +366,7 @@ WebContents* TabWebContentsDelegateAndroid::OpenURLFromTab(
        params.disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB ||
        params.disposition == WindowOpenDisposition::NEW_WINDOW) &&
       PopupBlockerTabHelper::MaybeBlockPopup(source, base::Optional<GURL>(),
-                                             nav_params, &params,
+                                             &nav_params, &params,
                                              blink::mojom::WindowFeatures())) {
     return nullptr;
   }
@@ -371,12 +374,12 @@ WebContents* TabWebContentsDelegateAndroid::OpenURLFromTab(
   if (disposition == WindowOpenDisposition::CURRENT_TAB) {
     // Only prerender for a current-tab navigation to avoid session storage
     // namespace issues.
-    nav_params.target_contents = source;
+    prerender::PrerenderManager::Params prerender_params(&nav_params, source);
     prerender::PrerenderManager* prerender_manager =
         prerender::PrerenderManagerFactory::GetForBrowserContext(profile);
-    if (prerender_manager &&
-        prerender_manager->MaybeUsePrerenderedPage(params.url, &nav_params)) {
-      return nav_params.target_contents;
+    if (prerender_manager && prerender_manager->MaybeUsePrerenderedPage(
+                                 params.url, &prerender_params)) {
+      return prerender_params.replaced_contents;
     }
   }
 
@@ -395,7 +398,7 @@ bool TabWebContentsDelegateAndroid::ShouldResumeRequestsForCreatedWindow() {
 
 void TabWebContentsDelegateAndroid::AddNewContents(
     WebContents* source,
-    WebContents* new_contents,
+    std::unique_ptr<WebContents> new_contents,
     WindowOpenDisposition disposition,
     const gfx::Rect& initial_rect,
     bool user_gesture,
@@ -408,9 +411,9 @@ void TabWebContentsDelegateAndroid::AddNewContents(
   // At this point the |new_contents| is beyond the popup blocker, but we use
   // the same logic for determining if the popup tracker needs to be attached.
   if (source && PopupBlockerTabHelper::ConsiderForPopupBlocking(disposition))
-    PopupTracker::CreateForWebContents(new_contents, source);
+    PopupTracker::CreateForWebContents(new_contents.get(), source);
 
-  TabHelpers::AttachTabHelpers(new_contents);
+  TabHelpers::AttachTabHelpers(new_contents.get());
 
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
@@ -430,8 +433,23 @@ void TabWebContentsDelegateAndroid::AddNewContents(
 
   if (was_blocked)
     *was_blocked = !handled;
-  if (!handled)
-    delete new_contents;
+
+  // When handled is |true|, ownership has been passed to java, which in turn
+  // creates a new TabAndroid instance to own the WebContents.
+  if (handled)
+    new_contents.release();
+}
+
+blink::WebSecurityStyle TabWebContentsDelegateAndroid::GetSecurityStyle(
+    WebContents* web_contents,
+    content::SecurityStyleExplanations* security_style_explanations) {
+  SecurityStateTabHelper* helper =
+      SecurityStateTabHelper::FromWebContents(web_contents);
+  DCHECK(helper);
+  security_state::SecurityInfo security_info;
+  helper->GetSecurityInfo(&security_info);
+  return security_state::GetSecurityStyle(security_info,
+                                          security_style_explanations);
 }
 
 void TabWebContentsDelegateAndroid::RequestAppBannerFromDevTools(
@@ -440,15 +458,6 @@ void TabWebContentsDelegateAndroid::RequestAppBannerFromDevTools(
       banners::AppBannerManagerAndroid::FromWebContents(web_contents);
   DCHECK(manager);
   manager->RequestAppBanner(web_contents->GetLastCommittedURL(), true);
-}
-
-void TabWebContentsDelegateAndroid::OnAudioStateChanged(
-    WebContents* web_contents,
-    bool audible) {
-  SoundContentSettingObserver* sound_content_setting_observer =
-      SoundContentSettingObserver::FromWebContents(web_contents);
-  if (sound_content_setting_observer)
-    sound_content_setting_observer->OnAudioStateChanged(audible);
 }
 
 void TabWebContentsDelegateAndroid::OnDidBlockFramebust(

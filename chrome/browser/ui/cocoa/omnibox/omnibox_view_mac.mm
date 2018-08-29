@@ -901,8 +901,7 @@ base::scoped_nsobject<NSPasteboardItem> OmniboxViewMac::CreatePasteboardItem() {
   // Copy the URL.
   GURL url;
   bool write_url = false;
-  model()->AdjustTextForCopy(selection.location, IsSelectAll(), &text, &url,
-                             &write_url);
+  model()->AdjustTextForCopy(selection.location, &text, &url, &write_url);
 
   if (IsSelectAll())
     UMA_HISTOGRAM_COUNTS(OmniboxEditModel::kCutOrCopyAllTextHistogram, 1);
@@ -961,8 +960,8 @@ bool OmniboxViewMac::CanPasteAndGo() {
 int OmniboxViewMac::GetPasteActionStringId() {
   base::string16 text(GetClipboardText());
   DCHECK(model()->CanPasteAndGo(text));
-  return model()->IsPasteAndSearch(text) ?
-      IDS_PASTE_AND_SEARCH : IDS_PASTE_AND_GO;
+  return model()->ClassifiesAsSearch(text) ? IDS_PASTE_AND_SEARCH
+                                           : IDS_PASTE_AND_GO;
 }
 
 void OmniboxViewMac::OnPasteAndGo() {

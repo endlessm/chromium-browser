@@ -193,7 +193,7 @@ public class ChildProcessConnectionTest {
         ChildProcessConnection connection = createDefaultTestConnection();
         assertNotNull(mFirstServiceConnection);
         connection.start(false /* useStrongBinding */, mServiceCallback);
-        Assert.assertTrue(connection.isInitialBindingBound());
+        Assert.assertTrue(connection.isModerateBindingBound());
         Assert.assertFalse(connection.didOnServiceConnectedForTesting());
         verify(mServiceCallback, never()).onChildStarted();
         verify(mServiceCallback, never()).onChildStartFailed(any());
@@ -216,7 +216,7 @@ public class ChildProcessConnectionTest {
         doReturn(false).when(mFirstServiceConnection).bind();
         connection.start(false /* useStrongBinding */, mServiceCallback);
 
-        Assert.assertFalse(connection.isInitialBindingBound());
+        Assert.assertFalse(connection.isModerateBindingBound());
         Assert.assertFalse(connection.didOnServiceConnectedForTesting());
         verify(mServiceCallback, never()).onChildStarted();
         verify(mServiceCallback, never()).onChildStartFailed(any());
@@ -321,5 +321,30 @@ public class ChildProcessConnectionTest {
         assertNotNull(mConnectionPidCallback);
         mConnectionPidCallback.call(34 /* pid */);
         verify(mConnectionCallback, times(1)).onConnected(connection);
+    }
+
+    @Test
+    public void testKill() throws RemoteException {
+        ChildProcessConnection connection = createDefaultTestConnection();
+        assertNotNull(mFirstServiceConnection);
+        connection.start(false /* useStrongBinding */, null /* serviceCallback */);
+        mFirstServiceConnection.notifyServiceConnected(mChildProcessServiceBinder);
+        connection.setupConnection(
+                null /* connectionBundle */, null /* callback */, mConnectionCallback);
+        verify(mConnectionCallback, never()).onConnected(any());
+        ShadowLooper.runUiThreadTasks();
+        assertNotNull(mConnectionPidCallback);
+        mConnectionPidCallback.call(34 /* pid */);
+        verify(mConnectionCallback, times(1)).onConnected(connection);
+
+        // Add strong binding so that connection is oom protected.
+        connection.addStrongBinding();
+        Assert.assertFalse(connection.isWaivedBoundOnlyOrWasWhenDied());
+
+        // Kill and verify state.
+        connection.kill();
+        verify(mIChildProcessService).forceKill();
+        Assert.assertFalse(connection.isWaivedBoundOnlyOrWasWhenDied());
+        Assert.assertTrue(connection.isKilledByUs());
     }
 }

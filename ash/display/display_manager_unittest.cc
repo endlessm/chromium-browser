@@ -26,6 +26,7 @@
 #include "base/format_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chromeos/accelerometer/accelerometer_reader.h"
 #include "chromeos/accelerometer/accelerometer_types.h"
@@ -39,13 +40,13 @@
 #include "ui/display/display_layout_builder.h"
 #include "ui/display/display_observer.h"
 #include "ui/display/display_switches.h"
-#include "ui/display/manager/chromeos/display_change_observer.h"
-#include "ui/display/manager/chromeos/display_util.h"
-#include "ui/display/manager/chromeos/test/touch_device_manager_test_api.h"
+#include "ui/display/manager/display_change_observer.h"
 #include "ui/display/manager/display_layout_store.h"
 #include "ui/display/manager/display_manager_utilities.h"
+#include "ui/display/manager/display_util.h"
 #include "ui/display/manager/fake_display_snapshot.h"
 #include "ui/display/manager/managed_display_info.h"
+#include "ui/display/manager/test/touch_device_manager_test_api.h"
 #include "ui/display/screen.h"
 #include "ui/display/test/display_manager_test_api.h"
 #include "ui/events/devices/touchscreen_device.h"
@@ -204,11 +205,14 @@ TEST_F(DisplayManagerTest, UpdateDisplayTest) {
             display_manager()->GetDisplayAt(0).bounds().ToString());
 
   EXPECT_EQ("2 1 0 1 1", GetCountSummary());
-  EXPECT_EQ(display_manager()->GetDisplayAt(0).id(), changed()[0].id());
-  EXPECT_EQ(display_manager()->GetDisplayAt(1).id(), changed()[1].id());
+  // Metrics change immediately when new displays set shelf work area insets.
+  // After that, DisplayManager::OnNativeDisplaysChanged trigger changes of the
+  // primary display's metrics. So the observed order of changes is [1, 0].
+  EXPECT_EQ(display_manager()->GetDisplayAt(0).id(), changed()[1].id());
+  EXPECT_EQ(display_manager()->GetDisplayAt(1).id(), changed()[0].id());
   EXPECT_EQ(display_manager()->GetDisplayAt(1).id(), added()[0].id());
-  EXPECT_EQ("0,0 500x500", changed()[0].bounds().ToString());
-  EXPECT_EQ("500,0 400x400", changed()[1].bounds().ToString());
+  EXPECT_EQ("0,0 500x500", changed()[1].bounds().ToString());
+  EXPECT_EQ("500,0 400x400", changed()[0].bounds().ToString());
   // Secondary display is on right.
   EXPECT_EQ("500,0 400x400", added()[0].bounds().ToString());
   EXPECT_EQ("0,501 400x400",
@@ -343,14 +347,17 @@ TEST_F(DisplayManagerTest, UpdateThreeDisplaysWithDefaultLayout) {
             display_manager()->GetDisplayAt(2).bounds().ToString());
 
   EXPECT_EQ("3 2 0 1 1", GetCountSummary());
-  EXPECT_EQ(display_manager()->GetDisplayAt(0).id(), changed()[0].id());
-  EXPECT_EQ(display_manager()->GetDisplayAt(1).id(), changed()[1].id());
-  EXPECT_EQ(display_manager()->GetDisplayAt(2).id(), changed()[2].id());
+  // Metrics change immediately when new displays set shelf work area insets.
+  // After that, DisplayManager::OnNativeDisplaysChanged trigger changes of the
+  // primary display's metrics. So the observed order of changes is [1, 2, 0].
+  EXPECT_EQ(display_manager()->GetDisplayAt(0).id(), changed()[2].id());
+  EXPECT_EQ(display_manager()->GetDisplayAt(1).id(), changed()[0].id());
+  EXPECT_EQ(display_manager()->GetDisplayAt(2).id(), changed()[1].id());
   EXPECT_EQ(display_manager()->GetDisplayAt(1).id(), added()[0].id());
   EXPECT_EQ(display_manager()->GetDisplayAt(2).id(), added()[1].id());
-  EXPECT_EQ("0,0 640x480", changed()[0].bounds().ToString());
-  EXPECT_EQ("640,0 320x200", changed()[1].bounds().ToString());
-  EXPECT_EQ("960,0 400x300", changed()[2].bounds().ToString());
+  EXPECT_EQ("0,0 640x480", changed()[2].bounds().ToString());
+  EXPECT_EQ("640,0 320x200", changed()[0].bounds().ToString());
+  EXPECT_EQ("960,0 400x300", changed()[1].bounds().ToString());
   // Secondary and terniary displays are on right.
   EXPECT_EQ("640,0 320x200", added()[0].bounds().ToString());
   EXPECT_EQ("1000,0 320x200",
@@ -1397,7 +1404,7 @@ TEST_F(DisplayManagerTest, ZoomDisplay) {
   display_manager()->UpdateDisplays();
 
   // Enumerate the zoom factors for display.
-  const std::vector<double> zoom_factors_1 =
+  const std::vector<float> zoom_factors_1 =
       display::GetDisplayZoomFactors(modes_1[0]);
 
   // Set the zoom factor to one of the enumerated zoom factors for the said
@@ -1407,36 +1414,36 @@ TEST_F(DisplayManagerTest, ZoomDisplay) {
                                       zoom_factors_1[zoom_factor_idx_1]);
 
   // Make sure the chage was successful.
-  EXPECT_NEAR(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(),
-              zoom_factors_1[zoom_factor_idx_1], 0.001f);
+  EXPECT_FLOAT_EQ(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(),
+                  zoom_factors_1[zoom_factor_idx_1]);
 
   // Zoom out the display. This should have no effect, since the display is
   // already at the minimum zoom level.
   display_manager()->ZoomDisplay(info_1.id(), true /* up */);
-  EXPECT_NEAR(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(),
-              zoom_factors_1[zoom_factor_idx_1], 0.001f);
+  EXPECT_FLOAT_EQ(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(),
+                  zoom_factors_1[zoom_factor_idx_1]);
 
   // Ensure that this call did not modify the zoom value for the other display.
-  EXPECT_NEAR(display_manager()->GetDisplayInfo(info_2.id()).zoom_factor(), 1.f,
-              0.001f);
+  EXPECT_FLOAT_EQ(display_manager()->GetDisplayInfo(info_2.id()).zoom_factor(),
+                  1.f);
 
   // Zoom in the display.
   display_manager()->ZoomDisplay(info_1.id(), false /* up */);
 
   // The zoom factor for the display should be set to the next zoom factor in
   // list.
-  EXPECT_NEAR(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(),
-              zoom_factors_1[zoom_factor_idx_1 + 1], 0.001f);
+  EXPECT_FLOAT_EQ(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(),
+                  zoom_factors_1[zoom_factor_idx_1 + 1]);
 
   // Zoom out the display.
   display_manager()->ZoomDisplay(info_1.id(), true /* up */);
 
   // The zoom level should decrease from the previous level.
-  EXPECT_NEAR(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(),
-              zoom_factors_1[zoom_factor_idx_1], 0.001f);
+  EXPECT_FLOAT_EQ(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(),
+                  zoom_factors_1[zoom_factor_idx_1]);
 
   // Enumerate the zoom factors for display.
-  const std::vector<double> zoom_factors_2 =
+  const std::vector<float> zoom_factors_2 =
       display::GetDisplayZoomFactors(modes_2[0]);
 
   // Set the zoom factor to one of the enumerated zoom factors for the said
@@ -1446,38 +1453,38 @@ TEST_F(DisplayManagerTest, ZoomDisplay) {
                                       zoom_factors_2[zoom_factor_idx_2]);
 
   // Make sure the chage was successful.
-  EXPECT_NEAR(display_manager()->GetDisplayInfo(info_2.id()).zoom_factor(),
-              zoom_factors_2[zoom_factor_idx_2], 0.001f);
+  EXPECT_FLOAT_EQ(display_manager()->GetDisplayInfo(info_2.id()).zoom_factor(),
+                  zoom_factors_2[zoom_factor_idx_2]);
 
   // Zoom in the display. This should have no effect since we are already at
   // maximum zoom.
   display_manager()->ZoomDisplay(info_2.id(), false /* up */);
-  EXPECT_NEAR(display_manager()->GetDisplayInfo(info_2.id()).zoom_factor(),
-              zoom_factors_2[zoom_factor_idx_2], 0.001f);
+  EXPECT_FLOAT_EQ(display_manager()->GetDisplayInfo(info_2.id()).zoom_factor(),
+                  zoom_factors_2[zoom_factor_idx_2]);
 
   // Zoom out the display
   display_manager()->ZoomDisplay(info_2.id(), true /* up */);
-  EXPECT_NEAR(display_manager()->GetDisplayInfo(info_2.id()).zoom_factor(),
-              zoom_factors_2[zoom_factor_idx_2 - 1], 0.001f);
+  EXPECT_FLOAT_EQ(display_manager()->GetDisplayInfo(info_2.id()).zoom_factor(),
+                  zoom_factors_2[zoom_factor_idx_2 - 1]);
 
   // Ensure that this call did not modify the zoom value for the other display.
-  EXPECT_NEAR(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(),
-              zoom_factors_1[zoom_factor_idx_1], 0.001f);
+  EXPECT_FLOAT_EQ(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(),
+                  zoom_factors_1[zoom_factor_idx_1]);
 
   // Reset the zoom value for displays.
   display_manager()->ResetDisplayZoom(info_1.id());
-  EXPECT_NEAR(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(), 1.f,
-              0.001f);
+  EXPECT_FLOAT_EQ(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(),
+                  1.f);
   // Resetting the zoom level of one display should not effect the other display
-  EXPECT_NEAR(display_manager()->GetDisplayInfo(info_2.id()).zoom_factor(),
-              zoom_factors_2[zoom_factor_idx_2 - 1], 0.001f);
+  EXPECT_FLOAT_EQ(display_manager()->GetDisplayInfo(info_2.id()).zoom_factor(),
+                  zoom_factors_2[zoom_factor_idx_2 - 1]);
 
   // Now reset the zoom value for other display.
   display_manager()->ResetDisplayZoom(info_2.id());
-  EXPECT_NEAR(display_manager()->GetDisplayInfo(info_2.id()).zoom_factor(), 1.f,
-              0.001f);
-  EXPECT_NEAR(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(), 1.f,
-              0.001f);
+  EXPECT_FLOAT_EQ(display_manager()->GetDisplayInfo(info_2.id()).zoom_factor(),
+                  1.f);
+  EXPECT_FLOAT_EQ(display_manager()->GetDisplayInfo(info_1.id()).zoom_factor(),
+                  1.f);
 }
 
 TEST_F(DisplayManagerTest, TestDeviceScaleOnlyChange) {
@@ -1966,119 +1973,6 @@ TEST_F(DisplayManagerTest, Rotate) {
             post_rotation_info.GetActiveRotation());
 }
 
-TEST_F(DisplayManagerTest, UIScale) {
-  UpdateDisplay("1280x800");
-  int64_t display_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 1.125f);
-  EXPECT_EQ(1.0, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.8f);
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.75f);
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.625f);
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
-
-  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
-                                                         display_id);
-
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 1.5f);
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 1.25f);
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 1.125f);
-  EXPECT_EQ(1.125f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.8f);
-  EXPECT_EQ(0.8f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.75f);
-  EXPECT_EQ(0.8f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.625f);
-  EXPECT_EQ(0.625f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.6f);
-  EXPECT_EQ(0.625f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.5f);
-  EXPECT_EQ(0.5f, GetDisplayInfoAt(0).configured_ui_scale());
-
-  UpdateDisplay("1366x768");
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 1.5f);
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 1.25f);
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 1.125f);
-  EXPECT_EQ(1.125f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.8f);
-  EXPECT_EQ(1.125f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.75f);
-  EXPECT_EQ(0.75f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.6f);
-  EXPECT_EQ(0.6f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.625f);
-  EXPECT_EQ(0.6f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.5f);
-  EXPECT_EQ(0.5f, GetDisplayInfoAt(0).configured_ui_scale());
-
-  UpdateDisplay("1280x850*2");
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 1.5f);
-  EXPECT_EQ(1.5f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 1.25f);
-  EXPECT_EQ(1.25f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 1.125f);
-  EXPECT_EQ(1.125f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 1.0f);
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::Display display = display::Screen::GetScreen()->GetPrimaryDisplay();
-  EXPECT_EQ(2.0f, display.device_scale_factor());
-  EXPECT_EQ("640x425", display.bounds().size().ToString());
-
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.8f);
-  EXPECT_EQ(0.8f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.75f);
-  EXPECT_EQ(0.8f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.625f);
-  EXPECT_EQ(0.625f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.6f);
-  EXPECT_EQ(0.625f, GetDisplayInfoAt(0).configured_ui_scale());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.5f);
-  EXPECT_EQ(0.5f, GetDisplayInfoAt(0).configured_ui_scale());
-
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 2.0f);
-  EXPECT_EQ(2.0f, GetDisplayInfoAt(0).configured_ui_scale());
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveUIScale());
-  display = display::Screen::GetScreen()->GetPrimaryDisplay();
-  EXPECT_EQ(1.0f, display.device_scale_factor());
-  EXPECT_EQ("1280x850", display.bounds().size().ToString());
-}
-
 TEST_F(DisplayManagerTest, UIScaleWithDisplayMode) {
   int display_id = 1000;
 
@@ -2178,79 +2072,6 @@ TEST_F(DisplayManagerTest, UIScaleWithDisplayMode) {
   EXPECT_TRUE(expected_mode.IsEquivalent(active_mode));
 }
 
-// Tests that ResetInternalDisplayZoom() resets to the default 0.8f UI scale
-// defined for the 1.25x displays.
-TEST_F(DisplayManagerTest, ResetInternalDisplayZoomFor1_25x) {
-  // Setup the display modes with UI-scale.
-  display::ManagedDisplayMode base_mode(
-      gfx::Size(1920, 1080), 60.0f, false /* is_interlaced */,
-      true /* native */, 1.0f /* ui_scale */, 1.25f /* device_scale_factor */);
-  display::ManagedDisplayInfo::ManagedDisplayModeList mode_list =
-      CreateInternalManagedDisplayModeList(base_mode);
-
-  const int display_id = 1000;
-  display::ManagedDisplayInfo native_display_info =
-      display::CreateDisplayInfo(display_id, gfx::Rect(0, 0, 1920, 1080));
-  native_display_info.set_device_scale_factor(1.25f);
-  native_display_info.SetManagedDisplayModes(mode_list);
-
-  std::vector<display::ManagedDisplayInfo> display_info_list;
-  display_info_list.push_back(native_display_info);
-  display_manager()->OnNativeDisplaysChanged(display_info_list);
-
-  display::ManagedDisplayMode expected_mode = base_mode;
-  display::ManagedDisplayMode active_mode;
-  EXPECT_TRUE(
-      display_manager()->GetActiveModeForDisplayId(display_id, &active_mode));
-  EXPECT_TRUE(expected_mode.IsEquivalent(active_mode));
-
-  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
-                                                         display_id);
-
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.5f);
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
-  EXPECT_EQ(0.5f, GetDisplayInfoAt(0).GetEffectiveUIScale());
-  EXPECT_EQ(0.5f, GetDisplayInfoAt(0).configured_ui_scale());
-  EXPECT_EQ("960x540", GetDisplayForId(display_id).size().ToString());
-
-  // Reset the internal display zoom and expect the UI scale to go to the
-  // default 0.8f.
-  display_manager()->ResetInternalDisplayZoom();
-  EXPECT_EQ(1.25f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveUIScale());
-  EXPECT_EQ(0.8f, GetDisplayInfoAt(0).configured_ui_scale());
-  EXPECT_EQ("1536x864", GetDisplayForId(display_id).size().ToString());
-}
-
-TEST_F(DisplayManagerTest, Use125DSFForUIScaling) {
-  int64_t display_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
-
-  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
-                                                         display_id);
-  UpdateDisplay("1920x1080*1.25");
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveUIScale());
-
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.8f);
-  EXPECT_EQ(1.25f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveUIScale());
-  EXPECT_EQ("1536x864", GetDisplayForId(display_id).size().ToString());
-
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 0.5f);
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
-  EXPECT_EQ(0.5f, GetDisplayInfoAt(0).GetEffectiveUIScale());
-  EXPECT_EQ("960x540", GetDisplayForId(display_id).size().ToString());
-
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetDisplayUIScale(display_id, 1.25f);
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
-  EXPECT_EQ(1.25f, GetDisplayInfoAt(0).GetEffectiveUIScale());
-  EXPECT_EQ("2400x1350", GetDisplayForId(display_id).size().ToString());
-}
-
 TEST_F(DisplayManagerTest, FHD125DefaultsTo08UIScaling) {
   int64_t display_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
 
@@ -2275,39 +2096,6 @@ TEST_F(DisplayManagerTest, FHD125DefaultsTo08UIScaling) {
   display_manager()->OnNativeDisplaysChanged(display_info_list);
 
   EXPECT_EQ(1.25f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveUIScale());
-}
-
-// Don't default to 1.25 DSF if the user already has a prefrence stored for
-// the internal display.
-TEST_F(DisplayManagerTest, FHD125DefaultsTo08UIScalingNoOverride) {
-  int64_t display_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
-
-  display_id++;
-  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
-                                                         display_id);
-  const gfx::Insets dummy_overscan_insets;
-  display_manager()->RegisterDisplayProperty(
-      display_id, display::Display::ROTATE_0, 1.0f, &dummy_overscan_insets,
-      gfx::Size(), 1.0f, 1.0f);
-
-  // Setup the display modes with UI-scale.
-  display::ManagedDisplayInfo native_display_info =
-      display::CreateDisplayInfo(display_id, gfx::Rect(0, 0, 1920, 1080));
-  native_display_info.set_device_scale_factor(1.25);
-
-  const display::ManagedDisplayMode base_mode(gfx::Size(1920, 1080), 60.0f,
-                                              false, false);
-  display::ManagedDisplayInfo::ManagedDisplayModeList mode_list =
-      CreateInternalManagedDisplayModeList(base_mode);
-  native_display_info.SetManagedDisplayModes(mode_list);
-
-  std::vector<display::ManagedDisplayInfo> display_info_list;
-  display_info_list.push_back(native_display_info);
-
-  display_manager()->OnNativeDisplaysChanged(display_info_list);
-
-  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
   EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveUIScale());
 }
 
@@ -3400,12 +3188,11 @@ TEST_F(DisplayManagerFontTest, TextSubpixelPositioningWithDsf200Internal) {
   ASSERT_DOUBLE_EQ(
       2.0f,
       display::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor());
-  EXPECT_TRUE(IsTextSubpixelPositioningEnabled());
-  EXPECT_EQ(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
+  EXPECT_FALSE(IsTextSubpixelPositioningEnabled());
+  EXPECT_NE(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
 
-  display::test::DisplayManagerTestApi(helper.display_manager())
-      .SetDisplayUIScale(display::Screen::GetScreen()->GetPrimaryDisplay().id(),
-                         2.0f);
+  helper.display_manager()->UpdateZoomFactor(
+      display::Screen::GetScreen()->GetPrimaryDisplay().id(), 0.5f);
 
   ASSERT_DOUBLE_EQ(
       1.0f,
@@ -3437,28 +3224,363 @@ TEST_F(DisplayManagerFontTest, TextSubpixelPositioningWithDsf200External) {
   ASSERT_DOUBLE_EQ(
       2.0f,
       display::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor());
-  EXPECT_TRUE(IsTextSubpixelPositioningEnabled());
-  EXPECT_EQ(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
+  EXPECT_FALSE(IsTextSubpixelPositioningEnabled());
+  EXPECT_NE(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
 }
 
 TEST_F(DisplayManagerFontTest,
        TextSubpixelPositioningWithDsf125InternalWithScaling) {
   FontTestHelper helper(1.25f, FontTestHelper::INTERNAL);
-  ASSERT_DOUBLE_EQ(
-      1.0f,
-      display::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor());
-  EXPECT_FALSE(IsTextSubpixelPositioningEnabled());
-  EXPECT_NE(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
-
-  display::test::DisplayManagerTestApi(helper.display_manager())
-      .SetDisplayUIScale(display::Screen::GetScreen()->GetPrimaryDisplay().id(),
-                         0.8f);
 
   ASSERT_DOUBLE_EQ(
       1.25f,
       display::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor());
   EXPECT_TRUE(IsTextSubpixelPositioningEnabled());
   EXPECT_EQ(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
+
+  helper.display_manager()->UpdateZoomFactor(
+      display::Screen::GetScreen()->GetPrimaryDisplay().id(), 0.8f);
+
+  ASSERT_DOUBLE_EQ(
+      1.f,
+      display::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor());
+  EXPECT_FALSE(IsTextSubpixelPositioningEnabled());
+  EXPECT_NE(gfx::FontRenderParams::HINTING_NONE, GetFontHintingParams());
+}
+
+TEST_F(DisplayManagerTest, FirstInitializationOfDisplayZoom) {
+  const float ui_scale = 0.8;
+  const float dsf = 2.f;
+  int64_t display_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
+
+  display_id++;
+  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
+                                                         display_id);
+  display_manager()->RegisterDisplayProperty(
+      display_id, display::Display::ROTATE_0, ui_scale, nullptr, gfx::Size(),
+      1.0f, 1.0f);
+
+  // Setup the display modes with UI-scale.
+  display::ManagedDisplayInfo native_display_info =
+      display::CreateDisplayInfo(display_id, gfx::Rect(0, 0, 2400, 1600));
+  native_display_info.set_native(true);
+  native_display_info.set_device_scale_factor(dsf);
+
+  const display::ManagedDisplayMode base_mode(gfx::Size(2400, 1600), 60.0f,
+                                              false, false);
+  display::ManagedDisplayInfo::ManagedDisplayModeList mode_list =
+      CreateInternalManagedDisplayModeList(base_mode);
+  native_display_info.SetManagedDisplayModes(mode_list);
+
+  std::vector<display::ManagedDisplayInfo> display_info_list;
+  display_info_list.push_back(native_display_info);
+
+  display_manager()->OnNativeDisplaysChanged(display_info_list);
+
+  const float expected_zoom_factor = 1.f / ui_scale;
+
+  const display::ManagedDisplayInfo& info = GetDisplayInfoAt(0);
+  EXPECT_FLOAT_EQ(expected_zoom_factor * dsf,
+                  info.GetEffectiveDeviceScaleFactor());
+  EXPECT_FLOAT_EQ(expected_zoom_factor, info.zoom_factor());
+  EXPECT_EQ(1.f, info.configured_ui_scale());
+}
+
+TEST_F(DisplayManagerTest, SubsequentInitializationOfDisplayZoom) {
+  int64_t id = display_manager()->GetDisplayAt(0).id();
+  const float zoom_factor = 1.5f;
+  // Negative value of ui scale means that this is not the first boot with
+  // display zoom enabled.
+  display_manager()->RegisterDisplayProperty(id, display::Display::ROTATE_0,
+                                             -1 /* ui_scale */, nullptr,
+                                             gfx::Size(), 1.f, zoom_factor);
+
+  const display::ManagedDisplayInfo& info =
+      display_manager()->GetDisplayInfo(id);
+
+  EXPECT_FLOAT_EQ(info.zoom_factor(), zoom_factor);
+  EXPECT_FLOAT_EQ(info.configured_ui_scale(), 1.f);
+  EXPECT_FALSE(info.is_zoom_factor_from_ui_scale());
+}
+
+TEST_F(DisplayManagerTest, FirstInitializationOfDisplayZoomOnFHD125Device) {
+  const float ui_scale = 0.625f;
+  const float dsf = 1.25f;
+  int64_t display_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
+
+  display_id++;
+  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
+                                                         display_id);
+  display_manager()->RegisterDisplayProperty(
+      display_id, display::Display::ROTATE_0, ui_scale, nullptr, gfx::Size(),
+      1.0f, 1.0f);
+
+  // Setup the display modes with UI-scale.
+  display::ManagedDisplayInfo native_display_info =
+      display::CreateDisplayInfo(display_id, gfx::Rect(0, 0, 1920, 1080));
+  native_display_info.set_native(true);
+  native_display_info.set_device_scale_factor(dsf);
+
+  const display::ManagedDisplayMode base_mode(gfx::Size(1920, 1080), 60.0f,
+                                              false, false);
+  display::ManagedDisplayInfo::ManagedDisplayModeList mode_list =
+      CreateInternalManagedDisplayModeList(base_mode);
+  native_display_info.SetManagedDisplayModes(mode_list);
+
+  std::vector<display::ManagedDisplayInfo> display_info_list;
+  display_info_list.push_back(native_display_info);
+
+  display_manager()->OnNativeDisplaysChanged(display_info_list);
+
+  const float expected_zoom_factor = 1.f / (ui_scale * dsf);
+
+  const display::ManagedDisplayInfo& info = GetDisplayInfoAt(0);
+  EXPECT_FLOAT_EQ(expected_zoom_factor * dsf,
+                  info.GetEffectiveDeviceScaleFactor());
+  EXPECT_FLOAT_EQ(expected_zoom_factor, info.zoom_factor());
+  EXPECT_EQ(1.f, info.configured_ui_scale());
+}
+
+namespace {
+
+// UiScaleTest is kept to ensure UI scaling works as expected when the display
+// zoom feature is disable.
+class UiScaleTest : public DisplayManagerTest {
+ public:
+  UiScaleTest() = default;
+  ~UiScaleTest() override = default;
+
+  void SetUp() override {
+    scoped_feature_list_.InitAndDisableFeature(
+        features::kEnableDisplayZoomSetting);
+    DisplayManagerTest::SetUp();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+
+  DISALLOW_COPY_AND_ASSIGN(UiScaleTest);
+};
+
+}  // namespace
+
+// Tests that ResetInternalDisplayZoom() resets to the default 0.8f UI scale
+// defined for the 1.25x displays.
+TEST_F(UiScaleTest, ResetInternalDisplayZoomFor1_25x) {
+  // Setup the display modes with UI-scale.
+  display::ManagedDisplayMode base_mode(
+      gfx::Size(1920, 1080), 60.0f, false /* is_interlaced */,
+      true /* native */, 1.0f /* ui_scale */, 1.25f /* device_scale_factor */);
+  display::ManagedDisplayInfo::ManagedDisplayModeList mode_list =
+      CreateInternalManagedDisplayModeList(base_mode);
+
+  const int display_id = 1000;
+  display::ManagedDisplayInfo native_display_info =
+      display::CreateDisplayInfo(display_id, gfx::Rect(0, 0, 1920, 1080));
+  native_display_info.set_device_scale_factor(1.25f);
+  native_display_info.SetManagedDisplayModes(mode_list);
+
+  std::vector<display::ManagedDisplayInfo> display_info_list;
+  display_info_list.push_back(native_display_info);
+  display_manager()->OnNativeDisplaysChanged(display_info_list);
+
+  display::ManagedDisplayMode expected_mode = base_mode;
+  display::ManagedDisplayMode active_mode;
+  EXPECT_TRUE(
+      display_manager()->GetActiveModeForDisplayId(display_id, &active_mode));
+  EXPECT_TRUE(expected_mode.IsEquivalent(active_mode));
+
+  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
+                                                         display_id);
+
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.5f);
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
+  EXPECT_EQ(0.5f, GetDisplayInfoAt(0).GetEffectiveUIScale());
+  EXPECT_EQ(0.5f, GetDisplayInfoAt(0).configured_ui_scale());
+  EXPECT_EQ("960x540", GetDisplayForId(display_id).size().ToString());
+
+  // Reset the internal display zoom and expect the UI scale to go to the
+  // default 0.8f.
+  display_manager()->ResetInternalDisplayZoom();
+  EXPECT_EQ(1.25f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveUIScale());
+  EXPECT_EQ(0.8f, GetDisplayInfoAt(0).configured_ui_scale());
+  EXPECT_EQ("1536x864", GetDisplayForId(display_id).size().ToString());
+}
+
+// Don't default to 1.25 DSF if the user already has a prefrence stored for
+// the internal display.
+TEST_F(UiScaleTest, FHD125DefaultsTo08UIScalingNoOverride) {
+  int64_t display_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
+
+  display_id++;
+  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
+                                                         display_id);
+  const gfx::Insets dummy_overscan_insets;
+  display_manager()->RegisterDisplayProperty(
+      display_id, display::Display::ROTATE_0, 1.0f, &dummy_overscan_insets,
+      gfx::Size(), 1.0f, 1.0f);
+
+  // Setup the display modes with UI-scale.
+  display::ManagedDisplayInfo native_display_info =
+      display::CreateDisplayInfo(display_id, gfx::Rect(0, 0, 1920, 1080));
+  native_display_info.set_device_scale_factor(1.25);
+
+  const display::ManagedDisplayMode base_mode(gfx::Size(1920, 1080), 60.0f,
+                                              false, false);
+  display::ManagedDisplayInfo::ManagedDisplayModeList mode_list =
+      CreateInternalManagedDisplayModeList(base_mode);
+  native_display_info.SetManagedDisplayModes(mode_list);
+
+  std::vector<display::ManagedDisplayInfo> display_info_list;
+  display_info_list.push_back(native_display_info);
+
+  display_manager()->OnNativeDisplaysChanged(display_info_list);
+
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveUIScale());
+}
+
+TEST_F(UiScaleTest, UIScale) {
+  UpdateDisplay("1280x800");
+  int64_t display_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 1.125f);
+  EXPECT_EQ(1.0, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.8f);
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.75f);
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.625f);
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
+
+  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
+                                                         display_id);
+
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 1.5f);
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 1.25f);
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 1.125f);
+  EXPECT_EQ(1.125f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.8f);
+  EXPECT_EQ(0.8f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.75f);
+  EXPECT_EQ(0.8f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.625f);
+  EXPECT_EQ(0.625f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.6f);
+  EXPECT_EQ(0.625f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.5f);
+  EXPECT_EQ(0.5f, GetDisplayInfoAt(0).configured_ui_scale());
+
+  UpdateDisplay("1366x768");
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 1.5f);
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 1.25f);
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 1.125f);
+  EXPECT_EQ(1.125f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.8f);
+  EXPECT_EQ(1.125f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.75f);
+  EXPECT_EQ(0.75f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.6f);
+  EXPECT_EQ(0.6f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.625f);
+  EXPECT_EQ(0.6f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.5f);
+  EXPECT_EQ(0.5f, GetDisplayInfoAt(0).configured_ui_scale());
+
+  UpdateDisplay("1280x850*2");
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 1.5f);
+  EXPECT_EQ(1.5f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 1.25f);
+  EXPECT_EQ(1.25f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 1.125f);
+  EXPECT_EQ(1.125f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 1.0f);
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::Display display = display::Screen::GetScreen()->GetPrimaryDisplay();
+  EXPECT_EQ(2.0f, display.device_scale_factor());
+  EXPECT_EQ("640x425", display.bounds().size().ToString());
+
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.8f);
+  EXPECT_EQ(0.8f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.75f);
+  EXPECT_EQ(0.8f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.625f);
+  EXPECT_EQ(0.625f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.6f);
+  EXPECT_EQ(0.625f, GetDisplayInfoAt(0).configured_ui_scale());
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.5f);
+  EXPECT_EQ(0.5f, GetDisplayInfoAt(0).configured_ui_scale());
+
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 2.0f);
+  EXPECT_EQ(2.0f, GetDisplayInfoAt(0).configured_ui_scale());
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveUIScale());
+  display = display::Screen::GetScreen()->GetPrimaryDisplay();
+  EXPECT_EQ(1.0f, display.device_scale_factor());
+  EXPECT_EQ("1280x850", display.bounds().size().ToString());
+}
+
+TEST_F(UiScaleTest, Use125DSFForUIScaling) {
+  int64_t display_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
+
+  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
+                                                         display_id);
+  UpdateDisplay("1920x1080*1.25");
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveUIScale());
+
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.8f);
+  EXPECT_EQ(1.25f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveUIScale());
+  EXPECT_EQ("1536x864", GetDisplayForId(display_id).size().ToString());
+
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 0.5f);
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
+  EXPECT_EQ(0.5f, GetDisplayInfoAt(0).GetEffectiveUIScale());
+  EXPECT_EQ("960x540", GetDisplayForId(display_id).size().ToString());
+
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display_id, 1.25f);
+  EXPECT_EQ(1.0f, GetDisplayInfoAt(0).GetEffectiveDeviceScaleFactor());
+  EXPECT_EQ(1.25f, GetDisplayInfoAt(0).GetEffectiveUIScale());
+  EXPECT_EQ("2400x1350", GetDisplayForId(display_id).size().ToString());
 }
 
 TEST_F(DisplayManagerTest, CheckInitializationOfRotationProperty) {
@@ -3700,7 +3822,7 @@ TEST_F(DisplayManagerTest, ForcedMirrorMode) {
   EXPECT_EQ(display::MULTIPLE_DISPLAY_STATE_MULTI_EXTENDED,
             observer.GetStateForDisplayIds(outputs));
 
-  display_manager()->layout_store()->set_forced_mirror_mode(true);
+  display_manager()->layout_store()->set_forced_mirror_mode_for_tablet(true);
 
   observer.OnDisplayModeChanged(outputs);
 
@@ -3711,7 +3833,7 @@ TEST_F(DisplayManagerTest, ForcedMirrorMode) {
   EXPECT_EQ(display::MULTIPLE_DISPLAY_STATE_DUAL_MIRROR,
             observer.GetStateForDisplayIds(outputs));
 
-  display_manager()->layout_store()->set_forced_mirror_mode(false);
+  display_manager()->layout_store()->set_forced_mirror_mode_for_tablet(false);
 
   EXPECT_EQ(display::MULTIPLE_DISPLAY_STATE_MULTI_EXTENDED,
             observer.GetStateForDisplayIds(outputs));
@@ -4563,6 +4685,133 @@ TEST_F(DisplayManagerTest, MirrorModeRestoreAfterResume) {
   display_manager()->SetMultiDisplayMode(display::DisplayManager::MIRRORING);
   display_manager()->OnNativeDisplaysChanged(display_info_list);
   EXPECT_TRUE(display_manager()->IsInMirrorMode());
+}
+
+TEST_F(DisplayManagerTest, SoftwareMirrorRotationForTablet) {
+  UpdateDisplay("400x300,800x800");
+  RunAllPendingInMessageLoop();
+
+  // Set the first display as internal display so that the tablet mode can be
+  // enabled.
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetFirstDisplayAsInternalDisplay();
+
+  // Simulate turning on mirror mode triggered by tablet mode on.
+  Shell::Get()->tablet_mode_controller()->EnableTabletModeWindowManager(true);
+  RunAllPendingInMessageLoop();
+  EXPECT_TRUE(display_manager()->IsInSoftwareMirrorMode());
+  EXPECT_EQ(gfx::Rect(0, 0, 400, 300),
+            display::Screen::GetScreen()->GetPrimaryDisplay().bounds());
+  MirrorWindowTestApi test_api;
+  std::vector<aura::WindowTreeHost*> host_list = test_api.GetHosts();
+  ASSERT_EQ(1U, host_list.size());
+  EXPECT_EQ(gfx::Size(800, 800), host_list[0]->GetBoundsInPixels().size());
+  EXPECT_EQ(gfx::Size(400, 300), host_list[0]->window()->bounds().size());
+
+  // Test the target display's bounds after the transforms are applied.
+  gfx::RectF transformed_rect1(
+      display::Screen::GetScreen()->GetPrimaryDisplay().bounds());
+  Shell::Get()->GetPrimaryRootWindow()->transform().TransformRect(
+      &transformed_rect1);
+  host_list[0]->window()->transform().TransformRect(&transformed_rect1);
+  EXPECT_EQ(gfx::RectF(0.0f, 100.0f, 800.0f, 600.0f), transformed_rect1);
+
+  // Rotate the source display by 90 degrees.
+  UpdateDisplay("400x300/r,800x800");
+  EXPECT_TRUE(display_manager()->IsInSoftwareMirrorMode());
+  EXPECT_EQ(gfx::Rect(0, 0, 300, 400),
+            display::Screen::GetScreen()->GetPrimaryDisplay().bounds());
+  host_list = test_api.GetHosts();
+  ASSERT_EQ(1U, host_list.size());
+  EXPECT_EQ(gfx::Size(800, 800), host_list[0]->GetBoundsInPixels().size());
+  EXPECT_EQ(gfx::Size(300, 400), host_list[0]->window()->bounds().size());
+
+  // Test the target display's bounds after the transforms are applied.
+  gfx::RectF transformed_rect2(
+      display::Screen::GetScreen()->GetPrimaryDisplay().bounds());
+  Shell::Get()->GetPrimaryRootWindow()->transform().TransformRect(
+      &transformed_rect2);
+  host_list[0]->window()->transform().TransformRect(&transformed_rect2);
+  EXPECT_EQ(gfx::RectF(100.0f, 0.0f, 600.0f, 800.0f), transformed_rect2);
+
+  // Change the bounds of the source display and rotate the source display by 90
+  // degrees.
+  UpdateDisplay("300x400/r,800x800");
+  EXPECT_TRUE(display_manager()->IsInSoftwareMirrorMode());
+  EXPECT_EQ(gfx::Rect(0, 0, 400, 300),
+            display::Screen::GetScreen()->GetPrimaryDisplay().bounds());
+  host_list = test_api.GetHosts();
+  ASSERT_EQ(1U, host_list.size());
+  EXPECT_EQ(gfx::Size(800, 800), host_list[0]->GetBoundsInPixels().size());
+  EXPECT_EQ(gfx::Size(400, 300), host_list[0]->window()->bounds().size());
+
+  // Test the target display's bounds after the transforms are applied.
+  gfx::RectF transformed_rect3(
+      display::Screen::GetScreen()->GetPrimaryDisplay().bounds());
+  Shell::Get()->GetPrimaryRootWindow()->transform().TransformRect(
+      &transformed_rect3);
+  host_list[0]->window()->transform().TransformRect(&transformed_rect3);
+  EXPECT_EQ(gfx::RectF(0.0f, 100.0f, 800.0f, 600.0f), transformed_rect3);
+}
+
+TEST_F(DisplayManagerTest, SoftwareMirrorRotationForNonTablet) {
+  MirrorWindowTestApi test_api;
+  UpdateDisplay("400x300,800x800");
+
+  // Simulate turning on mirror mode not triggered by tablet mode.
+  SetSoftwareMirrorMode(true);
+  EXPECT_TRUE(display_manager()->IsInSoftwareMirrorMode());
+  EXPECT_EQ(gfx::Rect(0, 0, 400, 300),
+            display::Screen::GetScreen()->GetPrimaryDisplay().bounds());
+  std::vector<aura::WindowTreeHost*> host_list = test_api.GetHosts();
+  ASSERT_EQ(1U, host_list.size());
+  EXPECT_EQ(gfx::Size(800, 800), host_list[0]->GetBoundsInPixels().size());
+  EXPECT_EQ(gfx::Size(400, 300), host_list[0]->window()->bounds().size());
+
+  // Test the target display's bounds after the transforms are applied.
+  gfx::RectF transformed_rect1(
+      display::Screen::GetScreen()->GetPrimaryDisplay().bounds());
+  Shell::Get()->GetPrimaryRootWindow()->transform().TransformRect(
+      &transformed_rect1);
+  host_list[0]->window()->transform().TransformRect(&transformed_rect1);
+  EXPECT_EQ(gfx::RectF(0.0f, 100.0f, 800.0f, 600.0f), transformed_rect1);
+
+  // Rotate the source display by 90 degrees.
+  UpdateDisplay("400x300/r,800x800");
+  EXPECT_TRUE(display_manager()->IsInSoftwareMirrorMode());
+  EXPECT_EQ(gfx::Rect(0, 0, 300, 400),
+            display::Screen::GetScreen()->GetPrimaryDisplay().bounds());
+  host_list = test_api.GetHosts();
+  ASSERT_EQ(1U, host_list.size());
+  EXPECT_EQ(gfx::Size(800, 800), host_list[0]->GetBoundsInPixels().size());
+  EXPECT_EQ(gfx::Size(400, 300), host_list[0]->window()->bounds().size());
+
+  // Test the target display's bounds after the transforms are applied.
+  gfx::RectF transformed_rect2(
+      display::Screen::GetScreen()->GetPrimaryDisplay().bounds());
+  Shell::Get()->GetPrimaryRootWindow()->transform().TransformRect(
+      &transformed_rect2);
+  host_list[0]->window()->transform().TransformRect(&transformed_rect2);
+  EXPECT_EQ(gfx::RectF(0.0f, 100.0f, 800.0f, 600.0f), transformed_rect2);
+
+  // Change the bounds of the source display and rotate the source display by 90
+  // degrees.
+  UpdateDisplay("300x400/r,800x800");
+  EXPECT_TRUE(display_manager()->IsInSoftwareMirrorMode());
+  EXPECT_EQ(gfx::Rect(0, 0, 400, 300),
+            display::Screen::GetScreen()->GetPrimaryDisplay().bounds());
+  host_list = test_api.GetHosts();
+  ASSERT_EQ(1U, host_list.size());
+  EXPECT_EQ(gfx::Size(800, 800), host_list[0]->GetBoundsInPixels().size());
+  EXPECT_EQ(gfx::Size(300, 400), host_list[0]->window()->bounds().size());
+
+  // Test the target display's bounds after the transforms are applied.
+  gfx::RectF transformed_rect3(
+      display::Screen::GetScreen()->GetPrimaryDisplay().bounds());
+  Shell::Get()->GetPrimaryRootWindow()->transform().TransformRect(
+      &transformed_rect3);
+  host_list[0]->window()->transform().TransformRect(&transformed_rect3);
+  EXPECT_EQ(gfx::RectF(100.0f, 0.0f, 600.0f, 800.0f), transformed_rect3);
 }
 
 }  // namespace ash

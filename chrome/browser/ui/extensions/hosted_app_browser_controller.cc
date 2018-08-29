@@ -139,11 +139,7 @@ void HostedAppBrowserController::SetAppPrefsForWebContents(
   if (!controller)
     return;
 
-  if (controller->created_for_installed_pwa()) {
-    content::WebPreferences prefs = rvh->GetWebkitPreferences();
-    prefs.strict_mixed_content_checking = true;
-    rvh->UpdateWebkitPreferences(prefs);
-  }
+  web_contents->NotifyPreferencesChanged();
 }
 
 base::string16 HostedAppBrowserController::FormatUrlOrigin(const GURL& url) {
@@ -303,17 +299,14 @@ void HostedAppBrowserController::TabInsertedAt(TabStripModel* tab_strip_model,
 }
 
 void HostedAppBrowserController::TabDetachedAt(content::WebContents* contents,
-                                               int index) {
+                                               int index,
+                                               bool was_active) {
   auto* rvh = contents->GetRenderViewHost();
 
   contents->GetMutableRendererPrefs()->can_accept_load_drops = true;
   rvh->SyncRendererPrefs();
 
-  if (created_for_installed_pwa_) {
-    content::WebPreferences prefs = rvh->GetWebkitPreferences();
-    prefs.strict_mixed_content_checking = false;
-    rvh->UpdateWebkitPreferences(prefs);
-  }
+  contents->NotifyPreferencesChanged();
 }
 
 }  // namespace extensions

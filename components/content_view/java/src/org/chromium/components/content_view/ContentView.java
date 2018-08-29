@@ -23,14 +23,15 @@ import android.widget.FrameLayout;
 import org.chromium.base.TraceEvent;
 import org.chromium.content_public.browser.ContentViewCore;
 import org.chromium.content_public.browser.ImeAdapter;
+import org.chromium.content_public.browser.RenderCoordinates;
 import org.chromium.content_public.browser.SmartClipProvider;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsAccessibility;
 import org.chromium.ui.base.EventForwarder;
 
 /**
- * The containing view for {@link ContentViewCore} that exists in the Android UI hierarchy and
- * exposes the various {@link View} functionality to it.
+ * The containing view for {@link WebContents} that exists in the Android UI hierarchy and exposes
+ * the various {@link View} functionality to it.
  */
 public class ContentView
         extends FrameLayout implements ContentViewCore.InternalAccessDelegate, SmartClipProvider {
@@ -54,7 +55,7 @@ public class ContentView
      * Constructs a new ContentView for the appropriate Android version.
      * @param context The Context the view is running in, through which it can
      *                access the current theme, resources, etc.
-     * @param cvc A pointer to the content view core managing this content view.
+     * @param webContents The WebContents managing this content view.
      * @return an instance of a ContentView.
      */
     public static ContentView createContentView(Context context, WebContents webContents) {
@@ -85,10 +86,8 @@ public class ContentView
     }
 
     protected WebContentsAccessibility getWebContentsAccessibility() {
-        // TODO(jinsukkim): Make it possible to check WebContents directly rather than doing it
-        //     via examining the availiability of ContentViewCore;
-        return getContentViewCore() != null ? WebContentsAccessibility.fromWebContents(mWebContents)
-                                            : null;
+        return !mWebContents.isDestroyed() ? WebContentsAccessibility.fromWebContents(mWebContents)
+                                           : null;
     }
 
     @Override
@@ -171,20 +170,13 @@ public class ContentView
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        ContentViewCore cvc = getContentViewCore();
-        assert cvc != null;
-        return cvc.onKeyUp(keyCode, event);
+        return getEventForwarder().onKeyUp(keyCode, event);
     }
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (isFocused()) {
-            ContentViewCore cvc = getContentViewCore();
-            assert cvc != null;
-            return cvc.dispatchKeyEvent(event);
-        } else {
-            return super.dispatchKeyEvent(event);
-        }
+        return isFocused() ? getEventForwarder().dispatchKeyEvent(event)
+                           : super.dispatchKeyEvent(event);
     }
 
     @Override
@@ -212,14 +204,12 @@ public class ContentView
 
     @Override
     public boolean onGenericMotionEvent(MotionEvent event) {
-        ContentViewCore cvc = getContentViewCore();
-        assert cvc != null;
-        return cvc.onGenericMotionEvent(event);
+        return getEventForwarder().onGenericMotionEvent(event);
     }
 
     private ContentViewCore getContentViewCore() {
-        ContentViewCore cvc = ContentViewCore.fromWebContents(mWebContents);
-        return cvc != null && cvc.isAlive() ? cvc : null;
+        if (mWebContents.isDestroyed()) return null;
+        return ContentViewCore.fromWebContents(mWebContents);
     }
 
     private EventForwarder getEventForwarder() {
@@ -238,6 +228,7 @@ public class ContentView
     protected void onConfigurationChanged(Configuration newConfig) {
         ContentViewCore cvc = getContentViewCore();
         if (cvc != null) cvc.onConfigurationChanged(newConfig);
+        super.onConfigurationChanged(newConfig);
     }
 
     /**
@@ -248,58 +239,48 @@ public class ContentView
      */
     @Override
     public void scrollBy(int x, int y) {
-        ContentViewCore cvc = getContentViewCore();
-        if (cvc != null) cvc.scrollBy(x, y);
+        getEventForwarder().scrollBy(x, y);
     }
 
     @Override
     public void scrollTo(int x, int y) {
-        ContentViewCore cvc = getContentViewCore();
-        if (cvc != null) cvc.scrollTo(x, y);
+        getEventForwarder().scrollTo(x, y);
     }
 
     @Override
     protected int computeHorizontalScrollExtent() {
-        // TODO(dtrainor): Need to expose scroll events properly to public. Either make getScroll*
-        // work or expose computeHorizontalScrollOffset()/computeVerticalScrollOffset as public.
-        ContentViewCore cvc = getContentViewCore();
-        assert cvc != null;
-        return cvc.computeHorizontalScrollExtent();
+        RenderCoordinates rc = RenderCoordinates.fromWebContents(mWebContents);
+        return rc != null ? rc.getLastFrameViewportWidthPixInt() : 0;
     }
 
     @Override
     protected int computeHorizontalScrollOffset() {
-        ContentViewCore cvc = getContentViewCore();
-        assert cvc != null;
-        return cvc.computeHorizontalScrollOffset();
+        RenderCoordinates rc = RenderCoordinates.fromWebContents(mWebContents);
+        return rc != null ? rc.getScrollXPixInt() : 0;
     }
 
     @Override
     protected int computeHorizontalScrollRange() {
-        ContentViewCore cvc = getContentViewCore();
-        assert cvc != null;
-        return cvc.computeHorizontalScrollRange();
+        RenderCoordinates rc = RenderCoordinates.fromWebContents(mWebContents);
+        return rc != null ? rc.getContentWidthPixInt() : 0;
     }
 
     @Override
     protected int computeVerticalScrollExtent() {
-        ContentViewCore cvc = getContentViewCore();
-        assert cvc != null;
-        return cvc.computeVerticalScrollExtent();
+        RenderCoordinates rc = RenderCoordinates.fromWebContents(mWebContents);
+        return rc != null ? rc.getLastFrameViewportHeightPixInt() : 0;
     }
 
     @Override
     protected int computeVerticalScrollOffset() {
-        ContentViewCore cvc = getContentViewCore();
-        assert cvc != null;
-        return cvc.computeVerticalScrollOffset();
+        RenderCoordinates rc = RenderCoordinates.fromWebContents(mWebContents);
+        return rc != null ? rc.getScrollYPixInt() : 0;
     }
 
     @Override
     protected int computeVerticalScrollRange() {
-        ContentViewCore cvc = getContentViewCore();
-        assert cvc != null;
-        return cvc.computeVerticalScrollRange();
+        RenderCoordinates rc = RenderCoordinates.fromWebContents(mWebContents);
+        return rc != null ? rc.getContentHeightPixInt() : 0;
     }
 
     // End FrameLayout overrides.
@@ -356,11 +337,6 @@ public class ContentView
     @Override
     public boolean super_onGenericMotionEvent(MotionEvent event) {
         return super.onGenericMotionEvent(event);
-    }
-
-    @Override
-    public void super_onConfigurationChanged(Configuration newConfig) {
-        super.onConfigurationChanged(newConfig);
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////

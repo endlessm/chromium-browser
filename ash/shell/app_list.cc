@@ -263,7 +263,7 @@ class ExampleAppListViewDelegate : public app_list::AppListViewDelegate {
     // Nothing needs to be done.
   }
 
-  void Dismiss() override {
+  void DismissAppList() override {
     DCHECK(ShellPort::HasInstance());
     Shell::Get()->app_list_controller()->DismissAppList();
   }
@@ -290,18 +290,26 @@ class ExampleAppListViewDelegate : public app_list::AppListViewDelegate {
     NOTIMPLEMENTED();
   }
 
+  void GetSearchResultContextMenuModel(
+      const std::string& result_id,
+      GetContextMenuModelCallback callback) override {
+    NOTIMPLEMENTED();
+  }
+
   void ContextMenuItemSelected(const std::string& id,
                                int command_id,
                                int event_flags) override {
     NOTIMPLEMENTED();
   }
 
-  void AddObserver(app_list::AppListViewDelegateObserver* observer) override {
+  void ShowWallpaperContextMenu(const gfx::Point& onscreen_location,
+                                ui::MenuSourceType source_type) override {
     NOTIMPLEMENTED();
   }
 
-  void RemoveObserver(
-      app_list::AppListViewDelegateObserver* observer) override {
+  void SearchResultContextMenuItemSelected(const std::string& result_id,
+                                           int command_id,
+                                           int event_flags) override {
     NOTIMPLEMENTED();
   }
 

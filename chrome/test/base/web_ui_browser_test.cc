@@ -30,7 +30,6 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "content/public/common/content_switches.h"
@@ -504,7 +503,7 @@ GURL WebUIBrowserTest::WebUITestDataPathToURL(
     const base::FilePath::StringType& path) {
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::FilePath dir_test_data;
-  EXPECT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &dir_test_data));
+  EXPECT_TRUE(base::PathService::Get(chrome::DIR_TEST_DATA, &dir_test_data));
   base::FilePath test_path(dir_test_data.Append(kWebUITestFolder).Append(path));
   EXPECT_TRUE(base::PathExists(test_path));
   return net::FilePathToFileURL(test_path);

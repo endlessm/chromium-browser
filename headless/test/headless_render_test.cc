@@ -226,7 +226,7 @@ void HeadlessRenderTest::RunDevTooledTest() {
 
   // Pause virtual time until we actually start loading content.
   {
-    base::RunLoop run_loop;
+    base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
     devtools_client_->GetEmulation()->GetExperimental()->SetVirtualTimePolicy(
         emulation::SetVirtualTimePolicyParams::Builder()
             .SetPolicy(emulation::VirtualTimePolicy::PAUSE)
@@ -240,18 +240,14 @@ void HeadlessRenderTest::RunDevTooledTest() {
             .Build(),
         base::BindOnce(&SetVirtualTimePolicyDoneCallback, &run_loop));
 
-    base::MessageLoop::ScopedNestableTaskAllower nest_loop(
-        base::MessageLoop::current());
     run_loop.Run();
   }
 
   {
-    base::RunLoop run_loop;
+    base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
     // Note AdditionalVirtualTimeBudget will self delete.
     new AdditionalVirtualTimeBudget(virtual_time_controller_.get(), this,
                                     &run_loop, 5000);
-    base::MessageLoop::ScopedNestableTaskAllower nest_loop(
-        base::MessageLoop::current());
     run_loop.Run();
   }
 
@@ -311,8 +307,6 @@ void HeadlessRenderTest::CustomizeHeadlessBrowserContext(
   builder.SetOverrideWebPreferencesCallback(
       base::Bind(&HeadlessRenderTest::OverrideWebPreferences,
                  weak_ptr_factory_.GetWeakPtr()));
-  // Set an initial time to enable base::Time/TimeTicks overrides.
-  builder.SetInitialVirtualTime(base::Time::FromJsTime(100000.0));
 }
 
 bool HeadlessRenderTest::GetEnableBeginFrameControl() {

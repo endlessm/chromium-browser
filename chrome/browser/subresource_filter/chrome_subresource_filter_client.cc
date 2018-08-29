@@ -20,9 +20,6 @@
 #include "chrome/browser/subresource_filter/subresource_filter_profile_context_factory.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings_types.h"
-#include "components/rappor/public/rappor_parameters.h"
-#include "components/rappor/public/rappor_utils.h"
-#include "components/rappor/rappor_service_impl.h"
 #include "components/safe_browsing/db/database_manager.h"
 #include "components/subresource_filter/content/browser/content_ruleset_service.h"
 #include "components/subresource_filter/content/browser/content_subresource_filter_driver_factory.h"
@@ -39,21 +36,6 @@
 #endif
 
 DEFINE_WEB_CONTENTS_USER_DATA_KEY(ChromeSubresourceFilterClient);
-
-namespace {
-
-scoped_refptr<safe_browsing::SafeBrowsingDatabaseManager> GetDatabaseManager() {
-  safe_browsing::SafeBrowsingService* safe_browsing_service =
-      g_browser_process->safe_browsing_service();
-  bool has_supported_manager =
-      safe_browsing_service &&
-      safe_browsing_service->database_manager()->IsSupported() &&
-      safe_browsing_service->database_manager()->CanCheckSubresourceFilter();
-  return has_supported_manager ? safe_browsing_service->database_manager()
-                               : nullptr;
-}
-
-}  // namespace
 
 ChromeSubresourceFilterClient::ChromeSubresourceFilterClient(
     content::WebContents* web_contents)
@@ -72,14 +54,16 @@ ChromeSubresourceFilterClient::~ChromeSubresourceFilterClient() {}
 void ChromeSubresourceFilterClient::MaybeAppendNavigationThrottles(
     content::NavigationHandle* navigation_handle,
     std::vector<std::unique_ptr<content::NavigationThrottle>>* throttles) {
-  if (navigation_handle->IsInMainFrame()) {
+  safe_browsing::SafeBrowsingService* safe_browsing_service =
+      g_browser_process->safe_browsing_service();
+  if (navigation_handle->IsInMainFrame() && safe_browsing_service) {
     throttles->push_back(
         std::make_unique<subresource_filter::
                              SubresourceFilterSafeBrowsingActivationThrottle>(
             navigation_handle, this,
             content::BrowserThread::GetTaskRunnerForThread(
                 content::BrowserThread::IO),
-            GetDatabaseManager()));
+            safe_browsing_service->database_manager()));
   }
 
   auto* driver_factory =
@@ -124,17 +108,15 @@ void ChromeSubresourceFilterClient::OnNewNavigationStarted() {
 
 bool ChromeSubresourceFilterClient::OnPageActivationComputed(
     content::NavigationHandle* navigation_handle,
-    bool activated,
-    bool suppressing_notifications) {
+    bool activated) {
   const GURL& url(navigation_handle->GetURL());
   DCHECK(navigation_handle->IsInMainFrame());
 
   if (url.SchemeIsHTTPOrHTTPS()) {
     // With respect to persistent metadata, do not consider the site activated
-    // if it is forced via devtools, or if we are suppressing notifications.
+    // if it is forced via devtools.
     settings_manager_->ResetSiteMetadataBasedOnActivation(
-        url,
-        activated && !activated_via_devtools_ && !suppressing_notifications);
+        url, activated && !activated_via_devtools_);
   }
 
   // Return whether the activation should be whitelisted.
@@ -144,7 +126,13 @@ bool ChromeSubresourceFilterClient::OnPageActivationComputed(
          settings_manager_->GetSitePermission(url) == CONTENT_SETTING_ALLOW;
   // TODO(csharrison): Consider setting the metadata to an empty dict here if
   // the site is activated and not whitelisted. Need to be careful about various
-  // edge cases like |should_suppress_notification| and DRYRUN activation.
+  // edge cases like DRYRUN activation.
+}
+
+void ChromeSubresourceFilterClient::WhitelistInCurrentWebContents(
+    const GURL& url) {
+  if (url.SchemeIsHTTPOrHTTPS())
+    whitelisted_hosts_.insert(url.host());
 }
 
 void ChromeSubresourceFilterClient::WhitelistByContentSettings(
@@ -154,12 +142,6 @@ void ChromeSubresourceFilterClient::WhitelistByContentSettings(
 
 bool ChromeSubresourceFilterClient::ForceActivationInCurrentWebContents() {
   return activated_via_devtools_;
-}
-
-void ChromeSubresourceFilterClient::WhitelistInCurrentWebContents(
-    const GURL& url) {
-  if (url.SchemeIsHTTPOrHTTPS())
-    whitelisted_hosts_.insert(url.host());
 }
 
 void ChromeSubresourceFilterClient::ToggleForceActivationInCurrentWebContents(
@@ -184,11 +166,6 @@ ChromeSubresourceFilterClient::GetRulesetDealer() {
 
 void ChromeSubresourceFilterClient::ShowUI(const GURL& url) {
   DCHECK(!activated_via_devtools_);
-  DCHECK_NE(subresource_filter::ContentSubresourceFilterDriverFactory::
-                FromWebContents(web_contents_)
-                    ->GetMatchedConfigurationForLastCommittedPageLoad(),
-            subresource_filter::Configuration::MakeForForcedActivation());
-
 #if defined(OS_ANDROID)
   InfoBarService* infobar_service =
       InfoBarService::FromWebContents(web_contents_);
@@ -199,13 +176,6 @@ void ChromeSubresourceFilterClient::ShowUI(const GURL& url) {
   content_settings->OnContentBlocked(CONTENT_SETTINGS_TYPE_ADS);
 
   LogAction(kActionUIShown);
-
-  if (rappor::RapporService* rappor_service =
-          g_browser_process->rappor_service()) {
-    rappor_service->RecordSampleString(
-        "SubresourceFilter.UIShown", rappor::UMA_RAPPOR_TYPE,
-        rappor::GetDomainAndRegistrySampleFromGURL(url));
-  }
   did_show_ui_for_navigation_ = true;
   settings_manager_->OnDidShowUI(url);
 }

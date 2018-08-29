@@ -20,12 +20,14 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModel;
+import org.chromium.chrome.browser.tabmodel.TabModel.TabSelectionType;
 import org.chromium.chrome.browser.widget.FadingBackgroundView;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet.BottomSheetContent;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet.ContentPriority;
@@ -33,6 +35,7 @@ import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.content_public.browser.LoadUrlParams;
+import org.chromium.ui.test.util.UiRestriction;
 
 import java.util.concurrent.TimeoutException;
 
@@ -43,6 +46,7 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add(ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE)
+@Restriction(UiRestriction.RESTRICTION_TYPE_PHONE) // TODO(mdjones): Remove this (crbug.com/837838).
 public class BottomSheetControllerTest {
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
@@ -119,6 +123,36 @@ public class BottomSheetControllerTest {
         assertEquals("The bottom sheet should be peeking.", BottomSheet.SHEET_STATE_PEEK,
                 mBottomSheet.getSheetState());
         assertEquals("The bottom sheet is showing incorrect content.", mLowPriorityContent,
+                mBottomSheet.getCurrentSheetContent());
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"BottomSheetController"})
+    public void testSheetHiddenAfterTabSwitcher() throws InterruptedException, TimeoutException {
+        // Open a second tab and then reselect the original activity tab.
+        Tab tab1 = mActivityTestRule.getActivity().getActivityTab();
+        ChromeTabUtils.newTabFromMenu(
+                InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
+        Tab tab2 = mActivityTestRule.getActivity().getActivityTab();
+
+        requestContentInSheet(mLowPriorityContent, true);
+
+        // Enter the tab switcher and select a different tab.
+        ThreadUtils.runOnUiThreadBlocking(() -> {
+            mActivityTestRule.getActivity().getLayoutManager().showOverview(false);
+            mBottomSheet.endAnimations();
+            assertEquals("The bottom sheet should be hidden.", BottomSheet.SHEET_STATE_HIDDEN,
+                    mBottomSheet.getSheetState());
+            mActivityTestRule.getActivity().getTabModelSelector().getCurrentModel().setIndex(
+                    0, TabSelectionType.FROM_USER);
+            mActivityTestRule.getActivity().getLayoutManager().hideOverview(false);
+            mBottomSheet.endAnimations();
+        });
+
+        assertEquals("The bottom sheet still should be hidden.", BottomSheet.SHEET_STATE_HIDDEN,
+                mBottomSheet.getSheetState());
+        assertEquals("The bottom sheet is showing incorrect content.", null,
                 mBottomSheet.getCurrentSheetContent());
     }
 

@@ -4,10 +4,13 @@
 
 #include "chrome/browser/browser_process_platform_part_chromeos.h"
 
+#include <utility>
+
 #include "ash/public/interfaces/constants.mojom.h"
 #include "base/logging.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/tick_clock.h"
+#include "chrome/browser/ash_service_registry.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/ash_config.h"
 #include "chrome/browser/chromeos/chrome_service_name.h"
@@ -15,7 +18,6 @@
 #include "chrome/browser/chromeos/login/users/chrome_user_manager_impl.h"
 #include "chrome/browser/chromeos/net/delay_network_call.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/prefs/pref_connector_service.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/system/automatic_reboot_manager.h"
@@ -24,10 +26,11 @@
 #include "chrome/browser/chromeos/system/system_clock.h"
 #include "chrome/browser/chromeos/system/timezone_resolver_manager.h"
 #include "chrome/browser/chromeos/system/timezone_util.h"
-#include "chrome/browser/component_updater/cros_component_installer.h"
-#include "chrome/browser/ui/ash/ash_util.h"
+#include "chrome/browser/component_updater/cros_component_installer_chromeos.h"
+#include "chrome/browser/component_updater/metadata_table_chromeos.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
+#include "chromeos/account_manager/account_manager_factory.h"
 #include "chromeos/geolocation/simple_geolocation_provider.h"
 #include "chromeos/timezone/timezone_resolver.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
@@ -45,7 +48,9 @@
 #include "services/ui/public/interfaces/constants.mojom.h"
 
 BrowserProcessPlatformPart::BrowserProcessPlatformPart()
-    : created_profile_helper_(false) {}
+    : created_profile_helper_(false),
+      account_manager_factory_(
+          std::make_unique<chromeos::AccountManagerFactory>()) {}
 
 BrowserProcessPlatformPart::~BrowserProcessPlatformPart() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -103,7 +108,9 @@ void BrowserProcessPlatformPart::ShutdownSessionManager() {
 void BrowserProcessPlatformPart::InitializeCrosComponentManager() {
   DCHECK(!cros_component_manager_);
   cros_component_manager_ =
-      std::make_unique<component_updater::CrOSComponentManager>();
+      std::make_unique<component_updater::CrOSComponentManager>(
+          component_updater::MetadataTable::Create(
+              g_browser_process->local_state()));
 
   // Register all installed components for regular update.
   cros_component_manager_->RegisterInstalled();
@@ -175,25 +182,9 @@ BrowserProcessPlatformPart::CreateBrowserPolicyConnector() {
 }
 
 void BrowserProcessPlatformPart::RegisterInProcessServices(
-    content::ContentBrowserClient::StaticServiceMap* services) {
-  {
-    service_manager::EmbeddedServiceInfo info;
-    info.factory = base::Bind([] {
-      return std::unique_ptr<service_manager::Service>(
-          std::make_unique<AshPrefConnector>());
-    });
-    info.task_runner = base::ThreadTaskRunnerHandle::Get();
-    services->insert(
-        std::make_pair(ash::mojom::kPrefConnectorServiceName, info));
-  }
-
-  if (!ash_util::IsRunningInMash()) {
-    service_manager::EmbeddedServiceInfo info;
-    info.factory = base::Bind(&ash_util::CreateEmbeddedAshService,
-                              base::ThreadTaskRunnerHandle::Get());
-    info.task_runner = base::ThreadTaskRunnerHandle::Get();
-    services->insert(std::make_pair(ash::mojom::kServiceName, info));
-  }
+    content::ContentBrowserClient::StaticServiceMap* services,
+    content::ServiceManagerConnection* connection) {
+  ash_service_registry::RegisterInProcessServices(services, connection);
 }
 
 chromeos::system::SystemClock* BrowserProcessPlatformPart::GetSystemClock() {
@@ -225,4 +216,9 @@ void BrowserProcessPlatformPart::CreateProfileHelper() {
   DCHECK(!created_profile_helper_ && !profile_helper_);
   created_profile_helper_ = true;
   profile_helper_.reset(new chromeos::ProfileHelper());
+}
+
+chromeos::AccountManagerFactory*
+BrowserProcessPlatformPart::GetAccountManagerFactory() {
+  return account_manager_factory_.get();
 }

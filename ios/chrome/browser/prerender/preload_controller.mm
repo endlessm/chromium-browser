@@ -11,6 +11,7 @@
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/sys_string_conversions.h"
+#import "components/prefs/ios/pref_observer_bridge.h"
 #include "components/prefs/pref_service.h"
 #import "components/signin/ios/browser/account_consistency_service.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
@@ -89,7 +90,8 @@ bool IsPrerenderTabEvictionExperimentalGroup() {
 
 @interface PreloadController ()<CRWWebDelegate,
                                 CRWWebStateObserver,
-                                ManageAccountsDelegate>
+                                ManageAccountsDelegate,
+                                PrefObserverDelegate>
 @end
 
 @implementation PreloadController {
@@ -350,6 +352,11 @@ bool IsPrerenderTabEvictionExperimentalGroup() {
   return nil;
 }
 
+- (CGFloat)nativeContentHeaderHeightForWebState:(web::WebState*)webState {
+  return [delegate_ nativeContentHeaderHeightForPreloadController:self
+                                                         webState:webState];
+}
+
 #pragma mark -
 #pragma mark Private Methods
 
@@ -508,17 +515,6 @@ bool IsPrerenderTabEvictionExperimentalGroup() {
     shouldOpenExternalURL:(const GURL&)URL {
   [self schedulePrerenderCancel];
   return NO;
-}
-
-- (CGFloat)nativeContentHeaderHeightForWebController:
-    (CRWWebController*)webController {
-  DCHECK(webState_);
-  Tab* tab = LegacyTabHelper::GetTabForWebState(webState_.get());
-  SEL selector = @selector(nativeContentHeaderHeightForWebController:);
-  if ([tab respondsToSelector:selector]) {
-    return [tab nativeContentHeaderHeightForWebController:webController];
-  }
-  return 0;
 }
 
 #pragma mark - ManageAccountsDelegate

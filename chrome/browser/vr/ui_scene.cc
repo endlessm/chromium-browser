@@ -17,6 +17,7 @@
 #include "chrome/browser/vr/elements/keyboard.h"
 #include "chrome/browser/vr/elements/reticle.h"
 #include "chrome/browser/vr/elements/ui_element.h"
+#include "chrome/browser/vr/frame_lifecycle.h"
 #include "ui/gfx/transform.h"
 
 namespace vr {
@@ -80,8 +81,15 @@ void InitializeElementRecursive(UiElement* e, SkiaSurfaceProvider* provider) {
 
 void UiScene::AddUiElement(UiElementName parent,
                            std::unique_ptr<UiElement> element) {
+  auto* parent_element = GetUiElementByName(parent);
+  DCHECK(parent_element);
+  AddUiElement(parent_element, std::move(element));
+}
+
+void UiScene::AddUiElement(UiElement* parent,
+                           std::unique_ptr<UiElement> element) {
   InitializeElement(element.get());
-  GetUiElementByName(parent)->AddChild(std::move(element));
+  parent->AddChild(std::move(element));
   is_dirty_ = true;
 }
 
@@ -92,8 +100,9 @@ void UiScene::AddParentUiElement(UiElementName child,
   CHECK_NE(nullptr, child_ptr);
   auto* parent_ptr = child_ptr->parent();
   CHECK_NE(nullptr, parent_ptr);
-  element->AddChild(parent_ptr->RemoveChild(child_ptr));
-  parent_ptr->AddChild(std::move(element));
+  auto* element_ptr = element.get();
+  element_ptr->AddChild(
+      parent_ptr->ReplaceChild(child_ptr, std::move(element)));
   is_dirty_ = true;
 }
 
@@ -107,14 +116,29 @@ std::unique_ptr<UiElement> UiScene::RemoveUiElement(int element_id) {
 
 bool UiScene::OnBeginFrame(const base::TimeTicks& current_time,
                            const gfx::Transform& head_pose) {
+  // Before dirtying the scene, we process scheduled tasks for the frame.
+  {
+    TRACE_EVENT0("gpu", "UiScene::OnBeginFrame.ScheduledTasks");
+    for (auto it = scheduled_tasks_.begin(); it != scheduled_tasks_.end();) {
+      auto& task = *it;
+      task->Tick(current_time);
+      if (task->empty()) {
+        it = scheduled_tasks_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
   bool scene_dirty = !initialized_scene_ || is_dirty_;
   initialized_scene_ = true;
   is_dirty_ = false;
 
   auto& elements = GetAllElements();
 
+  FrameLifecycle::set_phase(kDirty);
   for (auto* element : elements) {
-    element->set_update_phase(UiElement::kDirty);
+    element->set_update_phase(kDirty);
     element->set_last_frame_time(current_time);
   }
 
@@ -123,6 +147,13 @@ bool UiScene::OnBeginFrame(const base::TimeTicks& current_time,
 
     // Propagate updates across bindings.
     root_element_->UpdateBindings();
+    FrameLifecycle::set_phase(kUpdatedBindings);
+  }
+
+  // Per-frame callbacks run every frame, always, as opposed to bindings, which
+  // run selectively based on element visibility.
+  for (auto callback : per_frame_callback_) {
+    callback.Run();
   }
 
   {
@@ -130,21 +161,14 @@ bool UiScene::OnBeginFrame(const base::TimeTicks& current_time,
 
     // Process all animations and pre-binding work. I.e., induce any
     // time-related "dirtiness" on the scene graph.
-    scene_dirty |= root_element_->DoBeginFrame(head_pose);
+    scene_dirty |= root_element_->DoBeginFrame(head_pose, first_frame_);
+    FrameLifecycle::set_phase(kUpdatedComputedOpacity);
   }
 
   {
     TRACE_EVENT0("gpu", "UiScene::OnBeginFrame.UpdateLayout");
     scene_dirty |= root_element_->SizeAndLayOut();
-  }
-
-  if (!scene_dirty) {
-    // Nothing to update, so set all elements to the final update phase and
-    // return early.
-    for (auto* element : elements) {
-      element->set_update_phase(UiElement::kUpdatedWorldSpaceTransform);
-    }
-    return false;
+    FrameLifecycle::set_phase(kUpdatedLayout);
   }
 
   {
@@ -153,25 +177,25 @@ bool UiScene::OnBeginFrame(const base::TimeTicks& current_time,
     // Now that we have finalized our local values, we can safely update our
     // final, baked transform.
     const bool parent_transform_changed = false;
-    root_element_->UpdateWorldSpaceTransform(parent_transform_changed);
+    scene_dirty |=
+        root_element_->UpdateWorldSpaceTransform(parent_transform_changed);
   }
 
+  FrameLifecycle::set_phase(kUpdatedWorldSpaceTransform);
+
+  first_frame_ = false;
   return scene_dirty;
 }
 
-void UiScene::CallPerFrameCallbacks() {
-  for (auto callback : per_frame_callback_) {
-    callback.Run();
-  }
-}
-
 bool UiScene::UpdateTextures() {
+  TRACE_EVENT0("gpu", "UiScene::UpdateTextures");
   bool needs_redraw = false;
   std::vector<UiElement*> elements = GetVisibleElementsMutable();
   for (auto* element : elements) {
     needs_redraw |= element->UpdateTexture();
-    element->set_update_phase(UiElement::kUpdatedTextures);
+    element->set_update_phase(kUpdatedTextures);
   }
+  FrameLifecycle::set_phase(kUpdatedTextures);
   return needs_redraw;
 }
 
@@ -202,9 +226,10 @@ std::vector<UiElement*>& UiScene::GetAllElements() {
   return all_elements_;
 }
 
-UiScene::Elements UiScene::GetVisibleElements() {
+UiScene::Elements UiScene::GetElementsToHitTest() {
   return GetVisibleElementsWithPredicate(
-      root_element_.get(), [](UiElement* element) { return true; });
+      root_element_.get(),
+      [](UiElement* element) { return element->IsHitTestable(); });
 }
 
 UiScene::MutableElements UiScene::GetVisibleElementsMutable() {
@@ -212,7 +237,7 @@ UiScene::MutableElements UiScene::GetVisibleElementsMutable() {
       root_element_.get(), [](UiElement* element) { return true; });
 }
 
-UiScene::Elements UiScene::GetVisibleElementsToDraw() {
+UiScene::Elements UiScene::GetElementsToDraw() {
   return GetVisibleElementsWithPredicate(
       root_element_.get(), [](UiElement* element) {
         return element->draw_phase() == kPhaseForeground ||
@@ -221,7 +246,7 @@ UiScene::Elements UiScene::GetVisibleElementsToDraw() {
       });
 }
 
-UiScene::Elements UiScene::GetVisibleWebVrOverlayElementsToDraw() {
+UiScene::Elements UiScene::GetWebVrOverlayElementsToDraw() {
   auto* webvr_root = GetUiElementByName(kWebVrRoot);
   return GetVisibleElementsWithPredicate(webvr_root, [](UiElement* element) {
     return element->draw_phase() == kPhaseOverlayForeground;
@@ -245,12 +270,20 @@ void UiScene::AddPerFrameCallback(PerFrameCallback callback) {
   per_frame_callback_.push_back(callback);
 }
 
+void UiScene::AddSequence(std::unique_ptr<Sequence> sequence) {
+  scheduled_tasks_.push_back(std::move(sequence));
+}
+
 void UiScene::InitializeElement(UiElement* element) {
   CHECK_GE(element->id(), 0);
   CHECK_EQ(GetUiElementById(element->id()), nullptr);
   CHECK_GE(element->draw_phase(), 0);
   if (gl_initialized_)
     InitializeElementRecursive(element, provider_);
+}
+
+void UiScene::RunFirstFrameForTest() {
+  OnBeginFrame(base::TimeTicks(), gfx::Transform());
 }
 
 }  // namespace vr

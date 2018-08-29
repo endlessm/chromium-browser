@@ -8,13 +8,14 @@
 
 #include "ash/app_list/app_list_controller_impl.h"
 #include "ash/app_list/presenter/app_list_presenter_delegate_factory.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/app_list_features.h"
+#include "ash/public/cpp/app_list/app_list_switches.h"
 #include "ash/shell.h"
+#include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
-#include "ui/app_list/app_list_constants.h"
-#include "ui/app_list/app_list_features.h"
 #include "ui/app_list/app_list_metrics.h"
-#include "ui/app_list/app_list_switches.h"
 #include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/pagination_model.h"
 #include "ui/app_list/views/app_list_main_view.h"
@@ -99,8 +100,12 @@ aura::Window* AppListPresenterImpl::GetWindow() {
 void AppListPresenterImpl::Show(int64_t display_id,
                                 base::TimeTicks event_time_stamp) {
   if (is_visible_) {
-    if (display_id != GetDisplayId())
+    // Launcher is always visible on the internal display when home launcher is
+    // enabled in tablet mode.
+    if (display_id != GetDisplayId() &&
+        !controller_->IsHomeLauncherEnabledInTabletMode()) {
       Dismiss(event_time_stamp);
+    }
     return;
   }
 
@@ -318,7 +323,8 @@ void AppListPresenterImpl::OnWindowFocused(aura::Window* gained_focus,
     aura::Window* applist_container = applist_window->parent();
     if (applist_container->Contains(lost_focus) &&
         (!gained_focus || !applist_container->Contains(gained_focus)) &&
-        !switches::ShouldNotDismissOnBlur()) {
+        !switches::ShouldNotDismissOnBlur() &&
+        !controller_->IsHomeLauncherEnabledInTabletMode()) {
       Dismiss(base::TimeTicks());
     }
   }

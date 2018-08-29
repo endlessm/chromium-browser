@@ -38,6 +38,7 @@ class GnuDebugLinkSection;
 class GroupSection;
 class Segment;
 class Object;
+struct Symbol;
 
 class SectionTableRef {
   MutableArrayRef<std::unique_ptr<SectionBase>> Sections;
@@ -209,6 +210,7 @@ public:
   virtual void initialize(SectionTableRef SecTable);
   virtual void finalize();
   virtual void removeSectionReferences(const SectionBase *Sec);
+  virtual void removeSymbols(function_ref<bool(const Symbol &)> ToRemove);
   virtual void accept(SectionVisitor &Visitor) const = 0;
 };
 
@@ -259,11 +261,15 @@ class Section : public SectionBase {
   MAKE_SEC_WRITER_FRIEND
 
   ArrayRef<uint8_t> Contents;
+  SectionBase *LinkSection = nullptr;
 
 public:
   explicit Section(ArrayRef<uint8_t> Data) : Contents(Data) {}
 
   void accept(SectionVisitor &Visitor) const override;
+  void removeSectionReferences(const SectionBase *Sec) override;
+  void initialize(SectionTableRef SecTable) override;
+  void finalize() override;
 };
 
 class OwnedDataSection : public SectionBase {
@@ -361,11 +367,13 @@ public:
   void addSymbolNames();
   const SectionBase *getStrTab() const { return SymbolNames; }
   const Symbol *getSymbolByIndex(uint32_t Index) const;
+  void updateSymbols(function_ref<void(Symbol &)> Callable);
+
   void removeSectionReferences(const SectionBase *Sec) override;
-  void localize(std::function<bool(const Symbol &)> ToLocalize);
   void initialize(SectionTableRef SecTable) override;
   void finalize() override;
   void accept(SectionVisitor &Visitor) const override;
+  void removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
 
   static bool classof(const SectionBase *S) {
     return S->Type == ELF::SHT_SYMTAB;
@@ -426,6 +434,7 @@ class RelocationSection
 public:
   void addRelocation(Relocation Rel) { Relocations.push_back(Rel); }
   void accept(SectionVisitor &Visitor) const override;
+  void removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
 
   static bool classof(const SectionBase *S) {
     if (S->Flags & ELF::SHF_ALLOC)
@@ -456,40 +465,28 @@ public:
   void setFlagWord(ELF::Elf32_Word W) { FlagWord = W; }
   void addMember(SectionBase *Sec) { GroupMembers.push_back(Sec); }
 
-  void initialize(SectionTableRef SecTable) override {};
+  void initialize(SectionTableRef SecTable) override{};
   void accept(SectionVisitor &) const override;
   void finalize() override;
+  void removeSymbols(function_ref<bool(const Symbol &)> ToRemove) override;
 
   static bool classof(const SectionBase *S) {
     return S->Type == ELF::SHT_GROUP;
   }
 };
 
-class SectionWithStrTab : public Section {
-  const SectionBase *StrTab = nullptr;
-  void setStrTab(const SectionBase *StringTable) { StrTab = StringTable; }
-
+class DynamicSymbolTableSection : public Section {
 public:
-  explicit SectionWithStrTab(ArrayRef<uint8_t> Data) : Section(Data) {}
-  void removeSectionReferences(const SectionBase *Sec) override;
-  void initialize(SectionTableRef SecTable) override;
-  void finalize() override;
-  static bool classof(const SectionBase *S);
-};
-
-class DynamicSymbolTableSection : public SectionWithStrTab {
-public:
-  explicit DynamicSymbolTableSection(ArrayRef<uint8_t> Data)
-      : SectionWithStrTab(Data) {}
+  explicit DynamicSymbolTableSection(ArrayRef<uint8_t> Data) : Section(Data) {}
 
   static bool classof(const SectionBase *S) {
     return S->Type == ELF::SHT_DYNSYM;
   }
 };
 
-class DynamicSection : public SectionWithStrTab {
+class DynamicSection : public Section {
 public:
-  explicit DynamicSection(ArrayRef<uint8_t> Data) : SectionWithStrTab(Data) {}
+  explicit DynamicSection(ArrayRef<uint8_t> Data) : Section(Data) {}
 
   static bool classof(const SectionBase *S) {
     return S->Type == ELF::SHT_DYNAMIC;
@@ -626,6 +623,7 @@ public:
   ConstRange<Segment> segments() const { return make_pointee_range(Segments); }
 
   void removeSections(std::function<bool(const SectionBase &)> ToRemove);
+  void removeSymbols(function_ref<bool(const Symbol &)> ToRemove);
   template <class T, class... Ts> T &addSection(Ts &&... Args) {
     auto Sec = llvm::make_unique<T>(std::forward<Ts>(Args)...);
     auto Ptr = Sec.get();

@@ -26,9 +26,9 @@ import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabSelectionType;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabModelObserver;
+import org.chromium.chrome.browser.vr_shell.VrShellDelegate;
 import org.chromium.chrome.browser.widget.ControlContainer;
-import org.chromium.content.browser.ContentVideoView;
-import org.chromium.content_public.browser.ContentViewCore;
+import org.chromium.content_public.browser.ContentVideoView;
 import org.chromium.content_public.common.BrowserControlsState;
 
 import java.lang.annotation.Retention;
@@ -64,6 +64,7 @@ public class ChromeFullscreenManager
     private float mControlOffsetRatio;
     private float mPreviousControlOffset;
     private boolean mIsEnteringPersistentModeState;
+    private FullscreenOptions mPendingFullscreenOptions;
 
     private boolean mInGesture;
     private boolean mContentViewScrolling;
@@ -252,7 +253,7 @@ public class ChromeFullscreenManager
             // Exit fullscreen in onStop to ensure the system UI flags are set correctly when
             // showing again (on JB MR2+ builds, the omnibox would be covered by the
             // notification bar when this was done in onStart()).
-            setPersistentFullscreenMode(false);
+            exitPersistentFullscreenMode();
         } else if (newState == ActivityState.STARTED) {
             ThreadUtils.postOnUiThreadDelayed(new Runnable() {
                 @Override
@@ -274,7 +275,7 @@ public class ChromeFullscreenManager
         onWindowFocusChanged(hasFocus);
         // {@link ContentVideoView#getContentVideoView} requires native to have been initialized.
         if (!LibraryLoader.isInitialized()) return;
-        ContentVideoView videoView = ContentVideoView.getContentVideoView();
+        ContentVideoView videoView = ContentVideoView.getInstance();
         if (videoView != null) {
             videoView.onFullscreenWindowFocused();
         }
@@ -284,13 +285,14 @@ public class ChromeFullscreenManager
     protected FullscreenHtmlApiDelegate createApiDelegate() {
         return new FullscreenHtmlApiDelegate() {
             @Override
-            public void onEnterFullscreen() {
+            public void onEnterFullscreen(FullscreenOptions options) {
                 Tab tab = getTab();
                 if (areBrowserControlsOffScreen()) {
                     // The browser controls are currently hidden.
-                    getHtmlApiHandler().enterFullscreen(tab);
+                    getHtmlApiHandler().enterFullscreen(tab, options);
                 } else {
                     // We should hide browser controls first.
+                    mPendingFullscreenOptions = options;
                     mIsEnteringPersistentModeState = true;
                     tab.updateFullscreenEnabledState();
                 }
@@ -300,6 +302,7 @@ public class ChromeFullscreenManager
             public boolean cancelPendingEnterFullscreen() {
                 boolean wasPending = mIsEnteringPersistentModeState;
                 mIsEnteringPersistentModeState = false;
+                mPendingFullscreenOptions = null;
                 return wasPending;
             }
 
@@ -312,7 +315,11 @@ public class ChromeFullscreenManager
 
             @Override
             public boolean shouldShowNotificationToast() {
-                return !isOverlayVideoMode();
+                // The toast tells user how to leave fullscreen by touching the screen. Since,
+                // there is no touchscreen when browsing in VR, the toast doesn't have any useful
+                // information.
+                return !isOverlayVideoMode() && !VrShellDelegate.isInVr()
+                        && !VrShellDelegate.bootsToVr();
             }
         };
     }
@@ -461,9 +468,8 @@ public class ChromeFullscreenManager
 
     @Override
     public void updateContentViewChildrenState() {
-        ContentViewCore contentViewCore = getActiveContentViewCore();
-        if (contentViewCore == null) return;
-        ViewGroup view = contentViewCore.getContainerView();
+        ViewGroup view = getContentView();
+        if (view == null) return;
 
         float topViewsTranslation = getTopVisibleContentOffset();
         float bottomMargin = getBottomControlsHeight() - getBottomControlOffset();
@@ -511,8 +517,9 @@ public class ChromeFullscreenManager
 
         final Tab tab = getTab();
         if (tab != null && areBrowserControlsOffScreen() && mIsEnteringPersistentModeState) {
-            getHtmlApiHandler().enterFullscreen(tab);
+            getHtmlApiHandler().enterFullscreen(tab, mPendingFullscreenOptions);
             mIsEnteringPersistentModeState = false;
+            mPendingFullscreenOptions = null;
         }
 
         updateContentViewChildrenState();
@@ -546,9 +553,8 @@ public class ChromeFullscreenManager
         }
 
         boolean showControls = !drawControlsAsTexture();
-        ContentViewCore contentViewCore = getActiveContentViewCore();
-        if (contentViewCore == null) return showControls;
-        ViewGroup contentView = contentViewCore.getContainerView();
+        ViewGroup contentView = getContentView();
+        if (contentView == null) return showControls;
 
         for (int i = 0; i < contentView.getChildCount(); i++) {
             View child = contentView.getChildAt(i);
@@ -598,9 +604,9 @@ public class ChromeFullscreenManager
         }
     }
 
-    private ContentViewCore getActiveContentViewCore() {
+    private ViewGroup getContentView() {
         Tab tab = getTab();
-        return tab != null ? tab.getContentViewCore() : null;
+        return tab != null ? tab.getContentView() : null;
     }
 
     @Override

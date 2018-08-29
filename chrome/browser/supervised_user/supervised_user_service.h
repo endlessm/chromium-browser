@@ -27,7 +27,6 @@
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
-#include "components/sync/driver/sync_service_observer.h"
 #include "components/sync/driver/sync_type_preference_provider.h"
 #include "extensions/buildflags/buildflags.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -41,7 +40,6 @@ class Browser;
 class GoogleServiceAuthError;
 class PermissionRequestCreator;
 class Profile;
-class SupervisedUserRegistrationUtility;
 class SupervisedUserServiceObserver;
 class SupervisedUserSettingsService;
 class SupervisedUserSiteList;
@@ -61,10 +59,6 @@ namespace extensions {
 class ExtensionRegistry;
 }
 
-namespace syncer {
-class SyncSetupInProgressHandle;
-}
-
 namespace user_prefs {
 class PrefRegistrySyncable;
 }
@@ -79,7 +73,6 @@ class SupervisedUserService : public KeyedService,
 #endif
                               public syncer::SyncTypePreferenceProvider,
 #if !defined(OS_ANDROID)
-                              public syncer::SyncServiceObserver,
                               public BrowserListObserver,
 #endif
                               public SupervisedUserURLFilter::Observer {
@@ -176,17 +169,6 @@ class SupervisedUserService : public KeyedService,
   // Initializes this profile for syncing, using the provided |refresh_token| to
   // mint access tokens for Sync.
   void InitSync(const std::string& refresh_token);
-
-  // Convenience method that registers this supervised user using
-  // |registration_utility| and initializes sync with the returned token.
-  // The |callback| will be called when registration is complete,
-  // whether it succeeded or not -- unless registration was cancelled manually,
-  // in which case the callback will be ignored.
-  void RegisterAndInitSync(
-      SupervisedUserRegistrationUtility* registration_utility,
-      Profile* custodian_profile,
-      const std::string& supervised_user_id,
-      AuthErrorCallback callback);
 #endif
 
   void AddNavigationBlockedCallback(const NavigationBlockedCallback& callback);
@@ -212,9 +194,6 @@ class SupervisedUserService : public KeyedService,
   syncer::ModelTypeSet GetPreferredDataTypes() const override;
 
 #if !defined(OS_ANDROID)
-  // syncer::SyncServiceObserver implementation:
-  void OnStateChanged(syncer::SyncService* sync) override;
-
   // BrowserListObserver implementation:
   void OnBrowserSetLastActive(Browser* browser) override;
 #endif  // !defined(OS_ANDROID)
@@ -242,20 +221,6 @@ class SupervisedUserService : public KeyedService,
   explicit SupervisedUserService(Profile* profile);
 
   void SetActive(bool active);
-
-#if !defined(OS_ANDROID)
-  void OnCustodianProfileDownloaded(const base::string16& full_name);
-
-  void OnSupervisedUserRegistered(AuthErrorCallback callback,
-                                  Profile* custodian_profile,
-                                  const GoogleServiceAuthError& auth_error,
-                                  const std::string& token);
-
-  void SetupSync();
-  void StartSetupSync();
-  void FinishSetupSyncWhenReady();
-  void FinishSetupSync();
-#endif
 
   bool ProfileIsSupervised() const;
 
@@ -380,8 +345,6 @@ class SupervisedUserService : public KeyedService,
 
   PrefChangeRegistrar pref_change_registrar_;
 
-  // True iff we're waiting for the Sync service to be initialized.
-  bool waiting_for_sync_initialization_;
   bool is_profile_active_;
 
   std::vector<NavigationBlockedCallback> navigation_blocked_callbacks_;
@@ -424,9 +387,6 @@ class SupervisedUserService : public KeyedService,
 #endif
 
   base::ObserverList<SupervisedUserServiceObserver> observer_list_;
-
-  // Prevents Sync from running until configuration is complete.
-  std::unique_ptr<syncer::SyncSetupInProgressHandle> sync_blocker_;
 
   base::WeakPtrFactory<SupervisedUserService> weak_ptr_factory_;
 

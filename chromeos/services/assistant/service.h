@@ -15,7 +15,7 @@
 #include "base/time/time.h"
 #include "chromeos/services/assistant/public/mojom/assistant.mojom.h"
 #include "chromeos/services/assistant/public/mojom/settings.mojom.h"
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "mojo/public/cpp/bindings/interface_ptr_set.h"
@@ -61,7 +61,9 @@ class Service : public service_manager::Service,
   void BindAssistantPlatformConnection(mojom::AssistantPlatformRequest request);
 
   // mojom::AssistantPlatform overrides:
-  void Init(mojom::ClientPtr client, mojom::AudioInputPtr audio_input) override;
+  void Init(mojom::ClientPtr client,
+            mojom::ContextPtr assistant_context,
+            mojom::AudioInputPtr audio_input) override;
 
   // ash::mojom::SessionActivationObserver overrides:
   void OnSessionActivated(bool activated) override;
@@ -86,6 +88,8 @@ class Service : public service_manager::Service,
 
   void UpdateListeningState();
 
+  void FinalizeAssistantManagerService();
+
   service_manager::BinderRegistry registry_;
 
   mojo::BindingSet<mojom::Assistant> bindings_;
@@ -100,11 +104,14 @@ class Service : public service_manager::Service,
   std::unique_ptr<AssistantManagerService> assistant_manager_service_;
   AssistantSettingsManager* assistant_settings_manager_;
   std::unique_ptr<base::OneShotTimer> token_refresh_timer_;
+  scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
 
   // Whether the current user session is active.
   bool session_active_ = false;
   // Whether the lock screen is on.
   bool locked_ = false;
+
+  base::WeakPtrFactory<Service> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(Service);
 };

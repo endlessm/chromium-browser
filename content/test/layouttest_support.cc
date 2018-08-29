@@ -13,10 +13,12 @@
 
 #include "base/callback.h"
 #include "base/lazy_instance.h"
+#include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "cc/base/switches.h"
 #include "cc/test/pixel_test_output_surface.h"
+#include "components/viz/common/features.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/test/test_layer_tree_frame_sink.h"
 #include "content/browser/bluetooth/bluetooth_device_chooser_controller.h"
@@ -39,6 +41,8 @@
 #include "content/renderer/render_view_impl.h"
 #include "content/renderer/render_widget.h"
 #include "content/renderer/renderer_blink_platform_impl.h"
+#include "content/renderer/service_worker/worker_fetch_context_impl.h"
+#include "content/shell/common/layout_test/layout_test_switches.h"
 #include "content/shell/common/shell_switches.h"
 #include "content/shell/test_runner/test_common.h"
 #include "content/shell/test_runner/web_frame_test_proxy.h"
@@ -263,6 +267,10 @@ void SetMockDeviceOrientationData(const OrientationData& data) {
   RendererBlinkPlatformImpl::SetMockDeviceOrientationDataForTesting(data);
 }
 
+void SetWorkerRewriteURLFunction(RewriteURLFunction rewrite_url_function) {
+  WorkerFetchContextImpl::InstallRewriteURLFunction(rewrite_url_function);
+}
+
 namespace {
 
 // Invokes a callback on commit (on the main thread) to obtain the output
@@ -310,6 +318,11 @@ class CopyRequestSwapPromise : public cc::SwapPromise {
 class LayoutTestDependenciesImpl : public LayoutTestDependencies,
                                    public viz::TestLayerTreeFrameSinkClient {
  public:
+  bool UseDisplayCompositorPixelDump() const override {
+    base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
+    return cmd->HasSwitch(switches::kEnableDisplayCompositorPixelDump);
+  }
+
   std::unique_ptr<cc::LayerTreeFrameSink> CreateLayerTreeFrameSink(
       int32_t routing_id,
       scoped_refptr<gpu::GpuChannelHost> gpu_channel,
@@ -336,16 +349,15 @@ class LayoutTestDependenciesImpl : public LayoutTestDependencies,
     // Keep texture sizes exactly matching the bounds of the RenderPass to avoid
     // floating point badness in texcoords.
     renderer_settings.dont_round_texture_sizes_for_pixel_tests = true;
-    renderer_settings.use_skia_renderer =
-        cmd->HasSwitch(switches::kUseSkiaRenderer);
+    renderer_settings.use_skia_renderer = features::IsUsingSkiaRenderer();
 
     constexpr bool disable_display_vsync = false;
     constexpr double refresh_rate = 60.0;
     auto layer_tree_frame_sink = std::make_unique<viz::TestLayerTreeFrameSink>(
         std::move(compositor_context_provider),
-        std::move(worker_context_provider), nullptr /* shared_bitmap_manager */,
-        gpu_memory_buffer_manager, renderer_settings, task_runner,
-        synchronous_composite, disable_display_vsync, refresh_rate);
+        std::move(worker_context_provider), gpu_memory_buffer_manager,
+        renderer_settings, task_runner, synchronous_composite,
+        disable_display_vsync, refresh_rate);
     layer_tree_frame_sink->SetClient(this);
     layer_tree_frame_sinks_[routing_id] = layer_tree_frame_sink.get();
     return std::move(layer_tree_frame_sink);
@@ -395,7 +407,7 @@ class LayoutTestDependenciesImpl : public LayoutTestDependencies,
           GURL("chrome://gpu/"
                "LayoutTestDependenciesImpl::CreateOutputSurface"),
           automatic_flushes, support_locking, support_grcontext,
-          gpu::SharedMemoryLimits(), attributes, nullptr,
+          gpu::SharedMemoryLimits(), attributes,
           ui::command_buffer_metrics::OFFSCREEN_CONTEXT_FOR_TESTING);
       context_result = context_provider->BindToCurrentThread();
 
@@ -549,10 +561,10 @@ void DisableAutoResizeMode(RenderView* render_view, const WebSize& new_size) {
       DisableAutoResizeForTesting(new_size);
 }
 
-void SchedulerRunIdleTasks(const base::Closure& callback) {
+void SchedulerRunIdleTasks(base::OnceClosure callback) {
   blink::scheduler::WebMainThreadScheduler* scheduler =
       content::RenderThreadImpl::current()->GetWebMainThreadScheduler();
-  blink::scheduler::RunIdleTasksForTesting(scheduler, callback);
+  blink::scheduler::RunIdleTasksForTesting(scheduler, std::move(callback));
 }
 
 void ForceTextInputStateUpdateForRenderFrame(RenderFrame* frame) {

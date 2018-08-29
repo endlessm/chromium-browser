@@ -7,9 +7,9 @@
 #include <utility>
 
 #include "apps/ui/views/app_window_frame_view.h"
-#include "ash/ash_constants.h"
 #include "ash/frame/custom_frame_view_ash.h"
 #include "ash/public/cpp/app_types.h"
+#include "ash/public/cpp/ash_constants.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/immersive/immersive_fullscreen_controller.h"
 #include "ash/public/cpp/shell_window_ids.h"
@@ -174,10 +174,23 @@ void ChromeNativeAppWindowViewsAuraAsh::OnBeforeWidgetInit(
   init_params->mus_properties
       [ui::mojom::WindowManager::kRemoveStandardFrame_InitProperty] =
       mojo::ConvertTo<std::vector<uint8_t>>(init_params->remove_standard_frame);
+  if (HasFrameColor()) {
+    init_params->mus_properties
+        [ui::mojom::WindowManager::kActiveFrameColor_InitProperty] =
+        mojo::ConvertTo<std::vector<uint8_t>>(
+            static_cast<int32_t>(ActiveFrameColor()));
+    init_params->mus_properties
+        [ui::mojom::WindowManager::kInactiveFrameColor_InitProperty] =
+        mojo::ConvertTo<std::vector<uint8_t>>(
+            static_cast<int32_t>(InactiveFrameColor()));
+  }
   init_params
       ->mus_properties[ui::mojom::WindowManager::kShelfItemType_Property] =
       mojo::ConvertTo<std::vector<uint8_t>>(
           static_cast<int64_t>(ash::TYPE_APP));
+  init_params
+      ->mus_properties[ui::mojom::WindowManager::kWindowTitleShown_Property] =
+      mojo::ConvertTo<std::vector<uint8_t>>(static_cast<int64_t>(false));
 }
 
 void ChromeNativeAppWindowViewsAuraAsh::OnBeforePanelWidgetInit(
@@ -185,7 +198,8 @@ void ChromeNativeAppWindowViewsAuraAsh::OnBeforePanelWidgetInit(
     views::Widget* widget) {
   ChromeNativeAppWindowViewsAura::OnBeforePanelWidgetInit(init_params, widget);
 
-  if (!ash_util::IsRunningInMash() && ash::Shell::HasInstance()) {
+  if (chromeos::GetAshConfig() != ash::Config::MASH &&
+      ash::Shell::HasInstance()) {
     // Open a new panel on the target root.
     init_params->context = ash::Shell::GetRootWindowForNewWindows();
     init_params->bounds = gfx::Rect(GetPreferredSize());
@@ -210,6 +224,13 @@ ChromeNativeAppWindowViewsAuraAsh::CreateNonStandardAppFrame() {
                         ash::kResizeOutsideBoundsSize,
                         ash::kResizeAreaCornerSize);
   return frame;
+}
+
+bool ChromeNativeAppWindowViewsAuraAsh::ShouldRemoveStandardFrame() {
+  if (IsFrameless())
+    return true;
+
+  return HasFrameColor() && chromeos::GetAshConfig() != ash::Config::MASH;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -308,8 +329,8 @@ ChromeNativeAppWindowViewsAuraAsh::CreateNonClientFrameView(
   if (IsFrameless())
     return CreateNonStandardAppFrame();
 
-  if (ash_util::IsRunningInMash())
-    return ChromeNativeAppWindowViews::CreateNonClientFrameView(widget);
+  if (chromeos::GetAshConfig() == ash::Config::MASH)
+    return nullptr;
 
   if (app_window()->window_type_is_panel()) {
     ash::PanelFrameView* frame_view =
@@ -345,7 +366,6 @@ ChromeNativeAppWindowViewsAuraAsh::CreateNonClientFrameView(
 // NativeAppWindow implementation:
 void ChromeNativeAppWindowViewsAuraAsh::SetFullscreen(int fullscreen_types) {
   ChromeNativeAppWindowViewsAura::SetFullscreen(fullscreen_types);
-
   if (immersive_fullscreen_controller_.get()) {
     UpdateImmersiveMode();
 
@@ -358,7 +378,8 @@ void ChromeNativeAppWindowViewsAuraAsh::SetFullscreen(int fullscreen_types) {
                               AppWindow::FULLSCREEN_TYPE_WINDOW_API)
               ? EXCLUSIVE_ACCESS_BUBBLE_TYPE_FULLSCREEN_EXIT_INSTRUCTION
               : EXCLUSIVE_ACCESS_BUBBLE_TYPE_NONE,
-          ExclusiveAccessBubbleHideCallback());
+          ExclusiveAccessBubbleHideCallback(),
+          /*force_update=*/false);
     }
 
     // Autohide the shelf instead of hiding the shelf completely when only in
@@ -367,6 +388,7 @@ void ChromeNativeAppWindowViewsAuraAsh::SetFullscreen(int fullscreen_types) {
         fullscreen_types != AppWindow::FULLSCREEN_TYPE_OS;
     widget()->GetNativeWindow()->SetProperty(ash::kHideShelfWhenFullscreenKey,
                                              should_hide_shelf);
+    widget()->non_client_view()->Layout();
   }
 }
 
@@ -408,6 +430,7 @@ void ChromeNativeAppWindowViewsAuraAsh::SetActivateOnPointer(
 void ChromeNativeAppWindowViewsAuraAsh::OnTabletModeToggled(bool enabled) {
   tablet_mode_enabled_ = enabled;
   UpdateImmersiveMode();
+  widget()->non_client_view()->Layout();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -448,7 +471,8 @@ void ChromeNativeAppWindowViewsAuraAsh::ExitFullscreen() {
 void ChromeNativeAppWindowViewsAuraAsh::UpdateExclusiveAccessExitBubbleContent(
     const GURL& url,
     ExclusiveAccessBubbleType bubble_type,
-    ExclusiveAccessBubbleHideCallback bubble_first_hide_callback) {
+    ExclusiveAccessBubbleHideCallback bubble_first_hide_callback,
+    bool force_update) {
   if (bubble_type == EXCLUSIVE_ACCESS_BUBBLE_TYPE_NONE) {
     exclusive_access_bubble_.reset();
     if (bubble_first_hide_callback) {
@@ -460,7 +484,7 @@ void ChromeNativeAppWindowViewsAuraAsh::UpdateExclusiveAccessExitBubbleContent(
 
   if (exclusive_access_bubble_) {
     exclusive_access_bubble_->UpdateContent(
-        url, bubble_type, std::move(bubble_first_hide_callback));
+        url, bubble_type, std::move(bubble_first_hide_callback), force_update);
     return;
   }
 
@@ -481,6 +505,15 @@ ChromeNativeAppWindowViewsAuraAsh::GetActiveWebContents() {
 void ChromeNativeAppWindowViewsAuraAsh::UnhideDownloadShelf() {}
 
 void ChromeNativeAppWindowViewsAuraAsh::HideDownloadShelf() {}
+
+bool ChromeNativeAppWindowViewsAuraAsh::ShouldHideUIForFullscreen() const {
+  return false;
+}
+
+ExclusiveAccessBubbleViews*
+ChromeNativeAppWindowViewsAuraAsh::GetExclusiveAccessBubble() {
+  return exclusive_access_bubble_.get();
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // ExclusiveAccessBubbleViewsContext implementation:
@@ -546,27 +579,41 @@ void ChromeNativeAppWindowViewsAuraAsh::OnMenuClosed() {
   menu_model_.reset();
 }
 
+bool ChromeNativeAppWindowViewsAuraAsh::ShouldEnableImmersiveMode() const {
+  // No immersive mode for forced fullscreen.
+  if (app_window()->IsForcedFullscreen())
+    return false;
+
+  // Always use immersive mode in a public session in fullscreen state.
+  if (profiles::IsPublicSession() && IsFullscreen())
+    return true;
+
+  // Always use immersive mode when fullscreen is set by the OS.
+  if (app_window()->IsOsFullscreen())
+    return true;
+
+  TabletModeClient* client = TabletModeClient::Get();
+  // Windows in tablet mode which are resizable have their title bars
+  // hidden in ash for more size, so enable immersive mode so users
+  // have access to window controls. Non resizable windows do not gain
+  // size by hidding the title bar, so it is not hidden and thus there
+  // is no need for immersive mode.
+  // TODO(sammiequon): Investigate whether we should check
+  // resizability using WindowState instead of CanResize.
+  // TODO(crbug.com/801619): This adds a little extra animation
+  // when minimizing or unminimizing window.
+  return client && client->tablet_mode_enabled() && CanResize() &&
+         !IsMinimized();
+}
+
 void ChromeNativeAppWindowViewsAuraAsh::UpdateImmersiveMode() {
   // |immersive_fullscreen_controller_| should only be set if immersive
   // fullscreen is the fullscreen type used by the OS, or if we're in a
   // public session where we always use immersive.
   if (!immersive_fullscreen_controller_)
     return;
-  TabletModeClient* client = TabletModeClient::Get();
-  const bool immersive_enabled =
-      profiles::IsPublicSession() || app_window()->IsOsFullscreen() ||
-      // Windows in tablet mode which are resizable have their title bars
-      // hidden in ash for more size, so enable immersive mode so users
-      // have access to window controls. Non resizable windows do not gain
-      // size by hidding the title bar, so it is not hidden and thus there
-      // is no need for immersive mode.
-      // TODO(sammiequon): Investigate whether we should check
-      // resizability using WindowState instead of CanResize.
-      // TODO(crbug.com/801619): This adds a little extra animation
-      // when minimizing or unminimizing window.
-      (client && client->tablet_mode_enabled() && CanResize() &&
-       !IsMinimized());
+
   immersive_fullscreen_controller_->SetEnabled(
       ash::ImmersiveFullscreenController::WINDOW_TYPE_PACKAGED_APP,
-      immersive_enabled);
+      ShouldEnableImmersiveMode());
 }

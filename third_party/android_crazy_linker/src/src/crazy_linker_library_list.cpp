@@ -6,7 +6,6 @@
 
 #include <assert.h>
 #include <crazy_linker.h>
-#include <dlfcn.h>
 
 #include "crazy_linker_debug.h"
 #include "crazy_linker_globals.h"
@@ -15,6 +14,7 @@
 #include "crazy_linker_rdebug.h"
 #include "crazy_linker_shared_library.h"
 #include "crazy_linker_system.h"
+#include "crazy_linker_system_linker.h"
 #include "crazy_linker_util.h"
 #include "crazy_linker_zip.h"
 
@@ -349,15 +349,13 @@ LibraryView* LibraryList::LoadLibrary(const char* lib_name,
   // crazily.
   if (is_dependency_or_preload) {
     LOG("Loading system library '%s'", lib_name);
-    ::dlerror();
-    void* system_lib = dlopen(lib_name, dlopen_mode);
+    void* system_lib = SystemLinker::Open(lib_name, dlopen_mode);
     if (!system_lib) {
       error->Format("Can't load system library %s: %s", lib_name, ::dlerror());
       return NULL;
     }
 
-    LibraryView* wrap = new LibraryView();
-    wrap->SetSystem(system_lib, lib_name);
+    LibraryView* wrap = new LibraryView(system_lib, base_name);
     known_libraries_.PushBack(wrap);
 
     LOG("System library %s loaded at %p", lib_name, wrap);
@@ -370,34 +368,17 @@ LibraryView* LibraryList::LoadLibrary(const char* lib_name,
   // Find the full library path.
   String full_path;
 
-  if (!strchr(lib_name, '/')) {
-    LOG("Looking through the search path list");
-    const char* path = search_path_list->FindFile(lib_name);
-    if (!path) {
-      error->Format("Can't find library file %s", lib_name);
-      return NULL;
-    }
-    full_path = path;
-  } else {
-    if (lib_name[0] != '/') {
-      // Need to transform this into a full path.
-      full_path = GetCurrentDirectory();
-      if (full_path.size() && full_path[full_path.size() - 1] != '/')
-        full_path += '/';
-      full_path += lib_name;
-    } else {
-      // Absolute path. Easy.
-      full_path = lib_name;
-    }
-    LOG("Full library path: %s", full_path.c_str());
-    if (!PathIsFile(full_path.c_str())) {
-      error->Format("Library file doesn't exist: %s", full_path.c_str());
-      return NULL;
-    }
+  LOG("Looking through the search path list");
+  SearchPathList::Result probe = search_path_list->FindFile(lib_name);
+  if (!probe.IsValid()) {
+    error->Format("Can't find library file %s", lib_name);
+    return NULL;
   }
+  LOG("Found library: path %s @ 0x%x", probe.path.c_str(), probe.offset);
 
   // Load the library
-  if (!lib->Load(full_path.c_str(), load_address, file_offset, error))
+  if (!lib->Load(probe.path.c_str(), load_address, file_offset + probe.offset,
+                 error))
     return NULL;
 
   // Load all dependendent libraries.
@@ -447,8 +428,12 @@ LibraryView* LibraryList::LoadLibrary(const char* lib_name,
   head_ = lib.Get();
 
   // Then create a new LibraryView for it.
-  wrap = new LibraryView();
-  wrap->SetCrazy(lib.Get(), lib_name);
+  // TODO(digit): Use the library's soname() instead of |lib_name| here.
+  // This is not possible yet because the current code relies on the fact
+  // that lib_name is /data/data/..../base.apk + a file offset at the moment
+  // to perform RELRO sharing properly. This will be fixed in a future CL
+  // that also modifies the client code in chromium_android_linker.
+  wrap = new LibraryView(lib.Get(), lib_name);
   known_libraries_.PushBack(wrap);
 
   LOG("Running constructors for %s", base_name);
@@ -481,28 +466,19 @@ LibraryView* LibraryList::LoadLibrary(const char* lib_name,
 #error "Unsupported target abi"
 #endif
 
-String LibraryList::GetLibraryFilePathInZipFile(const char* lib_name) {
-  String path;
-  path.Reserve(kMaxFilePathLengthInZip);
-  path = "lib/";
-  path += CURRENT_ABI;
-  path += "/crazy.";
-  path += lib_name;
-  return path;
-}
-
 int LibraryList::FindMappableLibraryInZipFile(
     const char* zip_file_path,
     const char* lib_name,
     Error* error) {
-  String path = GetLibraryFilePathInZipFile(lib_name);
+  String path("lib/" CURRENT_ABI "/crazy.");
+  path += lib_name;
   if (path.size() >= kMaxFilePathLengthInZip) {
     error->Format("Filename too long for a file in a zip file %s\n",
                   path.c_str());
     return CRAZY_OFFSET_FAILED;
   }
 
-  int offset = FindStartOffsetOfFileInZipFile(zip_file_path, path.c_str());
+  int32_t offset = FindStartOffsetOfFileInZipFile(zip_file_path, path.c_str());
   if (offset == CRAZY_OFFSET_FAILED) {
     return CRAZY_OFFSET_FAILED;
   }

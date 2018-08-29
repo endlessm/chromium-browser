@@ -124,11 +124,6 @@ SyncerError ModelTypeWorker::ProcessGetUpdatesResponse(
   counters->num_updates_received += applicable_updates.size();
 
   for (const sync_pb::SyncEntity* update_entity : applicable_updates) {
-    // Skip updates for permanent folders.
-    // TODO(crbug.com/516866): might need to handle this for hierarchical types.
-    if (!update_entity->server_defined_unique_tag().empty())
-      continue;
-
     if (update_entity->deleted()) {
       status->increment_num_tombstone_updates_downloaded_by(1);
       ++counters->num_tombstone_updates_received;
@@ -171,6 +166,7 @@ ModelTypeWorker::DecryptionStatus ModelTypeWorker::PopulateUpdateResponseData(
   data.is_folder = update_entity.folder();
   data.parent_id = update_entity.parent_id_string();
   data.unique_position = update_entity.unique_position();
+  data.server_defined_unique_tag = update_entity.server_defined_unique_tag();
 
   // Deleted entities must use the default instance of EntitySpecifics in
   // order for EntityData to correctly reflect that they are deleted.
@@ -295,6 +291,10 @@ std::unique_ptr<CommitContribution> ModelTypeWorker::GetContribution(
       GetModelType(), model_type_state_.type_context(), response, this,
       cryptographer_.get(), debug_info_emitter_,
       CommitOnlyTypes().Has(GetModelType()));
+}
+
+bool ModelTypeWorker::HasLocalChangesForTest() const {
+  return has_local_changes_;
 }
 
 void ModelTypeWorker::OnCommitResponse(CommitResponseDataList* response_list) {

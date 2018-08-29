@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_PASSWORDS_PASSWORDS_MODEL_DELEGATE_H_
 #define CHROME_BROWSER_UI_PASSWORDS_PASSWORDS_MODEL_DELEGATE_H_
 
+#include <memory>
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
@@ -84,14 +85,14 @@ class PasswordsModelDelegate {
   // Called from the model when the user chooses to never save passwords.
   virtual void NeverSavePassword() = 0;
 
+  // Called when the passwords are revealed to the user without obfuscation.
+  virtual void OnPasswordsRevealed() = 0;
+
   // Called from the model when the user chooses to save a password. The
   // username and password seen on the ui is sent as a parameter, and
   // handled accordingly if user had edited them.
   virtual void SavePassword(const base::string16& username,
                             const base::string16& password) = 0;
-
-  // Called from the model when the user chooses to update a password.
-  virtual void UpdatePassword(const autofill::PasswordForm& password_form) = 0;
 
   // Called from the dialog controller when the user chooses a credential.
   // Controller can be destroyed inside the method.

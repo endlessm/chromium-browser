@@ -4,11 +4,16 @@
 
 #include "ash/message_center/message_center_controller.h"
 
+#include "ash/message_center/arc_notification_manager_delegate_impl.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/vector_icons/vector_icons.h"
+#include "ash/session/session_controller.h"
+#include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/unguessable_token.h"
+#include "components/account_id/account_id.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/public/cpp/notification.h"
@@ -106,16 +111,16 @@ MessageCenterController::MessageCenterController() {
   }
 
   message_center::RegisterVectorIcons(
-      {&kNotificationCaptivePortalIcon, &kNotificationCellularAlertIcon,
-       &kNotificationDownloadIcon, &kNotificationEndOfSupportIcon,
-       &kNotificationGoogleIcon, &kNotificationImageIcon,
-       &kNotificationInstalledIcon, &kNotificationMultiDeviceSetupIcon,
-       &kNotificationMobileDataIcon, &kNotificationMobileDataOffIcon,
-       &kNotificationPlayPrismIcon, &kNotificationPrintingDoneIcon,
-       &kNotificationPrintingIcon, &kNotificationPrintingWarningIcon,
-       &kNotificationSettingsIcon, &kNotificationStorageFullIcon,
-       &kNotificationVpnIcon, &kNotificationWarningIcon,
-       &kNotificationWifiOffIcon});
+      {&kNotificationCaptivePortalIcon,  &kNotificationCellularAlertIcon,
+       &kNotificationDownloadIcon,       &kNotificationEndOfSupportIcon,
+       &kNotificationGoogleIcon,         &kNotificationImageIcon,
+       &kNotificationInstalledIcon,      &kNotificationMultiDeviceSetupIcon,
+       &kNotificationMobileDataIcon,     &kNotificationMobileDataOffIcon,
+       &kNotificationPlayPrismIcon,      &kNotificationPrintingDoneIcon,
+       &kNotificationPrintingIcon,       &kNotificationPrintingWarningIcon,
+       &kNotificationSettingsIcon,       &kNotificationStorageFullIcon,
+       &kNotificationSupervisedUserIcon, &kNotificationVpnIcon,
+       &kNotificationWarningIcon,        &kNotificationWifiOffIcon});
 
   // Set the system notification source display name ("Chrome OS" or "Chromium
   // OS").
@@ -146,6 +151,20 @@ void MessageCenterController::SetClient(
     mojom::AshMessageCenterClientAssociatedPtrInfo client) {
   DCHECK(!client_.is_bound());
   client_.Bind(std::move(client));
+}
+
+void MessageCenterController::SetArcNotificationsInstance(
+    arc::mojom::NotificationsInstancePtr arc_notification_instance) {
+  if (!arc_notification_manager_) {
+    arc_notification_manager_ = std::make_unique<ArcNotificationManager>(
+        std::make_unique<ArcNotificationManagerDelegateImpl>(),
+        Shell::Get()
+            ->session_controller()
+            ->GetPrimaryUserSession()
+            ->user_info->account_id,
+        message_center::MessageCenter::Get());
+  }
+  arc_notification_manager_->SetInstance(std::move(arc_notification_instance));
 }
 
 void MessageCenterController::ShowClientNotification(
@@ -190,6 +209,13 @@ void MessageCenterController::GetActiveNotifications(
     notification_vector.back().set_vector_small_image(gfx::kNoneIcon);
   }
   std::move(callback).Run(notification_vector);
+}
+
+void MessageCenterController::GetArcAppIdByPackageName(
+    const std::string& package_name,
+    GetAppIdByPackageNameCallback callback) {
+  DCHECK(client_.is_bound());
+  client_->GetArcAppIdByPackageName(package_name, std::move(callback));
 }
 
 void MessageCenterController::SetNotifierSettingsListener(

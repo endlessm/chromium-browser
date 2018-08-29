@@ -26,6 +26,14 @@ class LoginDataDispatcher;
 // LoginScreenClient through mojo.
 class ASH_EXPORT LoginScreenController : public mojom::LoginScreen {
  public:
+  // The current authentication stage. Used to get more verbose logging.
+  enum class AuthenticationStage {
+    kIdle,
+    kGetSystemSalt,
+    kDoAuthenticate,
+    kUserCallback,
+  };
+
   using OnShownCallback = base::OnceCallback<void(bool did_show)>;
   // Callback for authentication checks. |success| is nullopt if an
   // authentication check did not run, otherwise it is true/false if auth
@@ -60,12 +68,14 @@ class ASH_EXPORT LoginScreenController : public mojom::LoginScreen {
   void LoginAsGuest();
   void OnMaxIncorrectPasswordAttempted(const AccountId& account_id);
   void FocusLockScreenApps(bool reverse);
-  void ShowGaiaSignin();
+  void ShowGaiaSignin(const base::Optional<AccountId>& account_id);
   void OnRemoveUserWarningShown();
   void RemoveUser(const AccountId& account_id);
   void LaunchPublicSession(const AccountId& account_id,
                            const std::string& locale,
                            const std::string& input_method);
+  void RequestPublicSessionKeyboardLayouts(const AccountId& account_id,
+                                           const std::string& locale);
 
   // Add or remove an observer.
   void AddObserver(LoginScreenControllerObserver* observer);
@@ -96,6 +106,12 @@ class ASH_EXPORT LoginScreenController : public mojom::LoginScreen {
                  bool show_guest) override;
   void SetPinEnabledForUser(const AccountId& account_id,
                             bool is_enabled) override;
+  void SetAvatarForUser(const AccountId& account_id,
+                        mojom::UserAvatarPtr avatar) override;
+  void SetAuthEnabledForUser(
+      const AccountId& account_id,
+      bool is_enabled,
+      base::Optional<base::Time> auth_reenabled_time) override;
   void HandleFocusLeavingLockScreenApps(bool reverse) override;
   void SetDevChannelInfo(const std::string& os_version_label_text,
                          const std::string& enterprise_info_text,
@@ -104,12 +120,22 @@ class ASH_EXPORT LoginScreenController : public mojom::LoginScreen {
   void SetPublicSessionDisplayName(const AccountId& account_id,
                                    const std::string& display_name) override;
   void SetPublicSessionLocales(const AccountId& account_id,
-                               std::unique_ptr<base::ListValue> locales,
+                               std::vector<mojom::LocaleItemPtr> locales,
                                const std::string& default_locale,
                                bool show_advanced_view) override;
+  void SetPublicSessionKeyboardLayouts(
+      const AccountId& account_id,
+      const std::string& locale,
+      std::vector<mojom::InputMethodItemPtr> keyboard_layouts) override;
+  void SetFingerprintUnlockState(const AccountId& account_id,
+                                 mojom::FingerprintUnlockState state) override;
 
   // Flushes the mojo pipes - to be used in tests.
   void FlushForTesting();
+
+  AuthenticationStage authentication_stage() const {
+    return authentication_stage_;
+  }
 
  private:
   using PendingDoAuthenticateUser =
@@ -134,13 +160,6 @@ class ASH_EXPORT LoginScreenController : public mojom::LoginScreen {
   // Bindings for users of the LockScreen interface.
   mojo::BindingSet<mojom::LoginScreen> bindings_;
 
-  // The current authentication stage. Used to get more verbose logging.
-  enum class AuthenticationStage {
-    kIdle,
-    kGetSystemSalt,
-    kDoAuthenticate,
-    kUserCallback,
-  };
   AuthenticationStage authentication_stage_ = AuthenticationStage::kIdle;
 
   base::ObserverList<LoginScreenControllerObserver> observers_;

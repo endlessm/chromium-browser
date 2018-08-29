@@ -35,7 +35,7 @@
 
 namespace mca {
 
-/// \brief A view that collects and prints a few performance numbers.
+/// A view that collects and prints a few performance numbers.
 class SummaryView : public View {
   const SourceMgr &Source;
   const unsigned DispatchWidth;
@@ -45,7 +45,7 @@ public:
   SummaryView(const SourceMgr &S, unsigned Width)
       : Source(S), DispatchWidth(Width), TotalCycles(0) {}
 
-  void onCycleEnd(unsigned /* unused */) override { ++TotalCycles; }
+  void onCycleEnd() override { ++TotalCycles; }
 
   void printView(llvm::raw_ostream &OS) const override;
 };

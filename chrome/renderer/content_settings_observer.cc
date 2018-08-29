@@ -156,6 +156,11 @@ void ContentSettingsObserver::SetContentSettingRules(
                        content_setting_rules_->client_hints_rules.size());
 }
 
+const RendererContentSettingRules*
+ContentSettingsObserver::GetContentSettingRules() {
+  return content_setting_rules_;
+}
+
 bool ContentSettingsObserver::IsPluginTemporarilyAllowed(
     const std::string& identifier) {
   // If the empty string is in here, it means all plugins are allowed.
@@ -445,6 +450,16 @@ bool ContentSettingsObserver::AllowAutoplay(bool default_value) {
   blink::WebLocalFrame* frame = render_frame()->GetWebFrame();
   return GetContentSettingFromRules(
              content_setting_rules_->autoplay_rules, frame,
+             url::Origin(frame->GetDocument().GetSecurityOrigin()).GetURL()) ==
+         CONTENT_SETTING_ALLOW;
+}
+
+bool ContentSettingsObserver::AllowPopupsAndRedirects(bool default_value) {
+  if (!content_setting_rules_)
+    return default_value;
+  blink::WebLocalFrame* frame = render_frame()->GetWebFrame();
+  return GetContentSettingFromRules(
+             content_setting_rules_->popup_redirect_rules, frame,
              url::Origin(frame->GetDocument().GetSecurityOrigin()).GetURL()) ==
          CONTENT_SETTING_ALLOW;
 }

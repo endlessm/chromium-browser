@@ -249,7 +249,7 @@ TEST_F(WindowActivityWatcherTest, MoveTabToOtherWindow) {
   }
 
   // Drag the tab out of its window.
-  content::WebContents* dragged_tab =
+  std::unique_ptr<content::WebContents> dragged_tab =
       starting_browser->tab_strip_model()->DetachWebContentsAt(1);
   starting_browser_metrics[TabManager_WindowMetrics::kTabCountName].value() = 1;
   {
@@ -271,7 +271,7 @@ TEST_F(WindowActivityWatcherTest, MoveTabToOtherWindow) {
       FakeBrowserWindow::CreateBrowserWithFakeWindowForParams(&params);
   created_browser->window()->Activate();
   created_browser->tab_strip_model()->InsertWebContentsAt(
-      0, dragged_tab, TabStripModel::ADD_ACTIVE);
+      0, std::move(dragged_tab), TabStripModel::ADD_ACTIVE);
   UkmMetricMap created_browser_metrics({
       {TabManager_WindowMetrics::kWindowIdName,
        created_browser->session_id().id()},
@@ -313,10 +313,11 @@ TEST_F(WindowActivityWatcherTest, ReplaceTab) {
 
   // Replace the tab.
   content::WebContents::CreateParams web_contents_params(profile(), nullptr);
-  content::WebContents* new_contents =
-      content::WebContentsTester::CreateTestWebContents(web_contents_params);
-  std::unique_ptr<content::WebContents> old_contents = base::WrapUnique(
-      browser->tab_strip_model()->ReplaceWebContentsAt(1, new_contents));
+  std::unique_ptr<content::WebContents> new_contents = base::WrapUnique(
+      content::WebContentsTester::CreateTestWebContents(web_contents_params));
+  std::unique_ptr<content::WebContents> old_contents =
+      browser->tab_strip_model()->ReplaceWebContentsAt(1,
+                                                       std::move(new_contents));
 
   // Close the replaced tab. This should log an event with an updated TabCount.
   browser->tab_strip_model()->CloseWebContentsAt(1, TabStripModel::CLOSE_NONE);

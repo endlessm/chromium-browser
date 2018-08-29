@@ -29,7 +29,7 @@
 #include "chrome/browser/chromeos/printing/external_printers.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_service.h"
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 #include "components/user_manager/user.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -80,6 +80,10 @@ class ChromeUserManagerImpl
 
   // UserManager implementation:
   void Shutdown() override;
+  void UserLoggedIn(const AccountId& account_id,
+                    const std::string& user_id_hash,
+                    bool browser_restart,
+                    bool is_child) override;
   user_manager::UserList GetUsersAllowedForMultiProfile() const override;
   user_manager::UserList GetUsersAllowedForSupervisedUsersCreation()
       const override;
@@ -149,7 +153,7 @@ class ChromeUserManagerImpl
   // ChromeUserManager implementation:
   bool IsEnterpriseManaged() const override;
   void SetUserAffiliation(
-      const std::string& user_email,
+      const AccountId& account_id,
       const AffiliationIDSet& user_affiliation_ids) override;
   bool ShouldReportUser(const std::string& user_id) const override;
 

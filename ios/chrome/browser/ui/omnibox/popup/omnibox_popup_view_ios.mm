@@ -48,10 +48,10 @@ OmniboxPopupViewIOS::~OmniboxPopupViewIOS() {
 }
 
 // Set left image to globe or magnifying glass depending on which autocomplete
-// option comes first.
+// option is highlighted.
 void OmniboxPopupViewIOS::UpdateEditViewIcon() {
   const AutocompleteResult& result = model_->result();
-  const AutocompleteMatch& match = result.match_at(0);  // 0 for first result.
+  const AutocompleteMatch& match = result.match_at(model_->selected_line());
   int image_id = GetIconForAutocompleteMatchType(
       match.type, /* is_starred */ false, /* is_incognito */ false);
   delegate_->OnTopmostSuggestionImageChanged(image_id);
@@ -94,6 +94,9 @@ bool OmniboxPopupViewIOS::IsStarredMatch(const AutocompleteMatch& match) const {
 
 void OmniboxPopupViewIOS::OnMatchHighlighted(size_t row) {
   model_->SetSelectedLine(row, false, true);
+  if ([mediator_ isOpen]) {
+    UpdateEditViewIcon();
+  }
 }
 
 void OmniboxPopupViewIOS::OnMatchSelected(
@@ -119,10 +122,10 @@ void OmniboxPopupViewIOS::OnMatchSelected(
 
 void OmniboxPopupViewIOS::OnMatchSelectedForAppending(
     const AutocompleteMatch& match) {
-  // Make a defensive copy of |match.contents|, as CopyToOmnibox() will trigger
-  // a new round of autocomplete and modify |match|.
-  base::string16 contents(match.contents);
-  delegate_->OnSelectedMatchForAppending(contents);
+  // Make a defensive copy of |match.fill_into_edit|, as CopyToOmnibox() will
+  // trigger a new round of autocomplete and modify |match|.
+  base::string16 fill_into_edit(match.fill_into_edit);
+  delegate_->OnSelectedMatchForAppending(fill_into_edit);
 }
 
 void OmniboxPopupViewIOS::OnMatchSelectedForDeletion(

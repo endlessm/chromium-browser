@@ -8,21 +8,23 @@
 #include <deque>
 
 #include "third_party/blink/renderer/platform/scheduler/child/worker_scheduler_proxy.h"
+#include "third_party/blink/renderer/platform/scheduler/main_thread/main_thread_task_queue.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
-#include "third_party/blink/renderer/platform/scheduler/renderer/main_thread_task_queue.h"
 
 namespace blink {
 namespace scheduler {
 
 class MainThreadTaskQueueForTest : public MainThreadTaskQueue {
  public:
+  using MainThreadTaskQueue::SetFrameSchedulerForTest;
+
   MainThreadTaskQueueForTest(QueueType queue_type)
       : MainThreadTaskQueue(nullptr,
                             Spec(MainThreadTaskQueue::NameForQueueType(
                                 MainThreadTaskQueue::QueueType::kTest)),
                             QueueCreationParams(queue_type),
                             nullptr) {}
-  ~MainThreadTaskQueueForTest() = default;
+  ~MainThreadTaskQueueForTest() override = default;
 };
 
 // A dummy FrameScheduler for tests.
@@ -123,7 +125,7 @@ class FakeFrameScheduler : public FrameScheduler {
   PageScheduler* GetPageScheduler() const override { return page_scheduler_; }
   WebScopedVirtualTimePauser CreateWebScopedVirtualTimePauser(
       const WTF::String& name,
-      WebScopedVirtualTimePauser::VirtualTaskDuration duration) {
+      WebScopedVirtualTimePauser::VirtualTaskDuration duration) override {
     return WebScopedVirtualTimePauser();
   }
   void DidStartProvisionalLoad(bool is_main_frame) override {}

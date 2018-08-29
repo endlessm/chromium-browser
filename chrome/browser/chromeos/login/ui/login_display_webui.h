@@ -67,14 +67,17 @@ class LoginDisplayWebUI : public LoginDisplay,
   void CancelUserAdding() override;
   void ShowEnterpriseEnrollmentScreen() override;
   void ShowEnableDebuggingScreen() override;
-  void ShowDemoModeSetupScreen() override;
   void ShowKioskEnableScreen() override;
   void ShowKioskAutolaunchScreen() override;
   void ShowUpdateRequiredScreen() override;
   void ShowWrongHWIDScreen() override;
   void SetWebUIHandler(LoginDisplayWebUIHandler* webui_handler) override;
-  virtual void ShowSigninScreenForCreds(const std::string& username,
-                                        const std::string& password);
+  // Should match the same method in SigninScreenHandler.
+  // |services| must be a valid JSON array. See SigninScreenHandler for
+  // detalis.
+  virtual void ShowSigninScreenForTest(const std::string& username,
+                                       const std::string& password,
+                                       const std::string& services);
   bool IsShowGuest() const override;
   bool IsShowUsers() const override;
   bool ShowUsersHasChanged() const override;

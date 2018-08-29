@@ -11,6 +11,7 @@
 #include <string>
 #include <utility>
 
+#include "ash/public/cpp/app_list/app_list_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/macros.h"
@@ -28,7 +29,6 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
-#include "ui/app_list/app_list_switches.h"
 
 using content::BrowserThread;
 using extensions::Manifest;
@@ -241,7 +241,7 @@ class WebstoreProviderTest : public InProcessBrowserTest {
       }
 
       EXPECT_EQ(std::string(expected_results[i].title),
-                ChromeSearchResult::TagsDebugString(
+                ChromeSearchResult::TagsDebugStringForTest(
                     base::UTF16ToUTF8(result->title()), result->title_tags()));
 
       // Ensure the number of action buttons is appropriate for the item type.

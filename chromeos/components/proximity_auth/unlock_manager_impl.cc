@@ -20,7 +20,7 @@
 #include "chromeos/components/proximity_auth/proximity_auth_pref_manager.h"
 #include "chromeos/components/proximity_auth/proximity_monitor_impl.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
-#include "components/cryptauth/remote_device.h"
+#include "components/cryptauth/remote_device_ref.h"
 #include "components/cryptauth/secure_context.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 
@@ -151,8 +151,6 @@ void UnlockManagerImpl::SetRemoteDeviceLifeCycle(
 
 void UnlockManagerImpl::OnLifeCycleStateChanged() {
   RemoteDeviceLifeCycle::State state = life_cycle_->GetState();
-  PA_LOG(INFO) << "RemoteDeviceLifeCycle state changed: "
-               << static_cast<int>(state);
 
   remote_screenlock_state_.reset();
   if (state == RemoteDeviceLifeCycle::State::SECURE_CHANNEL_ESTABLISHED) {
@@ -335,9 +333,9 @@ void UnlockManagerImpl::SendSignInChallenge() {
     return;
   }
 
-  cryptauth::RemoteDevice remote_device = life_cycle_->GetRemoteDevice();
+  cryptauth::RemoteDeviceRef remote_device = life_cycle_->GetRemoteDevice();
   proximity_auth_client_->GetChallengeForUserAndDevice(
-      remote_device.user_id, remote_device.public_key,
+      remote_device.user_id(), remote_device.public_key(),
       GetMessenger()->GetSecureContext()->GetChannelBindingData(),
       base::Bind(&UnlockManagerImpl::OnGotSignInChallenge,
                  weak_ptr_factory_.GetWeakPtr()));
@@ -419,9 +417,8 @@ void UnlockManagerImpl::UpdateLockScreen() {
   if (screenlock_state_ == new_state)
     return;
 
-  PA_LOG(INFO) << "Updating screenlock state from "
-               << static_cast<int>(screenlock_state_) << " to "
-               << static_cast<int>(new_state);
+  PA_LOG(INFO) << "Updating screenlock state from " << screenlock_state_
+               << " to " << new_state;
   proximity_auth_client_->UpdateScreenlockState(new_state);
   screenlock_state_ = new_state;
 }

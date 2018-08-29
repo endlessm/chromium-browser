@@ -18,9 +18,10 @@ class MockMojoMediaRouter : public MockMediaRouter, public mojom::MediaRouter {
   ~MockMojoMediaRouter() override;
 
   // mojom::MediaRouter overrides:
-  void RegisterMediaRouteProvider(MediaRouteProviderId provider_id,
-                                  mojom::MediaRouteProviderPtr provider_ptr,
-                                  RegisterMediaRouteProviderCallback callback) {
+  void RegisterMediaRouteProvider(
+      MediaRouteProviderId provider_id,
+      mojom::MediaRouteProviderPtr provider_ptr,
+      RegisterMediaRouteProviderCallback callback) override {
     RegisterMediaRouteProviderInternal(provider_id, provider_ptr, callback);
   }
   MOCK_METHOD3(RegisterMediaRouteProviderInternal,
@@ -41,21 +42,25 @@ class MockMojoMediaRouter : public MockMediaRouter, public mojom::MediaRouter {
   MOCK_METHOD2(OnSinkAvailabilityUpdated,
                void(MediaRouteProviderId provider_id,
                     mojom::MediaRouter::SinkAvailability availability));
-  MOCK_METHOD2(OnPresentationConnectionStateChanged,
-               void(const std::string& route_id,
-                    content::PresentationConnectionState state));
-  MOCK_METHOD3(OnPresentationConnectionClosed,
-               void(const std::string& route_id,
-                    content::PresentationConnectionCloseReason reason,
-                    const std::string& message));
+  MOCK_METHOD2(
+      OnPresentationConnectionStateChanged,
+      void(
+          const std::string& route_id,
+          media_router::mojom::MediaRouter::PresentationConnectionState state));
+  MOCK_METHOD3(
+      OnPresentationConnectionClosed,
+      void(const std::string& route_id,
+           media_router::mojom::MediaRouter::PresentationConnectionCloseReason
+               reason,
+           const std::string& message));
   MOCK_METHOD2(OnRouteMessagesReceived,
                void(const std::string& route_id,
                     const std::vector<content::PresentationConnectionMessage>&
                         messages));
-  void OnMediaRemoterCreated(
-      int32_t tab_id,
-      media::mojom::MirrorServiceRemoterPtr remoter,
-      media::mojom::MirrorServiceRemotingSourceRequest source_request) {
+  void OnMediaRemoterCreated(int32_t tab_id,
+                             media::mojom::MirrorServiceRemoterPtr remoter,
+                             media::mojom::MirrorServiceRemotingSourceRequest
+                                 source_request) override {
     OnMediaRemoterCreatedInternal(tab_id, remoter, source_request);
   }
   MOCK_METHOD3(

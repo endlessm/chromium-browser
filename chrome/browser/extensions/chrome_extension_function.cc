@@ -29,10 +29,6 @@ void ChromeAsyncExtensionFunction::SetError(const std::string& error) {
   error_ = error;
 }
 
-content::WebContents* ChromeAsyncExtensionFunction::GetAssociatedWebContents() {
-  return chrome_details_.GetAssociatedWebContents();
-}
-
 const std::string& ChromeAsyncExtensionFunction::GetError() const {
   return error_.empty() ? UIThreadExtensionFunction::GetError() : error_;
 }

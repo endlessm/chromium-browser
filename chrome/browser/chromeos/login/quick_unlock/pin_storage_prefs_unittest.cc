@@ -22,9 +22,7 @@ class PinStoragePrefsUnitTest : public testing::Test {
   ~PinStoragePrefsUnitTest() override = default;
 
   // testing::Test:
-  void SetUp() override {
-    quick_unlock::EnableForTesting(quick_unlock::PinStorageType::kPrefs);
-  }
+  void SetUp() override { quick_unlock::EnableForTesting(); }
 
   quick_unlock::PinStoragePrefs* PinStoragePrefs() const {
     return quick_unlock::QuickUnlockFactory::GetForProfile(profile_.get())
@@ -53,8 +51,8 @@ class PinStoragePrefsTestApi {
   bool IsPinAuthenticationAvailable() const {
     return pin_storage_->IsPinAuthenticationAvailable();
   }
-  bool TryAuthenticatePin(const std::string& pin, Key::KeyType key_type) {
-    return pin_storage_->TryAuthenticatePin(pin, key_type);
+  bool TryAuthenticatePin(const std::string& secret, Key::KeyType key_type) {
+    return pin_storage_->TryAuthenticatePin(Key(key_type, "" /*salt*/, secret));
   }
 
  private:

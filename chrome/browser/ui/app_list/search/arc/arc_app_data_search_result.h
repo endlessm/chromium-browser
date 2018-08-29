@@ -15,44 +15,38 @@
 #include "components/arc/common/app.mojom.h"
 
 class AppListControllerDelegate;
-class Profile;
+
+namespace arc {
+class IconDecodeRequest;
+}  // namespace arc
 
 namespace app_list {
-
-class IconDecodeRequest;
 
 class ArcAppDataSearchResult : public ChromeSearchResult {
  public:
   ArcAppDataSearchResult(arc::mojom::AppDataResultPtr data,
-                         Profile* profile,
                          AppListControllerDelegate* list_controller);
   ~ArcAppDataSearchResult() override;
 
   // ChromeSearchResult:
-  std::unique_ptr<ChromeSearchResult> Duplicate() const override;
-  ui::MenuModel* GetContextMenuModel() override;
+  void GetContextMenuModel(GetMenuModelCallback callback) override;
   void Open(int event_flags) override;
 
  private:
   const std::string& launch_intent_uri() const {
     return data_->launch_intent_uri;
   }
-  const std::string& label() const { return data_->label; }
   const base::Optional<std::vector<uint8_t>>& icon_png_data() const {
     return data_->icon_png_data;
   }
 
-  // Apply avatar style to |icon| and use it for SearchResult.
-  void SetIconToAvatarIcon(const gfx::ImageSkia& icon);
+  // Set |icon| to SearchResult. |icon| may be customized based on |data_|.
+  void ApplyIcon(const gfx::ImageSkia& icon);
 
   arc::mojom::AppDataResultPtr data_;
-  std::unique_ptr<IconDecodeRequest> icon_decode_request_;
+  std::unique_ptr<arc::IconDecodeRequest> icon_decode_request_;
 
-  // |profile_| is owned by ProfileInfo.
-  Profile* const profile_;
-  // |list_controller_| is owned by AppListServiceAsh and lives until the
-  // service finishes.
-  AppListControllerDelegate* const list_controller_;
+  AppListControllerDelegate* const list_controller_;  // Owned by AppListClient.
 
   base::WeakPtrFactory<ArcAppDataSearchResult> weak_ptr_factory_;
 

@@ -72,6 +72,7 @@
 #include "components/metrics/metrics_service.h"
 #include "components/metrics/metrics_service_client.h"
 #include "components/metrics/metrics_state_manager.h"
+#include "components/metrics/metrics_switches.h"
 #include "components/metrics/net/cellular_logic_helper.h"
 #include "components/metrics/net/net_metrics_log_uploader.h"
 #include "components/metrics/net/network_metrics_provider.h"
@@ -93,6 +94,7 @@
 #include "printing/buildflags/buildflags.h"
 
 #if defined(OS_ANDROID)
+#include "base/android/build_info.h"
 #include "chrome/browser/metrics/android_metrics_provider.h"
 #include "chrome/browser/metrics/page_load_metrics_provider.h"
 #include "chrome/browser/ui/android/tab_model/tab_model_list.h"
@@ -132,6 +134,7 @@
 #include "chrome/browser/metrics/google_update_metrics_provider_win.h"
 #include "chrome/common/metrics_constants_util_win.h"
 #include "chrome/install_static/install_util.h"
+#include "chrome/notification_helper/notification_helper_constants.h"
 #include "components/browser_watcher/watcher_metrics_provider_win.h"
 #endif
 
@@ -164,13 +167,6 @@ const int kMaxHistogramGatheringWaitDuration = 60000;  // 60 seconds.
 // third_party/crashpad/crashpad/handler/handler_main.cc.
 const char kCrashpadHistogramAllocatorName[] = "CrashpadMetrics";
 
-#if defined(OS_WIN)
-// Must be kept in sync with the allocator name in
-// notification_helper/notification_helper.cc.
-constexpr char kNotificationHelperHistogramAllocatorName[] =
-    "NotificationHelperMetrics";
-#endif
-
 #if defined(OS_WIN) || defined(OS_MACOSX)
 // The stream type assigned to the minidump stream that holds the serialized
 // system profile proto.
@@ -196,7 +192,7 @@ void RegisterFileMetricsPreferences(PrefRegistrySimple* registry) {
       registry, installer::kSetupHistogramAllocatorName);
 
   metrics::FileMetricsProvider::RegisterPrefs(
-      registry, kNotificationHelperHistogramAllocatorName);
+      registry, notification_helper::kNotificationHelperHistogramAllocatorName);
 #endif
 }
 
@@ -304,7 +300,8 @@ std::unique_ptr<metrics::FileMetricsProvider> CreateFileMetricsProvider(
   // potential duplicate code.
   if (!user_data_dir.empty()) {
     base::FilePath notification_helper_metrics_upload_dir =
-        user_data_dir.AppendASCII(kNotificationHelperHistogramAllocatorName);
+        user_data_dir.AppendASCII(
+            notification_helper::kNotificationHelperHistogramAllocatorName);
 
     if (metrics_reporting_enabled) {
       file_metrics_provider->RegisterSource(
@@ -312,7 +309,7 @@ std::unique_ptr<metrics::FileMetricsProvider> CreateFileMetricsProvider(
               notification_helper_metrics_upload_dir,
               metrics::FileMetricsProvider::SOURCE_HISTOGRAMS_ATOMIC_DIR,
               metrics::FileMetricsProvider::ASSOCIATE_CURRENT_RUN,
-              kNotificationHelperHistogramAllocatorName));
+              notification_helper::kNotificationHelperHistogramAllocatorName));
     } else {
       base::PostTaskWithTraits(
           FROM_HERE,
@@ -568,7 +565,7 @@ ChromeMetricsServiceClient::GetMetricsReportingDefaultState() {
 // static
 bool ChromeMetricsServiceClient::IsMetricsReportingForceEnabled() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kForceEnableMetricsReporting);
+      metrics::switches::kForceEnableMetricsReporting);
 }
 
 void ChromeMetricsServiceClient::Initialize() {
@@ -1049,12 +1046,12 @@ void ChromeMetricsServiceClient::SetIsProcessRunningForTesting(
   g_is_process_running = func;
 }
 
-bool ChromeMetricsServiceClient::IsHistorySyncEnabledOnAllProfiles() {
-  return SyncDisableObserver::IsHistorySyncEnabledOnAllProfiles();
+bool ChromeMetricsServiceClient::SyncStateAllowsUkm() {
+  return SyncDisableObserver::SyncStateAllowsUkm();
 }
 
-bool ChromeMetricsServiceClient::IsExtensionSyncEnabledOnAllProfiles() {
-  return SyncDisableObserver::IsExtensionSyncEnabledOnAllProfiles();
+bool ChromeMetricsServiceClient::SyncStateAllowsExtensionUkm() {
+  return SyncDisableObserver::SyncStateAllowsExtensionUkm();
 }
 
 bool g_notification_listeners_failed = false;
@@ -1069,4 +1066,11 @@ bool ChromeMetricsServiceClient::
   if (g_notification_listeners_failed)
     return false;
   return notification_listeners_active_;
+}
+
+std::string ChromeMetricsServiceClient::GetAppPackageName() {
+#if defined(OS_ANDROID)
+  return base::android::BuildInfo::GetInstance()->package_name();
+#endif
+  return std::string();
 }

@@ -1250,7 +1250,7 @@ IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, FlashDRM) {
 }
 
 #if BUILDFLAG(ENABLE_NACL)
-class PackagedAppTest : public ExtensionBrowserTest {
+class PackagedAppTest : public extensions::ExtensionBrowserTest {
  public:
   explicit PackagedAppTest(const std::string& toolchain)
       : toolchain_(toolchain) { }
@@ -1259,7 +1259,7 @@ class PackagedAppTest : public ExtensionBrowserTest {
     base::FilePath data_dir;
     {
       base::ScopedAllowBlockingForTesting allow_blocking;
-      ASSERT_TRUE(PathService::Get(chrome::DIR_GEN_TEST_DATA, &data_dir));
+      ASSERT_TRUE(base::PathService::Get(chrome::DIR_GEN_TEST_DATA, &data_dir));
     }
     base::FilePath app_dir = data_dir.AppendASCII("ppapi")
                                      .AppendASCII("tests")

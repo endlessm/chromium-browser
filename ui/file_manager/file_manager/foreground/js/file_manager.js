@@ -591,8 +591,7 @@ FileManager.prototype = /** @struct */ {
         this.selectionHandler_,
         this.directoryModel_);
     this.emptyFolderController_ = new EmptyFolderController(
-        this.ui_.emptyFolder,
-        this.directoryModel_);
+        this.ui_.emptyFolder, this.directoryModel_, this.ui_.alertDialog);
     this.actionsController_ = new ActionsController(
         this.volumeManager_, assert(this.metadataModel_), this.directoryModel_,
         assert(this.folderShortcutsModel_),
@@ -1166,23 +1165,45 @@ FileManager.prototype = /** @struct */ {
                            fakeEntriesVisible);
     directoryTree.dataModel = new NavigationListModel(
         assert(this.volumeManager_), assert(this.folderShortcutsModel_),
+        fakeEntriesVisible &&
+                !DialogType.isFolderDialog(this.launchParams_.type) ?
+            new NavigationModelFakeItem(
+                str('RECENT_ROOT_LABEL'), NavigationModelItemType.RECENT, {
+                  isDirectory: true,
+                  rootType: VolumeManagerCommon.RootType.RECENT,
+                  toURL: function() {
+                    return 'fake-entry://recent';
+                  },
+                  sourceRestriction: this.getSourceRestriction_()
+                }) :
+            null,
         addNewServicesVisible ?
             new NavigationModelMenuItem(
                 str('ADD_NEW_SERVICES_BUTTON_LABEL'), '#add-new-services-menu',
                 'add-new-services') :
-            null,
-        fakeEntriesVisible &&
-                !DialogType.isFolderDialog(this.launchParams_.type) ?
-            new NavigationModelRecentItem(str('RECENT_ROOT_LABEL'), {
-              isDirectory: true,
-              rootType: VolumeManagerCommon.RootType.RECENT,
-              toURL: function() {
-                return 'fake-entry://recent';
-              },
-              sourceRestriction: this.getSourceRestriction_()
-            }) :
             null);
+    this.setupCrostini_();
     this.ui_.initDirectoryTree(directoryTree);
+  };
+
+  /**
+   * Check if crostini is enabled to create linuxFilesItem.
+   * @private
+   */
+  FileManager.prototype.setupCrostini_ = function() {
+    chrome.fileManagerPrivate.isCrostiniEnabled((enabled) => {
+      this.directoryTree.dataModel.linuxFilesItem = enabled ?
+          new NavigationModelFakeItem(
+              str('LINUX_FILES_ROOT_LABEL'), NavigationModelItemType.CROSTINI, {
+                isDirectory: true,
+                rootType: VolumeManagerCommon.RootType.CROSTINI,
+                toURL: function() {
+                  return 'fake-entry://linux-files';
+                },
+              }) :
+          null;
+      this.directoryTree.redraw(false);
+    });
   };
 
   /**

@@ -20,7 +20,6 @@
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -54,6 +53,8 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/lifetime/switch_utils.h"
 #include "chrome/browser/loader/chrome_resource_dispatcher_host_delegate.h"
+#include "chrome/browser/media/webrtc/webrtc_event_log_manager.h"
+#include "chrome/browser/media/webrtc/webrtc_log_uploader.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/metrics/chrome_metrics_services_manager_client.h"
 #include "chrome/browser/metrics/thread_watcher.h"
@@ -96,7 +97,6 @@
 #include "components/net_log/chrome_net_log.h"
 #include "components/network_time/network_time_tracker.h"
 #include "components/optimization_guide/optimization_guide_service.h"
-#include "components/physical_web/data_source/physical_web_data_source.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -125,6 +125,7 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/network_connection_tracker.h"
+#include "content/public/common/service_manager_connection.h"
 #include "extensions/buildflags/buildflags.h"
 #include "extensions/common/constants.h"
 #include "media/media_buildflags.h"
@@ -149,9 +150,7 @@
 #include "chrome/browser/ui/ash/ash_util.h"
 #endif
 
-#if defined(OS_ANDROID)
-#include "chrome/browser/android/physical_web/physical_web_data_source_android.h"
-#else  // !defined(OS_ANDROID)
+#if !defined(OS_ANDROID)
 #include "chrome/browser/gcm/gcm_product_util.h"
 #include "components/gcm_driver/gcm_client_factory.h"
 #include "components/gcm_driver/gcm_desktop_utils.h"
@@ -173,11 +172,6 @@
 
 #if BUILDFLAG(ENABLE_PLUGINS)
 #include "chrome/browser/plugins/plugins_resource_service.h"
-#endif
-
-#if BUILDFLAG(ENABLE_WEBRTC)
-#include "chrome/browser/media/webrtc/webrtc_event_log_manager.h"
-#include "chrome/browser/media/webrtc/webrtc_log_uploader.h"
 #endif
 
 #if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
@@ -312,10 +306,8 @@ void BrowserProcessImpl::Init() {
                net::ClientSocketPoolManager::max_sockets_per_group(
                    net::HttpNetworkSession::NORMAL_SOCKET_POOL)));
 
-#if BUILDFLAG(ENABLE_WEBRTC)
   DCHECK(!webrtc_event_log_manager_);
   webrtc_event_log_manager_ = WebRtcEventLogManager::CreateSingletonInstance();
-#endif
 }
 
 BrowserProcessImpl::~BrowserProcessImpl() {
@@ -412,11 +404,9 @@ void BrowserProcessImpl::StartTearDown() {
 
   platform_part()->StartTearDown();
 
-#if BUILDFLAG(ENABLE_WEBRTC)
   // Cancel any uploads to release the system url request context references.
   if (webrtc_log_uploader_)
     webrtc_log_uploader_->StartShutdown();
-#endif
 
   if (local_state_)
     local_state_->CommitPendingWrite();
@@ -429,10 +419,8 @@ void BrowserProcessImpl::PostDestroyThreads() {
   // With the file_thread_ flushed, we can release any icon resources.
   icon_manager_.reset();
 
-#if BUILDFLAG(ENABLE_WEBRTC)
   // Must outlive the worker threads.
   webrtc_log_uploader_.reset();
-#endif
 
   // Reset associated state right after actual thread is stopped,
   // as io_thread_.global_ cleanup happens in CleanUp on the IO
@@ -829,13 +817,11 @@ MediaFileSystemRegistry* BrowserProcessImpl::media_file_system_registry() {
 #endif
 }
 
-#if BUILDFLAG(ENABLE_WEBRTC)
 WebRtcLogUploader* BrowserProcessImpl::webrtc_log_uploader() {
   if (!webrtc_log_uploader_)
     webrtc_log_uploader_ = std::make_unique<WebRtcLogUploader>();
   return webrtc_log_uploader_.get();
 }
-#endif
 
 network_time::NetworkTimeTracker* BrowserProcessImpl::network_time_tracker() {
   if (!network_time_tracker_) {
@@ -872,20 +858,6 @@ resource_coordinator::TabManager* BrowserProcessImpl::GetTabManager() {
 shell_integration::DefaultWebClientState
 BrowserProcessImpl::CachedDefaultWebClientState() {
   return cached_default_web_client_state_;
-}
-
-physical_web::PhysicalWebDataSource*
-BrowserProcessImpl::GetPhysicalWebDataSource() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-#if defined(OS_ANDROID)
-  if (!physical_web_data_source_) {
-    CreatePhysicalWebDataSource();
-    DCHECK(physical_web_data_source_);
-  }
-  return physical_web_data_source_.get();
-#else
-  return nullptr;
-#endif
 }
 
 prefs::InProcessPrefServiceFactory* BrowserProcessImpl::pref_service_factory()
@@ -1076,7 +1048,7 @@ void BrowserProcessImpl::CreateProfileManager() {
   created_profile_manager_ = true;
 
   base::FilePath user_data_dir;
-  PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
+  base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
   profile_manager_ = std::make_unique<ProfileManager>(user_data_dir);
 }
 
@@ -1084,7 +1056,7 @@ void BrowserProcessImpl::CreateLocalState() {
   DCHECK(!local_state_);
 
   base::FilePath local_state_path;
-  CHECK(PathService::Get(chrome::FILE_LOCAL_STATE, &local_state_path));
+  CHECK(base::PathService::Get(chrome::FILE_LOCAL_STATE, &local_state_path));
   auto pref_registry = base::MakeRefCounted<PrefRegistrySimple>();
 
   // Register local state preferences.
@@ -1167,7 +1139,10 @@ void BrowserProcessImpl::PreMainMessageLoopRun() {
 #endif  // BUILDFLAG(ENABLE_PLUGINS)
 
 #if !defined(OS_ANDROID)
-  storage_monitor::StorageMonitor::Create();
+  storage_monitor::StorageMonitor::Create(
+      content::ServiceManagerConnection::GetForProcess()
+          ->GetConnector()
+          ->Clone());
 #endif
 
   child_process_watcher_ = std::make_unique<ChromeChildProcessWatcher>();
@@ -1279,7 +1254,7 @@ void BrowserProcessImpl::CreateSubresourceFilterRulesetService() {
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
 
   base::FilePath user_data_dir;
-  PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
+  base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
   base::FilePath indexed_ruleset_base_dir =
       user_data_dir.Append(subresource_filter::kTopLevelDirectoryName)
           .Append(subresource_filter::kIndexedRulesetBaseDirectoryName);
@@ -1317,7 +1292,7 @@ void BrowserProcessImpl::CreateGCMDriver() {
   NOTREACHED();
 #else
   base::FilePath store_path;
-  CHECK(PathService::Get(chrome::DIR_GLOBAL_GCM_STORE, &store_path));
+  CHECK(base::PathService::Get(chrome::DIR_GLOBAL_GCM_STORE, &store_path));
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner(
       base::CreateSequencedTaskRunnerWithTraits(
           {base::MayBlock(), base::TaskPriority::BACKGROUND,
@@ -1333,16 +1308,6 @@ void BrowserProcessImpl::CreateGCMDriver() {
           content::BrowserThread::IO),
       blocking_task_runner);
 #endif  // defined(OS_ANDROID)
-}
-
-void BrowserProcessImpl::CreatePhysicalWebDataSource() {
-  DCHECK(!physical_web_data_source_);
-
-#if defined(OS_ANDROID)
-  physical_web_data_source_ = std::make_unique<PhysicalWebDataSourceAndroid>();
-#else
-  NOTIMPLEMENTED();
-#endif
 }
 
 void BrowserProcessImpl::ApplyDefaultBrowserPolicy() {

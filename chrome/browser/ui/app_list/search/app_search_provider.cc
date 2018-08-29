@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <set>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -24,6 +23,10 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/clock.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
+#include "chrome/browser/chromeos/crostini/crostini_manager.h"
+#include "chrome/browser/chromeos/crostini/crostini_registry_service.h"
+#include "chrome/browser/chromeos/crostini/crostini_registry_service_factory.h"
+#include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "chrome/browser/chromeos/extensions/gfx_utils.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_ui_util.h"
@@ -35,6 +38,7 @@
 #include "chrome/browser/ui/app_list/chrome_app_list_item.h"
 #include "chrome/browser/ui/app_list/internal_app/internal_app_metadata.h"
 #include "chrome/browser/ui/app_list/search/arc_app_result.h"
+#include "chrome/browser/ui/app_list/search/crostini_app_result.h"
 #include "chrome/browser/ui/app_list/search/extension_app_result.h"
 #include "chrome/browser/ui/app_list/search/internal_app_result.h"
 #include "extensions/browser/extension_prefs.h"
@@ -149,6 +153,11 @@ class AppSearchProvider::App {
     searchable_text_ = searchable_text;
   }
 
+  bool require_exact_match() const { return require_exact_match_; }
+  void set_require_exact_match(bool require_exact_match) {
+    require_exact_match_ = require_exact_match;
+  }
+
  private:
   AppSearchProvider::DataSource* data_source_;
   std::unique_ptr<TokenizedString> tokenized_indexed_name_;
@@ -159,6 +168,7 @@ class AppSearchProvider::App {
   const base::Time install_time_;
   bool recommendable_ = true;
   base::string16 searchable_text_;
+  bool require_exact_match_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(App);
 };
@@ -358,6 +368,68 @@ class InternalDataSource : public AppSearchProvider::DataSource {
   DISALLOW_COPY_AND_ASSIGN(InternalDataSource);
 };
 
+class CrostiniDataSource : public AppSearchProvider::DataSource,
+                           public crostini::CrostiniRegistryService::Observer {
+ public:
+  CrostiniDataSource(Profile* profile, AppSearchProvider* owner)
+      : AppSearchProvider::DataSource(profile, owner) {
+    crostini::CrostiniRegistryServiceFactory::GetForProfile(profile)
+        ->AddObserver(this);
+  }
+
+  ~CrostiniDataSource() override {
+    crostini::CrostiniRegistryServiceFactory::GetForProfile(profile())
+        ->RemoveObserver(this);
+  }
+
+  // AppSearchProvider::DataSource overrides:
+  void AddApps(AppSearchProvider::Apps* apps) override {
+    crostini::CrostiniRegistryService* registry_service =
+        crostini::CrostiniRegistryServiceFactory::GetForProfile(profile());
+    for (const std::string& app_id : registry_service->GetRegisteredAppIds()) {
+      std::unique_ptr<crostini::CrostiniRegistryService::Registration>
+          registration = registry_service->GetRegistration(app_id);
+      if (registration->no_display)
+        continue;
+      const std::string& name =
+          crostini::CrostiniRegistryService::Registration::Localize(
+              registration->name);
+      // Eventually it would be nice to use additional data points, for example
+      // the 'Keywords' desktop entry field and the executable file name.
+      apps->emplace_back(std::make_unique<AppSearchProvider::App>(
+          this, app_id, name, registration->last_launch_time,
+          registration->install_time));
+
+      // Until it's been installed, the Terminal is hidden unless you search
+      // for 'Terminal' exactly (case insensitive).
+      if (app_id == kCrostiniTerminalId && !IsCrostiniEnabled(profile())) {
+        apps->back()->set_recommendable(false);
+        apps->back()->set_require_exact_match(true);
+      }
+    }
+  }
+
+  std::unique_ptr<AppResult> CreateResult(
+      const std::string& app_id,
+      AppListControllerDelegate* list_controller,
+      bool is_recommended) override {
+    return std::make_unique<CrostiniAppResult>(profile(), app_id,
+                                               list_controller, is_recommended);
+  }
+
+  // crostini::CrostiniRegistryService::Observer overrides:
+  void OnRegistryUpdated(
+      crostini::CrostiniRegistryService* registry_service,
+      const std::vector<std::string>& updated_apps,
+      const std::vector<std::string>& removed_apps,
+      const std::vector<std::string>& inserted_apps) override {
+    owner()->RefreshAppsAndUpdateResults(!removed_apps.empty());
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(CrostiniDataSource);
+};
+
 }  // namespace
 
 AppSearchProvider::AppSearchProvider(Profile* profile,
@@ -372,6 +444,10 @@ AppSearchProvider::AppSearchProvider(Profile* profile,
       std::make_unique<ExtensionDataSource>(profile, this));
   if (arc::IsArcAllowedForProfile(profile))
     data_sources_.emplace_back(std::make_unique<ArcDataSource>(profile, this));
+  if (IsCrostiniUIAllowedForProfile(profile)) {
+    data_sources_.emplace_back(
+        std::make_unique<CrostiniDataSource>(profile, this));
+  }
   data_sources_.emplace_back(
       std::make_unique<InternalDataSource>(profile, this));
 }
@@ -397,7 +473,7 @@ void AppSearchProvider::RefreshApps() {
 }
 
 void AppSearchProvider::UpdateRecommendedResults(
-    const std::unordered_map<std::string, uint16_t>& id_to_app_list_index) {
+    const base::flat_map<std::string, uint16_t>& id_to_app_list_index) {
   SearchProvider::Results new_results;
   std::set<std::string> seen_or_filtered_apps;
   const uint16_t apps_size = apps_.size();
@@ -410,7 +486,7 @@ void AppSearchProvider::UpdateRecommendedResults(
 
     std::unique_ptr<AppResult> result =
         app->data_source()->CreateResult(app->id(), list_controller_, true);
-    result->set_title(app->name());
+    result->SetTitle(app->name());
 
     // Use the app list order to tiebreak apps that have never been
     // launched. The apps that have been installed or launched recently
@@ -444,8 +520,11 @@ void AppSearchProvider::UpdateQueriedResults() {
 
   const TokenizedString query_terms(query_);
   for (auto& app : apps_) {
-    std::unique_ptr<AppResult> result =
-        app->data_source()->CreateResult(app->id(), list_controller_, false);
+    if (app->require_exact_match() &&
+        !base::EqualsCaseInsensitiveASCII(query_, app->name())) {
+      continue;
+    }
+
     TokenizedStringMatch match;
     TokenizedString* indexed_name = app->GetTokenizedIndexedName();
     if (!match.Calculate(query_terms, *indexed_name) &&
@@ -453,6 +532,8 @@ void AppSearchProvider::UpdateQueriedResults() {
       continue;
     }
 
+    std::unique_ptr<AppResult> result =
+        app->data_source()->CreateResult(app->id(), list_controller_, false);
     result->UpdateFromMatch(*indexed_name, match);
     MaybeAddResult(&new_results, std::move(result), &seen_or_filtered_apps);
   }

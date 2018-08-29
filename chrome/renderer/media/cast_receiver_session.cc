@@ -25,12 +25,13 @@ class CastReceiverSession::AudioCapturerSource :
   AudioCapturerSource(
       const scoped_refptr<CastReceiverSession> cast_receiver_session);
   void Initialize(const media::AudioParameters& params,
-                  CaptureCallback* callback,
-                  int session_id) override;
+                  CaptureCallback* callback) override;
   void Start() override;
   void Stop() override;
   void SetVolume(double volume) override;
   void SetAutomaticGainControl(bool enable) override;
+  void SetOutputDeviceForAec(const std::string& output_device_id) override;
+
  private:
   ~AudioCapturerSource() override;
   const scoped_refptr<CastReceiverSession> cast_receiver_session_;
@@ -146,8 +147,7 @@ CastReceiverSession::AudioCapturerSource::~AudioCapturerSource() {
 
 void CastReceiverSession::AudioCapturerSource::Initialize(
     const media::AudioParameters& params,
-    CaptureCallback* callback,
-    int session_id) {
+    CaptureCallback* callback) {
   // TODO(hubbe): Consider converting the audio to whatever the caller wants.
   if (params.sample_rate() !=
       cast_receiver_session_->audio_config_.rtp_timebase ||
@@ -174,5 +174,10 @@ void CastReceiverSession::AudioCapturerSource::SetVolume(double volume) {
 
 void CastReceiverSession::AudioCapturerSource::SetAutomaticGainControl(
     bool enable) {
+  // not supported
+}
+
+void CastReceiverSession::AudioCapturerSource::SetOutputDeviceForAec(
+    const std::string& output_device_id) {
   // not supported
 }

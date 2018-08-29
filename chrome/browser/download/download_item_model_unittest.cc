@@ -12,7 +12,6 @@
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -65,8 +64,7 @@ class DownloadItemModelTest : public testing::Test {
   DownloadItemModelTest()
       : model_(&item_) {}
 
-  virtual ~DownloadItemModelTest() {
-  }
+  ~DownloadItemModelTest() override {}
 
  protected:
   // Sets up defaults for the download item and sets |model_| to a new

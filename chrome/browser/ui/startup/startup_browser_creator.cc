@@ -462,7 +462,6 @@ void StartupBrowserCreator::RegisterLocalStatePrefs(
   registry->RegisterStringPref(prefs::kLastWelcomedOSVersion, std::string());
   registry->RegisterBooleanPref(prefs::kWelcomePageOnOSUpgradeEnabled, true);
   registry->RegisterBooleanPref(prefs::kHasSeenWin10PromoPage, false);
-  registry->RegisterBooleanPref(prefs::kResetHasSeenWin10PromoPage, true);
 #endif
   registry->RegisterBooleanPref(prefs::kSuppressUnsupportedOSWarning, false);
   registry->RegisterBooleanPref(prefs::kWasRestarted, false);
@@ -738,16 +737,25 @@ bool StartupBrowserCreator::LaunchBrowserForLastProfiles(
       chrome::startup::IS_NOT_PROCESS_STARTUP;
   chrome::startup::IsFirstRun is_first_run = first_run::IsChromeFirstRun() ?
       chrome::startup::IS_FIRST_RUN : chrome::startup::IS_NOT_FIRST_RUN;
+
+  // On Windows, when chrome is launched by notification activation where the
+  // kNotificationLaunchId switch is used, always use |last_used_profile| which
+  // contains the profile id extracted from the notification launch id.
+  bool was_windows_notification_launch = false;
+#if defined(OS_WIN)
+  was_windows_notification_launch =
+      command_line.HasSwitch(switches::kNotificationLaunchId);
+#endif  // defined(OS_WIN)
+
   // |last_opened_profiles| will be empty in the following circumstances:
   // - This is the first launch. |last_used_profile| is the initial profile.
-  // - The user exited the browser by closing all windows for all
-  // profiles. |last_used_profile| is the profile which owned the last open
-  // window.
+  // - The user exited the browser by closing all windows for all profiles.
+  //   |last_used_profile| is the profile which owned the last open window.
   // - Only incognito windows were open when the browser exited.
-  // |last_used_profile| is the last used incognito profile. Restoring it will
-  // create a browser window for the corresponding original profile.
+  //   |last_used_profile| is the last used incognito profile. Restoring it will
+  //   create a browser window for the corresponding original profile.
   // - All of the last opened profiles fail to initialize.
-  if (last_opened_profiles.empty()) {
+  if (last_opened_profiles.empty() || was_windows_notification_launch) {
     if (CanOpenProfileOnStartup(last_used_profile)) {
       Profile* profile_to_open =
           last_used_profile->IsGuestSession()
@@ -757,6 +765,7 @@ bool StartupBrowserCreator::LaunchBrowserForLastProfiles(
       return LaunchBrowser(command_line, profile_to_open, cur_dir,
                            is_process_startup, is_first_run);
     }
+
     // Show UserManager if |last_used_profile| can't be auto opened.
     ShowUserManagerOnStartup(command_line);
     return true;
@@ -829,12 +838,14 @@ bool StartupBrowserCreator::ProcessLastOpenedProfiles(
     SessionStartupPref startup_pref = GetSessionStartupPref(command_line, *it);
     if (*it != last_used_profile &&
         startup_pref.type == SessionStartupPref::DEFAULT &&
-        !HasPendingUncleanExit(*it))
+        !HasPendingUncleanExit(*it)) {
       continue;
+    }
     if (!LaunchBrowser((*it == last_used_profile) ? command_line
                                                   : command_line_without_urls,
-                       *it, cur_dir, is_process_startup, is_first_run))
+                       *it, cur_dir, is_process_startup, is_first_run)) {
       return false;
+    }
     // We've launched at least one browser.
     is_process_startup = chrome::startup::IS_NOT_PROCESS_STARTUP;
   }
@@ -949,11 +960,9 @@ bool HasPendingUncleanExit(Profile* profile) {
 
 base::FilePath GetStartupProfilePath(const base::FilePath& user_data_dir,
                                      const base::CommandLine& command_line) {
-  if (command_line.HasSwitch(switches::kProfileDirectory)) {
-    return user_data_dir.Append(
-        command_line.GetSwitchValuePath(switches::kProfileDirectory));
-  }
-
+// If the browser is launched due to activation on Windows native notification,
+// the profile id encoded in the notification launch id should be chosen over
+// all others.
 #if defined(OS_WIN)
   if (command_line.HasSwitch(switches::kNotificationLaunchId)) {
     std::string profile_id =
@@ -965,6 +974,11 @@ base::FilePath GetStartupProfilePath(const base::FilePath& user_data_dir,
     }
   }
 #endif  // defined(OS_WIN)
+
+  if (command_line.HasSwitch(switches::kProfileDirectory)) {
+    return user_data_dir.Append(
+        command_line.GetSwitchValuePath(switches::kProfileDirectory));
+  }
 
   return g_browser_process->profile_manager()->GetLastUsedProfileDir(
       user_data_dir);

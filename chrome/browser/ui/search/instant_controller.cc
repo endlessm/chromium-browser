@@ -48,7 +48,8 @@ InstantController::InstantController(Profile* profile,
 InstantController::~InstantController() = default;
 
 void InstantController::TabDetachedAt(content::WebContents* contents,
-                                      int index) {
+                                      int index,
+                                      bool was_active) {
   StopWatchingTab(contents);
 }
 
@@ -92,7 +93,7 @@ void InstantController::UpdateInfoForInstantTab() {
   InstantService* instant_service =
       InstantServiceFactory::GetForProfile(profile_);
   if (instant_service) {
-    instant_service->UpdateThemeInfo();
+    instant_service->UpdateThemeInfo(false);
     instant_service->UpdateMostVisitedItemsInfo();
   }
 }

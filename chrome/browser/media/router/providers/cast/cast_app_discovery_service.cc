@@ -4,6 +4,7 @@
 
 #include "chrome/browser/media/router/providers/cast/cast_app_discovery_service.h"
 
+#include "base/time/tick_clock.h"
 #include "chrome/browser/media/router/providers/cast/cast_media_route_provider_metrics.h"
 #include "components/cast_channel/cast_message_handler.h"
 #include "components/cast_channel/cast_socket.h"
@@ -11,21 +12,57 @@
 
 namespace media_router {
 
-CastAppDiscoveryService::CastAppDiscoveryService(
-    cast_channel::CastMessageHandler* message_handler,
-    cast_channel::CastSocketService* socket_service)
-    : message_handler_(message_handler),
-      socket_service_(socket_service),
-      weak_ptr_factory_(this) {
-  DETACH_FROM_SEQUENCE(sequence_checker_);
+namespace {
+
+// The minimum time that must elapse before an app availability result can be
+// force refreshed.
+static constexpr base::TimeDelta kRefreshThreshold =
+    base::TimeDelta::FromMinutes(1);
+
+bool ShouldRefreshAppAvailability(
+    const CastAppAvailabilityTracker::AppAvailability& availability,
+    base::TimeTicks now) {
+  switch (availability.first) {
+    case cast_channel::GetAppAvailabilityResult::kAvailable:
+      return false;
+    case cast_channel::GetAppAvailabilityResult::kUnavailable:
+      return now - availability.second > kRefreshThreshold;
+    case cast_channel::GetAppAvailabilityResult::kUnknown:
+      return true;
+  }
+
+  NOTREACHED();
+  return false;
 }
 
-CastAppDiscoveryService::~CastAppDiscoveryService() {
+}  // namespace
+
+CastAppDiscoveryServiceImpl::CastAppDiscoveryServiceImpl(
+    cast_channel::CastMessageHandler* message_handler,
+    cast_channel::CastSocketService* socket_service,
+    MediaSinkServiceBase* media_sink_service,
+    const base::TickClock* clock)
+    : message_handler_(message_handler),
+      socket_service_(socket_service),
+      media_sink_service_(media_sink_service),
+      clock_(clock),
+      weak_ptr_factory_(this) {
+  DETACH_FROM_SEQUENCE(sequence_checker_);
+  DCHECK(message_handler_);
+  DCHECK(socket_service_);
+  DCHECK(clock_);
+  socket_service_->task_runner()->PostTask(
+      FROM_HERE, base::BindOnce(&CastAppDiscoveryServiceImpl::Init,
+                                base::Unretained(this)));
+}
+
+CastAppDiscoveryServiceImpl::~CastAppDiscoveryServiceImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  media_sink_service_->RemoveObserver(this);
 }
 
 CastAppDiscoveryService::Subscription
-CastAppDiscoveryService::StartObservingMediaSinks(
+CastAppDiscoveryServiceImpl::StartObservingMediaSinks(
     const CastMediaSource& source,
     const SinkQueryCallback& callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -40,9 +77,9 @@ CastAppDiscoveryService::StartObservingMediaSinks(
   auto& callback_list = sink_queries_[source_id];
   if (!callback_list) {
     callback_list = std::make_unique<SinkQueryCallbackList>();
-    callback_list->set_removal_callback(
-        base::BindRepeating(&CastAppDiscoveryService::MaybeRemoveSinkQueryEntry,
-                            base::Unretained(this), source));
+    callback_list->set_removal_callback(base::BindRepeating(
+        &CastAppDiscoveryServiceImpl::MaybeRemoveSinkQueryEntry,
+        base::Unretained(this), source));
 
     // Note: even though we retain availability results for an app unregistered
     // from the tracker, we will send app availability requests again when it
@@ -50,10 +87,11 @@ CastAppDiscoveryService::StartObservingMediaSinks(
     // it changed.
     base::flat_set<std::string> new_app_ids =
         availability_tracker_.RegisterSource(source);
+    const auto& sinks = media_sink_service_->GetSinks();
     for (const auto& app_id : new_app_ids) {
-      // Note: The following logic assumes |sinks_| will not change as it is
+      // Note: The following logic assumes |sinks| will not change as it is
       // being iterated.
-      for (const auto& sink : sinks_) {
+      for (const auto& sink : sinks) {
         int channel_id = sink.second.cast_data().cast_channel_id;
         cast_channel::CastSocket* socket =
             socket_service_->GetSocket(channel_id);
@@ -70,7 +108,32 @@ CastAppDiscoveryService::StartObservingMediaSinks(
   return callback_list->Add(callback);
 }
 
-void CastAppDiscoveryService::MaybeRemoveSinkQueryEntry(
+void CastAppDiscoveryServiceImpl::Refresh() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  const auto app_ids = availability_tracker_.GetRegisteredApps();
+  base::TimeTicks now = clock_->NowTicks();
+  const auto& sinks = media_sink_service_->GetSinks();
+  // Note: The following logic assumes |sinks| will not change as it is
+  // being iterated.
+  for (const auto& sink : sinks) {
+    for (const auto& app_id : app_ids) {
+      if (ShouldRefreshAppAvailability(
+              availability_tracker_.GetAvailability(sink.first, app_id), now)) {
+        int channel_id = sink.second.cast_data().cast_channel_id;
+        cast_channel::CastSocket* socket =
+            socket_service_->GetSocket(channel_id);
+        if (!socket) {
+          DVLOG(1) << "Socket not found for id " << channel_id;
+          continue;
+        }
+
+        RequestAppAvailability(socket, app_id, sink.first);
+      }
+    }
+  }
+}
+
+void CastAppDiscoveryServiceImpl::MaybeRemoveSinkQueryEntry(
     const CastMediaSource& source) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto it = sink_queries_.find(source.source_id());
@@ -82,67 +145,65 @@ void CastAppDiscoveryService::MaybeRemoveSinkQueryEntry(
   }
 }
 
-void CastAppDiscoveryService::OnSinkAddedOrUpdated(
-    const MediaSinkInternal& sink,
-    cast_channel::CastSocket* socket) {
+void CastAppDiscoveryServiceImpl::Init() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  media_sink_service_->AddObserver(this);
+}
+
+void CastAppDiscoveryServiceImpl::OnSinkAddedOrUpdated(
+    const MediaSinkInternal& sink) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  cast_channel::CastSocket* socket =
+      socket_service_->GetSocket(sink.cast_data().cast_channel_id);
+  if (!socket)
+    return;
+
   const MediaSink::Id& sink_id = sink.sink().id();
-  sinks_.insert_or_assign(sink_id, sink);
   for (const std::string& app_id : availability_tracker_.GetRegisteredApps()) {
-    if (availability_tracker_.IsAvailabilityKnown(sink_id, app_id))
+    auto availability = availability_tracker_.GetAvailability(sink_id, app_id);
+    if (availability.first != cast_channel::GetAppAvailabilityResult::kUnknown)
       continue;
 
     RequestAppAvailability(socket, app_id, sink_id);
   }
 }
 
-void CastAppDiscoveryService::OnSinkRemoved(const MediaSinkInternal& sink) {
+void CastAppDiscoveryServiceImpl::OnSinkRemoved(const MediaSinkInternal& sink) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   const MediaSink::Id& sink_id = sink.sink().id();
-  sinks_.erase(sink_id);
   UpdateSinkQueries(availability_tracker_.RemoveResultsForSink(sink_id));
 }
 
-void CastAppDiscoveryService::RequestAppAvailability(
+void CastAppDiscoveryServiceImpl::RequestAppAvailability(
     cast_channel::CastSocket* socket,
     const std::string& app_id,
     const MediaSink::Id& sink_id) {
   message_handler_->RequestAppAvailability(
       socket, app_id,
-      base::BindOnce(&CastAppDiscoveryService::UpdateAppAvailability,
-                     weak_ptr_factory_.GetWeakPtr(), base::TimeTicks::Now(),
+      base::BindOnce(&CastAppDiscoveryServiceImpl::UpdateAppAvailability,
+                     weak_ptr_factory_.GetWeakPtr(), clock_->NowTicks(),
                      sink_id));
 }
 
-void CastAppDiscoveryService::UpdateAppAvailability(
+void CastAppDiscoveryServiceImpl::UpdateAppAvailability(
     base::TimeTicks start_time,
     const MediaSink::Id& sink_id,
     const std::string& app_id,
-    cast_channel::GetAppAvailabilityResult result) {
+    cast_channel::GetAppAvailabilityResult availability) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  RecordAppAvailabilityResult(result, base::TimeTicks::Now() - start_time);
-  if (!base::ContainsKey(sinks_, sink_id))
+  RecordAppAvailabilityResult(availability, clock_->NowTicks() - start_time);
+  if (!media_sink_service_->GetSinkById(sink_id))
     return;
-
-  if (result == cast_channel::GetAppAvailabilityResult::kUnknown) {
-    // TODO(crbug.com/779892): Implement retry on user gesture.
-    DVLOG(2) << "App availability unknown for sink: " << sink_id
-             << ", app: " << app_id;
-    return;
-  }
-
-  AppAvailability availability =
-      result == cast_channel::GetAppAvailabilityResult::kAvailable
-          ? AppAvailability::kAvailable
-          : AppAvailability::kUnavailable;
 
   DVLOG(1) << "App " << app_id << " on sink " << sink_id << " is "
-           << (availability == AppAvailability::kAvailable);
-  UpdateSinkQueries(availability_tracker_.UpdateAppAvailability(sink_id, app_id,
-                                                                availability));
+           << cast_channel::GetAppAvailabilityResultToString(availability);
+
+  UpdateSinkQueries(availability_tracker_.UpdateAppAvailability(
+      sink_id, app_id, {availability, clock_->NowTicks()}));
 }
 
-void CastAppDiscoveryService::UpdateSinkQueries(
+void CastAppDiscoveryServiceImpl::UpdateSinkQueries(
     const std::vector<CastMediaSource>& sources) {
   for (const auto& source : sources) {
     const MediaSource::Id& source_id = source.source_id();
@@ -155,13 +216,13 @@ void CastAppDiscoveryService::UpdateSinkQueries(
   }
 }
 
-std::vector<MediaSinkInternal> CastAppDiscoveryService::GetSinksByIds(
+std::vector<MediaSinkInternal> CastAppDiscoveryServiceImpl::GetSinksByIds(
     const base::flat_set<MediaSink::Id>& sink_ids) const {
   std::vector<MediaSinkInternal> sinks;
   for (const auto& sink_id : sink_ids) {
-    auto it = sinks_.find(sink_id);
-    if (it != sinks_.end())
-      sinks.push_back(it->second);
+    const MediaSinkInternal* sink = media_sink_service_->GetSinkById(sink_id);
+    if (sink)
+      sinks.push_back(*sink);
   }
   return sinks;
 }

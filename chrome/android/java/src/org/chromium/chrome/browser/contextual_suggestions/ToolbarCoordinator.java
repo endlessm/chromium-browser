@@ -42,9 +42,12 @@ class ToolbarCoordinator {
         // The ToolbarCoordinator is created dynamically as needed, so the initial model state
         // needs to be bound on creation.
         mModelChangeProcessor.onPropertyChanged(mModel, PropertyKey.CLOSE_BUTTON_ON_CLICK_LISTENER);
+        mModelChangeProcessor.onPropertyChanged(mModel, PropertyKey.MENU_BUTTON_VISIBILITY);
+        mModelChangeProcessor.onPropertyChanged(mModel, PropertyKey.MENU_BUTTON_DELEGATE);
         mModelChangeProcessor.onPropertyChanged(mModel, PropertyKey.TITLE);
         mModelChangeProcessor.onPropertyChanged(
                 mModel, PropertyKey.DEFAULT_TOOLBAR_ON_CLICK_LISTENER);
+        mModelChangeProcessor.onPropertyChanged(mModel, PropertyKey.SLIM_PEEK_ENABLED);
     }
 
     /** @return The content {@link View}. */

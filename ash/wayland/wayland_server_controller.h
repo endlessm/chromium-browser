@@ -12,7 +12,6 @@
 namespace exo {
 class Display;
 class FileHelper;
-class NotificationSurfaceManager;
 class WMHelper;
 namespace wayland {
 class Server;
@@ -21,19 +20,19 @@ class Server;
 
 namespace ash {
 
+class ArcNotificationSurfaceManagerImpl;
+
 class WaylandServerController {
  public:
   // Creates WaylandServerController. Returns null if controller should not be
   // created.
   static std::unique_ptr<WaylandServerController> CreateIfNecessary(
-      exo::NotificationSurfaceManager* notification_surface_manager,
       std::unique_ptr<exo::FileHelper> file_helper);
 
   ~WaylandServerController();
 
  private:
-  WaylandServerController(
-      exo::NotificationSurfaceManager* notification_surface_manager,
+  explicit WaylandServerController(
       std::unique_ptr<exo::FileHelper> file_helper);
 
   std::unique_ptr<exo::WMHelper> wm_helper_;
@@ -41,6 +40,9 @@ class WaylandServerController {
   std::unique_ptr<exo::wayland::Server> wayland_server_;
   class WaylandWatcher;
   std::unique_ptr<WaylandWatcher> wayland_watcher_;
+
+  std::unique_ptr<ArcNotificationSurfaceManagerImpl>
+      arc_notification_surface_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(WaylandServerController);
 };

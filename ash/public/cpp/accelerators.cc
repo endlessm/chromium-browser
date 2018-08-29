@@ -8,9 +8,6 @@
 
 namespace ash {
 
-const int kDebugModifier =
-    ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN;
-
 const AcceleratorData kAcceleratorData[] = {
     {true, ui::VKEY_SPACE, ui::EF_CONTROL_DOWN, PREVIOUS_IME},
     {false, ui::VKEY_SPACE, ui::EF_CONTROL_DOWN, PREVIOUS_IME},
@@ -64,8 +61,7 @@ const AcceleratorData kAcceleratorData[] = {
      TOGGLE_HIGH_CONTRAST},
     {true, ui::VKEY_Z, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN,
      TOGGLE_SPOKEN_FEEDBACK},
-    {true, ui::VKEY_S, ui::EF_SHIFT_DOWN | ui::EF_COMMAND_DOWN,
-     TOGGLE_DICTATION},
+    {true, ui::VKEY_D, ui::EF_COMMAND_DOWN, TOGGLE_DICTATION},
     {true, ui::VKEY_OEM_COMMA, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN,
      SWITCH_TO_PREVIOUS_USER},
     {true, ui::VKEY_OEM_PERIOD, ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN,
@@ -152,6 +148,12 @@ const AcceleratorData kAcceleratorData[] = {
     // Moving active window between displays shortcut.
     {true, ui::VKEY_M, ui::EF_COMMAND_DOWN | ui::EF_ALT_DOWN,
      MOVE_ACTIVE_WINDOW_BETWEEN_DISPLAYS},
+
+    // Magnifiers shortcuts.
+    {true, ui::VKEY_D, ui::EF_COMMAND_DOWN | ui::EF_CONTROL_DOWN,
+     TOGGLE_DOCKED_MAGNIFIER},
+    {true, ui::VKEY_M, ui::EF_COMMAND_DOWN | ui::EF_CONTROL_DOWN,
+     TOGGLE_FULLSCREEN_MAGNIFIER},
 
     // Media Player shortcuts.
     {true, ui::VKEY_MEDIA_NEXT_TRACK, ui::EF_NONE, MEDIA_NEXT_TRACK},

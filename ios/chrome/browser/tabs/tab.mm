@@ -15,7 +15,6 @@
 #include "base/ios/block_types.h"
 #include "base/json/string_escape.h"
 #include "base/logging.h"
-#include "base/mac/bind_objc_block.h"
 #include "base/mac/foundation_util.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
@@ -61,7 +60,6 @@
 #import "ios/chrome/browser/snapshots/snapshot_tab_helper.h"
 #import "ios/chrome/browser/tabs/legacy_tab_helper.h"
 #import "ios/chrome/browser/tabs/tab_dialog_delegate.h"
-#import "ios/chrome/browser/tabs/tab_headers_delegate.h"
 #import "ios/chrome/browser/tabs/tab_helper_util.h"
 #import "ios/chrome/browser/tabs/tab_model.h"
 #import "ios/chrome/browser/tabs/tab_private.h"
@@ -166,7 +164,6 @@ NSString* const kTabUrlKey = @"url";
 @synthesize overscrollActionsControllerDelegate =
     overscrollActionsControllerDelegate_;
 @synthesize dialogDelegate = dialogDelegate_;
-@synthesize tabHeadersDelegate = tabHeadersDelegate_;
 
 #pragma mark - Initializers
 
@@ -533,16 +530,6 @@ NSString* const kTabUrlKey = @"url";
 - (BOOL)webController:(CRWWebController*)webController
     shouldOpenExternalURL:(const GURL&)URL {
   return YES;
-}
-
-- (CGFloat)nativeContentHeaderHeightForWebController:
-    (CRWWebController*)webController {
-  return [self.tabHeadersDelegate tabHeaderHeightForTab:self];
-}
-
-- (CGFloat)nativeContentFooterHeightForWebController:
-    (CRWWebController*)webController {
-  return [self.tabHeadersDelegate tabFooterHeightForTab:self];
 }
 
 #pragma mark - Private methods

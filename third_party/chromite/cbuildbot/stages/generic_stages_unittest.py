@@ -21,11 +21,9 @@ from chromite.cbuildbot.stages import generic_stages
 from chromite.lib.const import waterfall
 from chromite.lib import auth
 from chromite.lib import buildbucket_lib
-from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cidb
 from chromite.lib import cros_build_lib
-from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
 from chromite.lib import fake_cidb
 from chromite.lib import failures_lib
@@ -142,9 +140,6 @@ class StageTestCase(cros_test_lib.MockOutputTestCase,
     build_config['manifest_repo_url'] = 'fake_url'
     if extra_config:
       build_config.update(extra_config)
-    if options.remote_trybot:
-      build_config = config_lib.OverrideConfigForTrybot(
-          build_config, options)
     options.managed_chrome = build_config['sync_chrome']
 
     self._boards = build_config['boards']
@@ -319,7 +314,7 @@ class BuilderStageTest(AbstractStageTestCase):
     board = self._current_board
 
     envvar = 'EXAMPLE'
-    rc_mock = self.StartPatcher(cros_build_lib_unittest.RunCommandMock())
+    rc_mock = self.StartPatcher(cros_test_lib.RunCommandMock())
     rc_mock.AddCmdResult(['portageq-%s' % board, 'envvar', envvar],
                          output='RESULT\n')
 
@@ -739,7 +734,7 @@ class BoardSpecificBuilderStageTest(AbstractStageTestCase):
 
 
 class RunCommandAbstractStageTestCase(
-    AbstractStageTestCase, cros_build_lib_unittest.RunCommandTestCase):
+    AbstractStageTestCase, cros_test_lib.RunCommandTestCase):
   """Base test class for testing a stage and mocking RunCommand."""
 
   # pylint: disable=abstract-method

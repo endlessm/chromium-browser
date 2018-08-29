@@ -40,7 +40,7 @@ static uint8_t byteFromBitsInit(BitsInit &init) {
   uint8_t ret = 0;
 
   for (index = 0; index < width; index++) {
-    if (static_cast<BitInit*>(init.getBit(index))->getValue())
+    if (cast<BitInit>(init.getBit(index))->getValue())
       ret |= mask;
 
     mask <<= 1;
@@ -243,8 +243,12 @@ InstructionContext RecognizableInstr::insnContext() const {
       insnContext = EVEX_KB(IC_EVEX_XD);
     else if (OpPrefix == X86Local::XS)
       insnContext = EVEX_KB(IC_EVEX_XS);
-    else
+    else if (OpPrefix == X86Local::PS)
       insnContext = EVEX_KB(IC_EVEX);
+    else {
+      errs() << "Instruction does not use a prefix: " << Name << "\n";
+      llvm_unreachable("Invalid prefix");
+    }
     /// eof EVEX
   } else if (Encoding == X86Local::VEX || Encoding == X86Local::XOP) {
     if (HasVEX_LPrefix && VEX_WPrefix == X86Local::VEX_W1) {
@@ -297,6 +301,8 @@ InstructionContext RecognizableInstr::insnContext() const {
       insnContext = IC_64BIT_XD_OPSIZE;
     else if (OpSize == X86Local::OpSize16 && OpPrefix == X86Local::XS)
       insnContext = IC_64BIT_XS_OPSIZE;
+    else if (AdSize == X86Local::AdSize32 && OpPrefix == X86Local::PD)
+      insnContext = IC_64BIT_OPSIZE_ADSIZE;
     else if (OpSize == X86Local::OpSize16 && AdSize == X86Local::AdSize32)
       insnContext = IC_64BIT_OPSIZE_ADSIZE;
     else if (OpSize == X86Local::OpSize16 || OpPrefix == X86Local::PD)
@@ -320,6 +326,12 @@ InstructionContext RecognizableInstr::insnContext() const {
       insnContext = IC_XD_OPSIZE;
     else if (OpSize == X86Local::OpSize16 && OpPrefix == X86Local::XS)
       insnContext = IC_XS_OPSIZE;
+    else if (AdSize == X86Local::AdSize16 && OpPrefix == X86Local::XD)
+      insnContext = IC_XD_ADSIZE;
+    else if (AdSize == X86Local::AdSize16 && OpPrefix == X86Local::XS)
+      insnContext = IC_XS_ADSIZE;
+    else if (AdSize == X86Local::AdSize16 && OpPrefix == X86Local::PD)
+      insnContext = IC_OPSIZE_ADSIZE;
     else if (OpSize == X86Local::OpSize16 && AdSize == X86Local::AdSize16)
       insnContext = IC_OPSIZE_ADSIZE;
     else if (OpSize == X86Local::OpSize16 || OpPrefix == X86Local::PD)
@@ -544,7 +556,6 @@ void RecognizableInstr::emitInstructionSpecifier() {
     HANDLE_OPERAND(rmRegister)
     HANDLE_OPTIONAL(immediate)
     HANDLE_OPTIONAL(immediate) // above might be a register in 7:4
-    HANDLE_OPTIONAL(immediate)
     break;
   case X86Local::MRMSrcReg4VOp3:
     assert(numPhysicalOperands == 3 &&
@@ -843,10 +854,7 @@ OperandType RecognizableInstr::typeFromString(const std::string &s,
   TYPE("VR64",                TYPE_MM64)
   TYPE("i64imm",              TYPE_IMM)
   TYPE("anymem",              TYPE_M)
-  TYPE("opaque32mem",         TYPE_M)
-  TYPE("opaque48mem",         TYPE_M)
-  TYPE("opaque80mem",         TYPE_M)
-  TYPE("opaque512mem",        TYPE_M)
+  TYPE("opaquemem",           TYPE_M)
   TYPE("SEGMENT_REG",         TYPE_SEGMENTREG)
   TYPE("DEBUG_REG",           TYPE_DEBUGREG)
   TYPE("CONTROL_REG",         TYPE_CONTROLREG)
@@ -1078,10 +1086,7 @@ RecognizableInstr::memoryEncodingFromString(const std::string &s,
   ENCODING("lea64_32mem",     ENCODING_RM)
   ENCODING("lea64mem",        ENCODING_RM)
   ENCODING("anymem",          ENCODING_RM)
-  ENCODING("opaque32mem",     ENCODING_RM)
-  ENCODING("opaque48mem",     ENCODING_RM)
-  ENCODING("opaque80mem",     ENCODING_RM)
-  ENCODING("opaque512mem",    ENCODING_RM)
+  ENCODING("opaquemem",       ENCODING_RM)
   ENCODING("vx64mem",         ENCODING_VSIB)
   ENCODING("vx128mem",        ENCODING_VSIB)
   ENCODING("vx256mem",        ENCODING_VSIB)

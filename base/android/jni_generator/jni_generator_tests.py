@@ -46,6 +46,7 @@ class TestOptions(object):
     self.javap = 'javap'
     self.native_exports_optional = True
     self.enable_profiling = False
+    self.enable_tracing = False
 
 class TestGenerator(unittest.TestCase):
   def assertObjEquals(self, first, second):
@@ -288,10 +289,12 @@ class TestGenerator(unittest.TestCase):
                                               natives, [], [], jni_params,
                                               TestOptions())
     self.assertGoldenTextEquals(h1.GetContent())
-    content = {}
     h2 = jni_registration_generator.HeaderGenerator(
-        '', 'org/chromium/TestJni', natives, jni_params, content, True)
-    h2.AddContent()
+        '', 'org/chromium/TestJni', natives, jni_params, True)
+    content = h2.Generate()
+    for k in jni_registration_generator.MERGEABLE_KEYS:
+      content[k] = content.get(k, '')
+
     self.assertGoldenTextEquals(
         jni_registration_generator.CreateFromDict(content),
         suffix='Registrations')
@@ -375,10 +378,12 @@ class TestGenerator(unittest.TestCase):
                                              TestOptions())
     self.assertGoldenTextEquals(h.GetContent())
 
-    content = {}
     h2 = jni_registration_generator.HeaderGenerator(
-        '', 'org/chromium/TestJni', natives, jni_params, content, True)
-    h2.AddContent()
+        '', 'org/chromium/TestJni', natives, jni_params, True)
+    content = h2.Generate()
+    for k in jni_registration_generator.MERGEABLE_KEYS:
+      content[k] = content.get(k, '')
+
     self.assertGoldenTextEquals(
         jni_registration_generator.CreateFromDict(content),
         suffix='Registrations')
@@ -1124,6 +1129,31 @@ class Foo {
     jni_from_java = jni_generator.JNIFromJavaSource(test_data,
                                                     'org/chromium/foo/Foo',
                                                     TestOptions())
+    self.assertGoldenTextEquals(jni_from_java.GetContent())
+
+  def testTracing(self):
+    test_data = """
+    package org.chromium.foo;
+
+    @JNINamespace("org::chromium_foo")
+    class Foo {
+
+    @CalledByNative
+    Foo();
+
+    @CalledByNative
+    void callbackFromNative();
+
+    native void nativeInstanceMethod(long nativeInstance);
+
+    static native void nativeStaticMethod();
+    }
+    """
+    options_with_tracing = TestOptions()
+    options_with_tracing.enable_tracing = True
+    jni_from_java = jni_generator.JNIFromJavaSource(test_data,
+                                                    'org/chromium/foo/Foo',
+                                                    options_with_tracing)
     self.assertGoldenTextEquals(jni_from_java.GetContent())
 
 

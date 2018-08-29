@@ -4,19 +4,23 @@
 
 #include "ui/app_list/views/search_result_tile_item_view.h"
 
+#include <utility>
+
 #include "ash/app_list/model/app_list_view_state.h"
 #include "ash/app_list/model/search/search_result.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/app_list_features.h"
+#include "ash/public/cpp/app_list/vector_icons/vector_icons.h"
+#include "base/bind.h"
 #include "base/i18n/number_formatting.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/accessibility/ax_node_data.h"
-#include "ui/app_list/app_list_constants.h"
-#include "ui/app_list/app_list_features.h"
 #include "ui/app_list/app_list_metrics.h"
 #include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/pagination_model.h"
-#include "ui/app_list/vector_icons/vector_icons.h"
 #include "ui/app_list/views/search_result_container_view.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/ui_base_features.h"
@@ -47,16 +51,14 @@ constexpr int kSearchRatingStarVerticalSpacing = 2;
 constexpr int kIconSelectedSize = 56;
 constexpr int kIconSelectedCornerRadius = 4;
 // Icon selected color, #000 8%.
-constexpr int kIconSelectedColor = SkColorSetARGBMacro(0x14, 0x00, 0x00, 0x00);
+constexpr int kIconSelectedColor = SkColorSetARGB(0x14, 0x00, 0x00, 0x00);
 
-constexpr SkColor kSearchTitleColor =
-    SkColorSetARGBMacro(0xDF, 0x00, 0x00, 0x00);
+constexpr SkColor kSearchTitleColor = SkColorSetARGB(0xDF, 0x00, 0x00, 0x00);
 constexpr SkColor kSearchAppRatingColor =
-    SkColorSetARGBMacro(0x8F, 0x00, 0x00, 0x00);
-constexpr SkColor kSearchAppPriceColor =
-    SkColorSetARGBMacro(0xFF, 0x0F, 0x9D, 0x58);
+    SkColorSetARGB(0x8F, 0x00, 0x00, 0x00);
+constexpr SkColor kSearchAppPriceColor = SkColorSetARGB(0xFF, 0x0F, 0x9D, 0x58);
 constexpr SkColor kSearchRatingStarColor =
-    SkColorSetARGBMacro(0x8F, 0x00, 0x00, 0x00);
+    SkColorSetARGB(0x8F, 0x00, 0x00, 0x00);
 
 // The background image source for badge.
 class BadgeBackgroundImageSource : public gfx::CanvasImageSource {
@@ -92,6 +94,7 @@ SearchResultTileItemView::SearchResultTileItemView(
       pagination_model_(pagination_model),
       is_play_store_app_search_enabled_(
           features::IsPlayStoreAppSearchEnabled()),
+      context_menu_(this),
       weak_ptr_factory_(this) {
   SetFocusBehavior(FocusBehavior::ALWAYS);
 
@@ -160,7 +163,7 @@ SearchResultTileItemView::~SearchResultTileItemView() {
 void SearchResultTileItemView::SetSearchResult(SearchResult* item) {
   // Handle the case where this may be called from a nested run loop while its
   // context menu is showing. This cancels the menu (it's for the old item).
-  context_menu_runner_.reset();
+  context_menu_.Reset();
 
   SetVisible(!!item);
 
@@ -205,18 +208,10 @@ void SearchResultTileItemView::SetSearchResult(SearchResult* item) {
       item_->display_type() == ash::SearchResultDisplayType::kTile &&
       item_->result_type() == ash::SearchResultType::kInstalledApp);
 
-  // Only refresh the icon if it's different from the old one. This prevents
-  // flickering.
   // If the new icon is null, it's being decoded asynchronously. Not updating it
   // now to prevent flickering from showing an empty icon while decoding.
-  if (!item->icon().isNull() &&
-      (!old_item || !item->icon().BackedBySameObjectAs(old_item->icon()))) {
-    OnIconChanged();
-  }
-  if (!old_item ||
-      !item->badge_icon().BackedBySameObjectAs(old_item->badge_icon())) {
-    OnBadgeIconChanged();
-  }
+  if (!item->icon().isNull())
+    OnMetadataChanged();
 
   base::string16 accessible_name = title_->text();
   if (rating_ && rating_->visible()) {
@@ -345,27 +340,17 @@ void SearchResultTileItemView::PaintButtonContents(gfx::Canvas* canvas) {
   }
 }
 
-void SearchResultTileItemView::OnIconChanged() {
+void SearchResultTileItemView::OnMetadataChanged() {
   SetIcon(item_->icon());
-  Layout();
-}
-
-void SearchResultTileItemView::OnBadgeIconChanged() {
   SetBadgeIcon(item_->badge_icon());
-  Layout();
-}
-
-void SearchResultTileItemView::OnRatingChanged() {
   SetRating(item_->rating());
-}
-
-void SearchResultTileItemView::OnFormattedPriceChanged() {
   SetPrice(item_->formatted_price());
+  Layout();
 }
 
 void SearchResultTileItemView::OnResultDestroying() {
   // The menu comes from |item_|. If we're showing a menu we need to cancel it.
-  context_menu_runner_.reset();
+  context_menu_.Reset();
 
   if (item_)
     item_->RemoveObserver(this);
@@ -381,8 +366,19 @@ void SearchResultTileItemView::ShowContextMenuForView(
   if (!item_)
     return;
 
-  ui::MenuModel* menu_model = item_->GetContextMenuModel();
-  if (!menu_model)
+  view_delegate_->GetSearchResultContextMenuModel(
+      item_->id(),
+      base::BindOnce(&SearchResultTileItemView::OnGetContextMenuModel,
+                     weak_ptr_factory_.GetWeakPtr(), source, point,
+                     source_type));
+}
+
+void SearchResultTileItemView::OnGetContextMenuModel(
+    views::View* source,
+    const gfx::Point& point,
+    ui::MenuSourceType source_type,
+    std::vector<ash::mojom::MenuItemPtr> menu) {
+  if (menu.empty() || context_menu_.IsRunning())
     return;
 
   if (IsSuggestedAppTile()) {
@@ -422,18 +418,29 @@ void SearchResultTileItemView::ShowContextMenuForView(
           gfx::Size(kGridSelectedSize, kGridSelectedSize));
     }
   }
-  context_menu_runner_.reset(new views::MenuRunner(
-      menu_model, run_types,
+  context_menu_.Build(
+      std::move(menu), run_types,
       base::Bind(&SearchResultTileItemView::OnContextMenuClosed,
-                 weak_ptr_factory_.GetWeakPtr(), base::TimeTicks::Now())));
-  context_menu_runner_->RunMenuAt(GetWidget(), nullptr, anchor_rect,
-                                  anchor_type, source_type);
+                 weak_ptr_factory_.GetWeakPtr(), base::TimeTicks::Now()));
+  context_menu_.Run(GetWidget(), nullptr, anchor_rect, anchor_type,
+                    source_type);
 
   source->RequestFocus();
 }
 
+void SearchResultTileItemView::ExecuteCommand(int command_id, int event_flags) {
+  if (item_) {
+    base::UmaHistogramSparse(kAppContextMenuExecuteCommandFromApp, command_id);
+    view_delegate_->SearchResultContextMenuItemSelected(item_->id(), command_id,
+                                                        event_flags);
+  }
+}
+
 void SearchResultTileItemView::SetIcon(const gfx::ImageSkia& icon) {
-  icon_->SetImage(icon);
+  gfx::ImageSkia resized(gfx::ImageSkiaOperations::CreateResizedImage(
+      icon, skia::ImageOperations::RESIZE_BEST,
+      gfx::Size(kTileIconSize, kTileIconSize)));
+  icon_->SetImage(resized);
 }
 
 void SearchResultTileItemView::SetBadgeIcon(const gfx::ImageSkia& badge_icon) {

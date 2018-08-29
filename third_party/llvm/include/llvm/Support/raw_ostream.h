@@ -242,6 +242,9 @@ public:
   /// indent - Insert 'NumSpaces' spaces.
   raw_ostream &indent(unsigned NumSpaces);
 
+  /// write_zeros - Insert 'NumZeros' nulls.
+  raw_ostream &write_zeros(unsigned NumZeros);
+
   /// Changes the foreground color of text that will be output from this point
   /// forward.
   /// @param Color ANSI color to use, the special SAVEDCOLOR can be used to
@@ -329,6 +332,8 @@ private:
   /// Copy data into the buffer. Size must not be greater than the number of
   /// unused bytes in the buffer.
   void copy_to_buffer(const char *Ptr, size_t Size);
+
+  virtual void anchor();
 };
 
 /// An abstract base class for streams implementations that also support a
@@ -336,6 +341,7 @@ private:
 /// but needs to patch in a header that needs to know the output size.
 class raw_pwrite_stream : public raw_ostream {
   virtual void pwrite_impl(const char *Ptr, size_t Size, uint64_t Offset) = 0;
+  void anchor() override;
 
 public:
   explicit raw_pwrite_stream(bool Unbuffered = false)
@@ -382,6 +388,8 @@ class raw_fd_ostream : public raw_pwrite_stream {
 
   /// Set the flag indicating that an output error has been encountered.
   void error_detected(std::error_code EC) { this->EC = EC; }
+
+  void anchor() override;
 
 public:
   /// Open the specified file for writing. If an error occurs, information

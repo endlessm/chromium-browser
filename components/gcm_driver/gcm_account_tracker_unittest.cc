@@ -12,7 +12,11 @@
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "components/gcm_driver/fake_gcm_driver.h"
-#include "google_apis/gaia/fake_identity_provider.h"
+#include "components/signin/core/browser/account_tracker_service.h"
+#include "components/signin/core/browser/fake_profile_oauth2_token_service.h"
+#include "components/signin/core/browser/fake_signin_manager.h"
+#include "components/signin/core/browser/test_signin_client.h"
+#include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "google_apis/gaia/fake_oauth2_token_service.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "net/http/http_status_code.h"
@@ -23,6 +27,12 @@
 namespace gcm {
 
 namespace {
+
+#if defined(OS_CHROMEOS)
+using SigninManagerForTest = FakeSigninManagerBase;
+#else
+using SigninManagerForTest = FakeSigninManager;
+#endif  // OS_CHROMEOS
 
 const char kAccountId1[] = "account_1";
 const char kAccountId2[] = "account_2";
@@ -160,13 +170,16 @@ class GCMAccountTrackerTest : public testing::Test {
   GCMAccountTrackerTest();
   ~GCMAccountTrackerTest() override;
 
-  // Helpers to pass fake events to the tracker. Tests should have either a pair
-  // of Start/FinishAccountSignIn or SignInAccount per account. Don't mix.
-  // Call to SignOutAccount is not mandatory.
-  void StartAccountSignIn(const std::string& account_key);
-  void FinishAccountSignIn(const std::string& account_key);
-  void SignInAccount(const std::string& account_key);
-  void SignOutAccount(const std::string& account_key);
+  // Helpers to pass fake info to the tracker. Tests should have either a pair
+  // of Start(Primary)/FinishAccountAddition or Add(Primary)Account per
+  // account. Don't mix.
+  // Call to RemoveAccount is not mandatory.
+  void StartAccountAddition(const std::string& account_key);
+  void StartPrimaryAccountAddition(const std::string& account_key);
+  void FinishAccountAddition(const std::string& account_key);
+  void AddAccount(const std::string& account_key);
+  void AddPrimaryAccount(const std::string& account_key);
+  void RemoveAccount(const std::string& account_key);
 
   // Helpers for dealing with OAuth2 access token requests.
   void IssueAccessToken(const std::string& account_key);
@@ -187,24 +200,38 @@ class GCMAccountTrackerTest : public testing::Test {
 
   base::MessageLoop message_loop_;
   net::TestURLFetcherFactory test_fetcher_factory_;
-  std::unique_ptr<FakeOAuth2TokenService> fake_token_service_;
-  std::unique_ptr<FakeIdentityProvider> fake_identity_provider_;
+  sync_preferences::TestingPrefServiceSyncable pref_service_;
+  AccountTrackerService account_tracker_service_;
+  std::unique_ptr<TestSigninClient> test_signin_client_;
+  std::unique_ptr<SigninManagerForTest> fake_signin_manager_;
+  std::unique_ptr<FakeProfileOAuth2TokenService> fake_token_service_;
   std::unique_ptr<GCMAccountTracker> tracker_;
 };
 
 GCMAccountTrackerTest::GCMAccountTrackerTest() {
-  fake_token_service_.reset(new FakeOAuth2TokenService());
+  fake_token_service_.reset(new FakeProfileOAuth2TokenService());
 
-  fake_identity_provider_.reset(
-      new FakeIdentityProvider(fake_token_service_.get()));
+  test_signin_client_.reset(new TestSigninClient(&pref_service_));
+#if defined(OS_CHROMEOS)
+  fake_signin_manager_.reset(new SigninManagerForTest(
+      test_signin_client_.get(), &account_tracker_service_));
+#else
+  fake_signin_manager_.reset(new SigninManagerForTest(
+      test_signin_client_.get(), fake_token_service_.get(),
+      &account_tracker_service_, nullptr));
+#endif
 
-  std::unique_ptr<gaia::AccountTracker> gaia_account_tracker(
-      new gaia::AccountTracker(
-          fake_identity_provider_.get(),
-          new net::TestURLRequestContextGetter(message_loop_.task_runner())));
+  AccountTrackerService::RegisterPrefs(pref_service_.registry());
+  SigninManagerBase::RegisterProfilePrefs(pref_service_.registry());
+  SigninManagerBase::RegisterPrefs(pref_service_.registry());
+  account_tracker_service_.Initialize(test_signin_client_.get());
 
-  tracker_.reset(
-      new GCMAccountTracker(std::move(gaia_account_tracker), &driver_));
+  std::unique_ptr<AccountTracker> gaia_account_tracker(new AccountTracker(
+      fake_signin_manager_.get(), fake_token_service_.get(),
+      new net::TestURLRequestContextGetter(message_loop_.task_runner())));
+
+  tracker_.reset(new GCMAccountTracker(std::move(gaia_account_tracker),
+                                       fake_token_service_.get(), &driver_));
 }
 
 GCMAccountTrackerTest::~GCMAccountTrackerTest() {
@@ -212,12 +239,29 @@ GCMAccountTrackerTest::~GCMAccountTrackerTest() {
     tracker_->Shutdown();
 }
 
-void GCMAccountTrackerTest::StartAccountSignIn(const std::string& account_key) {
-  fake_identity_provider_->LogIn(account_key);
-  fake_token_service_->AddAccount(account_key);
+void GCMAccountTrackerTest::StartAccountAddition(
+    const std::string& account_key) {
+  fake_token_service_->UpdateCredentials(account_key, "fake_refresh_token");
 }
 
-void GCMAccountTrackerTest::FinishAccountSignIn(
+void GCMAccountTrackerTest::StartPrimaryAccountAddition(
+    const std::string& account_key) {
+// NOTE: Setting of the primary account info must be done first on ChromeOS
+// to ensure that AccountTracker and GCMAccountTracker respond as expected
+// when the token is added to the token service.
+// TODO(blundell): On non-ChromeOS, it would be good to add tests wherein
+// setting of the primary account is done afterward to check that the flow
+// that ensues from the GoogleSigninSucceeded callback firing works as
+// expected.
+#if defined(OS_CHROMEOS)
+  fake_signin_manager_->SignIn(account_key);
+#else
+  fake_signin_manager_->SignIn(account_key, account_key, "" /* password */);
+#endif
+  StartAccountAddition(account_key);
+}
+
+void GCMAccountTrackerTest::FinishAccountAddition(
     const std::string& account_key) {
   IssueAccessToken(account_key);
 
@@ -229,13 +273,18 @@ void GCMAccountTrackerTest::FinishAccountSignIn(
   fetcher->delegate()->OnURLFetchComplete(fetcher);
 }
 
-void GCMAccountTrackerTest::SignInAccount(const std::string& account_key) {
-  StartAccountSignIn(account_key);
-  FinishAccountSignIn(account_key);
+void GCMAccountTrackerTest::AddPrimaryAccount(const std::string& account_key) {
+  StartPrimaryAccountAddition(account_key);
+  FinishAccountAddition(account_key);
 }
 
-void GCMAccountTrackerTest::SignOutAccount(const std::string& account_key) {
-  fake_token_service_->RemoveAccount(account_key);
+void GCMAccountTrackerTest::AddAccount(const std::string& account_key) {
+  StartAccountAddition(account_key);
+  FinishAccountAddition(account_key);
+}
+
+void GCMAccountTrackerTest::RemoveAccount(const std::string& account_key) {
+  fake_token_service_->RevokeCredentials(account_key);
 }
 
 void GCMAccountTrackerTest::IssueAccessToken(const std::string& account_key) {
@@ -279,7 +328,7 @@ TEST_F(GCMAccountTrackerTest, NoAccounts) {
 // with a specific scope. In this scenario, the underlying account tracker is
 // still working when the CompleteCollectingTokens is called for the first time.
 TEST_F(GCMAccountTrackerTest, SingleAccount) {
-  StartAccountSignIn(kAccountId1);
+  StartPrimaryAccountAddition(kAccountId1);
 
   tracker()->Start();
   // We don't have any accounts to report, but given the inner account tracker
@@ -287,7 +336,7 @@ TEST_F(GCMAccountTrackerTest, SingleAccount) {
   EXPECT_FALSE(driver()->update_accounts_called());
 
   // This concludes the work of inner account tracker.
-  FinishAccountSignIn(kAccountId1);
+  FinishAccountAddition(kAccountId1);
   IssueAccessToken(kAccountId1);
 
   EXPECT_TRUE(driver()->update_accounts_called());
@@ -298,17 +347,18 @@ TEST_F(GCMAccountTrackerTest, SingleAccount) {
 }
 
 TEST_F(GCMAccountTrackerTest, MultipleAccounts) {
-  StartAccountSignIn(kAccountId1);
-  StartAccountSignIn(kAccountId2);
+  StartPrimaryAccountAddition(kAccountId1);
+
+  StartAccountAddition(kAccountId2);
 
   tracker()->Start();
   EXPECT_FALSE(driver()->update_accounts_called());
 
-  FinishAccountSignIn(kAccountId1);
+  FinishAccountAddition(kAccountId1);
   IssueAccessToken(kAccountId1);
   EXPECT_FALSE(driver()->update_accounts_called());
 
-  FinishAccountSignIn(kAccountId2);
+  FinishAccountAddition(kAccountId2);
   IssueAccessToken(kAccountId2);
   EXPECT_TRUE(driver()->update_accounts_called());
 
@@ -322,7 +372,7 @@ TEST_F(GCMAccountTrackerTest, AccountAdded) {
   tracker()->Start();
   driver()->ResetResults();
 
-  SignInAccount(kAccountId1);
+  AddPrimaryAccount(kAccountId1);
   EXPECT_FALSE(driver()->update_accounts_called());
 
   IssueAccessToken(kAccountId1);
@@ -334,8 +384,8 @@ TEST_F(GCMAccountTrackerTest, AccountAdded) {
 }
 
 TEST_F(GCMAccountTrackerTest, AccountRemoved) {
-  SignInAccount(kAccountId1);
-  SignInAccount(kAccountId2);
+  AddPrimaryAccount(kAccountId1);
+  AddAccount(kAccountId2);
 
   tracker()->Start();
   IssueAccessToken(kAccountId1);
@@ -345,7 +395,7 @@ TEST_F(GCMAccountTrackerTest, AccountRemoved) {
   driver()->ResetResults();
   EXPECT_FALSE(driver()->update_accounts_called());
 
-  SignOutAccount(kAccountId2);
+  RemoveAccount(kAccountId2);
   EXPECT_TRUE(driver()->update_accounts_called());
 
   std::vector<GCMClient::AccountTokenInfo> expected_accounts;
@@ -354,8 +404,8 @@ TEST_F(GCMAccountTrackerTest, AccountRemoved) {
 }
 
 TEST_F(GCMAccountTrackerTest, GetTokenFailed) {
-  SignInAccount(kAccountId1);
-  SignInAccount(kAccountId2);
+  AddPrimaryAccount(kAccountId1);
+  AddAccount(kAccountId2);
 
   tracker()->Start();
   IssueAccessToken(kAccountId1);
@@ -373,14 +423,14 @@ TEST_F(GCMAccountTrackerTest, GetTokenFailed) {
 }
 
 TEST_F(GCMAccountTrackerTest, GetTokenFailedAccountRemoved) {
-  SignInAccount(kAccountId1);
-  SignInAccount(kAccountId2);
+  AddPrimaryAccount(kAccountId1);
+  AddAccount(kAccountId2);
 
   tracker()->Start();
   IssueAccessToken(kAccountId1);
 
   driver()->ResetResults();
-  SignOutAccount(kAccountId2);
+  RemoveAccount(kAccountId2);
   IssueError(kAccountId2);
 
   EXPECT_TRUE(driver()->update_accounts_called());
@@ -391,14 +441,14 @@ TEST_F(GCMAccountTrackerTest, GetTokenFailedAccountRemoved) {
 }
 
 TEST_F(GCMAccountTrackerTest, AccountRemovedWhileRequestsPending) {
-  SignInAccount(kAccountId1);
-  SignInAccount(kAccountId2);
+  AddPrimaryAccount(kAccountId1);
+  AddAccount(kAccountId2);
 
   tracker()->Start();
   IssueAccessToken(kAccountId1);
   EXPECT_FALSE(driver()->update_accounts_called());
 
-  SignOutAccount(kAccountId2);
+  RemoveAccount(kAccountId2);
   IssueAccessToken(kAccountId2);
   EXPECT_TRUE(driver()->update_accounts_called());
 
@@ -419,9 +469,9 @@ TEST_F(GCMAccountTrackerTest, TrackerObservesConnection) {
 // Makes sure that token fetching happens only after connection is established.
 TEST_F(GCMAccountTrackerTest, PostponeTokenFetchingUntilConnected) {
   driver()->SetConnected(false);
-  StartAccountSignIn(kAccountId1);
+  StartPrimaryAccountAddition(kAccountId1);
   tracker()->Start();
-  FinishAccountSignIn(kAccountId1);
+  FinishAccountAddition(kAccountId1);
 
   EXPECT_EQ(0UL, tracker()->get_pending_token_request_count());
   driver()->SetConnected(true);
@@ -430,11 +480,11 @@ TEST_F(GCMAccountTrackerTest, PostponeTokenFetchingUntilConnected) {
 }
 
 TEST_F(GCMAccountTrackerTest, InvalidateExpiredTokens) {
-  StartAccountSignIn(kAccountId1);
-  StartAccountSignIn(kAccountId2);
+  StartPrimaryAccountAddition(kAccountId1);
+  StartAccountAddition(kAccountId2);
   tracker()->Start();
-  FinishAccountSignIn(kAccountId1);
-  FinishAccountSignIn(kAccountId2);
+  FinishAccountAddition(kAccountId1);
+  FinishAccountAddition(kAccountId2);
 
   EXPECT_EQ(2UL, tracker()->get_pending_token_request_count());
 
@@ -454,8 +504,8 @@ TEST_F(GCMAccountTrackerTest, IsTokenFetchingRequired) {
   tracker()->Start();
   driver()->SetConnected(false);
   EXPECT_FALSE(IsFetchingRequired());
-  StartAccountSignIn(kAccountId1);
-  FinishAccountSignIn(kAccountId1);
+  StartPrimaryAccountAddition(kAccountId1);
+  FinishAccountAddition(kAccountId1);
   EXPECT_TRUE(IsFetchingRequired());
 
   driver()->SetConnected(true);
@@ -464,8 +514,8 @@ TEST_F(GCMAccountTrackerTest, IsTokenFetchingRequired) {
   EXPECT_FALSE(IsFetchingRequired());
 
   driver()->SetConnected(false);
-  StartAccountSignIn(kAccountId2);
-  FinishAccountSignIn(kAccountId2);
+  StartAccountAddition(kAccountId2);
+  FinishAccountAddition(kAccountId2);
   EXPECT_TRUE(IsFetchingRequired());
 
   IssueExpiredAccessToken(kAccountId2);
@@ -507,12 +557,12 @@ TEST_F(GCMAccountTrackerTest, IsTokenReportingRequired) {
   driver()->SetLastTokenFetchTime(base::Time::Now());
   EXPECT_FALSE(IsTokenReportingRequired());
 
-  SignInAccount(kAccountId1);
+  AddPrimaryAccount(kAccountId1);
   IssueAccessToken(kAccountId1);
   driver()->ResetResults();
   // Reporting was triggered, which means testing for required will give false,
   // but we have the update call.
-  SignOutAccount(kAccountId1);
+  RemoveAccount(kAccountId1);
   EXPECT_TRUE(driver()->update_accounts_called());
   EXPECT_FALSE(IsTokenReportingRequired());
 }

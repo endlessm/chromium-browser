@@ -12,8 +12,8 @@
 
 class Shell;
 
-namespace blink {
-class WebLayer;
+namespace cc {
+class Layer;
 }
 
 namespace content {
@@ -27,8 +27,8 @@ base::android::ScopedJavaLocalRef<jobject> CreateShellView(Shell* shell);
 // Removes a previously created shell view.
 void RemoveShellView(const base::android::JavaRef<jobject>& shell_view);
 
-void ShellAttachLayer(blink::WebLayer* layer);
-void ShellRemoveLayer(blink::WebLayer* layer);
+void ShellAttachLayer(cc::Layer* layer);
+void ShellRemoveLayer(cc::Layer* layer);
 }  // namespace content
 
 #endif  // CONTENT_SHELL_ANDROID_SHELL_MANAGER_H_

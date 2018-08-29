@@ -22,9 +22,9 @@
 #include "chromeos/components/proximity_auth/remote_status_update.h"
 #include "chromeos/components/proximity_auth/screenlock_bridge.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
-#include "components/cryptauth/cryptauth_test_util.h"
 #include "components/cryptauth/fake_connection.h"
 #include "components/cryptauth/fake_secure_context.h"
+#include "components/cryptauth/remote_device_test_util.h"
 #include "components/cryptauth/secure_context.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/test/mock_bluetooth_adapter.h"
@@ -55,20 +55,6 @@ RemoteStatusUpdate kRemoteScreenlockDisabled = {
 RemoteStatusUpdate kRemoteScreenlockStateUnknown = {
     USER_PRESENCE_UNKNOWN, SECURE_SCREEN_LOCK_STATE_UNKNOWN,
     TRUST_AGENT_UNSUPPORTED};
-
-class MockRemoteDeviceLifeCycle : public RemoteDeviceLifeCycle {
- public:
-  MockRemoteDeviceLifeCycle() {}
-  ~MockRemoteDeviceLifeCycle() override {}
-
-  MOCK_METHOD0(Start, void());
-  MOCK_CONST_METHOD0(GetRemoteDevice, cryptauth::RemoteDevice());
-  MOCK_CONST_METHOD0(GetState, State());
-  MOCK_METHOD0(GetMessenger, Messenger*());
-  MOCK_CONST_METHOD0(GetConnection, cryptauth::Connection*());
-  MOCK_METHOD1(AddObserver, void(Observer*));
-  MOCK_METHOD1(RemoveObserver, void(Observer*));
-};
 
 class MockMessenger : public Messenger {
  public:
@@ -137,7 +123,7 @@ class TestUnlockManager : public UnlockManagerImpl {
       cryptauth::Connection* connection,
       ProximityAuthPrefManager* pref_manager) override {
     EXPECT_EQ(cryptauth::kTestRemoteDevicePublicKey,
-              connection->remote_device().public_key);
+              connection->remote_device().public_key());
     std::unique_ptr<MockProximityMonitor> proximity_monitor(
         new NiceMock<MockProximityMonitor>());
     proximity_monitor_ = proximity_monitor.get();
@@ -165,7 +151,7 @@ CreateAndRegisterMockBluetoothAdapter() {
 class ProximityAuthUnlockManagerImplTest : public testing::Test {
  public:
   ProximityAuthUnlockManagerImplTest()
-      : remote_device_(cryptauth::CreateClassicRemoteDeviceForTest()),
+      : remote_device_(cryptauth::CreateRemoteDeviceRefForTest()),
         life_cycle_(remote_device_),
         connection_(remote_device_),
         bluetooth_adapter_(CreateAndRegisterMockBluetoothAdapter()),
@@ -222,7 +208,7 @@ class ProximityAuthUnlockManagerImplTest : public testing::Test {
   }
 
  protected:
-  cryptauth::RemoteDevice remote_device_;
+  cryptauth::RemoteDeviceRef remote_device_;
   FakeRemoteDeviceLifeCycle life_cycle_;
   cryptauth::FakeConnection connection_;
 
@@ -790,8 +776,8 @@ TEST_F(ProximityAuthUnlockManagerImplTest, OnAuthAttempted_SignIn_Success) {
 
   std::string channel_binding_data = secure_context_.GetChannelBindingData();
   EXPECT_CALL(proximity_auth_client_,
-              GetChallengeForUserAndDevice(remote_device_.user_id,
-                                           remote_device_.public_key,
+              GetChallengeForUserAndDevice(remote_device_.user_id(),
+                                           remote_device_.public_key(),
                                            channel_binding_data, _))
       .WillOnce(Invoke(
           [](const std::string& user_id, const std::string& public_key,
@@ -818,8 +804,8 @@ TEST_F(ProximityAuthUnlockManagerImplTest,
 
   std::string channel_binding_data = secure_context_.GetChannelBindingData();
   EXPECT_CALL(proximity_auth_client_,
-              GetChallengeForUserAndDevice(remote_device_.user_id,
-                                           remote_device_.public_key,
+              GetChallengeForUserAndDevice(remote_device_.user_id(),
+                                           remote_device_.public_key(),
                                            channel_binding_data, _))
       .WillOnce(Invoke(
           [](const std::string& user_id, const std::string& public_key,
@@ -846,8 +832,8 @@ TEST_F(ProximityAuthUnlockManagerImplTest,
 
   std::string channel_binding_data = secure_context_.GetChannelBindingData();
   EXPECT_CALL(proximity_auth_client_,
-              GetChallengeForUserAndDevice(remote_device_.user_id,
-                                           remote_device_.public_key,
+              GetChallengeForUserAndDevice(remote_device_.user_id(),
+                                           remote_device_.public_key(),
                                            channel_binding_data, _))
       .WillOnce(Invoke(
           [](const std::string& user_id, const std::string& public_key,

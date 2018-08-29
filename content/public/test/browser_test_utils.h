@@ -71,6 +71,7 @@ using test_server::EmbeddedTestServer;
 namespace content {
 
 class BrowserContext;
+struct FrameVisualProperties;
 class InterstitialPage;
 class MessageLoopRunner;
 class NavigationHandle;
@@ -158,6 +159,12 @@ void SimulateRoutedMouseClickAt(WebContents* web_contents,
 void SimulateMouseEvent(WebContents* web_contents,
                         blink::WebInputEvent::Type type,
                         const gfx::Point& point);
+
+// Same as SimulateMouseEvent() except it forces the mouse event to go through
+// RenderWidgetHostInputEventRouter.
+void SimulateRoutedMouseEvent(WebContents* web_contents,
+                              blink::WebInputEvent::Type type,
+                              const gfx::Point& point);
 
 // Simulate a mouse wheel event.
 void SimulateMouseWheelEvent(WebContents* web_contents,
@@ -583,8 +590,7 @@ class RenderProcessHostWatcher : public RenderProcessHostObserver {
  private:
   // Overridden RenderProcessHost::LifecycleObserver methods.
   void RenderProcessExited(RenderProcessHost* host,
-                           base::TerminationStatus status,
-                           int exit_code) override;
+                           const ChildProcessTerminationInfo& info) override;
   void RenderProcessHostDestroyed(RenderProcessHost* host) override;
 
   RenderProcessHost* render_process_host_;
@@ -738,6 +744,8 @@ class RenderFrameSubmissionObserver
   // RenderFrameMetadataProvider::Observer
   void OnRenderFrameMetadataChanged() override;
   void OnRenderFrameSubmission() override;
+  void OnLocalSurfaceIdChanged(
+      const cc::RenderFrameMetadata& metadata) override;
 
   // If true then the next OnRenderFrameSubmission will cancel the blocking
   // |run_loop_| otherwise the blocking will continue until the next
@@ -1148,6 +1156,71 @@ void EnsureCookiesFlushed(BrowserContext* browser_context);
 // Returns true if there is a valid process for |process_group_name|. Must be
 // called on the IO thread.
 bool HasValidProcessForProcessGroup(const std::string& process_group_name);
+
+// Performs a simple auto-resize flow and ensures that the embedder gets a
+// single response messages back from the guest, with the expected values.
+bool TestChildOrGuestAutoresize(bool is_guest,
+                                RenderProcessHost* embedder_rph,
+                                RenderWidgetHost* guest_rwh);
+
+// Class to sniff incoming IPCs for either
+// FrameHostMsg_SynchronizeVisualProperties or
+// BrowserPluginHostMsg_SynchronizeVisualProperties messages. This allows the
+// message to continue to the target child so that processing can be verified by
+// tests.
+class SynchronizeVisualPropertiesMessageFilter
+    : public content::BrowserMessageFilter {
+ public:
+  SynchronizeVisualPropertiesMessageFilter();
+
+  gfx::Rect last_rect() const { return last_rect_; }
+
+  void WaitForRect();
+  void ResetRectRunLoop();
+
+  // Returns the new viz::FrameSinkId immediately if the IPC has been received.
+  // Otherwise this will block the UI thread until it has been received, then it
+  // will return the new viz::FrameSinkId.
+  viz::FrameSinkId GetOrWaitForId();
+
+  // Waits for the next viz::LocalSurfaceId be received and returns it.
+  viz::LocalSurfaceId WaitForSurfaceId();
+
+ protected:
+  ~SynchronizeVisualPropertiesMessageFilter() override;
+
+ private:
+  void OnSynchronizeFrameHostVisualProperties(
+      const viz::SurfaceId& surface_id,
+      const FrameVisualProperties& visual_properties);
+  void OnSynchronizeBrowserPluginVisualProperties(
+      int browser_plugin_guest_instance_id,
+      viz::LocalSurfaceId surface_id,
+      FrameVisualProperties visual_properties);
+  void OnSynchronizeVisualProperties(
+      const viz::LocalSurfaceId& surface_id,
+      const viz::FrameSinkId& frame_sink_id,
+      const FrameVisualProperties& visual_properties);
+  // |rect| is in DIPs.
+  void OnUpdatedFrameRectOnUI(const gfx::Rect& rect);
+  void OnUpdatedFrameSinkIdOnUI();
+  void OnUpdatedSurfaceIdOnUI(viz::LocalSurfaceId surface_id);
+
+  bool OnMessageReceived(const IPC::Message& message) override;
+
+  static const uint32_t kMessageClassesToFilter[2];
+  viz::FrameSinkId frame_sink_id_;
+  base::RunLoop frame_sink_id_run_loop_;
+
+  std::unique_ptr<base::RunLoop> screen_space_rect_run_loop_;
+  bool screen_space_rect_received_;
+  gfx::Rect last_rect_;
+
+  viz::LocalSurfaceId last_surface_id_;
+  std::unique_ptr<base::RunLoop> surface_id_run_loop_;
+
+  DISALLOW_COPY_AND_ASSIGN(SynchronizeVisualPropertiesMessageFilter);
+};
 
 }  // namespace content
 

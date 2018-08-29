@@ -1,4 +1,4 @@
-// Copyright (c) 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,43 +12,68 @@
 #include "url/gurl.h"
 #include "url/origin.h"
 
-ReportingPermissionsChecker::ReportingPermissionsChecker(Profile* profile)
-    : profile_(profile), const_weak_factory_(this) {}
+ReportingPermissionsChecker::ReportingPermissionsChecker(
+    base::WeakPtr<Profile> weak_profile)
+    : weak_profile_(weak_profile) {}
 
 ReportingPermissionsChecker::~ReportingPermissionsChecker() = default;
 
 void ReportingPermissionsChecker::FilterReportingOrigins(
     std::set<url::Origin> origins,
-    base::OnceCallback<void(std::set<url::Origin>)> result_callback) const {
-  content::BrowserThread::PostTask(
+    base::OnceCallback<void(std::set<url::Origin>)> result_callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  content::BrowserThread::PostTaskAndReplyWithResult(
       content::BrowserThread::UI, FROM_HERE,
       base::BindOnce(
-          &ReportingPermissionsChecker::FilterReportingOriginsInUIThread,
-          const_weak_factory_.GetWeakPtr(), std::move(origins),
-          std::move(result_callback)));
+          &ReportingPermissionsCheckerFactory::DoFilterReportingOrigins,
+          weak_profile_, std::move(origins)),
+      std::move(result_callback));
 }
 
-void ReportingPermissionsChecker::FilterReportingOriginsInUIThread(
-    std::set<url::Origin> origins,
-    base::OnceCallback<void(std::set<url::Origin>)> result_callback) const {
-  content::PermissionManager* permission_manager =
-      profile_->GetPermissionManager();
+ReportingPermissionsCheckerFactory::ReportingPermissionsCheckerFactory(
+    Profile* profile)
+    : weak_factory_(profile) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+}
 
-  if (permission_manager) {
-    for (auto it = origins.begin(); it != origins.end();) {
-      GURL origin = it->GetURL();
-      bool allowed = permission_manager->GetPermissionStatus(
-                         content::PermissionType::BACKGROUND_SYNC, origin,
-                         origin) == blink::mojom::PermissionStatus::GRANTED;
-      if (!allowed) {
-        origins.erase(it++);
-      } else {
-        ++it;
-      }
-    }
+ReportingPermissionsCheckerFactory::~ReportingPermissionsCheckerFactory() =
+    default;
+
+std::unique_ptr<ReportingPermissionsChecker>
+ReportingPermissionsCheckerFactory::CreateChecker() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  return std::make_unique<ReportingPermissionsChecker>(
+      weak_factory_.GetWeakPtr());
+}
+
+// static
+std::set<url::Origin>
+ReportingPermissionsCheckerFactory::DoFilterReportingOrigins(
+    base::WeakPtr<Profile> weak_profile,
+    std::set<url::Origin> origins) {
+  if (!weak_profile) {
+    return std::set<url::Origin>();
   }
 
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
-      base::BindOnce(std::move(result_callback), std::move(origins)));
+  content::PermissionManager* permission_manager =
+      weak_profile->GetPermissionManager();
+
+  if (!permission_manager) {
+    // Default to prohibiting all Reporting uploads if we don't have a
+    // PermissionManager.
+    return std::set<url::Origin>();
+  }
+
+  for (auto it = origins.begin(); it != origins.end();) {
+    GURL origin = it->GetURL();
+    bool allowed = permission_manager->GetPermissionStatus(
+                       content::PermissionType::BACKGROUND_SYNC, origin,
+                       origin) == blink::mojom::PermissionStatus::GRANTED;
+    if (!allowed) {
+      origins.erase(it++);
+    } else {
+      ++it;
+    }
+  }
+  return origins;
 }

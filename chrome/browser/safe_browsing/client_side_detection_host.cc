@@ -126,6 +126,14 @@ class ClientSideDetectionHost::ShouldClassifyUrlRequest
       DontClassifyForMalware(NO_CLASSIFY_OFF_THE_RECORD);
     }
 
+    // Don't start classification if |url_| is whitelisted by enterprise policy.
+    Profile* profile =
+        Profile::FromBrowserContext(web_contents_->GetBrowserContext());
+    if (profile && IsURLWhitelistedByPolicy(url_, *profile->GetPrefs())) {
+      DontClassifyForPhishing(NO_CLASSIFY_WHITELISTED_BY_POLICY);
+      DontClassifyForMalware(NO_CLASSIFY_WHITELISTED_BY_POLICY);
+    }
+
     // We lookup the csd-whitelist before we lookup the cache because
     // a URL may have recently been whitelisted.  If the URL matches
     // the csd-whitelist we won't start phishing classification.  The
@@ -168,6 +176,7 @@ class ClientSideDetectionHost::ShouldClassifyUrlRequest
     NO_CLASSIFY_RESULT_FROM_CACHE = 9,
     DEPRECATED_NO_CLASSIFY_NOT_HTTP_URL = 10,
     NO_CLASSIFY_SCHEME_NOT_SUPPORTED = 11,
+    NO_CLASSIFY_WHITELISTED_BY_POLICY = 12,
 
     NO_CLASSIFY_MAX  // Always add new values before this one.
   };
@@ -446,11 +455,13 @@ void ClientSideDetectionHost::DidFinishNavigation(
 }
 
 void ClientSideDetectionHost::ResourceLoadComplete(
+    content::RenderFrameHost* render_frame_host,
     const content::mojom::ResourceLoadInfo& resource_load_info) {
   if (!content::IsResourceTypeFrame(resource_load_info.resource_type) &&
       browse_info_.get() && should_extract_malware_features_ &&
-      resource_load_info.url.is_valid() && resource_load_info.ip.has_value()) {
-    UpdateIPUrlMap(resource_load_info.ip->ToString(),
+      resource_load_info.url.is_valid() &&
+      resource_load_info.network_info->ip_port_pair.has_value()) {
+    UpdateIPUrlMap(resource_load_info.network_info->ip_port_pair->host(),
                    resource_load_info.url.spec(), resource_load_info.method,
                    resource_load_info.referrer.spec(),
                    resource_load_info.resource_type);

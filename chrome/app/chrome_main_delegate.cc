@@ -11,10 +11,10 @@
 #include "base/command_line.h"
 #include "base/cpu.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/i18n/rtl.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/process/memory.h"
 #include "base/process/process_handle.h"
@@ -114,6 +114,7 @@
 #include "base/android/java_exception_reporter.h"
 #include "chrome/browser/android/crash/pure_java_exception_handler.h"
 #include "chrome/common/descriptors_android.h"
+#include "ui/base/resource/resource_bundle_android.h"
 #else
 // Diagnostics is only available on non-android platforms.
 #include "chrome/browser/diagnostics/diagnostics_controller.h"
@@ -163,11 +164,6 @@ base::LazyInstance<ChromeContentRendererClient>::DestructorAtExit
     g_chrome_content_renderer_client = LAZY_INSTANCE_INITIALIZER;
 base::LazyInstance<ChromeContentUtilityClient>::DestructorAtExit
     g_chrome_content_utility_client = LAZY_INSTANCE_INITIALIZER;
-#endif
-
-#if !defined(CHROME_MULTIPLE_DLL_CHILD)
-base::LazyInstance<ChromeContentBrowserClient>::DestructorAtExit
-    g_chrome_content_browser_client = LAZY_INSTANCE_INITIALIZER;
 #endif
 
 #if defined(OS_POSIX)
@@ -272,7 +268,7 @@ void AdjustLinuxOOMScore(const std::string& process_type) {
              process_type == switches::kNaClLoaderNonSfiProcess) {
     score = kPluginScore;
 #endif
-  } else if (process_type == switches::kZygoteProcess ||
+  } else if (process_type == service_manager::switches::kZygoteProcess ||
              process_type ==
                  service_manager::switches::kProcessTypeServiceManager ||
              process_type.empty()) {
@@ -303,7 +299,7 @@ bool SubprocessNeedsResourceBundle(const std::string& process_type) {
   return
 #if defined(OS_LINUX)
       // The zygote process opens the resources for the renderers.
-      process_type == switches::kZygoteProcess ||
+      process_type == service_manager::switches::kZygoteProcess ||
 #endif
 #if defined(OS_MACOSX)
       // Mac needs them too for scrollbar related images and for sandbox
@@ -395,8 +391,8 @@ void InitializeUserDataDir(base::CommandLine* command_line) {
           base::FilePath(invalid_user_data_dir_buf));
       command_line->AppendSwitchPath(switches::kUserDataDir, user_data_dir);
     }
-    CHECK(PathService::OverrideAndCreateIfNeeded(chrome::DIR_USER_DATA,
-                                                 user_data_dir, false, true));
+    CHECK(base::PathService::OverrideAndCreateIfNeeded(
+        chrome::DIR_USER_DATA, user_data_dir, false, true));
   }
 #else  // OS_WIN
   base::FilePath user_data_dir =
@@ -421,22 +417,23 @@ void InitializeUserDataDir(base::CommandLine* command_line) {
   policy::path_parser::CheckUserDataDirPolicy(&user_data_dir);
 #endif  // OS_MAC
 
-  const bool specified_directory_was_invalid = !user_data_dir.empty() &&
-      !PathService::OverrideAndCreateIfNeeded(chrome::DIR_USER_DATA,
-          user_data_dir, false, true);
+  const bool specified_directory_was_invalid =
+      !user_data_dir.empty() &&
+      !base::PathService::OverrideAndCreateIfNeeded(chrome::DIR_USER_DATA,
+                                                    user_data_dir, false, true);
   // Save inaccessible or invalid paths so the user may be prompted later.
   if (specified_directory_was_invalid)
     chrome::SetInvalidSpecifiedUserDataDir(user_data_dir);
 
   // Warn and fail early if the process fails to get a user data directory.
-  if (!PathService::Get(chrome::DIR_USER_DATA, &user_data_dir)) {
+  if (!base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir)) {
     // If an invalid command-line or policy override was specified, the user
     // will be given an error with that value. Otherwise, use the directory
     // returned by PathService (or the fallback default directory) in the error.
     if (!specified_directory_was_invalid) {
-      // PathService::Get() returns false and yields an empty path if it fails
-      // to create DIR_USER_DATA. Retrieve the default value manually to display
-      // a more meaningful error to the user in that case.
+      // base::PathService::Get() returns false and yields an empty path if it
+      // fails to create DIR_USER_DATA. Retrieve the default value manually to
+      // display a more meaningful error to the user in that case.
       if (user_data_dir.empty())
         chrome::GetDefaultUserDataDirectory(&user_data_dir);
       chrome::SetInvalidSpecifiedUserDataDir(user_data_dir);
@@ -621,8 +618,8 @@ bool ChromeMainDelegate::BasicStartupComplete(int* exit_code) {
   if (command_line.HasSwitch(chromeos::switches::kHomedir)) {
     homedir = base::FilePath(
         command_line.GetSwitchValueASCII(chromeos::switches::kHomedir));
-    PathService::OverrideAndCreateIfNeeded(
-        base::DIR_HOME, homedir, true, false);
+    base::PathService::OverrideAndCreateIfNeeded(base::DIR_HOME, homedir, true,
+                                                 false);
   }
 
   // If we are recovering from a crash on a ChromeOS device, then we will do
@@ -765,9 +762,9 @@ void ChromeMainDelegate::PreSandboxStartup() {
 #if defined(OS_MACOSX)
   // On the Mac, the child executable lives at a predefined location within
   // the app bundle's versioned directory.
-  PathService::Override(content::CHILD_PROCESS_EXE,
-                        chrome::GetVersionedDirectory().
-                        Append(chrome::kHelperProcessExecutablePath));
+  base::PathService::Override(content::CHILD_PROCESS_EXE,
+                              chrome::GetVersionedDirectory().Append(
+                                  chrome::kHelperProcessExecutablePath));
 
   InitMacCrashReporter(command_line, process_type);
   SetUpInstallerPreferences(command_line);
@@ -789,7 +786,7 @@ void ChromeMainDelegate::PreSandboxStartup() {
     if (downgrade::IsMSIInstall()) {
       downgrade::MoveUserDataForFirstRunAfterDowngrade();
       base::FilePath user_data_dir;
-      if (PathService::Get(chrome::DIR_USER_DATA, &user_data_dir))
+      if (base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir))
         downgrade::UpdateLastVersion(user_data_dir);
     }
 #endif
@@ -820,13 +817,13 @@ void ChromeMainDelegate::PreSandboxStartup() {
     // browser process as a command line flag.
 #if !BUILDFLAG(ENABLE_NACL)
     DCHECK(command_line.HasSwitch(switches::kLang) ||
-           process_type == switches::kZygoteProcess ||
+           process_type == service_manager::switches::kZygoteProcess ||
            process_type == switches::kGpuProcess ||
            process_type == switches::kPpapiBrokerProcess ||
            process_type == switches::kPpapiPluginProcess);
 #else
     DCHECK(command_line.HasSwitch(switches::kLang) ||
-           process_type == switches::kZygoteProcess ||
+           process_type == service_manager::switches::kZygoteProcess ||
            process_type == switches::kGpuProcess ||
            process_type == switches::kNaClLoaderProcess ||
            process_type == switches::kPpapiBrokerProcess ||
@@ -881,7 +878,7 @@ void ChromeMainDelegate::PreSandboxStartup() {
             locale, NULL, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
 
     base::FilePath resources_pack_path;
-    PathService::Get(chrome::FILE_RESOURCES_PACK, &resources_pack_path);
+    base::PathService::Get(chrome::FILE_RESOURCES_PACK, &resources_pack_path);
     ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
         resources_pack_path, ui::SCALE_FACTOR_NONE);
 #endif
@@ -895,7 +892,7 @@ void ChromeMainDelegate::PreSandboxStartup() {
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
   // Zygote needs to call InitCrashReporter() in RunZygote().
-  if (process_type != switches::kZygoteProcess) {
+  if (process_type != service_manager::switches::kZygoteProcess) {
 #if defined(OS_ANDROID)
     if (process_type.empty()) {
       breakpad::InitCrashReporter(process_type);
@@ -1018,7 +1015,8 @@ bool ChromeMainDelegate::DelaySandboxInitialization(
 }
 #elif defined(OS_LINUX)
 void ChromeMainDelegate::ZygoteStarting(
-    std::vector<std::unique_ptr<content::ZygoteForkDelegate>>* delegates) {
+    std::vector<std::unique_ptr<service_manager::ZygoteForkDelegate>>*
+        delegates) {
 #if defined(OS_CHROMEOS)
     chromeos::ReloadElfTextInHugePages();
 #endif
@@ -1054,7 +1052,13 @@ ChromeMainDelegate::CreateContentBrowserClient() {
 #if defined(CHROME_MULTIPLE_DLL_CHILD)
   return NULL;
 #else
-  return g_chrome_content_browser_client.Pointer();
+  if (chrome_content_browser_client_ == nullptr) {
+    DCHECK(service_manifest_data_pack_);
+    chrome_content_browser_client_ =
+        std::make_unique<ChromeContentBrowserClient>(
+            std::move(service_manifest_data_pack_));
+  }
+  return chrome_content_browser_client_.get();
 #endif
 }
 
@@ -1082,6 +1086,33 @@ ChromeMainDelegate::CreateContentUtilityClient() {
 #else
   return g_chrome_content_utility_client.Pointer();
 #endif
+}
+
+ui::DataPack* ChromeMainDelegate::LoadServiceManifestDataPack() {
+  DCHECK(!service_manifest_data_pack_ && !chrome_content_browser_client_);
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
+  std::string process_type =
+      command_line.GetSwitchValueASCII(switches::kProcessType);
+  DCHECK(process_type.empty());
+
+#if defined(OS_MACOSX)
+  SetUpBundleOverrides();
+#endif
+
+  base::FilePath resources_pack_path;
+  base::PathService::Get(chrome::FILE_RESOURCES_PACK, &resources_pack_path);
+
+#if defined(OS_ANDROID)
+  service_manifest_data_pack_ =
+      ui::GetDataPackFromPackFile("assets/resources.pak", resources_pack_path);
+#else
+  if (base::PathExists(resources_pack_path)) {
+    service_manifest_data_pack_.reset(new ui::DataPack(ui::SCALE_FACTOR_NONE));
+    service_manifest_data_pack_->LoadFromPath(resources_pack_path);
+  }
+#endif  // defined(OS_ANDROID)
+  return service_manifest_data_pack_.get();
 }
 
 bool ChromeMainDelegate::ShouldEnableProfilerRecording() {

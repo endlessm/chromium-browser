@@ -60,12 +60,12 @@ public class TextSuggestionMenuTest {
         DOMUtils.focusNode(webContents, "div");
 
         SpannableString textToCommit = new SpannableString("hello");
-        SuggestionSpan suggestionSpan = new SuggestionSpan(mRule.getContentViewCore().getContext(),
-                new String[] {"goodbye"}, SuggestionSpan.FLAG_EASY_CORRECT);
+        SuggestionSpan suggestionSpan = new SuggestionSpan(
+                mRule.getActivity(), new String[] {"goodbye"}, SuggestionSpan.FLAG_EASY_CORRECT);
         textToCommit.setSpan(suggestionSpan, 0, 5, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         mRule.commitText(textToCommit, 1);
 
-        DOMUtils.clickNode(cvc, "div");
+        DOMUtils.clickNode(webContents, "div");
         waitForMenuToShow(webContents);
 
         TouchCommon.singleClickView(getDeleteButton(webContents));
@@ -120,7 +120,7 @@ public class TextSuggestionMenuTest {
                         + "range.setEnd(text, 5);"
                         + "internals.setMarker(document, range, 'spelling');");
 
-        DOMUtils.clickNode(cvc, "div");
+        DOMUtils.clickNode(webContents, "div");
         waitForMenuToShow(webContents);
 
         TouchCommon.singleClickView(getDeleteButton(webContents));
@@ -160,15 +160,15 @@ public class TextSuggestionMenuTest {
 
         SpannableString textToCommit = new SpannableString("hello world");
 
-        SuggestionSpan suggestionSpan1 = new SuggestionSpan(mRule.getContentViewCore().getContext(),
+        SuggestionSpan suggestionSpan1 = new SuggestionSpan(mRule.getActivity(),
                 new String[] {"invalid_suggestion"}, SuggestionSpan.FLAG_EASY_CORRECT);
         textToCommit.setSpan(suggestionSpan1, 0, 5, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
 
-        SuggestionSpan suggestionSpan2 = new SuggestionSpan(mRule.getContentViewCore().getContext(),
+        SuggestionSpan suggestionSpan2 = new SuggestionSpan(mRule.getActivity(),
                 new String[] {"suggestion3", "suggestion4"}, SuggestionSpan.FLAG_EASY_CORRECT);
         textToCommit.setSpan(suggestionSpan2, 0, 11, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
 
-        SuggestionSpan suggestionSpan3 = new SuggestionSpan(mRule.getContentViewCore().getContext(),
+        SuggestionSpan suggestionSpan3 = new SuggestionSpan(mRule.getActivity(),
                 new String[] {"suggestion1", "suggestion2"}, SuggestionSpan.FLAG_EASY_CORRECT);
         textToCommit.setSpan(suggestionSpan3, 6, 11, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
 
@@ -186,7 +186,7 @@ public class TextSuggestionMenuTest {
             }
         });
 
-        DOMUtils.clickNode(cvc, "span");
+        DOMUtils.clickNode(webContents, "span");
         waitForMenuToShow(webContents);
 
         // There should be 5 child views: 4 suggestions plus the list footer.
@@ -229,14 +229,14 @@ public class TextSuggestionMenuTest {
 
         SpannableString textToCommit = new SpannableString("word");
 
-        SuggestionSpan suggestionSpan = new SuggestionSpan(mRule.getContentViewCore().getContext(),
-                new String[] {"replacement"},
-                SuggestionSpan.FLAG_EASY_CORRECT | SuggestionSpan.FLAG_MISSPELLED);
+        SuggestionSpan suggestionSpan =
+                new SuggestionSpan(mRule.getActivity(), new String[] {"replacement"},
+                        SuggestionSpan.FLAG_EASY_CORRECT | SuggestionSpan.FLAG_MISSPELLED);
         textToCommit.setSpan(suggestionSpan, 0, 4, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
 
         mRule.commitText(textToCommit, 1);
 
-        DOMUtils.clickNode(cvc, "span");
+        DOMUtils.clickNode(webContents, "span");
         waitForMenuToShow(webContents);
 
         // There should be 2 child views: 1 suggestion plus the list footer.
@@ -277,12 +277,12 @@ public class TextSuggestionMenuTest {
         DOMUtils.focusNode(webContents, "div");
 
         SpannableString textToCommit = new SpannableString("hello");
-        SuggestionSpan suggestionSpan = new SuggestionSpan(mRule.getContentViewCore().getContext(),
-                new String[] {"goodbye"}, SuggestionSpan.FLAG_EASY_CORRECT);
+        SuggestionSpan suggestionSpan = new SuggestionSpan(
+                mRule.getActivity(), new String[] {"goodbye"}, SuggestionSpan.FLAG_EASY_CORRECT);
         textToCommit.setSpan(suggestionSpan, 0, 5, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         mRule.commitText(textToCommit, 1);
 
-        DOMUtils.clickNode(cvc, "div");
+        DOMUtils.clickNode(webContents, "div");
         waitForMenuToShow(webContents);
 
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {

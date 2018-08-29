@@ -44,8 +44,9 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
  public:
   ~TestWebContents() override;
 
-  static TestWebContents* Create(BrowserContext* browser_context,
-                                 scoped_refptr<SiteInstance> instance);
+  static std::unique_ptr<TestWebContents> Create(
+      BrowserContext* browser_context,
+      scoped_refptr<SiteInstance> instance);
   static TestWebContents* Create(const CreateParams& params);
 
   // WebContentsImpl overrides (returning the same values, but in Test* types)
@@ -117,7 +118,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
 
   // Returns a clone of this TestWebContents. The returned object is also a
   // TestWebContents. The caller owns the returned object.
-  WebContents* Clone() override;
+  std::unique_ptr<WebContents> Clone() override;
 
   // Allow mocking of the RenderViewHostDelegateView.
   RenderViewHostDelegateView* GetDelegateView() override;
@@ -126,7 +127,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
   }
 
   // Allows us to simulate that a contents was created via CreateNewWindow.
-  void AddPendingContents(TestWebContents* contents);
+  void AddPendingContents(std::unique_ptr<WebContents> contents);
 
   // Establish expected arguments for |SetHistoryOffsetAndLength()|. When
   // |SetHistoryOffsetAndLength()| is called, the arguments are compared

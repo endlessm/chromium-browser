@@ -61,24 +61,26 @@ int ExtensionAppContextMenu::GetLaunchStringId() const {
                           : IDS_APP_LIST_CONTEXT_MENU_NEW_TAB;
 }
 
-ui::MenuModel* ExtensionAppContextMenu::GetMenuModel() {
+void ExtensionAppContextMenu::GetMenuModel(GetMenuModelCallback callback) {
   if (!disable_installed_extension_check_for_testing &&
       !controller()->IsExtensionInstalled(profile(), app_id())) {
-    return nullptr;
+    std::move(callback).Run(nullptr);
+    return;
   }
 
-  return AppContextMenu::GetMenuModel();
+  AppContextMenu::GetMenuModel(std::move(callback));
 }
 
 void ExtensionAppContextMenu::BuildMenu(ui::SimpleMenuModel* menu_model) {
   if (app_id() == extension_misc::kChromeAppId) {
-    AddContextMenuOption(MENU_NEW_WINDOW, IDS_APP_LIST_NEW_WINDOW);
+    AddContextMenuOption(menu_model, MENU_NEW_WINDOW, IDS_APP_LIST_NEW_WINDOW);
     if (!profile()->IsOffTheRecord()) {
-      AddContextMenuOption(MENU_NEW_INCOGNITO_WINDOW,
+      AddContextMenuOption(menu_model, MENU_NEW_INCOGNITO_WINDOW,
                            IDS_APP_LIST_NEW_INCOGNITO_WINDOW);
     }
     if (controller()->CanDoShowAppInfoFlow()) {
-      AddContextMenuOption(SHOW_APP_INFO, IDS_APP_CONTEXT_MENU_SHOW_INFO);
+      AddContextMenuOption(menu_model, SHOW_APP_INFO,
+                           IDS_APP_CONTEXT_MENU_SHOW_INFO);
     }
   } else {
     extension_menu_items_.reset(new extensions::ContextMenuMatcher(
@@ -87,7 +89,38 @@ void ExtensionAppContextMenu::BuildMenu(ui::SimpleMenuModel* menu_model) {
 
     // First, add the primary actions.
     if (!is_platform_app_) {
-      AddContextMenuOption(LAUNCH_NEW, GetLaunchStringId());
+      if (features::IsTouchableAppContextMenuEnabled()) {
+        CreateOpenNewSubmenu(menu_model);
+      } else {
+        AddContextMenuOption(menu_model, LAUNCH_NEW, GetLaunchStringId());
+        menu_model->AddSeparator(ui::NORMAL_SEPARATOR);
+
+        // When bookmark apps are enabled, hosted apps can only toggle between
+        // USE_LAUNCH_TYPE_WINDOW and USE_LAUNCH_TYPE_REGULAR.
+        if (extensions::util::CanHostedAppsOpenInWindows() &&
+            extensions::util::IsNewBookmarkAppsEnabled()) {
+          // When both flags are enabled, only allow toggling between
+          // USE_LAUNCH_TYPE_WINDOW and USE_LAUNCH_TYPE_REGULAR
+          AddContextMenuOption(menu_model, USE_LAUNCH_TYPE_WINDOW,
+                               IDS_APP_CONTEXT_MENU_OPEN_WINDOW);
+        } else if (!extensions::util::IsNewBookmarkAppsEnabled()) {
+          // When new bookmark apps are disabled, add pinned and full screen
+          // options as well. Add open as window if CanHostedAppsOpenInWindows
+          // is enabled.
+          AddContextMenuOption(menu_model, USE_LAUNCH_TYPE_REGULAR,
+                               IDS_APP_CONTEXT_MENU_OPEN_REGULAR);
+          AddContextMenuOption(menu_model, USE_LAUNCH_TYPE_PINNED,
+                               IDS_APP_CONTEXT_MENU_OPEN_PINNED);
+          if (extensions::util::CanHostedAppsOpenInWindows()) {
+            AddContextMenuOption(menu_model, USE_LAUNCH_TYPE_WINDOW,
+                                 IDS_APP_CONTEXT_MENU_OPEN_WINDOW);
+          }
+          // Even though the launch type is Full Screen it is more accurately
+          // described as Maximized in Ash.
+          AddContextMenuOption(menu_model, USE_LAUNCH_TYPE_FULLSCREEN,
+                               IDS_APP_CONTEXT_MENU_OPEN_MAXIMIZED);
+        }
+      }
     }
 
     // Create default items.
@@ -110,51 +143,17 @@ void ExtensionAppContextMenu::BuildMenu(ui::SimpleMenuModel* menu_model) {
     }
 
     if (!is_platform_app_)
-      AddContextMenuOption(OPTIONS, IDS_NEW_TAB_APP_OPTIONS);
+      AddContextMenuOption(menu_model, OPTIONS, IDS_NEW_TAB_APP_OPTIONS);
 
-    AddContextMenuOption(UNINSTALL, is_platform_app_
-                                        ? IDS_APP_LIST_UNINSTALL_ITEM
-                                        : IDS_APP_LIST_EXTENSIONS_UNINSTALL);
+    AddContextMenuOption(menu_model, UNINSTALL,
+                         is_platform_app_ ? IDS_APP_LIST_UNINSTALL_ITEM
+                                          : IDS_APP_LIST_EXTENSIONS_UNINSTALL);
 
-    if (controller()->CanDoShowAppInfoFlow())
-      AddContextMenuOption(SHOW_APP_INFO, IDS_APP_CONTEXT_MENU_SHOW_INFO);
-
-    if (!features::IsTouchableAppContextMenuEnabled())
-      menu_model->AddSeparator(ui::NORMAL_SEPARATOR);
-
-    if (!is_platform_app_) {
-      // When bookmark apps are enabled, hosted apps can only toggle between
-      // USE_LAUNCH_TYPE_WINDOW and USE_LAUNCH_TYPE_REGULAR.
-      if (extensions::util::CanHostedAppsOpenInWindows() &&
-          extensions::util::IsNewBookmarkAppsEnabled()) {
-        // When both flags are enabled, only allow toggling between
-        // USE_LAUNCH_TYPE_WINDOW and USE_LAUNCH_TYPE_REGULAR
-        AddContextMenuOption(USE_LAUNCH_TYPE_WINDOW,
-                             IDS_APP_CONTEXT_MENU_OPEN_WINDOW);
-      } else if (!extensions::util::IsNewBookmarkAppsEnabled()) {
-        // When new bookmark apps are disabled, add pinned and full screen
-        // options as well. Add open as window if CanHostedAppsOpenInWindows
-        // is enabled.
-        AddContextMenuOption(USE_LAUNCH_TYPE_REGULAR,
-                             IDS_APP_CONTEXT_MENU_OPEN_REGULAR);
-        AddContextMenuOption(USE_LAUNCH_TYPE_PINNED,
-                             IDS_APP_CONTEXT_MENU_OPEN_PINNED);
-        if (extensions::util::CanHostedAppsOpenInWindows()) {
-          AddContextMenuOption(USE_LAUNCH_TYPE_WINDOW,
-                               IDS_APP_CONTEXT_MENU_OPEN_WINDOW);
-        }
-        // Even though the launch type is Full Screen it is more accurately
-        // described as Maximized in Ash.
-        AddContextMenuOption(USE_LAUNCH_TYPE_FULLSCREEN,
-                             IDS_APP_CONTEXT_MENU_OPEN_MAXIMIZED);
-      }
-    }
+    if (controller()->CanDoShowAppInfoFlow()) {
+      AddContextMenuOption(menu_model, SHOW_APP_INFO,
+                           IDS_APP_CONTEXT_MENU_SHOW_INFO);
   }
-}
-
-bool ExtensionAppContextMenu::IsItemForCommandIdDynamic(int command_id) const {
-  return command_id == LAUNCH_NEW ||
-      AppContextMenu::IsItemForCommandIdDynamic(command_id);
+  }
 }
 
 base::string16 ExtensionAppContextMenu::GetLabelForCommandId(
@@ -182,6 +181,11 @@ bool ExtensionAppContextMenu::GetIconForCommandId(int command_id,
       GetMenuItemVectorIcon(LAUNCH_NEW, GetLaunchStringId()),
       menu_config.touchable_icon_size, menu_config.touchable_icon_color));
   return true;
+}
+
+bool ExtensionAppContextMenu::IsItemForCommandIdDynamic(int command_id) const {
+  return command_id == LAUNCH_NEW ||
+         AppContextMenu::IsItemForCommandIdDynamic(command_id);
 }
 
 bool ExtensionAppContextMenu::IsCommandIdChecked(int command_id) const {
@@ -250,6 +254,24 @@ void ExtensionAppContextMenu::ExecuteCommand(int command_id, int event_flags) {
   } else {
     AppContextMenu::ExecuteCommand(command_id, event_flags);
   }
+}
+
+void ExtensionAppContextMenu::CreateOpenNewSubmenu(
+    ui::SimpleMenuModel* menu_model) {
+  // Touchable extension context menus use an actionable submenu for LAUNCH_NEW.
+  const int kGroupId = 1;
+  open_new_submenu_model_ = std::make_unique<ui::SimpleMenuModel>(this);
+  open_new_submenu_model_->AddRadioItemWithStringId(
+      USE_LAUNCH_TYPE_REGULAR, IDS_APP_LIST_CONTEXT_MENU_NEW_TAB, kGroupId);
+  open_new_submenu_model_->AddRadioItemWithStringId(
+      USE_LAUNCH_TYPE_WINDOW, IDS_APP_LIST_CONTEXT_MENU_NEW_WINDOW, kGroupId);
+  const views::MenuConfig& menu_config = views::MenuConfig::instance();
+  const gfx::VectorIcon& icon =
+      GetMenuItemVectorIcon(LAUNCH_NEW, GetLaunchStringId());
+  menu_model->AddActionableSubmenuWithStringIdAndIcon(
+      LAUNCH_NEW, GetLaunchStringId(), open_new_submenu_model_.get(),
+      gfx::CreateVectorIcon(icon, menu_config.touchable_icon_size,
+                            menu_config.touchable_icon_color));
 }
 
 }  // namespace app_list

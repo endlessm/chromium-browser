@@ -28,10 +28,10 @@ enum class DisplayStatus {
   SHOWING_TOAST_FAILED = 15,
   CREATE_TOAST_NOTIFICATION_MANAGER_FAILED = 16,
   CREATE_TOAST_NOTIFIER_WITH_ID_FAILED = 17,
-  DISABLED_FOR_APPLICATION = 18,
-  DISABLED_FOR_USER = 19,
-  DISABLED_BY_GROUP_POLICY = 20,
-  DISABLED_BY_MANIFEST = 21,
+  DEPRECATED_DISABLED_FOR_APPLICATION = 18,
+  DEPRECATED_DISABLED_FOR_USER = 19,
+  DEPRECATED_DISABLED_BY_GROUP_POLICY = 20,
+  DEPRECATED_DISABLED_BY_MANIFEST = 21,
   COUNT  // Must be the final value.
 };
 
@@ -93,10 +93,30 @@ enum class GetNotificationLaunchIdStatus {
 
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
+enum class GetSettingPolicy {
+  ENABLED = 0,
+  DISABLED_FOR_APPLICATION = 1,
+  DISABLED_FOR_USER = 2,
+  DISABLED_BY_GROUP_POLICY = 3,
+  DISABLED_BY_MANIFEST = 4,
+  COUNT  // Must be the final value.
+};
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class GetSettingStatus {
+  SUCCESS = 0,
+  UNKNOWN_FAILURE = 1,
+  COUNT  // Must be the final value.
+};
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
 enum class ActivationStatus {
   SUCCESS = 0,
-  GET_PROFILE_ID_INVALID_LAUNCH_ID = 1,
-  ACTIVATION_INVALID_LAUNCH_ID = 2,
+  DEPRECATED_GET_PROFILE_ID_INVALID_LAUNCH_ID = 1,
+  DEPRECATED_ACTIVATION_INVALID_LAUNCH_ID = 2,
+  INVALID_LAUNCH_ID = 3,
   COUNT  // Must be the final value.
 };
 
@@ -142,6 +162,8 @@ void LogHistoryHistogram(HistoryStatus status);
 void LogGetDisplayedStatus(GetDisplayedStatus status);
 void LogGetDisplayedLaunchIdStatus(GetDisplayedLaunchIdStatus status);
 void LogGetNotificationLaunchIdStatus(GetNotificationLaunchIdStatus status);
+void LogGetSettingPolicy(GetSettingPolicy policy);
+void LogGetSettingStatus(GetSettingStatus status);
 void LogHandleEventStatus(HandleEventStatus status);
 void LogActivationStatus(ActivationStatus status);
 void LogSetReadyCallbackStatus(SetReadyCallbackStatus status);

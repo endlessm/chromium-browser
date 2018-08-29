@@ -7,11 +7,11 @@
 #include <algorithm>
 
 #include "ash/app_list/model/app_list_folder_item.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/app_list_features.h"
+#include "ash/public/cpp/app_list/app_list_switches.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
-#include "ui/app_list/app_list_constants.h"
-#include "ui/app_list/app_list_features.h"
-#include "ui/app_list/app_list_switches.h"
 #include "ui/app_list/app_list_util.h"
 #include "ui/app_list/views/app_list_folder_view.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -28,7 +28,7 @@ namespace app_list {
 namespace {
 
 constexpr int kMaxFolderNameWidth = 204;
-constexpr SkColor kFolderNameColor = SkColorSetARGBMacro(138, 0, 0, 0);
+constexpr SkColor kFolderNameColor = SkColorSetARGB(138, 0, 0, 0);
 
 }  // namespace
 

@@ -152,16 +152,16 @@ typedef base::Optional<policy::PolicyLevel> PolicyVariant;
 
 }  // namespace
 
-class StartupBrowserCreatorTest : public ExtensionBrowserTest {
+class StartupBrowserCreatorTest : public extensions::ExtensionBrowserTest {
  protected:
   StartupBrowserCreatorTest() {}
 
   bool SetUpUserDataDirectory() override {
-    return ExtensionBrowserTest::SetUpUserDataDirectory();
+    return extensions::ExtensionBrowserTest::SetUpUserDataDirectory();
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    ExtensionBrowserTest::SetUpCommandLine(command_line);
+    extensions::ExtensionBrowserTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(switches::kHomePage, url::kAboutBlankURL);
 #if defined(OS_CHROMEOS)
     // TODO(nkostylev): Investigate if we can remove this switch.
@@ -468,11 +468,6 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, OpenAppShortcutTabPref) {
 
 #if defined(OS_WIN)
 IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, ValidNotificationLaunchId) {
-  // This test execises NotificationPlatformBridgeWin, which is not enabled in
-  // older versions of Windows.
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
-    return;
-
   // Simulate a launch from the notification_helper process which appends the
   // kNotificationLaunchId switch to the command line.
   base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
@@ -491,11 +486,6 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, ValidNotificationLaunchId) {
 }
 
 IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, InvalidNotificationLaunchId) {
-  // This test execises NotificationPlatformBridgeWin, which is not enabled in
-  // older versions of Windows.
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
-    return;
-
   // Simulate a launch with invalid launch id, which will fail.
   base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
   command_line.AppendSwitchNative(switches::kNotificationLaunchId, L"");
@@ -508,6 +498,48 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, InvalidNotificationLaunchId) {
   // No new browser window is open.
   ASSERT_EQ(1u, chrome::GetBrowserCount(browser()->profile()));
 }
+
+IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest,
+                       NotificationLaunchIdDisablesLastOpenProfiles) {
+  Profile* default_profile = browser()->profile();
+
+  ProfileManager* profile_manager = g_browser_process->profile_manager();
+  // Create another profile.
+  base::FilePath dest_path = profile_manager->user_data_dir();
+  dest_path = dest_path.Append(FILE_PATH_LITERAL("New Profile 1"));
+
+  Profile* other_profile = nullptr;
+  {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    other_profile = profile_manager->GetProfile(dest_path);
+  }
+  ASSERT_TRUE(other_profile);
+
+  // Close the browser.
+  CloseBrowserAsynchronously(browser());
+
+  // Simulate a launch.
+  base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+  command_line.AppendSwitchNative(
+      switches::kNotificationLaunchId,
+      L"1|1|0|Default|0|https://example.com/|notification_id");
+
+  std::vector<Profile*> last_opened_profiles;
+  last_opened_profiles.push_back(other_profile);
+
+  StartupBrowserCreator browser_creator;
+  browser_creator.Start(command_line, profile_manager->user_data_dir(),
+                        default_profile, last_opened_profiles);
+
+  // |browser()| is still around at this point, even though we've closed its
+  // window. Thus the browser count for default_profile is 1.
+  ASSERT_EQ(1u, chrome::GetBrowserCount(default_profile));
+
+  // When the kNotificationLaunchId switch is present, any last opened profile
+  // is ignored. Thus there is no browser for other_profile.
+  ASSERT_EQ(0u, chrome::GetBrowserCount(other_profile));
+}
+
 #endif  // defined(OS_WIN)
 
 IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest,

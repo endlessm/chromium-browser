@@ -27,10 +27,6 @@ extern const char kPlayBooksAppId[];
 extern const char kPlayGamesAppId[];
 extern const char kPlayMoviesAppId[];
 extern const char kPlayMusicAppId[];
-// This represents legacy Play Store item in the app launcher that was used
-// before unifying app id in the app launcher and shelf.
-// TODO(khmel): Remove this after few release http://crbug.com/722675.
-extern const char kLegacyPlayStoreAppId[];
 extern const char kPlayStorePackage[];
 extern const char kPlayStoreActivity[];
 extern const char kSettingsAppId[];
@@ -108,6 +104,12 @@ bool LaunchAppWithIntent(content::BrowserContext* context,
                          const base::Optional<std::string>& launch_intent,
                          int event_flags,
                          int64_t display_id);
+
+// Launches App Shortcut that was published by Android's ShortcutManager.
+bool LaunchAppShortcutItem(content::BrowserContext* context,
+                           const std::string& app_id,
+                           const std::string& shortcut_id,
+                           int64_t display_id);
 
 // Launches a specific activity within Settings app on ARC.
 bool LaunchSettingsAppActivity(content::BrowserContext* context,

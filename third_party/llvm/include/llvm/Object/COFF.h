@@ -452,11 +452,12 @@ struct coff_section {
     if (Characteristics & COFF::IMAGE_SCN_TYPE_NO_PAD)
       return 1;
 
-    // Bit [20:24] contains section alignment. Both 0 and 1 mean alignment 1.
+    // Bit [20:24] contains section alignment. 0 means use a default alignment
+    // of 16.
     uint32_t Shift = (Characteristics >> 20) & 0xF;
     if (Shift > 0)
       return 1U << (Shift - 1);
-    return 1;
+    return 16;
   }
 };
 
@@ -1012,8 +1013,7 @@ public:
     llvm_unreachable("null symbol table pointer!");
   }
 
-  iterator_range<const coff_relocation *>
-  getRelocations(const coff_section *Sec) const;
+  ArrayRef<coff_relocation> getRelocations(const coff_section *Sec) const;
 
   std::error_code getSectionName(const coff_section *Sec, StringRef &Res) const;
   uint64_t getSectionSize(const coff_section *Sec) const;

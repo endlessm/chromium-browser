@@ -226,6 +226,7 @@ MON_BUILD_SANITY_ID = 'chromeos/cbuildbot/build/sanity_build_id'
 MON_BUILD_DURATION = 'chromeos/cbuildbot/build/durations'
 MON_STAGE_COMP_COUNT = 'chromeos/cbuildbot/stage/completed_count'
 MON_STAGE_DURATION = 'chromeos/cbuildbot/stage/durations'
+MON_STAGE_FAILURE_COUNT = 'chromeos/cbuildbot/stage/failure_count'
 MON_CL_HANDLE_TIME = 'chromeos/cbuildbot/submitted_change/handling_times'
 MON_CL_WALL_CLOCK_TIME = 'chromeos/cbuildbot/submitted_change/wall_clock_times'
 MON_CL_PRECQ_TIME = 'chromeos/cbuildbot/submitted_change/precq_times'
@@ -268,7 +269,7 @@ MON_GS_ERROR = 'chromeos/gs/error_count'
 # Major is used for tracking heavy API breakage- for example, no longer
 # supporting the --resume option.
 REEXEC_API_MAJOR = 0
-REEXEC_API_MINOR = 7
+REEXEC_API_MINOR = 8
 REEXEC_API_VERSION = '%i.%i' % (REEXEC_API_MAJOR, REEXEC_API_MINOR)
 
 # Support --master-build-id
@@ -281,6 +282,8 @@ REEXEC_API_GOMA = 5
 REEXEC_API_TSMON_TASK_NUM = 6
 # Support --sanity-check-build
 REEXEC_API_SANITY_CHECK_BUILD = 7
+# Support --previous-build-state
+REEXEC_API_PREVIOUS_BUILD_STATE = 8
 
 # We rely on the (waterfall, builder name, build number) to uniquely identify
 # a build. However, future migrations or state wipes of the buildbot master may
@@ -328,7 +331,7 @@ DEFAULT_CTS_APFE_GSURI = 'gs://chromeos-cts-apfe/'
 ANDROID_INTERNAL_PATTERN = r'\.zip.internal$'
 ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
 ANDROID_MST_BUILD_BRANCH = 'git_master-arc-dev'
-ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc'
+ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc-m68'
 ANDROID_PI_BUILD_BRANCH = 'git_pi-arc-dev'
 ANDROID_GTS_BUILD_TARGETS = {
     # "gts_arm64" is the build maintained by GMS team.
@@ -361,9 +364,13 @@ ANDROID_NYC_BUILD_TARGETS = {
 ANDROID_PI_BUILD_TARGETS = {
     'ARM': ('linux-cheets_arm-user', r'\.zip$'),
     'X86': ('linux-cheets_x86-user', r'\.zip$'),
+    'X86_NDK_TRANSLATION': ('linux-cheets_x86_ndk_translation-user', r'\.zip$'),
     'X86_64': ('linux-cheets_x86_64-user', r'\.zip$'),
     'ARM_USERDEBUG': ('linux-cheets_arm-userdebug', r'\.zip$'),
     'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
+    'X86_NDK_TRANSLATION_USERDEBUG': (
+        'linux-cheets_x86_ndk_translation-userdebug', r'\.zip$'
+    ),
     'X86_64_USERDEBUG': ('linux-cheets_x86_64-userdebug', r'\.zip$'),
 }
 
@@ -371,9 +378,11 @@ ARC_BUCKET_URL = 'gs://chromeos-arc-images/builds'
 ARC_BUCKET_ACLS = {
     'ARM': 'googlestorage_acl_arm.txt',
     'X86': 'googlestorage_acl_x86.txt',
+    'X86_NDK_TRANSLATION': 'googlestorage_acl_internal.txt',
     'X86_64': 'googlestorage_acl_x86.txt',
     'ARM_USERDEBUG': 'googlestorage_acl_arm.txt',
     'X86_USERDEBUG': 'googlestorage_acl_x86.txt',
+    'X86_NDK_TRANSLATION_USERDEBUG': 'googlestorage_acl_internal.txt',
     'X86_64_USERDEBUG': 'googlestorage_acl_x86.txt',
     'AOSP_ARM_USERDEBUG': 'googlestorage_acl_arm.txt',
     'AOSP_X86_USERDEBUG': 'googlestorage_acl_x86.txt',
@@ -397,7 +406,9 @@ ANDROID_SYMBOLS_FILE = 'android-symbols.zip'
 # the Android bucket to the ARC++ bucket (b/33072485).
 ARC_BUILDS_NEED_ARTIFACTS_RENAMED = {
     'ARM_USERDEBUG',
+    'X86_NDK_TRANSLATION',
     'X86_USERDEBUG',
+    'X86_NDK_TRANSLATION_USERDEBUG',
     'X86_64_USERDEBUG',
     'AOSP_ARM_USERDEBUG',
     'AOSP_X86_USERDEBUG',
@@ -405,6 +416,11 @@ ARC_BUILDS_NEED_ARTIFACTS_RENAMED = {
     'SDK_GOOGLE_X86_USERDEBUG',
     'SDK_GOOGLE_X86_64_USERDEBUG',
 }
+# All builds will have the same name without target prefix.
+# Emerge checksum failures will be workarounded by ebuild rename symbol (->).
+ARC_ARTIFACTS_RENAME_NOT_NEEDED = [
+    'sepolicy.zip',
+]
 
 GOB_COOKIE_PATH = os.path.expanduser('~/.git-credential-cache/cookie')
 GITCOOKIES_PATH = os.path.expanduser('~/.gitcookies')
@@ -518,14 +534,11 @@ VALID_ANDROID_REVISIONS = [ANDROID_REV_LATEST]
 BAREMETAL_BUILD_SLAVE_TYPE = 'baremetal'
 GCE_BEEFY_BUILD_SLAVE_TYPE = 'gce_beefy'
 GCE_BUILD_SLAVE_TYPE = 'gce'
-# A wimpy GCE instance well suited to run cbuildbot's master build-types.
-GCE_WIMPY_BUILD_SLAVE_TYPE = 'gce_wimpy'
 
 VALID_BUILD_SLAVE_TYPES = (
     BAREMETAL_BUILD_SLAVE_TYPE,
     GCE_BEEFY_BUILD_SLAVE_TYPE,
     GCE_BUILD_SLAVE_TYPE,
-    GCE_WIMPY_BUILD_SLAVE_TYPE,
 )
 
 # Build types supported.
@@ -1002,6 +1015,8 @@ CHROOT_ENVIRONMENT_WHITELIST = (
 # Paths for Chrome LKGM which are relative to the Chromium base url.
 CHROME_LKGM_FILE = 'CHROMEOS_LKGM'
 PATH_TO_CHROME_LKGM = 'chromeos/%s' % CHROME_LKGM_FILE
+# Path for the Chrome LKGM's closest OWNERS file.
+PATH_TO_CHROME_CHROMEOS_OWNERS = 'chromeos/OWNERS'
 
 # Cache constants.
 COMMON_CACHE = 'common'
@@ -1149,11 +1164,17 @@ CHROMEOS_SERVICE_ACCOUNT = os.path.join('/', 'creds', 'service_accounts',
                                         'service-account-chromeos.json')
 
 # Buildbucket buckets
-TRYSERVER_BUILDBUCKET_BUCKET = 'master.chromiumos.tryserver'
 CHROMEOS_RELEASE_BUILDBUCKET_BUCKET = 'master.chromeos_release'
 CHROMEOS_BUILDBUCKET_BUCKET = 'master.chromeos'
 CHROMIUMOS_BUILDBUCKET_BUCKET = 'master.chromiumos'
 INTERNAL_SWARMING_BUILDBUCKET_BUCKET = 'luci.chromeos.general'
+
+ACTIVE_BUCKETS = [
+    CHROMEOS_RELEASE_BUILDBUCKET_BUCKET,
+    CHROMEOS_BUILDBUCKET_BUCKET,
+    CHROMIUMOS_BUILDBUCKET_BUCKET,
+    INTERNAL_SWARMING_BUILDBUCKET_BUCKET,
+]
 
 # Build retry limit on buildbucket
 BUILDBUCKET_BUILD_RETRY_LIMIT = 2
@@ -1178,3 +1199,6 @@ SELF_DESTRUCTED_WITH_SUCCESS_BUILD = 'self_destructed_with_success_build'
 # The path to update_payload in the update_engine.
 UPDATE_ENGINE_SCRIPTS_PATH = os.path.join(SOURCE_ROOT, 'src', 'aosp', 'system',
                                           'update_engine', 'scripts')
+
+# Chroot snapshot names
+CHROOT_SNAPSHOT_CLEAN = 'clean-chroot'

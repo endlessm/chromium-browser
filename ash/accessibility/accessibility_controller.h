@@ -7,8 +7,8 @@
 
 #include <memory>
 
-#include "ash/ash_constants.h"
 #include "ash/ash_export.h"
+#include "ash/public/cpp/ash_constants.h"
 #include "ash/public/interfaces/accessibility_controller.mojom.h"
 #include "ash/session/session_observer.h"
 #include "base/macros.h"
@@ -64,6 +64,9 @@ class ASH_EXPORT AccessibilityController
   void SetCursorHighlightEnabled(bool enabled);
   bool IsCursorHighlightEnabled() const;
 
+  void SetDictationEnabled(bool enabled);
+  bool IsDictationEnabled() const;
+
   void SetFocusHighlightEnabled(bool enabled);
   bool IsFocusHighlightEnabled() const;
 
@@ -83,13 +86,17 @@ class ASH_EXPORT AccessibilityController
   void SetSelectToSpeakEnabled(bool enabled);
   bool IsSelectToSpeakEnabled() const;
 
+  void RequestSelectToSpeakStateChange();
+  mojom::SelectToSpeakState GetSelectToSpeakState() const;
+
   void SetStickyKeysEnabled(bool enabled);
   bool IsStickyKeysEnabled() const;
 
   void SetVirtualKeyboardEnabled(bool enabled);
   bool IsVirtualKeyboardEnabled() const;
 
-  bool braille_display_connected() const { return braille_display_connected_; }
+  bool IsDictationActive() const;
+  void SetDictationActive(bool is_active);
 
   // Triggers an accessibility alert to give the user feedback.
   void TriggerAccessibilityAlert(mojom::AccessibilityAlert alert);
@@ -140,6 +147,7 @@ class ASH_EXPORT AccessibilityController
   void BrailleDisplayStateChanged(bool connected) override;
   void SetFocusHighlightRect(const gfx::Rect& bounds_in_screen) override;
   void SetAccessibilityPanelFullscreen(bool fullscreen) override;
+  void SetSelectToSpeakState(mojom::SelectToSpeakState state) override;
 
   // SessionObserver:
   void OnSigninScreenPrefServiceInitialized(PrefService* prefs) override;
@@ -157,6 +165,7 @@ class ASH_EXPORT AccessibilityController
   void UpdateAutoclickDelayFromPref();
   void UpdateCaretHighlightFromPref();
   void UpdateCursorHighlightFromPref();
+  void UpdateDictationFromPref();
   void UpdateFocusHighlightFromPref();
   void UpdateHighContrastFromPref();
   void UpdateLargeCursorFromPref();
@@ -166,8 +175,6 @@ class ASH_EXPORT AccessibilityController
   void UpdateStickyKeysFromPref();
   void UpdateVirtualKeyboardFromPref();
   void UpdateAccessibilityHighlightingFromPrefs();
-
-  void NotifyShowAccessibilityNotification();
 
   service_manager::Connector* connector_ = nullptr;
 
@@ -187,6 +194,7 @@ class ASH_EXPORT AccessibilityController
   base::TimeDelta autoclick_delay_;
   bool caret_highlight_enabled_ = false;
   bool cursor_highlight_enabled_ = false;
+  bool dictation_enabled_ = false;
   bool focus_highlight_enabled_ = false;
   bool high_contrast_enabled_ = false;
   bool large_cursor_enabled_ = false;
@@ -196,12 +204,10 @@ class ASH_EXPORT AccessibilityController
   bool select_to_speak_enabled_ = false;
   bool sticky_keys_enabled_ = false;
   bool virtual_keyboard_enabled_ = false;
-  bool braille_display_connected_ = false;
+  bool dictation_active_ = false;
 
-  // TODO(warx): consider removing this and replacing it with a more reliable
-  // way (https://crbug.com/800270).
-  AccessibilityNotificationVisibility spoken_feedback_notification_ =
-      A11Y_NOTIFICATION_NONE;
+  mojom::SelectToSpeakState select_to_speak_state_ =
+      mojom::SelectToSpeakState::kSelectToSpeakStateInactive;
 
   // Used to control the highlights of caret, cursor and focus.
   std::unique_ptr<AccessibilityHighlightController>

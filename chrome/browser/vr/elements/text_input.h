@@ -7,7 +7,7 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "chrome/browser/vr/elements/textured_element.h"
+#include "chrome/browser/vr/elements/ui_element.h"
 #include "chrome/browser/vr/elements/ui_texture.h"
 #include "chrome/browser/vr/model/color_scheme.h"
 #include "chrome/browser/vr/model/text_input_info.h"
@@ -63,7 +63,7 @@ class TextInput : public UiElement {
   EditedText edited_text() const { return edited_text_; }
 
  private:
-  void LayOutChildren() final;
+  void LayOutNonContributingChildren() final;
   bool SetCursorBlinkState(const base::TimeTicks& time);
   void ResetCursorBlinkCycle();
 

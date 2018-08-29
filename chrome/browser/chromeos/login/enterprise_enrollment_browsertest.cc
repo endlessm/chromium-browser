@@ -47,6 +47,7 @@ constexpr char kAdMachineDomainDN[] =
     "OU=leaf,OU=root,DC=machine,DC=domain,DC=com";
 constexpr const char* kAdOrganizationlUnit[] = {"leaf", "root"};
 constexpr char kAdTestUser[] = "test_user@user.domain.com";
+constexpr char kDMToken[] = "dm_token";
 
 class MockAuthPolicyClient : public FakeAuthPolicyClient {
  public:
@@ -166,12 +167,21 @@ class EnterpriseEnrollmentTest : public LoginManagerTest {
     ExecutePendingJavaScript();
   }
 
+  void ClickRetry() {
+    js_checker().ExecuteAsync(
+        "document.querySelector('"
+        "#oauth-enroll-active-directory-join-error-card /deep/ #submitButton'"
+        ").fire('tap')");
+    ExecutePendingJavaScript();
+  }
+
   void SetExpectedJoinRequest(
       const std::string& machine_name,
       const std::string& machine_domain,
       authpolicy::KerberosEncryptionTypes encryption_types,
       std::vector<std::string> organizational_unit,
-      const std::string& username) {
+      const std::string& username,
+      const std::string& dm_token) {
     auto request = std::make_unique<authpolicy::JoinDomainRequest>();
     if (!machine_name.empty())
       request->set_machine_name(machine_name);
@@ -181,6 +191,8 @@ class EnterpriseEnrollmentTest : public LoginManagerTest {
       request->add_machine_ou()->swap(it);
     if (!username.empty())
       request->set_user_principal_name(username);
+    if (!dm_token.empty())
+      request->set_dm_token(dm_token);
     request->set_kerberos_encryption_types(encryption_types);
     mock_auth_policy_client()->set_expected_request(std::move(request));
   }
@@ -222,12 +234,13 @@ class EnterpriseEnrollmentTest : public LoginManagerTest {
           EXPECT_CALL(*enrollment_helper,
                       EnrollUsingAuthCode("test_auth_code", _))
               .WillOnce(InvokeWithoutArgs([this, expected_domain]() {
-                this->enrollment_screen()->JoinDomain(base::BindOnce(
-                    [](const std::string& expected_domain,
-                       const std::string& domain) {
-                      ASSERT_EQ(expected_domain, domain);
-                    },
-                    expected_domain));
+                this->enrollment_screen()->JoinDomain(
+                    kDMToken, base::BindOnce(
+                                  [](const std::string& expected_domain,
+                                     const std::string& domain) {
+                                    ASSERT_EQ(expected_domain, domain);
+                                  },
+                                  expected_domain));
               }));
         });
   }
@@ -246,13 +259,18 @@ class EnterpriseEnrollmentTest : public LoginManagerTest {
 
   void SetupActiveDirectoryJSNotifications() {
     js_checker().ExecuteAsync(
-        "var testShowStep = login.OAuthEnrollmentScreen.showStep;"
-        "login.OAuthEnrollmentScreen.showStep = function(step) {"
-        "  testShowStep(step);"
-        "  if (step == 'working') {"
-        "    window.domAutomationController.send('ShowSpinnerScreen');"
+        "var testShowStep = login.OAuthEnrollmentScreen.showStep;\n"
+        "login.OAuthEnrollmentScreen.showStep = function(step) {\n"
+        "  testShowStep(step);\n"
+        "  if (step == 'working') {\n"
+        "    window.domAutomationController.send('ShowSpinnerScreen');\n"
         "  }"
-        "}");
+        "}\n"
+        "var testShowError = login.OAuthEnrollmentScreen.showError;\n"
+        "login.OAuthEnrollmentScreen.showError = function(message, retry) {\n"
+        "  testShowError(message, retry);\n"
+        "  window.domAutomationController.send('ShowADJoinError');\n"
+        "}\n");
     js_checker().ExecuteAsync(
         "var testInvalidateAd = login.OAuthEnrollmentScreen.invalidateAd;"
         "login.OAuthEnrollmentScreen.invalidateAd = function(machineName, "
@@ -417,7 +435,7 @@ IN_PROC_BROWSER_TEST_F(EnterpriseEnrollmentTest,
   authpolicy::KerberosEncryptionTypes enc_types =
       authpolicy::KerberosEncryptionTypes::ENC_TYPES_ALL;
   SetExpectedJoinRequest("machine_name", "" /* machine_domain */, enc_types,
-                         {} /* machine_ou */, kAdTestUser);
+                         {} /* machine_ou */, kAdTestUser, kDMToken);
   SubmitActiveDirectoryCredentials("machine_name", "" /* machine_dn */,
                                    std::to_string(enc_types), kAdTestUser,
                                    "password");
@@ -454,7 +472,7 @@ IN_PROC_BROWSER_TEST_F(EnterpriseEnrollmentTest,
       std::vector<std::string>(
           kAdOrganizationlUnit,
           kAdOrganizationlUnit + arraysize(kAdOrganizationlUnit)),
-      kAdTestUser);
+      kAdTestUser, kDMToken);
   SubmitActiveDirectoryCredentials("machine_name", kAdMachineDomainDN,
                                    "" /* encryption_types */, kAdTestUser,
                                    "password");
@@ -516,6 +534,35 @@ IN_PROC_BROWSER_TEST_F(EnterpriseEnrollmentTest,
   js_checker().ExpectFalse(std::string(kAdMachineNameInput) + ".isInvalid");
   js_checker().ExpectTrue(std::string(kAdUsernameInput) + ".isInvalid");
   js_checker().ExpectFalse(std::string(kAdPasswordInput) + ".isInvalid");
+
+  // We have to remove the enrollment_helper before the dtor gets called.
+  enrollment_screen()->enrollment_helper_.reset();
+}
+
+// Check that correct error card is shown (Active Directory one). Also checks
+// that hitting retry shows Active Directory screen again.
+IN_PROC_BROWSER_TEST_F(EnterpriseEnrollmentTest,
+                       TestActiveDirectoryEnrollment_ErrorCard) {
+  ShowEnrollmentScreen();
+  SetupActiveDirectoryJoin(kAdUserDomain);
+  SubmitEnrollmentCredentials();
+
+  chromeos::DBusThreadManager::Get()
+      ->GetUpstartClient()
+      ->StartAuthPolicyService();
+
+  content::DOMMessageQueue message_queue;
+  SetupActiveDirectoryJSNotifications();
+  // Legacy type triggers error card.
+  authpolicy::KerberosEncryptionTypes enc_types =
+      authpolicy::KerberosEncryptionTypes::ENC_TYPES_LEGACY;
+  SubmitActiveDirectoryCredentials("machine_name", "" /* machine_dn */,
+                                   std::to_string(enc_types), "test_user",
+                                   "password");
+  WaitForMessage(&message_queue, "\"ShowADJoinError\"");
+  EXPECT_TRUE(IsStepDisplayed("active-directory-join-error"));
+  ClickRetry();
+  EXPECT_TRUE(IsStepDisplayed("ad-join"));
 
   // We have to remove the enrollment_helper before the dtor gets called.
   enrollment_screen()->enrollment_helper_.reset();

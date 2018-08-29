@@ -12,14 +12,16 @@
 
 #include "base/callback_forward.h"
 #include "cc/layers/texture_layer.h"
-#include "third_party/blink/public/platform/modules/screen_orientation/web_screen_orientation_type.h"
+#include "third_party/blink/public/common/screen_orientation/web_screen_orientation_type.h"
 
 class GURL;
 
 namespace blink {
+struct Manifest;
 class WebInputEvent;
 class WebLocalFrame;
 struct WebSize;
+class WebURL;
 class WebURLRequest;
 class WebView;
 class WebWidget;
@@ -46,7 +48,6 @@ class RenderFrame;
 class RendererGamepadProvider;
 class RenderView;
 class StoragePartition;
-struct Manifest;
 
 // Turn the browser process into layout test mode.
 void EnableBrowserLayoutTestMode();
@@ -100,7 +101,7 @@ void EnableWebTestProxyCreation(
     const WidgetProxyCreationCallback& widget_proxy_creation_callback,
     const FrameProxyCreationCallback& frame_proxy_creation_callback);
 
-typedef base::OnceCallback<void(const GURL&, const Manifest&)>
+typedef base::OnceCallback<void(const GURL&, const blink::Manifest&)>
     FetchManifestCallback;
 void FetchManifest(blink::WebView* view, FetchManifestCallback callback);
 
@@ -175,7 +176,7 @@ void DisableAutoResizeMode(RenderView* render_view,
                            const blink::WebSize& new_size);
 
 // Run all pending idle tasks immediately, and then invoke callback.
-void SchedulerRunIdleTasks(const base::Closure& callback);
+void SchedulerRunIdleTasks(base::OnceClosure callback);
 
 // Causes the RenderWidget corresponding to |render_frame| to update its
 // TextInputState.
@@ -185,6 +186,12 @@ void ForceTextInputStateUpdateForRenderFrame(RenderFrame* render_frame);
 // Returns true if the navigation identified by the |request| was initiated by
 // the browser or renderer.
 bool IsNavigationInitiatedByRenderer(const blink::WebURLRequest& request);
+
+// RewriteURLFunction must be safe to call from any thread in the renderer
+// process.
+using RewriteURLFunction = blink::WebURL (*)(const std::string&,
+                                             bool is_wpt_mode);
+void SetWorkerRewriteURLFunction(RewriteURLFunction rewrite_url_function);
 
 }  // namespace content
 

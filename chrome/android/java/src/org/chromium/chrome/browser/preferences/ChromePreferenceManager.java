@@ -10,6 +10,8 @@ import android.os.StrictMode;
 import org.chromium.base.ContextUtils;
 import org.chromium.chrome.browser.crash.MinidumpUploadService.ProcessType;
 
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 
@@ -26,8 +28,6 @@ public class ChromePreferenceManager {
             "signin_promo_last_shown_account_names";
     private static final String ALLOW_LOW_END_DEVICE_UI = "allow_low_end_device_ui";
     private static final String PREF_WEBSITE_SETTINGS_FILTER = "website_settings_filter";
-    private static final String CARDS_IMPRESSION_AFTER_ANIMATION =
-            "cards_impression_after_animation";
     private static final String CONTEXTUAL_SEARCH_PROMO_OPEN_COUNT =
             "contextual_search_promo_open_count";
     private static final String CONTEXTUAL_SEARCH_TAP_TRIGGERED_PROMO_COUNT =
@@ -50,6 +50,8 @@ public class ChromePreferenceManager {
     private static final String HOME_PAGE_BUTTON_FORCE_ENABLED_KEY =
             "home_page_button_force_enabled";
 
+    private static final String NTP_BUTTON_ENABLED_KEY = "ntp_button_enabled";
+
     private static final String CONTENT_SUGGESTIONS_SHOWN_KEY = "content_suggestions_shown";
 
     private static final String SETTINGS_PERSONALIZED_SIGNIN_PROMO_DISMISSED =
@@ -59,7 +61,6 @@ public class ChromePreferenceManager {
             "ntp.personalized_signin_promo_dismissed";
     private static final String NTP_SIGNIN_PROMO_SUPPRESSION_PERIOD_START =
             "ntp.signin_promo_suppression_period_start";
-    private static final String NTP_ANIMATION_RUN_COUNT = "ntp_recycler_view_animation_run_count";
 
     private static final String SUCCESS_UPLOAD_SUFFIX = "_crash_success_upload";
     private static final String FAILURE_UPLOAD_SUFFIX = "_crash_failure_upload";
@@ -68,12 +69,13 @@ public class ChromePreferenceManager {
 
     public static final String CHROME_HOME_INFO_PROMO_SHOWN_KEY = "chrome_home_info_promo_shown";
 
-    private static final String CHROME_HOME_MENU_ITEM_CLICK_COUNT_KEY =
-            "chrome_home_menu_item_click_count";
     private static final String SOLE_INTEGRATION_ENABLED_KEY = "sole_integration_enabled";
 
     private static final String COMMAND_LINE_ON_NON_ROOTED_ENABLED_KEY =
             "command_line_on_non_rooted_enabled";
+
+    private static final String VERIFIED_DIGITAL_ASSET_LINKS =
+            "verified_digital_asset_links";
 
     private static class LazyHolder {
         static final ChromePreferenceManager INSTANCE = new ChromePreferenceManager();
@@ -373,24 +375,20 @@ public class ChromePreferenceManager {
         removeKey(NTP_SIGNIN_PROMO_SUPPRESSION_PERIOD_START);
     }
 
-    /** Gets the number of times the New Tab Page first card animation has been run. */
-    public int getNewTabPageFirstCardAnimationRunCount() {
-        return readInt(NTP_ANIMATION_RUN_COUNT);
+    /**
+     * Set whether or not the new tab page button is enabled.
+     * @param isEnabled If the new tab page button is enabled.
+     */
+    public void setNewTabPageButtonEnabled(boolean isEnabled) {
+        writeBoolean(NTP_BUTTON_ENABLED_KEY, isEnabled);
     }
 
-    /** Records the number of times the New Tab Page first card animation has been run. */
-    public void setNewTabPageFirstCardAnimationRunCount(int value) {
-        writeInt(NTP_ANIMATION_RUN_COUNT, value);
-    }
-
-    /** Returns whether the user has triggered a snippet impression after viewing the animation. */
-    public boolean getCardsImpressionAfterAnimation() {
-        return mSharedPreferences.getBoolean(CARDS_IMPRESSION_AFTER_ANIMATION, false);
-    }
-
-    /** Sets whether the user has triggered a snippet impression after viewing the animation. */
-    public void setCardsImpressionAfterAnimation(boolean isScrolled) {
-        writeBoolean(CARDS_IMPRESSION_AFTER_ANIMATION, isScrolled);
+    /**
+     * Get whether or not the new tab page button is enabled.
+     * @return True if the new tab page button is enabled.
+     */
+    public boolean isNewTabPageButtonEnabled() {
+        return mSharedPreferences.getBoolean(NTP_BUTTON_ENABLED_KEY, false);
     }
 
     /**
@@ -449,30 +447,6 @@ public class ChromePreferenceManager {
         removeKey(CHROME_HOME_OPT_OUT_SNACKBAR_SHOWN);
     }
 
-    /**
-     * @return The number of times that bookmarks, history, or downloads have been triggered from
-     *         the overflow menu while Chrome Home is enabled.
-     */
-    public int getChromeHomeMenuItemClickCount() {
-        return readInt(CHROME_HOME_MENU_ITEM_CLICK_COUNT_KEY);
-    }
-
-    /**
-     * Increment the count for the number of times bookmarks, history, or downloads have been
-     * triggered from the overflow menu while Chrome Home is enabled.
-     */
-    public void incrementChromeHomeMenuItemClickCount() {
-        writeInt(CHROME_HOME_MENU_ITEM_CLICK_COUNT_KEY, getChromeHomeMenuItemClickCount() + 1);
-    }
-
-    /**
-     * Remove the count for number of times bookmarks, history, or downloads were clicked while
-     * Chrome Home is enabled.
-     */
-    public void clearChromeHomeMenuItemClickCount() {
-        mSharedPreferences.edit().remove(CHROME_HOME_MENU_ITEM_CLICK_COUNT_KEY).apply();
-    }
-
     /** Marks that the content suggestions surface has been shown. */
     public void setSuggestionsSurfaceShown() {
         writeBoolean(CONTENT_SUGGESTIONS_SHOWN_KEY, true);
@@ -510,6 +484,25 @@ public class ChromePreferenceManager {
      */
     public void setSoleEnabled(boolean isEnabled) {
         writeBoolean(SOLE_INTEGRATION_ENABLED_KEY, isEnabled);
+    }
+
+    /**
+     * Gets a set of Strings representing digital asset links that have been verified.
+     * Set by {@link #setVerifiedDigitalAssetLinks(Set)}.
+     */
+    public Set<String> getVerifiedDigitalAssetLinks() {
+        // From the official docs, modifying the result of a SharedPreferences.getStringSet can
+        // cause bad things to happen including exceptions or ruining the data.
+        return new HashSet<>(mSharedPreferences.getStringSet(VERIFIED_DIGITAL_ASSET_LINKS,
+                Collections.emptySet()));
+    }
+
+    /**
+     * Sets a set of digital asset links (represented a strings) that have been verified.
+     * Can be retrieved by {@link #getVerifiedDigitalAssetLinks()}.
+     */
+    public void setVerifiedDigitalAssetLinks(Set<String> links) {
+        mSharedPreferences.edit().putStringSet(VERIFIED_DIGITAL_ASSET_LINKS, links).apply();
     }
 
     /**

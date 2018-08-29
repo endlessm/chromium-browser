@@ -195,9 +195,9 @@ void NavigationManagerImpl::UpdateCurrentItemForReplaceState(
   }
 }
 
-void NavigationManagerImpl::GoToIndex(
-    int index,
-    NavigationInitiationType initiation_type) {
+void NavigationManagerImpl::GoToIndex(int index,
+                                      NavigationInitiationType initiation_type,
+                                      bool has_user_gesture) {
   if (index < 0 || index >= GetItemCount()) {
     NOTREACHED();
     return;
@@ -222,11 +222,12 @@ void NavigationManagerImpl::GoToIndex(
     delegate_->WillChangeUserAgentType();
   }
 
-  FinishGoToIndex(index, initiation_type);
+  FinishGoToIndex(index, initiation_type, has_user_gesture);
 }
 
 void NavigationManagerImpl::GoToIndex(int index) {
-  GoToIndex(index, NavigationInitiationType::USER_INITIATED);
+  GoToIndex(index, NavigationInitiationType::BROWSER_INITIATED,
+            /*has_user_gesture=*/true);
 }
 
 NavigationItem* NavigationManagerImpl::GetLastCommittedItem() const {
@@ -250,7 +251,7 @@ void NavigationManagerImpl::LoadURLWithParams(
   NavigationInitiationType initiation_type =
       params.is_renderer_initiated
           ? NavigationInitiationType::RENDERER_INITIATED
-          : NavigationInitiationType::USER_INITIATED;
+          : NavigationInitiationType::BROWSER_INITIATED;
   AddPendingItem(params.url, params.referrer, params.transition_type,
                  initiation_type, params.user_agent_override_option);
 
@@ -357,6 +358,14 @@ void NavigationManagerImpl::ReloadWithUserAgentType(
   // WKBackForwardList for the new user agent type. This hack is not needed for
   // LegacyNavigationManagerImpl which manages its own history entries.
   if (web::GetWebClient()->IsSlimNavigationManagerEnabled()) {
+    GURL target_url;
+    // If current entry is a redirect URL, reload the original target URL. This
+    // can happen on a slow connection when user taps on Request Desktop Site
+    // before the previous redirect has finished (https://crbug.com/833958).
+    if (wk_navigation_util::IsRestoreSessionUrl(reload_url) &&
+        wk_navigation_util::ExtractTargetURL(reload_url, &target_url)) {
+      reload_url = target_url;
+    }
     reload_url = wk_navigation_util::CreateRedirectUrl(reload_url);
   }
 

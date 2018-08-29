@@ -15,10 +15,10 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.compositor.LayerTitleCache;
 import org.chromium.chrome.browser.compositor.layouts.Layout;
-import org.chromium.chrome.browser.compositor.layouts.Layout.Orientation;
 import org.chromium.chrome.browser.compositor.layouts.components.LayoutTab;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
+import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.util.ColorUtils;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.ui.resources.ResourceManager;
@@ -30,6 +30,11 @@ import org.chromium.ui.resources.ResourceManager;
 @JNINamespace("android")
 public class TabListSceneLayer extends SceneLayer {
     private long mNativePtr;
+    private TabModelSelector mTabModelSelector;
+
+    public void setTabModelSelector(TabModelSelector tabModelSelector) {
+        mTabModelSelector = tabModelSelector;
+    }
 
     /**
      * Pushes all relevant {@link LayoutTab}s from a {@link Layout} to the CC Layer tree.  This will
@@ -67,10 +72,6 @@ public class TabListSceneLayer extends SceneLayer {
             assert t.isVisible() : "LayoutTab in that list should be visible";
             final float decoration = t.getDecorationAlpha();
 
-            boolean isPortrait =
-                    !ChromeFeatureList.isEnabled(ChromeFeatureList.HORIZONTAL_TAB_SWITCHER_ANDROID)
-                    && layout.getOrientation() == Orientation.PORTRAIT;
-
             boolean useModernDesign = FeatureUtilities.isChromeModernDesignEnabled();
 
             float shadowAlpha = decoration;
@@ -101,7 +102,7 @@ public class TabListSceneLayer extends SceneLayer {
                     R.drawable.tabswitcher_border_frame_inner_shadow, t.canUseLiveTexture(),
                     FeatureUtilities.isChromeModernDesignEnabled(), t.getBackgroundColor(),
                     ApiCompatibilityUtils.getColor(res, borderColorResource), t.isIncognito(),
-                    isPortrait, t.getRenderX() * dpToPx, t.getRenderY() * dpToPx,
+                    t.isCloseButtonOnRight(), t.getRenderX() * dpToPx, t.getRenderY() * dpToPx,
                     t.getScaledContentWidth() * dpToPx, t.getScaledContentHeight() * dpToPx,
                     t.getOriginalContentWidth() * dpToPx, t.getOriginalContentHeight() * dpToPx,
                     contentViewport.height(), t.getClippedX() * dpToPx, t.getClippedY() * dpToPx,
@@ -156,6 +157,15 @@ public class TabListSceneLayer extends SceneLayer {
     protected int getTabListBackgroundColor(Context context) {
         int colorId = R.color.tab_switcher_background;
         if (FeatureUtilities.isChromeModernDesignEnabled()) colorId = R.color.modern_primary_color;
+
+        if (ChromeFeatureList.isEnabled(ChromeFeatureList.HORIZONTAL_TAB_SWITCHER_ANDROID)) {
+            if (mTabModelSelector != null && mTabModelSelector.isIncognitoSelected()) {
+                colorId = R.color.incognito_modern_primary_color;
+            } else {
+                colorId = R.color.modern_primary_color;
+            }
+        }
+
         return ApiCompatibilityUtils.getColor(context.getResources(), colorId);
     }
 

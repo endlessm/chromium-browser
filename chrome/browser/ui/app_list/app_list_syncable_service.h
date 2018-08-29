@@ -31,6 +31,7 @@ class ArcAppModelBuilder;
 class ChromeAppListItem;
 class CrostiniAppModelBuilder;
 class ExtensionAppModelBuilder;
+class InternalAppModelBuilder;
 class Profile;
 
 namespace extensions {
@@ -161,6 +162,9 @@ class AppListSyncableService : public syncer::SyncableService,
       const base::Location& from_here,
       const syncer::SyncChangeList& change_list) override;
 
+  // KeyedService
+  void Shutdown() override;
+
  private:
   class ModelUpdaterDelegate;
 
@@ -252,15 +256,6 @@ class AppListSyncableService : public syncer::SyncableService,
   // Returns true if extension service is ready.
   bool IsExtensionServiceReady() const;
 
-  // Play Store app id is changed in the app launcher and now unified with shelf
-  // id. This copies position from the legacy Play Store item in case the legacy
-  // position was modified and differs from the default position and the new
-  // position is still default. Don't remove the legacy sync item once user may
-  // use old and new versions at the same time.
-  // TODO(khmel): Remove import of legacy Play Store sync item after few
-  // releases http://crbug.com/722675.
-  void MaybeImportLegacyPlayStorePosition(syncer::SyncChangeList* change_list);
-
   // Remove sync data of Drive apps.
   // TODO(http://crbug.com/794724): Remove after M65 goes stable.
   void RemoveDriveAppItems();
@@ -272,6 +267,7 @@ class AppListSyncableService : public syncer::SyncableService,
   std::unique_ptr<ExtensionAppModelBuilder> apps_builder_;
   std::unique_ptr<ArcAppModelBuilder> arc_apps_builder_;
   std::unique_ptr<CrostiniAppModelBuilder> crostini_apps_builder_;
+  std::unique_ptr<InternalAppModelBuilder> internal_apps_builder_;
   std::unique_ptr<syncer::SyncChangeProcessor> sync_processor_;
   std::unique_ptr<syncer::SyncErrorFactory> sync_error_handler_;
   SyncItemMap sync_items_;

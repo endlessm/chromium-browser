@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-
 """Recipe module to ensure a checkout is consistent on a bot."""
 
 from recipe_engine import recipe_api
@@ -15,7 +14,7 @@ class BotUpdateApi(recipe_api.RecipeApi):
                patch_gerrit_url, revision, parent_got_revision,
                deps_revision_overrides, fail_patch, *args, **kwargs):
     self._apply_patch_on_gclient = properties.get(
-        'apply_patch_on_gclient', False)
+        'apply_patch_on_gclient', True)
     self._issue = patch_issue
     self._patchset = patch_set
     self._repository = repository or patch_repository_url
@@ -183,7 +182,21 @@ class BotUpdateApi(recipe_api.RecipeApi):
         if fixed_revision.upper() == 'HEAD':
           # Sync to correct destination branch if HEAD was specified.
           fixed_revision = self._destination_branch(cfg, name)
+        # If we're syncing to a ref, we want to make sure it exists before
+        # trying to check it out.
+        if fixed_revision.startswith('refs/'):
+          # Handle the "ref:revision" syntax, e.g.
+          # refs/branch-heads/4.2:deadbeef
+          refs.append(fixed_revision.split(':')[0])
         flags.append(['--revision', '%s@%s' % (name, fixed_revision)])
+
+    for ref in refs:
+      assert not ref.startswith('refs/remotes/'), (
+          'The "refs/remotes/*" syntax is not supported.\n'
+          'The "remotes" syntax is dependent on the way the local repo is '
+          'configured, and while there are defaults that can often be '
+          'assumed, there is no guarantee the mapping will always be done in '
+          'a particular way.')
 
     # Add extra fetch refspecs.
     for ref in refs:
@@ -199,7 +212,7 @@ class BotUpdateApi(recipe_api.RecipeApi):
       cmd.append('--no_shallow')
     if with_branch_heads or cfg.with_branch_heads:
       cmd.append('--with_branch_heads')
-    if with_tags:
+    if with_tags or cfg.with_tags:
       cmd.append('--with_tags')
     if gerrit_no_reset:
       cmd.append('--gerrit_no_reset')
@@ -207,8 +220,8 @@ class BotUpdateApi(recipe_api.RecipeApi):
       cmd.append('--gerrit_no_rebase_patch_ref')
     if disable_syntax_validation or cfg.disable_syntax_validation:
       cmd.append('--disable-syntax-validation')
-    if self._apply_patch_on_gclient:
-      cmd.append('--apply-patch-on-gclient')
+    if not self._apply_patch_on_gclient:
+      cmd.append('--no-apply-patch-on-gclient')
 
     # Inject Json output for testing.
     first_sln = cfg.solutions[0].name

@@ -11,7 +11,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/frame/browser_frame.h"
-#include "chrome/browser/ui/views/frame/browser_frame_header_ash.h"
 #include "chrome/browser/ui/views/frame/browser_frame_mus.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
@@ -38,7 +37,8 @@
 #include "ui/views/widget/widget_delegate.h"
 
 #if defined(OS_CHROMEOS)
-#include "ash/ash_layout_constants.h"
+#include "ash/public/cpp/ash_layout_constants.h"
+#include "ash/public/cpp/window_properties.h"
 #endif
 
 #if !defined(OS_CHROMEOS)
@@ -49,14 +49,8 @@ namespace {
 
 #if defined(FRAME_AVATAR_BUTTON)
 // Space between the new avatar button and the minimize button.
-const int kAvatarButtonOffset = 5;
+constexpr int kAvatarButtonOffset = 5;
 #endif
-// Space between right edge of tabstrip and maximize button.
-const int kTabstripRightSpacing = 10;
-// Height of the shadow in the tab image, used to ensure clicks in the shadow
-// area still drag restored windows.  This keeps the clickable area large enough
-// to hit easily.
-const int kTabShadowHeight = 4;
 
 #if defined(FRAME_AVATAR_BUTTON)
 // Combines View::ConvertPointToTarget() and View::HitTest() for a given
@@ -93,12 +87,7 @@ BrowserNonClientFrameViewMus::BrowserNonClientFrameViewMus(
       tab_strip_(nullptr) {
 }
 
-BrowserNonClientFrameViewMus::~BrowserNonClientFrameViewMus() {
-  if (tab_strip_) {
-    tab_strip_->RemoveObserver(this);
-    tab_strip_ = nullptr;
-  }
-}
+BrowserNonClientFrameViewMus::~BrowserNonClientFrameViewMus() {}
 
 void BrowserNonClientFrameViewMus::Init() {
   // Initializing the TabIconView is expensive, so only do it if we need to.
@@ -108,6 +97,8 @@ void BrowserNonClientFrameViewMus::Init() {
     AddChildView(window_icon_);
     window_icon_->Update();
   }
+
+  OnThemeChanged();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -117,7 +108,6 @@ void BrowserNonClientFrameViewMus::OnBrowserViewInitViewsComplete() {
   DCHECK(browser_view()->tabstrip());
   DCHECK(!tab_strip_);
   tab_strip_ = browser_view()->tabstrip();
-  tab_strip_->AddObserver(this);
 }
 
 gfx::Rect BrowserNonClientFrameViewMus::GetBoundsForTabStrip(
@@ -175,17 +165,28 @@ void BrowserNonClientFrameViewMus::UpdateClientArea() {
   if (browser_view()->IsTabStripVisible() && show_frame_decorations) {
     gfx::Rect tab_strip_bounds(GetBoundsForTabStrip(tab_strip_));
 
-    int tab_strip_max_x = tab_strip_->GetMaxX();
+    int tab_strip_max_x = tab_strip_->GetTabsMaxX();
     if (!tab_strip_bounds.IsEmpty() && tab_strip_max_x) {
       tab_strip_bounds.set_width(tab_strip_max_x);
+      // The new tab button may be inside or outside |tab_strip_bounds|.  If
+      // it's outside, handle it similarly to those bounds.  If it's inside,
+      // the Subtract() call below will leave it empty and it will be ignored
+      // later.
+      gfx::Rect new_tab_button_bounds = tab_strip_->new_tab_button_bounds();
+      new_tab_button_bounds.Subtract(tab_strip_bounds);
       if (immersive_mode_controller->IsEnabled()) {
         top_container_offset =
             immersive_mode_controller->GetTopContainerVerticalOffset(
                 browser_view()->top_container()->size());
         tab_strip_bounds.set_y(tab_strip_bounds.y() + top_container_offset);
-        tab_strip_bounds.Intersect(gfx::Rect(size()));
+        new_tab_button_bounds.set_y(new_tab_button_bounds.y() +
+                                    top_container_offset);
+        tab_strip_bounds.Intersect(GetLocalBounds());
+        new_tab_button_bounds.Intersect(GetLocalBounds());
       }
       additional_client_area.push_back(tab_strip_bounds);
+      if (!new_tab_button_bounds.IsEmpty())
+        additional_client_area.push_back(new_tab_button_bounds);
     }
   }
   aura::WindowTreeHostMus* window_tree_host_mus =
@@ -230,6 +231,11 @@ int BrowserNonClientFrameViewMus::GetTabStripLeftInset() const {
          frame_values().normal_insets.left();
 }
 
+void BrowserNonClientFrameViewMus::OnTabsMaxXChanged() {
+  BrowserNonClientFrameView::OnTabsMaxXChanged();
+  UpdateClientArea();
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // views::NonClientFrameView:
 
@@ -269,6 +275,7 @@ int BrowserNonClientFrameViewMus::NonClientHitTest(const gfx::Point& point) {
     View::ConvertPointToTarget(this, frame()->client_view(), &client_point);
     // Report hits in shadow at top of tabstrip as caption.
     gfx::Rect tabstrip_bounds(browser_view()->tabstrip()->bounds());
+    constexpr int kTabShadowHeight = 4;
     if (client_point.y() < tabstrip_bounds.y() + kTabShadowHeight)
       hit_test = HTCAPTION;
   }
@@ -344,6 +351,18 @@ gfx::Size BrowserNonClientFrameViewMus::GetMinimumSize() const {
   return gfx::Size(min_width, min_client_view_size.height());
 }
 
+void BrowserNonClientFrameViewMus::OnThemeChanged() {
+#if defined(OS_CHROMEOS)
+  gfx::ImageSkia active_frame_image = GetFrameImage(true);
+  if (active_frame_image.isNull()) {
+    frame()->GetNativeWindow()->ClearProperty(ash::kFrameImageActiveKey);
+  } else {
+    frame()->GetNativeWindow()->SetProperty(
+        ash::kFrameImageActiveKey, new gfx::ImageSkia(active_frame_image));
+  }
+#endif
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // TabIconViewModel:
 
@@ -376,19 +395,17 @@ AvatarButtonStyle BrowserNonClientFrameViewMus::GetAvatarButtonStyle() const {
 ///////////////////////////////////////////////////////////////////////////////
 // BrowserNonClientFrameViewMus, private:
 
-void BrowserNonClientFrameViewMus::TabStripMaxXChanged(TabStrip* tab_strip) {
-  UpdateClientArea();
-}
-
-void BrowserNonClientFrameViewMus::TabStripDeleted(TabStrip* tab_strip) {
-  tab_strip_->RemoveObserver(this);
-  tab_strip_ = nullptr;
-}
-
 int BrowserNonClientFrameViewMus::GetTabStripRightInset() const {
-  const int frame_right_insets = frame_values().normal_insets.right() +
-                                 frame_values().max_title_bar_button_width;
-  int right_inset = kTabstripRightSpacing + frame_right_insets;
+  int right_inset = frame_values().normal_insets.right() +
+                    frame_values().max_title_bar_button_width;
+
+  // For Material Refresh, the end of the tabstrip contains empty space to
+  // ensure the window remains draggable, which is sufficient padding to the
+  // other tabstrip contents.
+  using MD = ui::MaterialDesignController;
+  constexpr int kTabstripRightSpacing = 10;
+  if (!MD::IsRefreshUi())
+    right_inset += kTabstripRightSpacing;
 
 #if defined(FRAME_AVATAR_BUTTON)
   views::View* profile_switcher_view = GetProfileSwitcherButton();
@@ -412,7 +429,7 @@ void BrowserNonClientFrameViewMus::LayoutProfileSwitcher() {
 #if defined(FRAME_AVATAR_BUTTON)
   views::View* profile_switcher_view = GetProfileSwitcherButton();
   gfx::Size button_size = profile_switcher_view->GetPreferredSize();
-  int button_x = width() - GetTabStripRightInset() + kAvatarButtonOffset;
+  int button_x = width() - GetTabStripRightInset();
   profile_switcher_view->SetBounds(button_x, 0, button_size.width(),
                                    button_size.height());
 #endif
@@ -441,10 +458,10 @@ void BrowserNonClientFrameViewMus::PaintContentEdge(gfx::Canvas* canvas) {
 
 int BrowserNonClientFrameViewMus::GetHeaderHeight() const {
 #if defined(OS_CHROMEOS)
-  // TODO: move ash_layout_constants to ash/public/cpp.
   const bool restored = !frame()->IsMaximized() && !frame()->IsFullscreen();
-  return GetAshLayoutSize(restored ? AshLayoutSize::kBrowserCaptionRestored
-                                   : AshLayoutSize::kBrowserCaptionMaximized)
+  return GetAshLayoutSize(restored
+                              ? ash::AshLayoutSize::kBrowserCaptionRestored
+                              : ash::AshLayoutSize::kBrowserCaptionMaximized)
       .height();
 #else
   return views::WindowManagerFrameValues::instance().normal_insets.top();

@@ -15,7 +15,7 @@
 #include "llvm-c/lto.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Bitcode/BitcodeReader.h"
-#include "llvm/CodeGen/CommandFlags.def"
+#include "llvm/CodeGen/CommandFlags.inc"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/LLVMContext.h"
@@ -96,7 +96,7 @@ struct LTOToolDiagnosticHandler : public DiagnosticHandler {
 // Initialize the configured targets if they have not been initialized.
 static void lto_initialize() {
   if (!initialized) {
-#ifdef LLVM_ON_WIN32
+#ifdef _WIN32
     // Dialog box on crash disabling doesn't work across DLL boundaries, so do
     // it here.
     llvm::sys::DisableSystemDialogsOnCrash();

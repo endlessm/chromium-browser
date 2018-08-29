@@ -17,6 +17,7 @@
 #define LLVM_TOOLS_LLVM_MCA_INSTRUCTION_H
 
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/raw_ostream.h"
 #include <memory>
 #include <set>
 #include <vector>
@@ -30,9 +31,40 @@ class ReadState;
 
 constexpr int UNKNOWN_CYCLES = -512;
 
-/// \brief A register write descriptor.
+class Instruction;
+
+/// An InstRef contains both a SourceMgr index and Instruction pair.  The index
+/// is used as a unique identifier for the instruction.  MCA will make use of
+/// this index as a key throughout MCA.
+class InstRef : public std::pair<unsigned, Instruction *> {
+public:
+  InstRef() : std::pair<unsigned, Instruction *>(0, nullptr) {}
+  InstRef(unsigned Index, Instruction *I)
+      : std::pair<unsigned, Instruction *>(Index, I) {}
+
+  unsigned getSourceIndex() const { return first; }
+  Instruction *getInstruction() { return second; }
+  const Instruction *getInstruction() const { return second; }
+
+  /// Returns true if  this InstRef has been populated.
+  bool isValid() const { return second != nullptr; }
+
+#ifndef NDEBUG
+  void print(llvm::raw_ostream &OS) const { OS << getSourceIndex(); }
+#endif
+};
+
+#ifndef NDEBUG
+inline llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const InstRef &IR) {
+  IR.print(OS);
+  return OS;
+}
+#endif
+
+/// A register write descriptor.
 struct WriteDescriptor {
-  int OpIndex; // Operand index. -1 if this is an implicit write.
+  // Operand index. -1 if this is an implicit write.
+  int OpIndex;
   // Write latency. Number of cycles before write-back stage.
   int Latency;
   // This field is set to a value different than zero only if this
@@ -44,7 +76,7 @@ struct WriteDescriptor {
   // YMM super-register if the write is associated to a legacy SSE instruction.
   bool FullyUpdatesSuperRegs;
   // Instruction itineraries would set this field to the SchedClass ID.
-  // Otherwise, it defaults to the WriteResourceID from teh MCWriteLatencyEntry
+  // Otherwise, it defaults to the WriteResourceID from the MCWriteLatencyEntry
   // element associated to this write.
   // When computing read latencies, this value is matched against the
   // "ReadAdvance" information. The hardware backend may implement
@@ -58,10 +90,14 @@ struct WriteDescriptor {
   bool IsOptionalDef;
 };
 
-/// \brief A register read descriptor.
+/// A register read descriptor.
 struct ReadDescriptor {
-  // This field defaults to -1 if this is an implicit read.
+  // A MCOperand index. This is used by the Dispatch logic to identify register
+  // reads. This field defaults to -1 if this is an implicit read.
   int OpIndex;
+  // The actual "UseIdx". This is used to query the ReadAdvance table. Explicit
+  // uses always come first in the sequence of uses.
+  unsigned UseIndex;
   // This field is only set if this is an implicit read.
   unsigned RegisterID;
   // Scheduling Class Index. It is used to query the scheduling model for the
@@ -74,7 +110,7 @@ struct ReadDescriptor {
   bool HasReadAdvanceEntries;
 };
 
-/// \brief Tracks uses of a register definition (e.g. register write).
+/// Tracks uses of a register definition (e.g. register write).
 ///
 /// Each implicit/explicit register write is associated with an instance of
 /// this class. A WriteState object tracks the dependent users of a
@@ -123,7 +159,7 @@ public:
 #endif
 };
 
-/// \brief Tracks register operand latency in cycles.
+/// Tracks register operand latency in cycles.
 ///
 /// A read may be dependent on more than one write. This occurs when some
 /// writes only partially update the register associated to this read.
@@ -155,7 +191,7 @@ public:
   void setDependentWrites(unsigned Writes) { DependentWrites = Writes; }
 };
 
-/// \brief A sequence of cycles.
+/// A sequence of cycles.
 ///
 /// This class can be used as a building block to construct ranges of cycles.
 class CycleSegment {
@@ -200,7 +236,7 @@ public:
   void setReserved() { Reserved = true; }
 };
 
-/// \brief Helper used by class InstrDesc to describe how hardware resources
+/// Helper used by class InstrDesc to describe how hardware resources
 /// are used.
 ///
 /// This class describes how many resource units of a specific resource kind
@@ -215,7 +251,7 @@ struct ResourceUsage {
   void setReserved() { CS.setReserved(); }
 };
 
-/// \brief An instruction descriptor
+/// An instruction descriptor
 struct InstrDesc {
   std::vector<WriteDescriptor> Writes; // Implicit writes are at the end.
   std::vector<ReadDescriptor> Reads;   // Implicit reads are at the end.
@@ -233,6 +269,9 @@ struct InstrDesc {
   bool MayLoad;
   bool MayStore;
   bool HasSideEffects;
+
+  // A zero latency instruction doesn't consume any scheduler resources.
+  bool isZeroLatency() const { return !MaxLatency && Resources.empty(); }
 };
 
 /// An instruction dispatched to the out-of-order backend.
@@ -296,11 +335,19 @@ public:
   // all the definitions.
   void execute();
 
+  // Force a transition from the IS_AVAILABLE state to the IS_READY state if
+  // input operands are all ready. State transitions normally occur at the
+  // beginning of a new cycle (see method cycleEvent()). However, the scheduler
+  // may decide to promote instructions from the wait queue to the ready queue
+  // as the result of another issue event.  This method is called every time the
+  // instruction might have changed in state.
+  void update();
+
   bool isDispatched() const { return Stage == IS_AVAILABLE; }
   bool isReady() const { return Stage == IS_READY; }
   bool isExecuting() const { return Stage == IS_EXECUTING; }
   bool isExecuted() const { return Stage == IS_EXECUTED; }
-  bool isZeroLatency() const;
+  bool isRetired() const { return Stage == IS_RETIRED; }
 
   void retire() {
     assert(isExecuted() && "Instruction is in an invalid state!");

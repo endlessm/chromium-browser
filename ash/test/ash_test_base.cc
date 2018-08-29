@@ -32,7 +32,7 @@
 #include "ash/wm/top_level_window_factory.h"
 #include "ash/wm/window_positioner.h"
 #include "base/memory/ptr_util.h"
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 #include "components/user_manager/user_names.h"
 #include "services/ui/public/cpp/property_type_converters.h"
 #include "services/ui/public/interfaces/window_manager.mojom.h"
@@ -281,7 +281,8 @@ std::unique_ptr<aura::Window> AshTestBase::CreateTestWindow(
   WindowManager* window_manager =
       ash_test_helper_->window_manager_service()->window_manager();
   aura::Window* window = CreateAndParentTopLevelWindow(
-      window_manager, mus_window_type, &properties);
+      window_manager, mus_window_type, window_manager->property_converter(),
+      &properties);
   window->set_id(shell_window_id);
   window->Show();
   return base::WrapUnique<aura::Window>(window);

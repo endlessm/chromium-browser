@@ -12,9 +12,9 @@
 #include "base/memory/singleton.h"
 #include "base/task_scheduler/post_task.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
+#include "components/account_id/account_id.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_thread.h"
@@ -199,6 +199,8 @@ void ArcWallpaperService::OnWallpaperChanged(uint32_t image_id) {
 
 void ArcWallpaperService::OnWallpaperColorsChanged(
     const std::vector<SkColor>& prominent_colors) {}
+
+void ArcWallpaperService::OnWallpaperBlurChanged(bool blurred) {}
 
 void ArcWallpaperService::OnWallpaperDecoded(const gfx::ImageSkia& image,
                                              int32_t android_id) {

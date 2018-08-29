@@ -19,7 +19,8 @@ namespace {
 const CGFloat kMinHeight = 200;
 const CGFloat kMinWidth = 200;
 const CGFloat kMaxWidth = 300;
-const CGFloat kMaxHeight = 400;
+const CGFloat kMaxHeight = 435;
+const CGFloat kMinWidthDifference = 50;
 const CGFloat kMinHorizontalMargin = 5;
 const CGFloat kMinVerticalMargin = 15;
 const CGFloat kDamping = 0.85;
@@ -105,6 +106,11 @@ const CGFloat kDamping = 0.85;
   [self.baseViewController.view addSubview:self.popupViewController.view];
   self.popupViewController.view.frame = self.baseViewController.view.bounds;
 
+  [popup.widthAnchor constraintLessThanOrEqualToAnchor:self.popupViewController
+                                                           .view.widthAnchor
+                                              constant:-kMinWidthDifference]
+      .active = YES;
+
   UILayoutGuide* namedGuide =
       [NamedGuide guideWithName:self.guideName
                            view:self.baseViewController.view];
@@ -142,18 +148,23 @@ const CGFloat kDamping = 0.85;
   [self.popupViewController willMoveToParentViewController:nil];
   [NSLayoutConstraint deactivateConstraints:self.presentedConstraints];
   [NSLayoutConstraint activateConstraints:self.initialConstraints];
-  [self animate:^{
-    self.popupViewController.contentContainer.alpha = 0;
-    [self.baseViewController.view layoutIfNeeded];
-    self.popupViewController.contentContainer.transform =
-        CGAffineTransformMakeScale(0.1, 0.1);
+  auto completion = ^(BOOL finished) {
+    [self.popupViewController.view removeFromSuperview];
+    [self.popupViewController removeFromParentViewController];
+    self.popupViewController = nil;
+    [self.delegate containedPresenterDidDismiss:self];
+  };
+  if (animated) {
+    [self animate:^{
+      self.popupViewController.contentContainer.alpha = 0;
+      [self.baseViewController.view layoutIfNeeded];
+      self.popupViewController.contentContainer.transform =
+          CGAffineTransformMakeScale(0.1, 0.1);
+    }
+        withCompletion:completion];
+  } else {
+    completion(YES);
   }
-      withCompletion:^(BOOL finished) {
-        [self.popupViewController.view removeFromSuperview];
-        [self.popupViewController removeFromParentViewController];
-        self.popupViewController = nil;
-        [self.delegate containedPresenterDidDismiss:self];
-      }];
 }
 
 #pragma mark - Private

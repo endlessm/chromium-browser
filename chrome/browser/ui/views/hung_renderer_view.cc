@@ -13,6 +13,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "chrome/browser/hang_monitor/hang_crash_dump.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -29,8 +30,6 @@
 #include "components/constrained_window/constrained_window_views.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
-#include "content/public/browser/notification_source.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -47,7 +46,6 @@
 #include "ui/views/widget/widget.h"
 
 #if defined(OS_WIN)
-#include "chrome/browser/hang_monitor/hang_crash_dump_win.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/shell_integration_win.h"
 #include "ui/base/win/shell.h"
@@ -66,7 +64,7 @@ HungRendererDialogView* HungRendererDialogView::g_instance_ = nullptr;
 // HungPagesTableModel, public:
 
 HungPagesTableModel::HungPagesTableModel(Delegate* delegate)
-    : delegate_(delegate), process_observer_(this) {}
+    : delegate_(delegate), process_observer_(this), widget_observer_(this) {}
 
 HungPagesTableModel::~HungPagesTableModel() {}
 
@@ -78,7 +76,7 @@ void HungPagesTableModel::InitForWebContents(
     WebContents* contents,
     content::RenderWidgetHost* render_widget_host) {
   process_observer_.RemoveAll();
-  notification_registrar_.RemoveAll();
+  widget_observer_.RemoveAll();
   render_widget_host_ = render_widget_host;
   tab_observers_.clear();
 
@@ -92,9 +90,7 @@ void HungPagesTableModel::InitForWebContents(
 
   if (render_widget_host_) {
     process_observer_.Add(render_widget_host_->GetProcess());
-    notification_registrar_.Add(
-        this, content::NOTIFICATION_RENDER_WIDGET_HOST_DESTROYED,
-        content::Source<content::RenderWidgetHost>(render_widget_host_));
+    widget_observer_.Add(render_widget_host_);
   }
 
   // The world is different.
@@ -130,21 +126,19 @@ void HungPagesTableModel::SetObserver(ui::TableModelObserver* observer) {
 ///////////////////////////////////////////////////////////////////////////////
 // HungPagesTableModel, RenderProcessHostObserver implementation:
 
-void HungPagesTableModel::RenderProcessExited(content::RenderProcessHost* host,
-                                              base::TerminationStatus status,
-                                              int exit_code) {
+void HungPagesTableModel::RenderProcessExited(
+    content::RenderProcessHost* host,
+    const content::ChildProcessTerminationInfo& info) {
   // Notify the delegate.
   delegate_->TabDestroyed();
   // WARNING: we've likely been deleted.
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// HungPagesTableModel, NotificationObserver implementation:
+// HungPagesTableModel, RenderWidgetHostObserver implementation:
 
-void HungPagesTableModel::Observe(int type,
-                                  const content::NotificationSource& source,
-                                  const content::NotificationDetails& details) {
-  DCHECK_EQ(content::NOTIFICATION_RENDER_WIDGET_HOST_DESTROYED, type);
+void HungPagesTableModel::RenderWidgetHostDestroyed(
+    content::RenderWidgetHost* widget_host) {
   // Notify the delegate.
   delegate_->TabDestroyed();
   // WARNING: we've likely been deleted.
@@ -375,12 +369,9 @@ bool HungRendererDialogView::Cancel() {
   content::RenderProcessHost* rph =
       hung_pages_table_model_->GetRenderWidgetHost()->GetProcess();
   if (rph) {
-#if defined(OS_WIN)
     // Try to generate a crash report for the hung process.
-    CrashDumpAndTerminateHungChildProcess(rph->GetHandle());
-#else
+    CrashDumpHungChildProcess(rph->GetProcess().Handle());
     rph->Shutdown(content::RESULT_CODE_HUNG);
-#endif
   }
   return true;
 }

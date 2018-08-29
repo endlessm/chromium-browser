@@ -9,9 +9,9 @@
 
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/chromeos/arc/icon_decode_request.h"
 #include "chrome/browser/ui/app_list/app_list_test_util.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_test.h"
-#include "chrome/browser/ui/app_list/search/arc/icon_decode_request.h"
 #include "chrome/browser/ui/app_list/search/chrome_search_result.h"
 #include "chrome/browser/ui/app_list/test/test_app_list_controller_delegate.h"
 
@@ -36,7 +36,7 @@ class ArcAppDataSearchProviderTest : public AppListTestBase {
   }
 
   std::unique_ptr<ArcAppDataSearchProvider> CreateSearch(int max_results) {
-    return std::make_unique<ArcAppDataSearchProvider>(max_results, profile(),
+    return std::make_unique<ArcAppDataSearchProvider>(max_results,
                                                       controller_.get());
   }
 
@@ -54,18 +54,24 @@ TEST_F(ArcAppDataSearchProviderTest, Basic) {
   std::unique_ptr<ArcAppDataSearchProvider> provider =
       CreateSearch(kMaxResults);
   EXPECT_TRUE(provider->results().empty());
-  IconDecodeRequest::DisableSafeDecodingForTesting();
+  arc::IconDecodeRequest::DisableSafeDecodingForTesting();
 
   provider->Start(base::UTF8ToUTF16(kQuery));
   const auto& results = provider->results();
-  EXPECT_EQ(kMaxResults, results.size());
-  // Check that information is correctly set in each result.
-  for (size_t i = 0; i < results.size(); ++i) {
-    SCOPED_TRACE(base::StringPrintf("Testing result %zu", i));
-    EXPECT_EQ(base::UTF16ToUTF8(results[i]->title()),
-              base::StringPrintf("Label %s %zu", kQuery, i));
-    EXPECT_EQ(ash::SearchResultDisplayType::kTile, results[i]->display_type());
-  }
+  EXPECT_EQ(2u, results.size());
+  // Verify Person search result.
+  int i = 0;
+  EXPECT_EQ(base::StringPrintf("Label %s %d", kQuery, i),
+            base::UTF16ToUTF8(results[i]->title()));
+  EXPECT_EQ(ash::SearchResultDisplayType::kTile, results[i]->display_type());
+  EXPECT_TRUE(results[i]->details().empty());
+  // Verify Note document search result.
+  ++i;
+  EXPECT_EQ(base::StringPrintf("Label %s %d", kQuery, i),
+            base::UTF16ToUTF8(results[i]->title()));
+  EXPECT_EQ(ash::SearchResultDisplayType::kList, results[i]->display_type());
+  EXPECT_EQ(base::StringPrintf("Text %s %d", kQuery, i),
+            base::UTF16ToUTF8(results[i]->details()));
 }
 
 }  // namespace app_list

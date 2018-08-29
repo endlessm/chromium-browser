@@ -195,7 +195,7 @@ const char good2048[] = "nmgjhmhbleinmjpbdhgajfjkbijcmgbh";
 const char good_crx[] = "ldnnhddmnhbkjipkidpdiheffobcpfmf";
 const char minimal_platform_app_crx[] = "jjeoclcdfjddkdjokiejckgcildcflpp";
 const char hosted_app[] = "kbmnembihfiondgfjekmnmcbddelicoi";
-const char page_action[] = "obcimlgaoabeegjmmpldobjndiealpln";
+const char page_action[] = "dpfmafkdlbmopmcepgpjkpldjbghdibm";
 const char theme_crx[] = "iamefpfkojoapidjnbafmgkgncegbkad";
 const char theme2_crx[] = "pjpgmfcmabopnnfonnhmdjglfpjjfkbf";
 const char permissions_crx[] = "eagpmdpfmaekmmcejjbmjoecnejeiiin";
@@ -262,17 +262,10 @@ size_t GetExternalInstallBubbleCount(ExtensionService* service) {
   return bubble_count;
 }
 
-scoped_refptr<Extension> CreateExtension(const base::string16& name,
+scoped_refptr<Extension> CreateExtension(const std::string& name,
                                          const base::FilePath& path,
                                          Manifest::Location location) {
-  base::DictionaryValue manifest;
-  manifest.SetString(extensions::manifest_keys::kVersion, "1.0.0.0");
-  manifest.SetString(extensions::manifest_keys::kName, name);
-  std::string error;
-  scoped_refptr<Extension> extension =
-      Extension::Create(path, location, manifest, Extension::NO_FLAGS, &error);
-  EXPECT_TRUE(extension.get() != nullptr) << error;
-  return extension;
+  return ExtensionBuilder(name).SetPath(path).SetLocation(location).Build();
 }
 
 std::unique_ptr<ExternalInstallInfoFile> CreateExternalExtension(
@@ -1757,6 +1750,83 @@ TEST_F(ExtensionServiceTest,
   EXPECT_TRUE(registry()->disabled_extensions().Contains(id));
   EXPECT_EQ(extensions::disable_reason::DISABLE_USER_ACTION,
             prefs->GetDisableReasons(id));
+}
+
+// Tests that installing an extension with a permission adds it to the granted
+// permissions, so that if it is later removed and then re-added the extension
+// is not disabled.
+TEST_F(ExtensionServiceTest,
+       ReaddingOldPermissionInUpdateDoesntDisableExtension) {
+  InitializeEmptyExtensionService();
+
+  // Borrow a PEM for consistent IDs.
+  const base::FilePath pem_path =
+      data_dir().AppendASCII("permissions/update.pem");
+  ASSERT_TRUE(base::PathExists(pem_path));
+
+  constexpr char kManifestTemplate[] =
+      R"({
+           "name": "Test",
+           "description": "Test permissions update flow",
+           "manifest_version": 2,
+           "version": "%s",
+           "permissions": [%s]
+         })";
+
+  // Install version 1, which includes the tabs permission.
+  extensions::TestExtensionDir version1;
+  version1.WriteManifest(
+      base::StringPrintf(kManifestTemplate, "1", R"("tabs")"));
+
+  const Extension* extension =
+      PackAndInstallCRX(version1.UnpackedPath(), pem_path, INSTALL_NEW);
+  ASSERT_TRUE(extension);
+
+  const std::string id = extension->id();
+
+  EXPECT_EQ(0u, GetErrors().size());
+  ASSERT_TRUE(registry()->enabled_extensions().Contains(id));
+
+  ExtensionPrefs* prefs = ExtensionPrefs::Get(profile());
+
+  auto get_granted_permissions = [prefs, id]() {
+    return prefs->GetGrantedPermissions(id);
+  };
+
+  auto get_active_permissions = [prefs, id]() {
+    return prefs->GetActivePermissions(id);
+  };
+
+  APIPermissionSet tabs_permission_set;
+  tabs_permission_set.insert(APIPermission::kTab);
+
+  EXPECT_EQ(tabs_permission_set, get_granted_permissions()->apis());
+  EXPECT_EQ(tabs_permission_set, get_active_permissions()->apis());
+
+  // Version 2 removes the tabs permission. The tabs permission should be
+  // gone from the active permissions, but retained in the granted permissions.
+  extensions::TestExtensionDir version2;
+  version2.WriteManifest(base::StringPrintf(kManifestTemplate, "2", ""));
+
+  PackCRXAndUpdateExtension(id, version2.UnpackedPath(), pem_path, ENABLED);
+  EXPECT_TRUE(registry()->enabled_extensions().Contains(id));
+
+  EXPECT_EQ(tabs_permission_set, get_granted_permissions()->apis());
+  EXPECT_TRUE(get_active_permissions()->IsEmpty());
+
+  // Version 3 re-adds the tabs permission. Even though this is an increase in
+  // privilege from version 2, it's not from the granted permissions (which
+  // include the permission from version 1). Therefore, the extension should
+  // remain enabled.
+  extensions::TestExtensionDir version3;
+  version3.WriteManifest(
+      base::StringPrintf(kManifestTemplate, "3", R"("tabs")"));
+
+  PackCRXAndUpdateExtension(id, version3.UnpackedPath(), pem_path, ENABLED);
+  EXPECT_TRUE(registry()->enabled_extensions().Contains(id));
+
+  EXPECT_EQ(tabs_permission_set, get_granted_permissions()->apis());
+  EXPECT_EQ(tabs_permission_set, get_active_permissions()->apis());
 }
 
 #if !defined(OS_CHROMEOS)
@@ -3932,6 +4002,7 @@ TEST_F(ExtensionServiceTest, ManagementPolicyProhibitsLoadFromPrefs) {
   base::DictionaryValue manifest;
   manifest.SetString(keys::kName, "simple_extension");
   manifest.SetString(keys::kVersion, "1");
+  manifest.SetInteger(keys::kManifestVersion, 2);
   // UNPACKED is for extensions loaded from a directory. We use it here, even
   // though we're testing loading from prefs, so that we don't need to provide
   // an extension key.
@@ -6613,7 +6684,7 @@ TEST_F(ExtensionServiceTest, DisablingComponentExtensions) {
   service_->Init();
 
   scoped_refptr<Extension> external_component_extension = CreateExtension(
-      base::ASCIIToUTF16("external_component_extension"),
+      "external_component_extension",
       base::FilePath(FILE_PATH_LITERAL("//external_component_extension")),
       Manifest::EXTERNAL_COMPONENT);
   service_->AddExtension(external_component_extension.get());
@@ -6625,7 +6696,7 @@ TEST_F(ExtensionServiceTest, DisablingComponentExtensions) {
       external_component_extension->id()));
 
   scoped_refptr<Extension> component_extension = CreateExtension(
-      base::ASCIIToUTF16("component_extension"),
+      "component_extension",
       base::FilePath(FILE_PATH_LITERAL("//component_extension")),
       Manifest::COMPONENT);
   service_->AddExtension(component_extension.get());
@@ -7221,16 +7292,10 @@ TEST_F(ExtensionServiceTest, CannotEnableBlacklistedExtension) {
 // Test that calls to disable Shared Modules do not work.
 TEST_F(ExtensionServiceTest, CannotDisableSharedModules) {
   InitializeEmptyExtensionService();
-  std::unique_ptr<base::DictionaryValue> export_dict =
-      extensions::DictionaryBuilder()
-          .Set("resources", extensions::ListBuilder().Append("foo.js").Build())
-          .Build();
-
   scoped_refptr<Extension> extension =
       ExtensionBuilder("Shared Module")
-          .MergeManifest(extensions::DictionaryBuilder()
-                             .Set("export", std::move(export_dict))
-                             .Build())
+          .SetManifestPath({"export", "resources"},
+                           extensions::ListBuilder().Append("foo.js").Build())
           .AddFlags(Extension::FROM_WEBSTORE)
           .Build();
 

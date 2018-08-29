@@ -1708,6 +1708,11 @@ example:
     entity to fine grain the HW control flow protection mechanism. The flag
     is target independant and currently appertains to a function or function
     pointer.
+``shadowcallstack``
+    This attribute indicates that the ShadowCallStack checks are enabled for
+    the function. The instrumentation checks that the return address for the
+    function has not changed between the function prolog and eiplog. It is
+    currently x86_64-specific.
 
 .. _glattrs:
 
@@ -5308,11 +5313,12 @@ Irreducible loop header weights are typically based on profile data.
 '``invariant.group``' Metadata
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The ``invariant.group`` metadata may be attached to ``load``/``store`` instructions.
+The experimental ``invariant.group`` metadata may be attached to 
+``load``/``store`` instructions referencing a single metadata with no entries.
 The existence of the ``invariant.group`` metadata on the instruction tells
 the optimizer that every ``load`` and ``store`` to the same pointer operand
-within the same invariant group can be assumed to load or store the same
-value (but see the ``llvm.invariant.group.barrier`` intrinsic which affects
+can be assumed to load or store the same
+value (but see the ``llvm.launder.invariant.group`` intrinsic which affects
 when two pointers are considered the same). Pointers returned by bitcast or
 getelementptr with only zero indices are considered the same.
 
@@ -5328,7 +5334,6 @@ Examples:
 
    %a = load i8, i8* %ptr, !invariant.group !0 ; Can assume that value under %ptr didn't change
    call void @foo(i8* %ptr)
-   %b = load i8, i8* %ptr, !invariant.group !1 ; Can't assume anything, because group changed
 
    %newPtr = call i8* @getPointer(i8* %ptr)
    %c = load i8, i8* %newPtr, !invariant.group !0 ; Can't assume anything, because we only have information about %ptr
@@ -5337,16 +5342,15 @@ Examples:
    store i8 %unknownValue, i8* %ptr, !invariant.group !0 ; Can assume that %unknownValue == 42
 
    call void @foo(i8* %ptr)
-   %newPtr2 = call i8* @llvm.invariant.group.barrier(i8* %ptr)
-   %d = load i8, i8* %newPtr2, !invariant.group !0  ; Can't step through invariant.group.barrier to get value of %ptr
+   %newPtr2 = call i8* @llvm.launder.invariant.group(i8* %ptr)
+   %d = load i8, i8* %newPtr2, !invariant.group !0  ; Can't step through launder.invariant.group to get value of %ptr
 
    ...
    declare void @foo(i8*)
    declare i8* @getPointer(i8*)
-   declare i8* @llvm.invariant.group.barrier(i8*)
+   declare i8* @llvm.launder.invariant.group(i8*)
 
-   !0 = !{!"magic ptr"}
-   !1 = !{!"other ptr"}
+   !0 = !{}
 
 The invariant.group metadata must be dropped when replacing one pointer by
 another based on aliasing information. This is because invariant.group is tied
@@ -5358,6 +5362,8 @@ to the SSA value of the pointer operand.
   ; if %x mustalias %y then we can replace the above instruction with
   %v = load i8, i8* %y
 
+Note that this is an experimental feature, which means that its semantics might
+change in the future.
 
 '``type``' Metadata
 ^^^^^^^^^^^^^^^^^^^
@@ -7629,7 +7635,8 @@ referenced by the load contains the same value at all points in the
 program where the memory location is known to be dereferenceable.
 
 The optional ``!invariant.group`` metadata must reference a single metadata name
- ``<index>`` corresponding to a metadata node. See ``invariant.group`` metadata.
+ ``<index>`` corresponding to a metadata node with no entries.
+ See ``invariant.group`` metadata.
 
 The optional ``!nonnull`` metadata must reference a single
 metadata name ``<index>`` corresponding to a metadata node with no
@@ -8371,18 +8378,17 @@ Semantics:
 
 The '``fptrunc``' instruction casts a ``value`` from a larger
 :ref:`floating-point <t_floating>` type to a smaller :ref:`floating-point
-<t_floating>` type. If the value cannot fit (i.e. overflows) within the
-destination type, ``ty2``, then the results are undefined. If the cast produces
-an inexact result, how rounding is performed (e.g. truncation, also known as
-round to zero) is undefined.
+<t_floating>` type.  
+This instruction is assumed to execute in the default :ref:`floating-point
+environment <floatenv>`.
 
 Example:
 """"""""
 
 .. code-block:: llvm
 
-      %X = fptrunc double 123.0 to float         ; yields float:123.0
-      %Y = fptrunc double 1.0E+300 to float      ; yields undefined
+      %X = fptrunc double 16777217.0 to float    ; yields float:16777216.0
+      %Y = fptrunc double 1.0E+300 to half       ; yields half:+infinity
 
 '``fpext .. to``' Instruction
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -12901,7 +12907,7 @@ Semantics:
 
 This intrinsic indicates that the memory is mutable again.
 
-'``llvm.invariant.group.barrier``' Intrinsic
+'``llvm.launder.invariant.group``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Syntax:
@@ -12912,20 +12918,21 @@ argument.
 
 ::
 
-      declare i8* @llvm.invariant.group.barrier.p0i8(i8* <ptr>)
+      declare i8* @llvm.launder.invariant.group.p0i8(i8* <ptr>)
 
 Overview:
 """""""""
 
-The '``llvm.invariant.group.barrier``' intrinsic can be used when an invariant
+The '``llvm.launder.invariant.group``' intrinsic can be used when an invariant
 established by invariant.group metadata no longer holds, to obtain a new pointer
-value that does not carry the invariant information.
+value that does not carry the invariant information. It is an experimental
+intrinsic, which means that its semantics might change in the future.
 
 
 Arguments:
 """"""""""
 
-The ``llvm.invariant.group.barrier`` takes only one argument, which is
+The ``llvm.launder.invariant.group`` takes only one argument, which is
 the pointer to the memory for which the ``invariant.group`` no longer holds.
 
 Semantics:
@@ -12933,6 +12940,7 @@ Semantics:
 
 Returns another pointer that aliases its argument but which is considered different
 for the purposes of ``load``/``store`` ``invariant.group`` metadata.
+It does not read any accessible memory and the execution can be speculated.
 
 .. _constrainedfp:
 

@@ -12,6 +12,7 @@
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tab_grid_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_controller_base_feature.h"
+#import "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #import "ios/third_party/material_components_ios/src/components/ProgressView/src/MaterialProgressView.h"
 
@@ -27,7 +28,7 @@
 @property(nonatomic, strong) UIView* contentView;
 
 // The blur visual effect view, redefined as readwrite.
-@property(nonatomic, strong, readwrite) UIVisualEffectView* blur;
+@property(nonatomic, strong, readwrite) UIView* blur;
 
 // Container for the location bar, redefined as readwrite.
 @property(nonatomic, strong, readwrite) UIView* locationBarContainer;
@@ -144,12 +145,30 @@
   return CGSizeMake(UIViewNoIntrinsicMetric, kAdaptiveToolbarHeight);
 }
 
+- (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
+  [super traitCollectionDidChange:previousTraitCollection];
+  if (IsRegularXRegularSizeClass(self)) {
+    self.backgroundColor =
+        self.buttonFactory.toolbarConfiguration.backgroundColor;
+    self.blur.alpha = 0;
+  } else {
+    self.backgroundColor = [UIColor clearColor];
+    self.blur.alpha = 1;
+  }
+}
+
 #pragma mark - Setup
 
 // Sets the blur effect on the toolbar background.
 - (void)setUpBlurredBackground {
   UIBlurEffect* blurEffect = self.buttonFactory.toolbarConfiguration.blurEffect;
-  self.blur = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
+  if (blurEffect) {
+    self.blur = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
+  } else {
+    self.blur = [[UIView alloc] init];
+  }
+  self.blur.backgroundColor =
+      self.buttonFactory.toolbarConfiguration.blurBackgroundColor;
   [self addSubview:self.blur];
 
   self.contentView = self;
@@ -163,7 +182,6 @@
     vibrancyView.translatesAutoresizingMaskIntoConstraints = NO;
     AddSameConstraints(self, vibrancyView);
   }
-
 
   self.blur.translatesAutoresizingMaskIntoConstraints = NO;
   AddSameConstraints(self.blur, self);
@@ -201,14 +219,12 @@
 - (void)setUpLeadingStackView {
   self.backButton = [self.buttonFactory backButton];
   self.forwardButton = [self.buttonFactory forwardButton];
-  self.tabGridButton = [self.buttonFactory tabGridButton];
   self.stopButton = [self.buttonFactory stopButton];
   self.stopButton.hiddenInCurrentState = YES;
   self.reloadButton = [self.buttonFactory reloadButton];
 
   self.leadingStackViewButtons = @[
-    self.backButton, self.forwardButton, self.tabGridButton, self.stopButton,
-    self.reloadButton
+    self.backButton, self.forwardButton, self.stopButton, self.reloadButton
   ];
   self.leadingStackView = [[UIStackView alloc]
       initWithArrangedSubviews:self.leadingStackViewButtons];
@@ -225,10 +241,13 @@
 - (void)setUpTrailingStackView {
   self.shareButton = [self.buttonFactory shareButton];
   self.bookmarkButton = [self.buttonFactory bookmarkButton];
+  self.tabGridButton = [self.buttonFactory tabGridButton];
   self.toolsMenuButton = [self.buttonFactory toolsMenuButton];
 
-  self.trailingStackViewButtons =
-      @[ self.shareButton, self.bookmarkButton, self.toolsMenuButton ];
+  self.trailingStackViewButtons = @[
+    self.shareButton, self.bookmarkButton, self.tabGridButton,
+    self.toolsMenuButton
+  ];
   self.trailingStackView = [[UIStackView alloc]
       initWithArrangedSubviews:self.trailingStackViewButtons];
   self.trailingStackView.translatesAutoresizingMaskIntoConstraints = NO;

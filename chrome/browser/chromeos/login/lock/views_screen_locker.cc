@@ -8,6 +8,7 @@
 #include <string>
 #include <utility>
 
+#include "ash/public/interfaces/login_user_info.mojom.h"
 #include "base/bind.h"
 #include "base/i18n/time_formatting.h"
 #include "base/metrics/histogram_macros.h"
@@ -17,10 +18,11 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/lock_screen_apps/state_controller.h"
 #include "chrome/browser/chromeos/login/lock_screen_utils.h"
+#include "chrome/browser/chromeos/login/quick_unlock/pin_backend.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_factory.h"
 #include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_storage.h"
 #include "chrome/browser/chromeos/login/screens/chrome_user_selection_screen.h"
-#include "chrome/browser/chromeos/login/user_selection_screen_proxy.h"
+#include "chrome/browser/chromeos/login/user_board_view_mojo.h"
 #include "chrome/browser/chromeos/system/system_clock.h"
 #include "chrome/browser/ui/ash/session_controller_client.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
@@ -28,6 +30,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/components/proximity_auth/screenlock_bridge.h"
+#include "chromeos/login/auth/authpolicy_login_helper.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/version_info/version_info.h"
@@ -39,6 +42,21 @@ namespace chromeos {
 
 namespace {
 constexpr char kLockDisplay[] = "lock";
+
+ash::mojom::FingerprintUnlockState ConvertFromFingerprintState(
+    ScreenLocker::FingerprintState state) {
+  switch (state) {
+    case ScreenLocker::FingerprintState::kRemoved:
+    case ScreenLocker::FingerprintState::kHidden:
+    case ScreenLocker::FingerprintState::kDefault:
+      return ash::mojom::FingerprintUnlockState::UNAVAILABLE;
+    case ScreenLocker::FingerprintState::kSignin:
+      return ash::mojom::FingerprintUnlockState::AUTH_SUCCESS;
+    case ScreenLocker::FingerprintState::kFailed:
+      return ash::mojom::FingerprintUnlockState::AUTH_FAILED;
+  }
+}
+
 }  // namespace
 
 ViewsScreenLocker::ViewsScreenLocker(ScreenLocker* screen_locker)
@@ -46,10 +64,10 @@ ViewsScreenLocker::ViewsScreenLocker(ScreenLocker* screen_locker)
       version_info_updater_(this),
       weak_factory_(this) {
   LoginScreenClient::Get()->SetDelegate(this);
-  user_selection_screen_proxy_ = std::make_unique<UserSelectionScreenProxy>();
+  user_board_view_mojo_ = std::make_unique<UserBoardViewMojo>();
   user_selection_screen_ =
       std::make_unique<ChromeUserSelectionScreen>(kLockDisplay);
-  user_selection_screen_->SetView(user_selection_screen_proxy_.get());
+  user_selection_screen_->SetView(user_board_view_mojo_.get());
 
   allowed_input_methods_subscription_ =
       CrosSettings::Get()->AddSettingsObserver(
@@ -150,7 +168,8 @@ void ViewsScreenLocker::OnAshLockAnimationFinished() {
 void ViewsScreenLocker::SetFingerprintState(
     const AccountId& account_id,
     ScreenLocker::FingerprintState state) {
-  NOTIMPLEMENTED();
+  LoginScreenClient::Get()->login_screen()->SetFingerprintUnlockState(
+      account_id, ConvertFromFingerprintState(state));
 }
 
 content::WebContents* ViewsScreenLocker::GetWebContents() {
@@ -159,8 +178,7 @@ content::WebContents* ViewsScreenLocker::GetWebContents() {
 
 void ViewsScreenLocker::HandleAuthenticateUser(
     const AccountId& account_id,
-    const std::string& hashed_password,
-    const password_manager::SyncPasswordData& sync_password_data,
+    const std::string& password,
     bool authenticated_by_pin,
     AuthenticateUserCallback callback) {
   DCHECK_EQ(account_id.GetUserEmail(),
@@ -172,15 +190,22 @@ void ViewsScreenLocker::HandleAuthenticateUser(
          quick_unlock_storage->IsPinAuthenticationAvailable() ||
          !authenticated_by_pin);
 
-  UserContext user_context(account_id);
-  Key::KeyType key_type =
-      authenticated_by_pin ? chromeos::Key::KEY_TYPE_SALTED_PBKDF2_AES256_1234
-                           : chromeos::Key::KEY_TYPE_SALTED_SHA256_TOP_HALF;
-  user_context.SetKey(Key(key_type, std::string(), hashed_password));
+  const user_manager::User* const user =
+      user_manager::UserManager::Get()->FindUser(account_id);
+  DCHECK(user);
+  UserContext user_context(*user);
+  user_context.SetKey(
+      Key(chromeos::Key::KEY_TYPE_PASSWORD_PLAIN, std::string(), password));
   user_context.SetIsUsingPin(authenticated_by_pin);
-  user_context.SetSyncPasswordData(sync_password_data);
-  if (account_id.GetAccountType() == AccountType::ACTIVE_DIRECTORY)
-    user_context.SetUserType(user_manager::USER_TYPE_ACTIVE_DIRECTORY);
+  user_context.SetSyncPasswordData(password_manager::PasswordHashData(
+      account_id.GetUserEmail(), base::UTF8ToUTF16(password),
+      false /*force_update*/));
+  if (account_id.GetAccountType() == AccountType::ACTIVE_DIRECTORY &&
+      (user_context.GetUserType() !=
+       user_manager::UserType::USER_TYPE_ACTIVE_DIRECTORY)) {
+    LOG(FATAL) << "Incorrect Active Directory user type "
+               << user_context.GetUserType();
+  }
   ScreenLocker::default_screen_locker()->Authenticate(user_context,
                                                       std::move(callback));
   UpdatePinKeyboardState(account_id);
@@ -294,14 +319,9 @@ void ViewsScreenLocker::OnDeviceInfoUpdated(const std::string& bluetooth_name) {
 }
 
 void ViewsScreenLocker::UpdatePinKeyboardState(const AccountId& account_id) {
-  quick_unlock::QuickUnlockStorage* quick_unlock_storage =
-      quick_unlock::QuickUnlockFactory::GetForAccountId(account_id);
-  if (!quick_unlock_storage)
-    return;
-
-  bool is_enabled = quick_unlock_storage->IsPinAuthenticationAvailable();
-  LoginScreenClient::Get()->login_screen()->SetPinEnabledForUser(account_id,
-                                                                 is_enabled);
+  quick_unlock::PinBackend::GetInstance()->CanAuthenticate(
+      account_id, base::BindOnce(&ViewsScreenLocker::OnPinCanAuthenticate,
+                                 weak_factory_.GetWeakPtr(), account_id));
 }
 
 void ViewsScreenLocker::OnAllowedInputMethodsChanged() {
@@ -320,6 +340,12 @@ void ViewsScreenLocker::OnAllowedInputMethodsChanged() {
 void ViewsScreenLocker::OnDevChannelInfoUpdated() {
   LoginScreenClient::Get()->login_screen()->SetDevChannelInfo(
       os_version_label_text_, enterprise_info_text_, bluetooth_name_);
+}
+
+void ViewsScreenLocker::OnPinCanAuthenticate(const AccountId& account_id,
+                                             bool can_authenticate) {
+  LoginScreenClient::Get()->login_screen()->SetPinEnabledForUser(
+      account_id, can_authenticate);
 }
 
 }  // namespace chromeos

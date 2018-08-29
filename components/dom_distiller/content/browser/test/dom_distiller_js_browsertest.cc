@@ -81,10 +81,10 @@ class DomDistillerJsTest : public content::ContentBrowserTest {
     base::FilePath pak_file;
     base::FilePath pak_dir;
 #if defined(OS_ANDROID)
-    CHECK(PathService::Get(base::DIR_ANDROID_APP_DATA, &pak_dir));
+    CHECK(base::PathService::Get(base::DIR_ANDROID_APP_DATA, &pak_dir));
     pak_dir = pak_dir.Append(FILE_PATH_LITERAL("paks"));
 #else
-    PathService::Get(base::DIR_MODULE, &pak_dir);
+    base::PathService::Get(base::DIR_MODULE, &pak_dir);
 #endif  // OS_ANDROID
     pak_file =
         pak_dir.Append(FILE_PATH_LITERAL("components_tests_resources.pak"));
@@ -94,14 +94,20 @@ class DomDistillerJsTest : public content::ContentBrowserTest {
 
   void SetUpTestServer() {
     base::FilePath path;
-    PathService::Get(base::DIR_SOURCE_ROOT, &path);
+    base::PathService::Get(base::DIR_SOURCE_ROOT, &path);
     path = path.AppendASCII(kExternalTestResourcesPath);
     embedded_test_server()->ServeFilesFromDirectory(path);
     ASSERT_TRUE(embedded_test_server()->Start());
   }
 };
 
-IN_PROC_BROWSER_TEST_F(DomDistillerJsTest, RunJsTests) {
+#if defined(MEMORY_SANITIZER)
+// https://crbug.com/845180
+#define MAYBE_RunJsTests DISABLED_RunJsTests
+#else
+#define MAYBE_RunJsTests RunJsTests
+#endif
+IN_PROC_BROWSER_TEST_F(DomDistillerJsTest, MAYBE_RunJsTests) {
   // TODO(jaebaek): Revisit this code when the --use-zoom-for-dsf feature on
   // Android is done. If we remove this code (i.e., enable --use-zoom-for-dsf),
   // HTMLImageElement::LayoutBoxWidth() returns a value that has a small error

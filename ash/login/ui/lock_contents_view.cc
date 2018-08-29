@@ -36,7 +36,6 @@
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/user_manager/user_type.h"
-#include "mojo/common/values_struct_traits.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/display/display.h"
@@ -109,7 +108,12 @@ views::View* FindFirstOrLastFocusableChild(views::View* root, bool reverse) {
   views::FocusTraversable* dummy_focus_traversable;
   views::View* dummy_focus_traversable_view;
   return search.FindNextFocusableView(
-      root, reverse, views::FocusSearch::DOWN, false /*check_starting_view*/,
+      root,
+      reverse ? views::FocusSearch::SearchDirection::kBackwards
+              : views::FocusSearch::SearchDirection::kForwards,
+      views::FocusSearch::TraversalDirection::kDown,
+      views::FocusSearch::StartingViewPolicy::kSkipStartingView,
+      views::FocusSearch::AnchoredDialogPolicy::kCanGoIntoAnchoredDialog,
       &dummy_focus_traversable, &dummy_focus_traversable_view);
 }
 
@@ -389,8 +393,13 @@ void LockContentsView::OnUsersChanged(
   }
 
   // Build user state list.
-  for (const mojom::LoginUserInfoPtr& user : users)
-    users_.push_back(UserState{user->basic_user_info->account_id});
+  for (const mojom::LoginUserInfoPtr& user : users) {
+    UserState state(user->basic_user_info->account_id);
+    state.fingerprint_state = user->allow_fingerprint_unlock
+                                  ? mojom::FingerprintUnlockState::AVAILABLE
+                                  : mojom::FingerprintUnlockState::UNAVAILABLE;
+    users_.push_back(std::move(state));
+  }
 
   auto box_layout =
       std::make_unique<views::BoxLayout>(views::BoxLayout::kHorizontal);
@@ -439,6 +448,32 @@ void LockContentsView::OnPinEnabledForUserChanged(const AccountId& user,
     LayoutAuth(big_user, nullptr /*opt_to_hide*/, true /*animate*/);
 }
 
+void LockContentsView::OnAuthEnabledForUserChanged(
+    const AccountId& user,
+    bool enabled,
+    const base::Optional<base::Time>& auth_reenabled_time) {
+  LockContentsView::UserState* state = FindStateForUser(user);
+  if (!state) {
+    LOG(ERROR) << "Unable to find user when changing auth enabled state to "
+               << enabled;
+    return;
+  }
+
+  DCHECK(enabled || auth_reenabled_time);
+  state->disable_auth = !enabled;
+  // TODO(crbug.com/845287): Reenable lock screen note when auth is reenabled.
+  if (state->disable_auth)
+    DisableLockScreenNote();
+
+  LoginBigUserView* big_user =
+      TryToFindBigUser(user, true /*require_auth_active*/);
+  if (big_user && big_user->auth_user()) {
+    LayoutAuth(big_user, nullptr /*opt_to_hide*/, true /*animate*/);
+    if (auth_reenabled_time)
+      big_user->auth_user()->SetAuthReenabledTime(auth_reenabled_time.value());
+  }
+}
+
 void LockContentsView::OnClickToUnlockEnabledForUserChanged(
     const AccountId& user,
     bool enabled) {
@@ -448,6 +483,20 @@ void LockContentsView::OnClickToUnlockEnabledForUserChanged(
     return;
   }
   state->enable_tap_auth = enabled;
+
+  LoginBigUserView* big_user =
+      TryToFindBigUser(user, true /*require_auth_active*/);
+  if (big_user && big_user->auth_user())
+    LayoutAuth(big_user, nullptr /*opt_to_hide*/, true /*animate*/);
+}
+
+void LockContentsView::OnForceOnlineSignInForUser(const AccountId& user) {
+  LockContentsView::UserState* state = FindStateForUser(user);
+  if (!state) {
+    LOG(ERROR) << "Unable to find user forcing online sign in";
+    return;
+  }
+  state->force_online_sign_in = true;
 
   LoginBigUserView* big_user =
       TryToFindBigUser(user, true /*require_auth_active*/);
@@ -480,6 +529,9 @@ void LockContentsView::OnShowEasyUnlockIcon(
 
 void LockContentsView::OnLockScreenNoteStateChanged(
     mojom::TrayActionState state) {
+  if (disable_lock_screen_note_)
+    state = mojom::TrayActionState::kNotAvailable;
+
   bool old_lock_screen_apps_active = lock_screen_apps_active_;
   lock_screen_apps_active_ = state == mojom::TrayActionState::kActive;
   note_action_->UpdateVisibility(state);
@@ -488,8 +540,9 @@ void LockContentsView::OnLockScreenNoteStateChanged(
   // If lock screen apps just got deactivated - request focus for primary auth,
   // which should focus the password field.
   if (old_lock_screen_apps_active && !lock_screen_apps_active_ &&
-      primary_big_view_)
+      primary_big_view_) {
     primary_big_view_->RequestFocus();
+  }
 }
 
 void LockContentsView::OnDevChannelInfoChanged(
@@ -538,7 +591,7 @@ void LockContentsView::OnPublicSessionDisplayNameChanged(
 
 void LockContentsView::OnPublicSessionLocalesChanged(
     const AccountId& account_id,
-    const base::ListValue& locales,
+    const std::vector<mojom::LocaleItemPtr>& locales,
     const std::string& default_locale,
     bool show_advanced_view) {
   LoginUserView* user_view = TryToFindUserView(account_id);
@@ -546,10 +599,44 @@ void LockContentsView::OnPublicSessionLocalesChanged(
     return;
 
   mojom::LoginUserInfoPtr user_info = user_view->current_user()->Clone();
-  user_info->public_account_info->available_locales =
-      std::make_unique<base::ListValue>(locales.Clone().GetList());
+  user_info->public_account_info->available_locales = mojo::Clone(locales);
   user_info->public_account_info->default_locale = default_locale;
   user_info->public_account_info->show_advanced_view = show_advanced_view;
+  user_view->UpdateForUser(user_info, false /*animate*/);
+}
+
+void LockContentsView::OnPublicSessionKeyboardLayoutsChanged(
+    const AccountId& account_id,
+    const std::string& locale,
+    const std::vector<mojom::InputMethodItemPtr>& keyboard_layouts) {
+  // Update expanded view because keyboard layouts is user interactive content.
+  // I.e. user selects a language locale and the corresponding keyboard layouts
+  // will be changed.
+  if (expanded_view_->visible() &&
+      expanded_view_->current_user()->basic_user_info->account_id ==
+          account_id) {
+    mojom::LoginUserInfoPtr user_info = expanded_view_->current_user()->Clone();
+    user_info->public_account_info->default_locale = locale;
+    user_info->public_account_info->keyboard_layouts =
+        mojo::Clone(keyboard_layouts);
+    expanded_view_->UpdateForUser(user_info);
+  }
+
+  LoginUserView* user_view = TryToFindUserView(account_id);
+  if (!user_view || !IsPublicAccountUser(user_view->current_user())) {
+    LOG(ERROR) << "Unable to find public account user.";
+    return;
+  }
+
+  mojom::LoginUserInfoPtr user_info = user_view->current_user()->Clone();
+  // Skip updating keyboard layouts if |locale| is not the default locale
+  // of the user. I.e. user changed the default locale in the expanded view,
+  // and it should be handled by expanded view.
+  if (user_info->public_account_info->default_locale != locale)
+    return;
+
+  user_info->public_account_info->keyboard_layouts =
+      mojo::Clone(keyboard_layouts);
   user_view->UpdateForUser(user_info, false /*animate*/);
 }
 
@@ -590,6 +677,46 @@ void LockContentsView::OnDetachableBasePairingStatusChanged(
   // the password without seeing the warning about detachable base change.
   if (GetWidget()->IsActive())
     GetWidget()->GetFocusManager()->ClearFocus();
+}
+
+void LockContentsView::OnFingerprintUnlockStateChanged(
+    const AccountId& account_id,
+    mojom::FingerprintUnlockState state) {
+  UserState* user_state = FindStateForUser(account_id);
+  if (!user_state)
+    return;
+
+  user_state->fingerprint_state = state;
+  LoginBigUserView* big_view =
+      TryToFindBigUser(account_id, true /*require_auth_active*/);
+  if (!big_view || !big_view->auth_user())
+    return;
+
+  big_view->auth_user()->SetFingerprintState(user_state->fingerprint_state);
+  LayoutAuth(big_view, nullptr /*opt_to_hide*/, true /*animate*/);
+}
+
+void LockContentsView::SetAvatarForUser(const AccountId& account_id,
+                                        const mojom::UserAvatarPtr& avatar) {
+  auto replace = [&](const ash::mojom::LoginUserInfoPtr& user) {
+    auto changed = user->Clone();
+    changed->basic_user_info->avatar = avatar->Clone();
+    return changed;
+  };
+
+  LoginBigUserView* big =
+      TryToFindBigUser(account_id, false /*require_auth_active*/);
+  if (big) {
+    big->UpdateForUser(replace(big->GetCurrentUser()));
+    return;
+  }
+
+  LoginUserView* user =
+      users_list_ ? users_list_->GetUserView(account_id) : nullptr;
+  if (user) {
+    user->UpdateForUser(replace(user->current_user()), false /*animate*/);
+    return;
+  }
 }
 
 void LockContentsView::OnFocusLeavingLockScreenApps(bool reverse) {
@@ -1122,16 +1249,31 @@ void LockContentsView::UpdateAuthForAuthUser(LoginAuthUserView* opt_to_update,
 
   // Update auth methods for |opt_to_update|. Disable auth on |opt_to_hide|.
   if (opt_to_update) {
-    uint32_t to_update_auth = LoginAuthUserView::AUTH_PASSWORD;
     UserState* state = FindStateForUser(
         opt_to_update->current_user()->basic_user_info->account_id);
-    keyboard::KeyboardController* keyboard_controller = GetKeyboardController();
-    const bool keyboard_visible =
-        keyboard_controller ? keyboard_controller->keyboard_visible() : false;
-    if (state->show_pin && !keyboard_visible)
-      to_update_auth |= LoginAuthUserView::AUTH_PIN;
-    if (state->enable_tap_auth)
-      to_update_auth |= LoginAuthUserView::AUTH_TAP;
+    uint32_t to_update_auth;
+    if (state->force_online_sign_in) {
+      to_update_auth = LoginAuthUserView::AUTH_ONLINE_SIGN_IN;
+    } else if (state->disable_auth) {
+      to_update_auth = LoginAuthUserView::AUTH_DISABLED;
+    } else {
+      to_update_auth = LoginAuthUserView::AUTH_PASSWORD;
+      keyboard::KeyboardController* keyboard_controller =
+          GetKeyboardController();
+      const bool keyboard_visible =
+          keyboard_controller ? keyboard_controller->keyboard_visible() : false;
+      if (state->show_pin && !keyboard_visible &&
+          state->fingerprint_state ==
+              mojom::FingerprintUnlockState::UNAVAILABLE) {
+        to_update_auth |= LoginAuthUserView::AUTH_PIN;
+      }
+      if (state->enable_tap_auth)
+        to_update_auth |= LoginAuthUserView::AUTH_TAP;
+      if (state->fingerprint_state !=
+          mojom::FingerprintUnlockState::UNAVAILABLE) {
+        to_update_auth |= LoginAuthUserView::AUTH_FINGERPRINT;
+      }
+    }
     opt_to_update->SetAuthMethods(to_update_auth);
   }
   if (opt_to_hide)
@@ -1155,6 +1297,11 @@ void LockContentsView::SetDisplayStyle(DisplayStyle style) {
   main_view_->SetVisible(!show_expanded_view);
   top_header_->SetVisible(!show_expanded_view);
   Layout();
+}
+
+void LockContentsView::DisableLockScreenNote() {
+  disable_lock_screen_note_ = true;
+  OnLockScreenNoteStateChanged(mojom::TrayActionState::kNotAvailable);
 }
 
 }  // namespace ash

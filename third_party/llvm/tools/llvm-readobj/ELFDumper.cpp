@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 ///
 /// \file
-/// \brief This file implements the ELF-specific dumper for llvm-readobj.
+/// This file implements the ELF-specific dumper for llvm-readobj.
 ///
 //===----------------------------------------------------------------------===//
 
@@ -115,11 +115,11 @@ struct DynRegionInfo {
   DynRegionInfo(const void *A, uint64_t S, uint64_t ES)
       : Addr(A), Size(S), EntSize(ES) {}
 
-  /// \brief Address in current address space.
+  /// Address in current address space.
   const void *Addr = nullptr;
-  /// \brief Size in bytes of the region.
+  /// Size in bytes of the region.
   uint64_t Size = 0;
-  /// \brief Size of each entity in the region.
+  /// Size of each entity in the region.
   uint64_t EntSize = 0;
 
   template <typename Type> ArrayRef<Type> getAsArrayRef() const {
@@ -1292,6 +1292,8 @@ static const EnumEntry<unsigned> ElfHeaderAMDGPUFlags[] = {
   LLVM_READOBJ_ENUM_ENT(ELF, EF_AMDGPU_MACH_AMDGCN_GFX810),
   LLVM_READOBJ_ENUM_ENT(ELF, EF_AMDGPU_MACH_AMDGCN_GFX900),
   LLVM_READOBJ_ENUM_ENT(ELF, EF_AMDGPU_MACH_AMDGCN_GFX902),
+  LLVM_READOBJ_ENUM_ENT(ELF, EF_AMDGPU_MACH_AMDGCN_GFX904),
+  LLVM_READOBJ_ENUM_ENT(ELF, EF_AMDGPU_MACH_AMDGCN_GFX906),
   LLVM_READOBJ_ENUM_ENT(ELF, EF_AMDGPU_XNACK)
 };
 
@@ -1551,6 +1553,7 @@ static const char *getTypeString(unsigned Arch, uint64_t Type) {
 #include "llvm/BinaryFormat/DynamicTags.def"
 #undef HEXAGON_DYNAMIC_TAG
     }
+
   case EM_MIPS:
     switch (Type) {
 #define MIPS_DYNAMIC_TAG(name, value)                                          \
@@ -1559,12 +1562,22 @@ static const char *getTypeString(unsigned Arch, uint64_t Type) {
 #include "llvm/BinaryFormat/DynamicTags.def"
 #undef MIPS_DYNAMIC_TAG
     }
+
+    case EM_PPC64:
+      switch(Type) {
+#define PPC64_DYNAMIC_TAG(name, value)                                         \
+    case DT_##name:                                                            \
+      return #name;
+#include "llvm/BinaryFormat/DynamicTags.def"
+#undef PPC64_DYNAMIC_TAG
+    }
   }
 #undef DYNAMIC_TAG
   switch (Type) {
 // Now handle all dynamic tags except the architecture specific ones
 #define MIPS_DYNAMIC_TAG(name, value)
 #define HEXAGON_DYNAMIC_TAG(name, value)
+#define PPC64_DYNAMIC_TAG(name, value)
 // Also ignore marker tags such as DT_HIOS (maps to DT_VERNEEDNUM), etc.
 #define DYNAMIC_TAG_MARKER(name, value)
 #define DYNAMIC_TAG(name, value)                                               \
@@ -1574,6 +1587,7 @@ static const char *getTypeString(unsigned Arch, uint64_t Type) {
 #undef DYNAMIC_TAG
 #undef MIPS_DYNAMIC_TAG
 #undef HEXAGON_DYNAMIC_TAG
+#undef PPC64_DYNAMIC_TAG
 #undef DYNAMIC_TAG_MARKER
   default: return "unknown";
   }
@@ -2219,6 +2233,7 @@ static const EnumEntry<unsigned> ElfMipsASEFlags[] = {
   {"microMIPS",          Mips::AFL_ASE_MICROMIPS},
   {"XPA",                Mips::AFL_ASE_XPA},
   {"CRC",                Mips::AFL_ASE_CRC},
+  {"GINV",               Mips::AFL_ASE_GINV},
 };
 
 static const EnumEntry<unsigned> ElfMipsFpABIType[] = {

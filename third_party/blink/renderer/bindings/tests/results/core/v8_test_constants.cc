@@ -8,19 +8,19 @@
 // DO NOT MODIFY!
 
 // clang-format off
-#include "v8_test_constants.h"
+#include "third_party/blink/renderer/bindings/tests/results/core/v8_test_constants.h"
 
 #include "base/memory/scoped_refptr.h"
-#include "bindings/core/v8/exception_state.h"
-#include "bindings/core/v8/v8_dom_configuration.h"
-#include "core/execution_context/execution_context.h"
-#include "core/frame/deprecation.h"
-#include "core/frame/use_counter.h"
-#include "core/origin_trials/origin_trials.h"
-#include "platform/bindings/script_state.h"
-#include "platform/bindings/v8_object_constructor.h"
-#include "platform/runtime_enabled_features.h"
-#include "platform/wtf/get_ptr.h"
+#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_dom_configuration.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/deprecation.h"
+#include "third_party/blink/renderer/core/frame/use_counter.h"
+#include "third_party/blink/renderer/core/origin_trials/origin_trials.h"
+#include "third_party/blink/renderer/platform/bindings/script_state.h"
+#include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/wtf/get_ptr.h"
 
 namespace blink {
 
@@ -120,7 +120,7 @@ static void installV8TestConstantsTemplate(
   };
   V8DOMConfiguration::InstallConstants(
       isolate, interfaceTemplate, prototypeTemplate,
-      V8TestConstantsConstants, WTF_ARRAY_LENGTH(V8TestConstantsConstants));
+      V8TestConstantsConstants, arraysize(V8TestConstantsConstants));
   V8DOMConfiguration::InstallConstantWithGetter(
       isolate, interfaceTemplate, prototypeTemplate,
       "DEPRECATED_CONSTANT", V8TestConstants::DEPRECATED_CONSTANTConstantGetterCallback);
@@ -176,7 +176,7 @@ void V8TestConstants::InstallRuntimeEnabledFeaturesOnTemplate(
     };
     V8DOMConfiguration::InstallConstants(
         isolate, interface_template, prototype_template,
-        constant_configurations, WTF_ARRAY_LENGTH(constant_configurations));
+        constant_configurations, arraysize(constant_configurations));
   }
   if (RuntimeEnabledFeatures::FeatureName2Enabled()) {
     static const V8DOMConfiguration::ConstantConfiguration constant_configurations[] = {
@@ -185,7 +185,7 @@ void V8TestConstants::InstallRuntimeEnabledFeaturesOnTemplate(
     };
     V8DOMConfiguration::InstallConstants(
         isolate, interface_template, prototype_template,
-        constant_configurations, WTF_ARRAY_LENGTH(constant_configurations));
+        constant_configurations, arraysize(constant_configurations));
   }
 
   // Custom signature

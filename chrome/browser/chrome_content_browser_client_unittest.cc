@@ -11,7 +11,6 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
@@ -121,8 +120,6 @@ TEST_F(ChromeContentBrowserClientWindowTest, OpenURL) {
 
 #endif  // !defined(OS_ANDROID)
 
-#if BUILDFLAG(ENABLE_WEBRTC)
-
 // NOTE: Any updates to the expectations in these tests should also be done in
 // the browser test WebRtcDisableEncryptionFlagBrowserTest.
 class DisableWebRtcEncryptionFlagTest : public testing::Test {
@@ -178,8 +175,6 @@ TEST_F(DisableWebRtcEncryptionFlagTest, StableChannel) {
   MaybeCopyDisableWebRtcEncryptionSwitch(version_info::Channel::STABLE);
   EXPECT_FALSE(to_command_line_.HasSwitch(switches::kDisableWebRtcEncryption));
 }
-
-#endif  // ENABLE_WEBRTC
 
 class BlinkSettingsFieldTrialTest : public testing::Test {
  public:
@@ -412,8 +407,6 @@ TEST(ChromeContentBrowserClientTest, GetMetricSuffixForURL) {
 
 #if defined(OS_CHROMEOS)
 
-// This behavior only matters on Chrome OS, which is why this isn't wrapped in
-// ENABLE_MASH_PACKAGED_SERVICES (which is used for Linux Ozone).
 TEST(ChromeContentBrowserClientTest, ShouldTerminateOnServiceQuit) {
   const struct {
     std::string service_name;

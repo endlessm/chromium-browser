@@ -105,8 +105,9 @@ def _FetchHistogramsDataFromJobData(job):
   # hashes and then yielding each histogram. This prevents memory blowouts
   # since we only have 1 gig to work with, but at the cost of increased
   # task time.
-  for isolate_hash in _GetAllIsolateHashesForJob(job):
-    hs = read_value._RetrieveOutputJson(isolate_hash, 'chartjson-output.json')
+  for isolate_server, isolate_hash in _GetAllIsolateHashesForJob(job):
+    hs = read_value._RetrieveOutputJson(
+        isolate_server, isolate_hash, 'chartjson-output.json')
     for h in hs:
       yield h
     del hs
@@ -125,36 +126,34 @@ def _GetAllIsolateHashesForJob(job):
   isolate_hashes = []
 
   # If there are differences, only include Changes with differences.
-  for change_index in xrange(len(job_data['changes'])):
-    if not _IsChangeDifferent(job_data, change_index):
+  for change_index in xrange(len(job_data['state'])):
+    change_state = job_data['state'][change_index]
+    if not _IsChangeDifferent(change_state):
       continue
-    isolate_hashes += _GetIsolateHashesForChange(
-        job_data, change_index, quest_index)
+    isolate_hashes += _GetIsolateHashesForChange(change_state, quest_index)
 
   # Otherwise, just include all Changes.
   if not isolate_hashes:
-    for change_index in xrange(len(job_data['changes'])):
-      isolate_hashes += _GetIsolateHashesForChange(
-          job_data, change_index, quest_index)
+    for change_index in xrange(len(job_data['state'])):
+      change_state = job_data['state'][change_index]
+      isolate_hashes += _GetIsolateHashesForChange(change_state, quest_index)
 
   return isolate_hashes
 
 
-def _IsChangeDifferent(job_data, change_index):
-  if (change_index > 0 and
-      job_data['comparisons'][change_index - 1] == 'different'):
+def _IsChangeDifferent(change_state):
+  if change_state['comparisons'].get('prev') == 'different':
     return True
 
-  if (change_index < len(job_data['changes']) - 1 and
-      job_data['comparisons'][change_index] == 'different'):
+  if change_state['comparisons'].get('next') == 'different':
     return True
 
   return False
 
 
-def _GetIsolateHashesForChange(job_data, change_index, quest_index):
+def _GetIsolateHashesForChange(change_state, quest_index):
   isolate_hashes = []
-  attempts = job_data['attempts'][change_index]
+  attempts = change_state['attempts']
   for attempt_info in attempts:
     executions = attempt_info['executions']
     if quest_index >= len(executions):
@@ -164,6 +163,8 @@ def _GetIsolateHashesForChange(job_data, change_index, quest_index):
     if 'isolate_hash' not in result_arguments:
       continue
 
-    isolate_hashes.append(result_arguments['isolate_hash'])
+    isolate_server = result_arguments.get(
+        'isolate_server', 'https://isolateserver.appspot.com')
+    isolate_hashes.append((isolate_server, result_arguments['isolate_hash']))
 
   return isolate_hashes

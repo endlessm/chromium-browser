@@ -946,6 +946,123 @@ void main()
     glUnmapBuffer(GL_TRANSFORM_FEEDBACK_BUFFER);
 }
 
+// Simple state change tests for line loop drawing. There is some very specific handling of line
+// line loops in Vulkan and we need to test switching between drawElements and drawArrays calls to
+// validate every edge cases.
+class LineLoopStateChangeTest : public StateChangeTest
+{
+  protected:
+    LineLoopStateChangeTest()
+    {
+        setWindowWidth(32);
+        setWindowHeight(32);
+        setConfigRedBits(8);
+        setConfigGreenBits(8);
+        setConfigBlueBits(8);
+        setConfigAlphaBits(8);
+    }
+
+    void validateSquareAndHourglass()
+    {
+        ASSERT_GL_NO_ERROR();
+
+        int quarterWidth  = getWindowWidth() / 4;
+        int quarterHeight = getWindowHeight() / 4;
+
+        // Bottom left
+        EXPECT_PIXEL_COLOR_EQ(quarterWidth, quarterHeight, GLColor::blue);
+
+        // Top left
+        EXPECT_PIXEL_COLOR_EQ(quarterWidth, (quarterHeight * 3), GLColor::blue);
+
+        // Top right
+        // The last pixel isn't filled on a line loop so we check the pixel right before.
+        EXPECT_PIXEL_COLOR_EQ((quarterWidth * 3), (quarterHeight * 3) - 1, GLColor::blue);
+
+        // dead center to validate the hourglass.
+        EXPECT_PIXEL_COLOR_EQ((quarterWidth * 2), quarterHeight * 2, GLColor::blue);
+
+        // Verify line is closed between the 2 last vertices
+        EXPECT_PIXEL_COLOR_EQ((quarterWidth * 2), quarterHeight, GLColor::blue);
+    }
+
+    GLint mPositionLocation;
+};
+
+// Draw an hourglass with a drawElements call followed by a square with drawArrays.
+TEST_P(LineLoopStateChangeTest, DrawElementsThenDrawArrays)
+{
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::Blue());
+    glUseProgram(program);
+
+    // We expect to draw a square with these 4 vertices with a drawArray call.
+    std::vector<Vector3> vertices;
+    CreatePixelCenterWindowCoords({{8, 8}, {8, 24}, {24, 8}, {24, 24}}, getWindowWidth(),
+                                  getWindowHeight(), &vertices);
+
+    // If we use these indices to draw however, we should be drawing an hourglass.
+    auto indices = std::vector<GLushort>{0, 2, 1, 3};
+
+    mPositionLocation = glGetAttribLocation(program, essl1_shaders::PositionAttrib());
+    ASSERT_NE(-1, mPositionLocation);
+
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * vertices.size(), vertices.data(),
+                 GL_STATIC_DRAW);
+
+    GLBuffer indexBuffer;
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLushort), &indices[0],
+                 GL_STATIC_DRAW);
+
+    glVertexAttribPointer(mPositionLocation, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(mPositionLocation);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDrawElements(GL_LINE_LOOP, 4, GL_UNSIGNED_SHORT, nullptr);  // hourglass
+    glDrawArrays(GL_LINE_LOOP, 0, 4);                             // square
+    glDisableVertexAttribArray(mPositionLocation);
+
+    validateSquareAndHourglass();
+}
+
+// Draw line loop using a drawArrays followed by an hourglass with drawElements.
+TEST_P(LineLoopStateChangeTest, DrawArraysThenDrawElements)
+{
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::Blue());
+    glUseProgram(program);
+
+    // We expect to draw a square with these 4 vertices with a drawArray call.
+    std::vector<Vector3> vertices;
+    CreatePixelCenterWindowCoords({{8, 8}, {8, 24}, {24, 8}, {24, 24}}, getWindowWidth(),
+                                  getWindowHeight(), &vertices);
+
+    // If we use these indices to draw however, we should be drawing an hourglass.
+    auto indices = std::vector<GLushort>{0, 2, 1, 3};
+
+    mPositionLocation = glGetAttribLocation(program, essl1_shaders::PositionAttrib());
+    ASSERT_NE(-1, mPositionLocation);
+
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * vertices.size(), vertices.data(),
+                 GL_STATIC_DRAW);
+
+    GLBuffer indexBuffer;
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLushort), &indices[0],
+                 GL_STATIC_DRAW);
+
+    glVertexAttribPointer(mPositionLocation, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(mPositionLocation);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDrawArrays(GL_LINE_LOOP, 0, 4);                             // square
+    glDrawElements(GL_LINE_LOOP, 4, GL_UNSIGNED_SHORT, nullptr);  // hourglass
+    glDisableVertexAttribArray(mPositionLocation);
+
+    validateSquareAndHourglass();
+}
+
 // Simple state change tests, primarily focused on basic object lifetime and dependency management
 // with back-ends that don't support that automatically (i.e. Vulkan).
 class SimpleStateChangeTest : public ANGLETest
@@ -1006,6 +1123,61 @@ void SimpleStateChangeTest::simpleDrawWithColor(const GLColor &color)
     glBindBuffer(GL_ARRAY_BUFFER, colorBuffer);
     glBufferData(GL_ARRAY_BUFFER, colors.size() * sizeof(GLColor), colors.data(), GL_STATIC_DRAW);
     simpleDrawWithBuffer(&colorBuffer);
+}
+
+// Test that we can do a drawElements call successfully after making a drawArrays call in the same
+// frame.
+TEST_P(SimpleStateChangeTest, DrawArraysThenDrawElements)
+{
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::Blue());
+    glUseProgram(program);
+
+    // We expect to draw a triangle with the first 3 points to the left, then another triangle with
+    // the last 3 vertices using a drawElements call.
+    auto vertices = std::vector<Vector3>{{-1.0f, -1.0f, 0.0f},
+                                         {-1.0f, 1.0f, 0.0f},
+                                         {0.0f, 0.0f, 0.0f},
+                                         {1.0f, 1.0f, 0.0f},
+                                         {1.0f, -1.0f, 0.0f}};
+
+    // If we use these indices to draw we'll be using the last 2 vertex only to draw.
+    auto indices = std::vector<GLushort>{2, 3, 4};
+
+    GLint positionLocation = glGetAttribLocation(program, essl1_shaders::PositionAttrib());
+    ASSERT_NE(-1, positionLocation);
+
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * vertices.size(), vertices.data(),
+                 GL_STATIC_DRAW);
+
+    GLBuffer indexBuffer;
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLushort), &indices[0],
+                 GL_STATIC_DRAW);
+
+    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(positionLocation);
+
+    for (int i = 0; i < 10; i++)
+    {
+        glClear(GL_COLOR_BUFFER_BIT);
+        glDrawArrays(GL_TRIANGLES, 0, 3);                             // triangle to the left
+        glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_SHORT, nullptr);  // triangle to the right
+        swapBuffers();
+    }
+    glDisableVertexAttribArray(positionLocation);
+
+    ASSERT_GL_NO_ERROR();
+
+    int quarterWidth = getWindowWidth() / 4;
+    int halfHeight   = getWindowHeight() / 2;
+
+    // Validate triangle to the left
+    EXPECT_PIXEL_COLOR_EQ(quarterWidth, halfHeight, GLColor::blue);
+
+    // Validate triangle to the right
+    EXPECT_PIXEL_COLOR_EQ((quarterWidth * 3), halfHeight, GLColor::blue);
 }
 
 // Handles deleting a Buffer when it's being used.
@@ -1099,6 +1271,180 @@ TEST_P(SimpleStateChangeTest, DeleteTextureInUse)
     EXPECT_PIXEL_COLOR_EQ(w, 0, GLColor::green);
     EXPECT_PIXEL_COLOR_EQ(0, h, GLColor::blue);
     EXPECT_PIXEL_COLOR_EQ(w, h, GLColor::yellow);
+}
+
+// Tests that modifying a texture parameter in-flight does not cause problems.
+TEST_P(SimpleStateChangeTest, ChangeTextureFilterModeBetweenTwoDraws)
+{
+    std::array<GLColor, 4> colors = {
+        {GLColor::black, GLColor::white, GLColor::black, GLColor::white}};
+
+    GLTexture tex;
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, colors.data());
+
+    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Draw to the left side of the window only with NEAREST.
+    glViewport(0, 0, getWindowWidth() / 2, getWindowHeight());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    draw2DTexturedQuad(0.5f, 1.0f, true);
+
+    // Draw to the right side of the window only with LINEAR.
+    glViewport(getWindowWidth() / 2, 0, getWindowWidth() / 2, getWindowHeight());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    draw2DTexturedQuad(0.5f, 1.0f, true);
+    EXPECT_GL_NO_ERROR();
+
+    glViewport(0, 0, getWindowWidth(), getWindowHeight());
+
+    // The first half (left) should be only black followed by plain white.
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::black);
+    EXPECT_PIXEL_COLOR_EQ(1, 0, GLColor::black);
+    EXPECT_PIXEL_COLOR_EQ((getWindowWidth() / 2) - 3, 0, GLColor::white);
+    EXPECT_PIXEL_COLOR_EQ((getWindowWidth() / 2) - 4, 0, GLColor::white);
+
+    // The second half (right) should be a gradient so we shouldn't find plain black/white in the
+    // middle.
+    EXPECT_NE(angle::ReadColor((getWindowWidth() / 4) * 3, 0), GLColor::black);
+    EXPECT_NE(angle::ReadColor((getWindowWidth() / 4) * 3, 0), GLColor::white);
+}
+
+// Tests that bind the same texture all the time between different draw calls.
+TEST_P(SimpleStateChangeTest, RebindTextureDrawAgain)
+{
+    GLuint program = get2DTexturedQuadProgram();
+    glUseProgram(program);
+
+    std::array<GLColor, 4> colors = {{GLColor::cyan, GLColor::cyan, GLColor::cyan, GLColor::cyan}};
+
+    // Setup the texture
+    GLTexture tex;
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, colors.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    // Setup the vertex array to draw a quad.
+    GLint positionLocation = glGetAttribLocation(program, "position");
+    setupQuadVertexBuffer(1.0f, 1.0f);
+    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(positionLocation);
+
+    // Draw quad
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    ASSERT_GL_NO_ERROR();
+
+    // Bind again
+    glBindTexture(GL_TEXTURE_2D, tex);
+    ASSERT_GL_NO_ERROR();
+
+    // Draw again, should still work.
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    ASSERT_GL_NO_ERROR();
+
+    // Validate whole surface is filled with cyan.
+    int h = getWindowHeight() - 1;
+    int w = getWindowWidth() - 1;
+
+    EXPECT_PIXEL_RECT_EQ(0, 0, w, h, GLColor::cyan);
+}
+
+// Tests that we can draw with a texture, modify the texture with a texSubImage, and then draw again
+// correctly.
+TEST_P(SimpleStateChangeTest, DrawWithTextureTexSubImageThenDrawAgain)
+{
+    GLuint program = get2DTexturedQuadProgram();
+    ASSERT_NE(0u, program);
+    glUseProgram(program);
+
+    std::array<GLColor, 4> colors    = {{GLColor::red, GLColor::red, GLColor::red, GLColor::red}};
+    std::array<GLColor, 4> subColors = {
+        {GLColor::green, GLColor::green, GLColor::green, GLColor::green}};
+
+    // Setup the texture
+    GLTexture tex;
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, colors.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    // Setup the vertex array to draw a quad.
+    GLint positionLocation = glGetAttribLocation(program, "position");
+    setupQuadVertexBuffer(1.0f, 1.0f);
+    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(positionLocation);
+
+    // Draw quad
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    ASSERT_GL_NO_ERROR();
+
+    // Update bottom-half of texture with green.
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 2, 1, GL_RGBA, GL_UNSIGNED_BYTE, subColors.data());
+    ASSERT_GL_NO_ERROR();
+
+    // Draw again, should still work.
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    ASSERT_GL_NO_ERROR();
+
+    // Validate first half of the screen is red and the bottom is green.
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+    EXPECT_PIXEL_COLOR_EQ(0, getWindowHeight() / 4 * 3, GLColor::red);
+}
+
+// Test that we can alternate between textures between different draws.
+TEST_P(SimpleStateChangeTest, DrawTextureAThenTextureBThenTextureA)
+{
+    GLuint program = get2DTexturedQuadProgram();
+    glUseProgram(program);
+
+    std::array<GLColor, 4> colorsTex1 = {
+        {GLColor::cyan, GLColor::cyan, GLColor::cyan, GLColor::cyan}};
+
+    std::array<GLColor, 4> colorsTex2 = {
+        {GLColor::magenta, GLColor::magenta, GLColor::magenta, GLColor::magenta}};
+
+    // Setup the texture
+    GLTexture tex1;
+    glBindTexture(GL_TEXTURE_2D, tex1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, colorsTex1.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    GLTexture tex2;
+    glBindTexture(GL_TEXTURE_2D, tex2);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, colorsTex2.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    // Setup the vertex array to draw a quad.
+    GLint positionLocation = glGetAttribLocation(program, "position");
+    setupQuadVertexBuffer(1.0f, 1.0f);
+    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(positionLocation);
+
+    // Draw quad
+    glBindTexture(GL_TEXTURE_2D, tex1);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    ASSERT_GL_NO_ERROR();
+
+    // Bind again, draw again
+    glBindTexture(GL_TEXTURE_2D, tex2);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    ASSERT_GL_NO_ERROR();
+
+    // Bind again, draw again
+    glBindTexture(GL_TEXTURE_2D, tex1);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    // Validate whole surface is filled with cyan.
+    int h = getWindowHeight() - 1;
+    int w = getWindowWidth() - 1;
+
+    EXPECT_PIXEL_RECT_EQ(0, 0, w, h, GLColor::cyan);
 }
 
 // Tests that redefining an in-flight Texture does not affect the in-flight resource.
@@ -1196,17 +1542,6 @@ TEST_P(SimpleStateChangeTest, UpdateTextureInUse)
     ASSERT_GL_NO_ERROR();
 }
 
-const char kSolidColorVertexShader[] = R"(attribute vec2 position;
-void main()
-{
-    gl_Position = vec4(position, 0, 1);
-})";
-
-const char kSolidColorFragmentShader[] = R"(void main()
-{
-    gl_FragColor = vec4(1, 0, 0, 1);
-})";
-
 // Tests deleting a Framebuffer that is in use.
 TEST_P(SimpleStateChangeTest, DeleteFramebufferInUse)
 {
@@ -1225,8 +1560,8 @@ TEST_P(SimpleStateChangeTest, DeleteFramebufferInUse)
     glViewport(0, 0, kSize, kSize);
 
     // Draw a solid red color to the framebuffer.
-    ANGLE_GL_PROGRAM(program, kSolidColorVertexShader, kSolidColorFragmentShader);
-    drawQuad(program, "position", 0.5f, 1.0f, true);
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
+    drawQuad(program, essl1_shaders::PositionAttrib(), 0.5f, 1.0f, true);
 
     // Delete the framebuffer while the call is in flight.
     framebuffer.reset();
@@ -1239,6 +1574,60 @@ TEST_P(SimpleStateChangeTest, DeleteFramebufferInUse)
     // Flush via ReadPixels and check red was drawn.
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
     ASSERT_GL_NO_ERROR();
+}
+
+// This test was made to reproduce a specific issue with our Vulkan backend where were releasing
+// buffers too early. The test has 2 textures, we first create a texture and update it with
+// multiple updates, but we don't use it right away, we instead draw using another texture
+// then we bind the first texture and draw with it.
+TEST_P(SimpleStateChangeTest, DynamicAllocationOfMemoryForTextures)
+{
+    constexpr int kSize = 64;
+
+    GLuint program = get2DTexturedQuadProgram();
+    glUseProgram(program);
+
+    std::vector<GLColor> greenPixels(kSize * kSize, GLColor::green);
+    std::vector<GLColor> redPixels(kSize * kSize, GLColor::red);
+    GLTexture texture1;
+    glBindTexture(GL_TEXTURE_2D, texture1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+    for (int i = 0; i < 100; i++)
+    {
+        // We do this a lot of time to make sure we use multiple buffers in the vulkan backend.
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kSize, kSize, GL_RGBA, GL_UNSIGNED_BYTE,
+                        greenPixels.data());
+    }
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    ASSERT_GL_NO_ERROR();
+
+    GLTexture texture2;
+    glBindTexture(GL_TEXTURE_2D, texture2);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, redPixels.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    // Setup the vertex array to draw a quad.
+    GLint positionLocation = glGetAttribLocation(program, "position");
+    setupQuadVertexBuffer(1.0f, 1.0f);
+    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(positionLocation);
+
+    // Draw quad with texture 2 while texture 1 has "staged" changes that have not been flushed yet.
+    glBindTexture(GL_TEXTURE_2D, texture2);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // If we now try to draw with texture1, we should trigger the issue.
+    glBindTexture(GL_TEXTURE_2D, texture1);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 }
 
 // Tests deleting a Framebuffer that is in use.
@@ -1310,7 +1699,7 @@ TEST_P(SimpleStateChangeTest, RedefineFramebufferTexture)
 // Validates disabling cull face really disables it.
 TEST_P(SimpleStateChangeTest, EnableAndDisableCullFace)
 {
-    ANGLE_GL_PROGRAM(program, kSolidColorVertexShader, kSolidColorFragmentShader);
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
     glUseProgram(program);
 
     glClear(GL_COLOR_BUFFER_BIT);
@@ -1318,7 +1707,7 @@ TEST_P(SimpleStateChangeTest, EnableAndDisableCullFace)
 
     glCullFace(GL_FRONT);
 
-    drawQuad(program.get(), "position", 0.0f, 1.0f, true);
+    drawQuad(program.get(), essl1_shaders::PositionAttrib(), 0.0f, 1.0f, true);
 
     ASSERT_GL_NO_ERROR();
 
@@ -1327,7 +1716,7 @@ TEST_P(SimpleStateChangeTest, EnableAndDisableCullFace)
     // Disable cull face and redraw, then make sure we have the quad drawn.
     glDisable(GL_CULL_FACE);
 
-    drawQuad(program.get(), "position", 0.0f, 1.0f, true);
+    drawQuad(program.get(), essl1_shaders::PositionAttrib(), 0.0f, 1.0f, true);
 
     ASSERT_GL_NO_ERROR();
 
@@ -1341,7 +1730,7 @@ TEST_P(SimpleStateChangeTest, ScissorTest)
     // 2- Enable it and validate its working.
     // 3- Disable the scissor validate its not used anymore.
 
-    ANGLE_GL_PROGRAM(program, kSolidColorVertexShader, kSolidColorFragmentShader);
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
 
     glClear(GL_COLOR_BUFFER_BIT);
 
@@ -1350,7 +1739,7 @@ TEST_P(SimpleStateChangeTest, ScissorTest)
               getWindowHeight() / 2);
 
     // Fill the whole screen with a quad.
-    drawQuad(program.get(), "position", 0.0f, 1.0f, true);
+    drawQuad(program.get(), essl1_shaders::PositionAttrib(), 0.0f, 1.0f, true);
 
     ASSERT_GL_NO_ERROR();
 
@@ -1364,7 +1753,7 @@ TEST_P(SimpleStateChangeTest, ScissorTest)
     glClear(GL_COLOR_BUFFER_BIT);
     glEnable(GL_SCISSOR_TEST);
 
-    drawQuad(program.get(), "position", 0.0f, 1.0f, true);
+    drawQuad(program.get(), essl1_shaders::PositionAttrib(), 0.0f, 1.0f, true);
 
     ASSERT_GL_NO_ERROR();
 
@@ -1381,7 +1770,7 @@ TEST_P(SimpleStateChangeTest, ScissorTest)
     // Clear everything and start over with the test enabled.
     glClear(GL_COLOR_BUFFER_BIT);
 
-    drawQuad(program.get(), "position", 0.0f, 1.0f, true);
+    drawQuad(program.get(), essl1_shaders::PositionAttrib(), 0.0f, 1.0f, true);
 
     ASSERT_GL_NO_ERROR();
 
@@ -1404,15 +1793,7 @@ void main()
     gl_Position = vec4(position + uniPosModifier, 0, 1);
 })";
 
-    constexpr char kColorUniformFragmentShader[] = R"(
-precision mediump float;
-uniform vec4 uniColor;
-void main()
-{
-    gl_FragColor = uniColor;
-})";
-
-    ANGLE_GL_PROGRAM(program, kPositionUniformVertexShader, kColorUniformFragmentShader);
+    ANGLE_GL_PROGRAM(program, kPositionUniformVertexShader, essl1_shaders::fs::UniformColor());
     glUseProgram(program);
 
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -1420,7 +1801,7 @@ void main()
 
     GLint posUniformLocation = glGetUniformLocation(program, "uniPosModifier");
     ASSERT_NE(posUniformLocation, -1);
-    GLint colorUniformLocation = glGetUniformLocation(program, "uniColor");
+    GLint colorUniformLocation = glGetUniformLocation(program, essl1_shaders::ColorUniform());
     ASSERT_NE(colorUniformLocation, -1);
 
     // draw a red quad to the left side.
@@ -1494,19 +1875,6 @@ TEST_P(SimpleStateChangeTest, RedefineRenderbufferInUse)
 // at the full size of the new framebuffer.
 TEST_P(SimpleStateChangeTest, ChangeFramebufferSizeBetweenTwoDraws)
 {
-    constexpr char vertexShader[] =
-        R"(attribute vec2 position;
-void main()
-{
-    gl_Position = vec4(position, 0, 1);
-})";
-
-    constexpr char fragShader[] = R"(precision mediump float;
-uniform vec4 color;
-void main() {
-    gl_FragColor = color;
-})";
-
     constexpr size_t kSmallTextureSize = 2;
     constexpr size_t kBigTextureSize   = 4;
 
@@ -1536,9 +1904,9 @@ void main() {
     ASSERT_GL_NO_ERROR();
     ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
 
-    ANGLE_GL_PROGRAM(program, vertexShader, fragShader);
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
     glUseProgram(program);
-    GLint uniformLocation = glGetUniformLocation(program, "color");
+    GLint uniformLocation = glGetUniformLocation(program, essl1_shaders::ColorUniform());
     ASSERT_NE(uniformLocation, -1);
 
     // Bind to the first framebuffer for drawing.
@@ -1554,7 +1922,7 @@ void main() {
     glViewport(0, 0, kSmallTextureSize, kSmallTextureSize);
 
     // Draw a full sized red quad
-    drawQuad(program, "position", 1.0f, 1.0f, true);
+    drawQuad(program, essl1_shaders::PositionAttrib(), 1.0f, 1.0f, true);
     ASSERT_GL_NO_ERROR();
 
     // Bind to the second (bigger) framebuffer
@@ -1567,20 +1935,122 @@ void main() {
     glUniform4f(uniformLocation, 0.0f, 1.0f, 0.0f, 1.0f);
 
     // Draw again and we should fill everything with green and expect everything to be green.
-    drawQuad(program, "position", 1.0f, 1.0f, true);
+    drawQuad(program, essl1_shaders::PositionAttrib(), 1.0f, 1.0f, true);
     ASSERT_GL_NO_ERROR();
 
     EXPECT_PIXEL_RECT_EQ(0, 0, kBigTextureSize, kBigTextureSize, GLColor::green);
 }
 
+// Tries to relink a program in use and use it again to draw something else.
+TEST_P(SimpleStateChangeTest, RelinkProgram)
+{
+    const GLuint program = glCreateProgram();
+
+    GLuint vs     = CompileShader(GL_VERTEX_SHADER, essl1_shaders::vs::Simple());
+    GLuint blueFs = CompileShader(GL_FRAGMENT_SHADER, essl1_shaders::fs::Blue());
+    GLuint redFs  = CompileShader(GL_FRAGMENT_SHADER, essl1_shaders::fs::Red());
+
+    glAttachShader(program, vs);
+    glAttachShader(program, blueFs);
+
+    glLinkProgram(program);
+    CheckLinkStatusAndReturnProgram(program, true);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    std::vector<Vector3> vertices = {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 0.0f}, {1.0f, -1.0f, 0.0f},
+                                     {-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 0.0f}, {-1.0, 1.0f, 0.0f}};
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * vertices.size(), vertices.data(),
+                 GL_STATIC_DRAW);
+    const GLint positionLocation = glGetAttribLocation(program, essl1_shaders::PositionAttrib());
+    ASSERT_NE(-1, positionLocation);
+    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(positionLocation);
+
+    // Draw a blue triangle to the right
+    glUseProgram(program);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    // Relink to draw red to the left
+    glDetachShader(program, blueFs);
+    glAttachShader(program, redFs);
+
+    glLinkProgram(program);
+    CheckLinkStatusAndReturnProgram(program, true);
+
+    glDrawArrays(GL_TRIANGLES, 3, 3);
+
+    ASSERT_GL_NO_ERROR();
+
+    glDisableVertexAttribArray(positionLocation);
+
+    // Verify we drew red and green in the right places.
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 2, 0, GLColor::blue);
+    EXPECT_PIXEL_COLOR_EQ(0, getWindowHeight() / 2, GLColor::red);
+
+    glDeleteShader(vs);
+    glDeleteShader(blueFs);
+    glDeleteShader(redFs);
+    glDeleteProgram(program);
+}
+
+// Creates a program that uses uniforms and then immediately release it and then use it. Should be
+// valid.
+TEST_P(SimpleStateChangeTest, ReleaseShaderInUseThatReadsFromUniforms)
+{
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+    glUseProgram(program);
+
+    const GLint uniformLoc = glGetUniformLocation(program, essl1_shaders::ColorUniform());
+    EXPECT_NE(-1, uniformLoc);
+
+    // Set color to red.
+    glUniform4f(uniformLoc, 1.0f, 0.0f, 0.0f, 1.0f);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    std::vector<Vector3> vertices = {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 0.0f}, {1.0f, -1.0f, 0.0f}};
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * vertices.size(), vertices.data(),
+                 GL_STATIC_DRAW);
+    const GLint positionLocation = glGetAttribLocation(program, essl1_shaders::PositionAttrib());
+    ASSERT_NE(-1, positionLocation);
+    glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(positionLocation);
+
+    // Release program while its in use.
+    glDeleteProgram(program);
+
+    // Draw a red triangle
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    // Set color to green
+    glUniform4f(uniformLoc, 1.0f, 0.0f, 0.0f, 1.0f);
+
+    // Draw a green triangle
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    ASSERT_GL_NO_ERROR();
+
+    glDisableVertexAttribArray(positionLocation);
+
+    // Verify we drew red in the end since thats the last draw.
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 2, 0, GLColor::red);
+}
+
 }  // anonymous namespace
 
 ANGLE_INSTANTIATE_TEST(StateChangeTest, ES2_D3D9(), ES2_D3D11(), ES2_OPENGL());
+ANGLE_INSTANTIATE_TEST(LineLoopStateChangeTest,
+                       ES2_D3D9(),
+                       ES2_D3D11(),
+                       ES2_OPENGL(),
+                       ES2_VULKAN());
 ANGLE_INSTANTIATE_TEST(StateChangeRenderTest,
                        ES2_D3D9(),
                        ES2_D3D11(),
                        ES2_OPENGL(),
                        ES2_D3D11_FL9_3());
 ANGLE_INSTANTIATE_TEST(StateChangeTestES3, ES3_D3D11(), ES3_OPENGL());
-
 ANGLE_INSTANTIATE_TEST(SimpleStateChangeTest, ES2_VULKAN(), ES2_OPENGL());

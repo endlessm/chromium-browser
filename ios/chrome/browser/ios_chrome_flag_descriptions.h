@@ -7,18 +7,49 @@
 
 namespace flag_descriptions {
 
-// Title and description for the flag to controll the autofill delay.
-extern const char kAutofillIOSDelayBetweenFieldsName[];
-extern const char kAutofillIOSDelayBetweenFieldsDescription[];
+// Title and description for the flag to control the autofill query cache.
+extern const char kAutofillCacheQueryResponsesName[];
+extern const char kAutofillCacheQueryResponsesDescription[];
 
-// Title and description for the flag to controll the dynamic autofill.
+// Title and description for the flag to control upstreaming credit cards.
+extern const char kAutofillCreditCardUploadName[];
+extern const char kAutofillCreditCardUploadDescription[];
+
+// Title and description for the flag to control the updated prompt explanation
+// when offering credit card upload.
+extern const char kEnableAutofillCreditCardUploadUpdatePromptExplanationName[];
+extern const char
+    kEnableAutofillCreditCardUploadUpdatePromptExplanationDescription[];
+
+// Title and description for the flag to control the dynamic autofill.
 extern const char kAutofillDynamicFormsName[];
 extern const char kAutofillDynamicFormsDescription[];
+
+// Enforcing restrictions to enable/disable autofill small form support.
+extern const char kAutofillEnforceMinRequiredFieldsForHeuristicsName[];
+extern const char kAutofillEnforceMinRequiredFieldsForHeuristicsDescription[];
+extern const char kAutofillEnforceMinRequiredFieldsForQueryName[];
+extern const char kAutofillEnforceMinRequiredFieldsForQueryDescription[];
+extern const char kAutofillEnforceMinRequiredFieldsForUploadName[];
+extern const char kAutofillEnforceMinRequiredFieldsForUploadDescription[];
+
+// Title and description for the flag to control the autofill delay.
+extern const char kAutofillIOSDelayBetweenFieldsName[];
+extern const char kAutofillIOSDelayBetweenFieldsDescription[];
 
 // Title and description for the flag to restrict extraction of formless forms
 // to checkout flows.
 extern const char kAutofillRestrictUnownedFieldsToFormlessCheckoutName[];
 extern const char kAutofillRestrictUnownedFieldsToFormlessCheckoutDescription[];
+
+// Title and description for the flag to control GPay branding in credit card
+// upstream infobar.
+extern const char kAutofillUpstreamUseGooglePayBrandingOnMobileName[];
+extern const char kAutofillUpstreamUseGooglePayBrandingOnMobileDescription[];
+
+// Title and description for the flag to make browser container fullscreen.
+extern const char kBrowserContainerFullscreenName[];
+extern const char kBrowserContainerFullscreenDescription[];
 
 // Title and description for the flag to control redirection to the task
 // scheduler.
@@ -60,10 +91,10 @@ extern const char kFeedbackKitV2Description[];
 extern const char kFeedbackKitV2WithSSOServiceName[];
 extern const char kFeedbackKitV2WithSSOServiceDescription[];
 
-// Title and description for the flag used to enable fullscreen's contentInset
-// based implementation.
-extern const char kFullscreenContentInsetName[];
-extern const char kFullscreenContentInsetDescription[];
+// Title and description for the command line switch used to determine the
+// active fullscreen viewport adjustment mode.
+extern const char kFullscreenViewportAdjustmentExperimentName[];
+extern const char kFullscreenViewportAdjustmentExperimentDescription[];
 
 // Title and description for the flag to enable History batch filtering.
 extern const char kHistoryBatchUpdatesFilterName[];
@@ -75,8 +106,8 @@ extern const char kInProductHelpDemoModeName[];
 extern const char kInProductHelpDemoModeDescription[];
 
 // Title and description for the flag to enable ITunes links store kit handling.
-extern const char kITunesLinksStoreKitHandlingName[];
-extern const char kITunesLinksStoreKitHandlingDescription[];
+extern const char kITunesUrlsStoreKitHandlingName[];
+extern const char kITunesUrlsStoreKitHandlingDescription[];
 
 // Title, description, and options for Google UI menu for handling mailto links.
 extern const char kMailtoHandlingWithGoogleUIName[];
@@ -114,6 +145,11 @@ extern const char kPhysicalWebDescription[];
 extern const char kCollectionsUIRebootName[];
 extern const char kCollectionsUIRebootDescription[];
 
+// Title and description for the flag to enable the new UI Reboot on existing
+// Infobars.
+extern const char kInfobarsUIRebootName[];
+extern const char kInfobarsUIRebootDescription[];
+
 // Title and description for the flag to enable WKBackForwardList based
 // navigation manager.
 extern const char kSlimNavigationManagerName[];
@@ -123,6 +159,10 @@ extern const char kSlimNavigationManagerDescription[];
 // backend.
 extern const char kNewFileDownloadName[];
 extern const char kNewFileDownloadDescription[];
+
+// Title and description for the flag to enable web based error pages.
+extern const char kWebErrorPagesName[];
+extern const char kWebErrorPagesDescription[];
 
 // Title and description for the flag to enable annotating web forms with
 // Autofill field type predictions as placeholder.

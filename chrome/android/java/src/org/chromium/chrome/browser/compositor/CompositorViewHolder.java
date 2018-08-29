@@ -51,7 +51,6 @@ import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.util.ColorUtils;
 import org.chromium.chrome.browser.widget.ClipDrawableProgressBar.DrawingInfo;
 import org.chromium.chrome.browser.widget.ControlContainer;
-import org.chromium.content_public.browser.ContentViewCore;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.EventForwarder;
@@ -175,7 +174,7 @@ public class CompositorViewHolder extends FrameLayout
     @Override
     public PointerIcon onResolvePointerIcon(MotionEvent event, int pointerIndex) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return null;
-        View activeView = getActiveView();
+        View activeView = getContentView();
         if (activeView == null || !ViewCompat.isAttachedToWindow(activeView)) return null;
         return activeView.onResolvePointerIcon(event, pointerIndex);
     }
@@ -206,9 +205,9 @@ public class CompositorViewHolder extends FrameLayout
                 // Have content pick up the size and browser control information when the content
                 // view got laid out. Successive calls with the same values are ignored by
                 // ViewAndroid that stores the size.
-                View view = getActiveView();
+                View view = getContentView();
                 if (view != null) {
-                    setSize(getActiveWebContents(), view, view.getWidth(), view.getHeight());
+                    setSize(getWebContents(), view, view.getWidth(), view.getHeight());
                 }
                 onViewportChanged();
 
@@ -413,17 +412,12 @@ public class CompositorViewHolder extends FrameLayout
         return currentTab;
     }
 
-    private View getActiveView() {
+    private View getContentView() {
         Tab tab = getCurrentTab();
         return tab != null ? tab.getContentView() : null;
     }
 
-    private ContentViewCore getActiveContent() {
-        Tab tab = getCurrentTab();
-        return tab != null ? tab.getActiveContentViewCore() : null;
-    }
-
-    private WebContents getActiveWebContents() {
+    private WebContents getWebContents() {
         Tab tab = getCurrentTab();
         return tab != null ? tab.getWebContents() : null;
     }
@@ -476,8 +470,8 @@ public class CompositorViewHolder extends FrameLayout
 
     @Override
     public void onSurfaceResized(int width, int height) {
-        View view = getActiveView();
-        WebContents webContents = getActiveWebContents();
+        View view = getContentView();
+        WebContents webContents = getWebContents();
         if (view == null || webContents == null) return;
         onPhysicalBackingSizeChanged(webContents, width, height);
     }
@@ -534,7 +528,7 @@ public class CompositorViewHolder extends FrameLayout
     @Override
     public void onUpdateViewportSize() {
         // Reflect the changes that may have happend in in view/control size.
-        setSize(getActiveWebContents(), getActiveView(), getWidth(), getHeight());
+        setSize(getWebContents(), getContentView(), getWidth(), getHeight());
     }
 
     /**
@@ -842,7 +836,7 @@ public class CompositorViewHolder extends FrameLayout
 
     private void updateContentOverlayVisibility(boolean show) {
         if (mView == null) return;
-        ContentViewCore content = getActiveContent();
+        WebContents webContents = getWebContents();
         if (show) {
             if (mView.getParent() != this) {
                 // During tab creation, we temporarily add the new tab's view to a FrameLayout to
@@ -850,9 +844,9 @@ public class CompositorViewHolder extends FrameLayout
                 // Therefore we should remove the view from that temporary FrameLayout here.
                 UiUtils.removeViewFromParent(mView);
 
-                if (content != null) {
-                    assert content.isAlive();
-                    content.getContainerView().setVisibility(View.VISIBLE);
+                if (webContents != null) {
+                    assert !webContents.isDestroyed();
+                    getContentView().setVisibility(View.VISIBLE);
                     if (mFullscreenManager != null) mFullscreenManager.updateViewportSize();
                 }
 
@@ -870,8 +864,8 @@ public class CompositorViewHolder extends FrameLayout
                 setFocusable(true);
                 setFocusableInTouchMode(true);
 
-                if (content != null) {
-                    if (content.isAlive()) content.getContainerView().setVisibility(View.INVISIBLE);
+                if (webContents != null && !webContents.isDestroyed()) {
+                    getContentView().setVisibility(View.INVISIBLE);
                 }
                 removeView(mView);
             }
@@ -923,8 +917,7 @@ public class CompositorViewHolder extends FrameLayout
             onPhysicalBackingSizeChanged(
                     webContents, mCompositorView.getWidth(), mCompositorView.getHeight());
         }
-        View view = tab.getContentView();
-        if (view == null || (tab.isNativePage() && view == tab.getView())) return;
+        if (tab.getView() == null) return;
         tab.setTopControlsHeight(getTopControlsHeightPixels(), controlsResizeView());
         tab.setBottomControlsHeight(getBottomControlsHeightPixels());
     }

@@ -8,6 +8,7 @@
 from __future__ import print_function
 
 import contextlib
+import mock
 import os
 import tempfile
 
@@ -15,16 +16,16 @@ from chromite.cbuildbot import cbuildbot_unittest
 from chromite.cbuildbot import chromeos_config
 from chromite.cbuildbot import commands
 from chromite.cbuildbot.stages import build_stages
-from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.lib.const import waterfall
 from chromite.lib import auth
 from chromite.lib import buildbucket_lib
+from chromite.lib import build_summary
+from chromite.lib import builder_status_lib
 from chromite.lib import cidb
-from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
-from chromite.lib import cros_build_lib_unittest
+from chromite.lib import cros_sdk_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import fake_cidb
 from chromite.lib import osutils
@@ -39,15 +40,13 @@ from chromite.cbuildbot.stages.generic_stages_unittest import patches
 
 
 # pylint: disable=too-many-ancestors
-
+# pylint: disable=protected-access
 
 class InitSDKTest(generic_stages_unittest.RunCommandAbstractStageTestCase):
   """Test building the SDK"""
 
-  # pylint: disable=protected-access
-
   def setUp(self):
-    self.PatchObject(cros_build_lib, 'GetChrootVersion', return_value='12')
+    self.PatchObject(cros_sdk_lib, 'GetChrootVersion', return_value='12')
     self.cros_sdk = os.path.join(self.tempdir, 'buildroot',
                                  constants.CHROMITE_BIN_SUBDIR, 'cros_sdk')
 
@@ -197,7 +196,7 @@ class AllConfigsTestCase(generic_stages_unittest.AbstractStageTestCase,
   def RunStageWithConfig(self, mock_configurator=None):
     """Run the given config"""
     try:
-      with cros_build_lib_unittest.RunCommandMock() as rc:
+      with cros_test_lib.RunCommandMock() as rc:
         rc.SetDefaultCmdResult()
         if mock_configurator:
           mock_configurator(rc)
@@ -429,13 +428,11 @@ EC (RW) version: reef_v1.1.5909-bd1f0c9
       self._run.options.goma_client_json = temp_goma_client_json.name
 
       stage = self.ConstructStage()
-      # pylint: disable=protected-access
       chroot_args = stage._SetupGomaIfNecessary()
       self.assertEqual(
           ['--goma_dir', goma_dir,
            '--goma_client_json', temp_goma_client_json.name],
           chroot_args)
-      # pylint: disable=protected-access
       portage_env = stage._portage_extra_env
       self.assertRegexpMatches(
           portage_env.get('GOMA_DIR', ''), '^/home/.*/goma$')
@@ -455,7 +452,6 @@ EC (RW) version: reef_v1.1.5909-bd1f0c9
 
       stage = self.ConstructStage()
       with self.assertRaisesRegexp(ValueError, 'json file is missing'):
-        # pylint: disable=protected-access
         stage._SetupGomaIfNecessary()
 
   def testGomaOnBotWithoutCertFile(self):
@@ -470,7 +466,6 @@ EC (RW) version: reef_v1.1.5909-bd1f0c9
 
       with self.assertRaisesRegexp(
           ValueError, 'goma_client_json is not provided'):
-        # pylint: disable=protected-access
         stage._SetupGomaIfNecessary()
 
 
@@ -529,10 +524,9 @@ class BuildImageStageTest(BuildPackagesStageTest):
   def testUnifiedBuilds(self):
     pass
 
+
 class CleanUpStageTest(generic_stages_unittest.StageTestCase):
   """Test CleanUpStage."""
-
-  # pylint: disable=protected-access
 
   BOT_ID = 'master-paladin'
 
@@ -562,127 +556,276 @@ class CleanUpStageTest(generic_stages_unittest.StageTestCase):
         timeout_seconds=23456,
         buildbucket_id='200')
 
-    self._Prepare()
+    self._Prepare(extra_config={'chroot_use_image': False})
 
   def ConstructStage(self):
     return build_stages.CleanUpStage(self._run)
 
-  def test_GetBuildbucketBucketsForSlavesOnMixedWaterfalls(self):
-    """Test _GetBuildbucketBucketsForSlaves with mixed waterfalls."""
+  def testChrootReuseImageMismatch(self):
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    osutils.Touch(chroot_path + '.img')
     stage = self.ConstructStage()
-    slave_config_map = {
-        'slave_1': config_lib.BuildConfig(
-            name='slave1',
-            active_waterfall=waterfall.WATERFALL_EXTERNAL),
-        'slave_2': config_lib.BuildConfig(
-            name='slave2',
-            active_waterfall=waterfall.WATERFALL_INTERNAL),
-        'slave_3': config_lib.BuildConfig(
-            name='slave3',
-            active_waterfall=None)
-    }
-    self.PatchObject(generic_stages.BuilderStage, '_GetSlaveConfigMap',
-                     return_value=slave_config_map)
-    buckets = stage._GetBuildbucketBucketsForSlaves()
+    self.assertFalse(stage.CanReuseChroot(chroot_path))
 
-    expected_list = ['master.chromiumos', 'master.chromeos']
-    self.assertItemsEqual(expected_list, buckets)
+  def testChrootReuseChrootReplace(self):
+    self._Prepare(
+        extra_config={'chroot_use_image': False, 'chroot_replace': True})
 
-  def test_GetBuildbucketBucketsForSlavesOnSingleWaterfall(self):
-    """Test _GetBuildbucketBucketsForSlaves with a signle waterfall."""
+    self.PatchObject(
+        build_stages.CleanUpStage,
+        '_GetPreviousBuildStatus',
+        return_value=build_summary.BuildSummary(
+            build_number=314,
+            status=constants.BUILDER_STATUS_PASSED))
+
+    chroot_path = os.path.join(self.build_root, 'chroot')
     stage = self.ConstructStage()
+    self.assertFalse(stage.CanReuseChroot(chroot_path))
 
-    slave_config_map = {
-        'slave_1': config_lib.BuildConfig(
-            name='slave1',
-            active_waterfall=waterfall.WATERFALL_INTERNAL),
-        'slave_2': config_lib.BuildConfig(
-            name='slave2',
-            active_waterfall=waterfall.WATERFALL_INTERNAL)
-    }
-    self.PatchObject(generic_stages.BuilderStage, '_GetSlaveConfigMap',
-                     return_value=slave_config_map)
-    buckets = stage._GetBuildbucketBucketsForSlaves()
+  def testChrootReusePreviousFailed(self):
+    self.PatchObject(
+        build_stages.CleanUpStage,
+        '_GetPreviousBuildStatus',
+        return_value=build_summary.BuildSummary(
+            build_number=314,
+            status=constants.BUILDER_STATUS_FAILED))
 
-    expected_list = ['master.chromeos']
-    self.assertItemsEqual(expected_list, buckets)
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    stage = self.ConstructStage()
+    self.assertFalse(stage.CanReuseChroot(chroot_path))
 
-  def testCancelObsoleteSlaveBuilds(self):
-    """Test CancelObsoleteSlaveBuilds."""
-    buildbucket_id_1 = '100'
-    buildbucket_id_2 = '200'
+  def testChrootReusePreviousMasterMissing(self):
+    self.PatchObject(
+        build_stages.CleanUpStage,
+        '_GetPreviousBuildStatus',
+        return_value=build_summary.BuildSummary(
+            build_number=314,
+            master_build_id=2178,
+            status=constants.BUILDER_STATUS_PASSED))
 
-    searched_builds = [{
-        'status': 'STARTED',
-        'id': buildbucket_id_1,
-        'tags':[
-            'bot_id:build265-m2',
-            'build_type:tryjob',
-            'master:False']
-    }, {
-        'status': 'STARTED',
-        'id': buildbucket_id_2,
-        'tags':[
-            'bot_id:build265-m2',
-            'build_type:tryjob',
-            'master:False']
-    }]
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    stage = self.ConstructStage()
+    self.assertFalse(stage.CanReuseChroot(chroot_path))
+
+  def testChrootReusePreviousMasterFailed(self):
+    master_id = self.fake_db.InsertBuild(
+        'test_builder', waterfall.WATERFALL_TRYBOT, 123, 'test_config',
+        'test_hostname', status=constants.BUILDER_STATUS_FAILED,
+        buildbucket_id='2178')
+    self.PatchObject(
+        build_stages.CleanUpStage,
+        '_GetPreviousBuildStatus',
+        return_value=build_summary.BuildSummary(
+            build_number=314,
+            master_build_id=master_id,
+            status=constants.BUILDER_STATUS_PASSED))
+
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    stage = self.ConstructStage()
+    self.assertFalse(stage.CanReuseChroot(chroot_path))
+
+  def testChrootReuseAllPassed(self):
+    master_id = self.fake_db.InsertBuild(
+        'test_builder', waterfall.WATERFALL_TRYBOT, 123, 'test_config',
+        'test_hostname', status=constants.BUILDER_STATUS_PASSED,
+        buildbucket_id='2178')
+    self.PatchObject(
+        build_stages.CleanUpStage,
+        '_GetPreviousBuildStatus',
+        return_value=build_summary.BuildSummary(
+            build_number=314,
+            master_build_id=master_id,
+            status=constants.BUILDER_STATUS_PASSED))
+
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    stage = self.ConstructStage()
+    self.assertTrue(stage.CanReuseChroot(chroot_path))
+
+  def testChrootSnapshotClobber(self):
+    self._Prepare(
+        extra_cmd_args=['--clobber'],
+        extra_config={'chroot_use_image': True, 'chroot_replace': False})
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    osutils.Touch(chroot_path + '.img')
+    stage = self.ConstructStage()
+    self.assertFalse(stage.CanUseChrootSnapshotToDelete(chroot_path))
+
+  def testChrootSnapshotReplace(self):
+    self._Prepare(
+        extra_config={'chroot_use_image': True, 'chroot_replace': True})
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    osutils.Touch(chroot_path + '.img')
+    stage = self.ConstructStage()
+    self.assertFalse(stage.CanUseChrootSnapshotToDelete(chroot_path))
+
+  def testChrootSnapshotNoUseImage(self):
+    self._Prepare(
+        extra_config={'chroot_use_image': False, 'chroot_replace': False})
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    osutils.Touch(chroot_path + '.img')
+    stage = self.ConstructStage()
+    self.assertFalse(stage.CanUseChrootSnapshotToDelete(chroot_path))
+
+  def testChrootSnapshotMissingImage(self):
+    self._Prepare(
+        extra_config={'chroot_use_image': True, 'chroot_replace': False})
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    stage = self.ConstructStage()
+    self.assertFalse(stage.CanUseChrootSnapshotToDelete(chroot_path))
+
+  def testChrootSnapshotAllPass(self):
+    self._Prepare(
+        extra_config={'chroot_use_image': True, 'chroot_replace': False})
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    osutils.Touch(chroot_path + '.img')
+    stage = self.ConstructStage()
+    self.assertTrue(stage.CanUseChrootSnapshotToDelete(chroot_path))
+
+  def testChrootRevertNoSnapshots(self):
+    self.PatchObject(commands, 'ListChrootSnapshots', return_value=[])
+    self._Prepare(
+        extra_config={'chroot_use_image': True, 'chroot_replace': False})
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    osutils.Touch(chroot_path + '.img')
+    stage = self.ConstructStage()
+    self.assertFalse(stage._RevertChrootToCleanSnapshot())
+
+  def testChrootRevertSnapshotNotFound(self):
+    self.PatchObject(commands, 'ListChrootSnapshots', return_value=['snap'])
+    self._Prepare(
+        extra_config={'chroot_use_image': True, 'chroot_replace': False})
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    osutils.Touch(chroot_path + '.img')
+    stage = self.ConstructStage()
+    self.assertFalse(stage._RevertChrootToCleanSnapshot())
+
+  def testChrootCleanSnapshotReplacesAllExisting(self):
+    self.PatchObject(commands, 'ListChrootSnapshots',
+                     return_value=['snap1', 'snap2',
+                                   constants.CHROOT_SNAPSHOT_CLEAN])
+    delete_mock = self.PatchObject(commands, 'DeleteChrootSnapshot',
+                                   return_value=True)
+    create_mock = self.PatchObject(commands, 'CreateChrootSnapshot')
+
+    self._Prepare(
+        extra_config={'chroot_use_image': True, 'chroot_replace': False})
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    osutils.Touch(chroot_path + '.img')
+    stage = self.ConstructStage()
+    stage._CreateCleanSnapshot()
+
+    self.assertEqual(delete_mock.mock_calls, [
+        mock.call(self.build_root, 'snap1'),
+        mock.call(self.build_root, 'snap2'),
+        mock.call(self.build_root, constants.CHROOT_SNAPSHOT_CLEAN)])
+    create_mock.assert_called_with(self.build_root,
+                                   constants.CHROOT_SNAPSHOT_CLEAN)
+
+  def testChrootRevertFailsWhenCommandsRaiseExceptions(self):
+    self.PatchObject(
+        cros_build_lib,
+        'SudoRunCommand',
+        side_effect=cros_build_lib.RunCommandError(
+            'error', cros_build_lib.CommandResult(cmd='error', returncode=5)))
+    self._Prepare(
+        extra_config={'chroot_use_image': True, 'chroot_replace': False})
+    chroot_path = os.path.join(self.build_root, 'chroot')
+    osutils.Touch(chroot_path + '.img')
+    stage = self.ConstructStage()
+    self.assertFalse(stage._RevertChrootToCleanSnapshot())
+
+
+class CleanUpStageCancelSlaveBuilds(generic_stages_unittest.StageTestCase):
+  """Test CleanUpStage.CancelObsoleteSlaveBuilds."""
+  BOT_ID = 'master-paladin'
+
+  def setUp(self):
+    self.PatchObject(buildbucket_lib, 'GetServiceAccount',
+                     return_value=True)
+    self.PatchObject(auth.AuthorizedHttp, '__init__',
+                     return_value=None)
     self.PatchObject(buildbucket_lib.BuildbucketClient,
-                     'SearchAllBuilds',
-                     return_value=searched_builds)
+                     '_GetHost',
+                     return_value=buildbucket_lib.BUILDBUCKET_TEST_HOST)
 
-    cancel_content = {
-        'kind': 'kind',
-        'etag': 'etag',
-        'results':[{
-            'build_id': buildbucket_id_1,
-            'build': {
-                'status': 'COMPLETED',
-                'result': 'CANCELED',
-            }
-        }, {
-            'build_id': buildbucket_id_2,
-            'error': {
-                'message': "Cannot cancel a completed build",
-                'reason': 'BUILD_IS_COMPLETED',
-            }
-        }]
-    }
-    cancel_mock = self.PatchObject(buildbucket_lib.BuildbucketClient,
-                                   'CancelBatchBuildsRequest',
-                                   return_value=cancel_content)
+    # Mock out the active APIs for both testing and safety.
+    self.cancelMock = self.PatchObject(builder_status_lib,
+                                       'CancelBuilds')
+
+    self.searchMock = self.PatchObject(buildbucket_lib.BuildbucketClient,
+                                       'SearchAllBuilds')
+
+    self._Prepare(extra_config={'chroot_use_image': False})
+
+  def ConstructStage(self):
+    return build_stages.CleanUpStage(self._run)
+
+  def testNoPreviousMasterBuilds(self):
+    """Test cancellation if the master has never run."""
+    search_results = [[]]
+    self.searchMock.side_effect = search_results
+    stage = self.ConstructStage()
+    stage.CancelObsoleteSlaveBuilds()
+
+    # Validate searches and cancellations match expections.
+    self.assertEqual(self.searchMock.call_count, len(search_results))
+    self.cancelMock.assert_not_called()
+
+  def testNoPreviousSlaveBuilds(self):
+    """Test cancellation if there are no running slave builds."""
+    search_results = [
+        [{'id': 'master_1'}],
+        [],
+        [],
+    ]
+    self.searchMock.side_effect = search_results
 
     stage = self.ConstructStage()
     stage.CancelObsoleteSlaveBuilds()
 
-    self.assertEqual(cancel_mock.call_count, 1)
+    # Validate searches and cancellations match expections.
+    self.assertEqual(self.searchMock.call_count, len(search_results))
+    self.cancelMock.assert_not_called()
 
-  def testNoObsoleteSlaveBuilds(self):
-    """Test no obsolete slave builds."""
-    search_content = {
-        'kind': 'kind',
-        'etag': 'etag'
-    }
-    self.PatchObject(buildbucket_lib.BuildbucketClient,
-                     'SearchBuildsRequest',
-                     return_value=search_content)
-
-    cancel_mock = self.PatchObject(buildbucket_lib.BuildbucketClient,
-                                   'CancelBatchBuildsRequest')
+  def testPreviousSlaveBuild(self):
+    """Test cancellation if there is a running slave build."""
+    search_results = [
+        [{'id': 'master_1'}],
+        [{'id': 'm1_slave_1'}],
+        [],
+    ]
+    self.searchMock.side_effect = search_results
 
     stage = self.ConstructStage()
     stage.CancelObsoleteSlaveBuilds()
 
-    self.assertEqual(cancel_mock.call_count, 0)
+    # Validate searches and cancellations match expections.
+    self.assertEqual(self.searchMock.call_count, len(search_results))
+    self.assertEqual(self.cancelMock.call_count, 1)
 
-  def testCancelObsoleteSlaveBuildsWithNoSlaveBuilds(self):
-    """Test CancelObsoleteSlaveBuilds with no slave builds."""
-    self.PatchObject(build_stages.CleanUpStage,
-                     '_GetBuildbucketBucketsForSlaves',
-                     return_value=set())
+    cancelled_ids = self.cancelMock.call_args[0][0]
+    self.assertEqual(cancelled_ids, ['m1_slave_1'])
+
+  def testManyPreviousSlaveBuilds(self):
+    """Test cancellation with an assortment of running slave builds."""
+    search_results = [
+        [{'id': 'master_1'}, {'id': 'master_2'}],
+        [{'id': 'm1_slave_1'}, {'id': 'm1_slave_2'}],
+        [{'id': 'm1_slave_3'}, {'id': 'm1_slave_4'}],
+        [{'id': 'm2_slave_1'}, {'id': 'm2_slave_2'}],
+        [{'id': 'm2_slave_3'}, {'id': 'm2_slave_4'}],
+    ]
+    self.searchMock.side_effect = search_results
+
     stage = self.ConstructStage()
     stage.CancelObsoleteSlaveBuilds()
 
-    search_mock = self.PatchObject(buildbucket_lib.BuildbucketClient,
-                                   'SearchAllBuilds')
-    search_mock.assert_not_called()
+    # Validate searches and cancellations match expections.
+    self.assertEqual(self.searchMock.call_count, len(search_results))
+    self.assertEqual(self.cancelMock.call_count, 1)
+
+    cancelled_ids = self.cancelMock.call_args[0][0]
+    self.assertEqual(cancelled_ids, [
+        'm1_slave_1', 'm1_slave_2', 'm1_slave_3', 'm1_slave_4',
+        'm2_slave_1', 'm2_slave_2', 'm2_slave_3', 'm2_slave_4',
+    ])

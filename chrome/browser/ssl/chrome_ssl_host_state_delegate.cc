@@ -17,6 +17,7 @@
 #include "base/guid.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/clock.h"
 #include "base/time/default_clock.h"
@@ -24,8 +25,12 @@
 #include "base/values.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/common/pref_names.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_service.h"
+#include "components/prefs/scoped_user_pref_update.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/common/content_switches.h"
 #include "net/base/hash_value.h"
@@ -38,8 +43,31 @@
 
 namespace {
 
-// The default expiration is one week, unless overidden by a field trial group.
-// See https://crbug.com/487270.
+// Parameters and defaults for the |kRecurrentInterstitialFeature| field trial.
+
+// This parameter controls whether the count of recurrent errors is
+// per-browsing-session or persisted to a pref, accumulating across browsing
+// sessions. Default is "in-memory".
+constexpr char kRecurrentInterstitialModeParam[] = "mode";
+constexpr char kRecurrentInterstitialModeInMemory[] = "in-memory";
+constexpr char kRecurrentInterstitialModePref[] = "pref";
+
+// The number of times an error must recur before the recurrent error message is
+// shown.
+constexpr char kRecurrentInterstitialThresholdParam[] = "threshold";
+constexpr int kRecurrentInterstitialDefaultThreshold = 3;
+
+// If "mode" is "pref", a pref stores the time at which each error most recently
+// occurred, and the recurrent error message is shown if the error has recurred
+// more than the threshold number of times with the most recent instance being
+// less than |kRecurrentInterstitialResetTimeParam| seconds in the past. The
+// default is 3 days.
+constexpr char kRecurrentInterstitialResetTimeParam[] = "reset-time";
+constexpr int kRecurrentInterstitialDefaultResetTime =
+    259200;  // 3 days in seconds
+
+// The default expiration for certificate error bypasses is one week, unless
+// overidden by a field trial group.  See https://crbug.com/487270.
 const uint64_t kDeltaDefaultExpirationInSeconds = UINT64_C(604800);
 
 // Field trial information
@@ -55,6 +83,85 @@ const char kSSLCertDecisionVersionKey[] = "version";
 const char kSSLCertDecisionGUIDKey[] = "guid";
 
 const int kDefaultSSLCertDecisionVersion = 1;
+
+// Records a new occurrence of |error|. The occurrence is stored in the
+// recurrent interstitial pref, which keeps track of the most recent timestamps
+// at which each error type occurred (up to the |threshold| most recent
+// instances per error). The list is reset if the clock has gone backwards at
+// any point.
+void UpdateRecurrentInterstitialPref(Profile* profile,
+                                     base::Clock* clock,
+                                     int error,
+                                     int threshold) {
+  double now = clock->Now().ToJsTime();
+
+  DictionaryPrefUpdate pref_update(profile->GetPrefs(),
+                                   prefs::kRecurrentSSLInterstitial);
+  base::Value* list_value =
+      pref_update->FindKey(net::ErrorToShortString(error));
+  if (list_value) {
+    // Check that the values are in increasing order and wipe out the list if
+    // not (presumably because the clock changed).
+    base::ListValue::ListStorage& error_list = list_value->GetList();
+    double previous = 0;
+    for (const auto& error_instance : error_list) {
+      double error_time = error_instance.GetDouble();
+      if (error_time < previous) {
+        list_value = nullptr;
+        break;
+      }
+      previous = error_time;
+    }
+    if (now < previous)
+      list_value = nullptr;
+  }
+
+  if (!list_value) {
+    // Either there was no list of occurrences of this error, or it was corrupt
+    // (i.e. out of order). Save a new list composed of just this one error
+    // instance.
+    base::ListValue error_list;
+    error_list.GetList().push_back(base::Value(now));
+    pref_update->SetKey(net::ErrorToShortString(error), std::move(error_list));
+  } else {
+    // Only up to |threshold| values need to be stored. If the list already
+    // contains |threshold| values, pop one off the front and append the new one
+    // at the end; otherwise just append the new one.
+    base::ListValue::ListStorage& error_list = list_value->GetList();
+    while (base::MakeStrictNum(error_list.size()) >= threshold) {
+      error_list.erase(error_list.begin());
+    }
+    error_list.push_back(base::Value(now));
+    pref_update->SetKey(net::ErrorToShortString(error),
+                        base::ListValue(error_list));
+  }
+}
+
+bool DoesRecurrentInterstitialPrefMeetThreshold(Profile* profile,
+                                                base::Clock* clock,
+                                                int error,
+                                                int threshold) {
+  const base::DictionaryValue* pref =
+      profile->GetPrefs()->GetDictionary(prefs::kRecurrentSSLInterstitial);
+  const base::Value* list_value = pref->FindKey(net::ErrorToShortString(error));
+  if (!list_value)
+    return false;
+
+  base::Time cutoff_time =
+      clock->Now() -
+      base::TimeDelta::FromSeconds(base::GetFieldTrialParamByFeatureAsInt(
+          kRecurrentInterstitialFeature, kRecurrentInterstitialResetTimeParam,
+          kRecurrentInterstitialDefaultResetTime));
+  // Assume that the values in the list are in increasing order;
+  // UpdateRecurrentInterstitialPref() maintains this ordering. Check if there
+  // are more than |threshold| values after the cutoff time.
+  const base::ListValue::ListStorage& error_list = list_value->GetList();
+  for (size_t i = 0; i < error_list.size(); i++) {
+    if (base::Time::FromJsTime(error_list[i].GetDouble()) >= cutoff_time)
+      return base::MakeStrictNum(error_list.size() - i) >= threshold;
+  }
+  return false;
+}
 
 void CloseIdleConnections(
     scoped_refptr<net::URLRequestContextGetter> url_request_context_getter) {
@@ -153,6 +260,9 @@ bool HostFilterToPatternFilter(
 }
 
 }  // namespace
+
+const base::Feature kRecurrentInterstitialFeature{
+    "RecurrentInterstitialFeature", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // This helper function gets the dictionary of certificate fingerprints to
 // errors of certificates that have been accepted by the user from the content
@@ -288,6 +398,11 @@ ChromeSSLHostStateDelegate::ChromeSSLHostStateDelegate(Profile* profile)
 }
 
 ChromeSSLHostStateDelegate::~ChromeSSLHostStateDelegate() {
+}
+
+void ChromeSSLHostStateDelegate::RegisterProfilePrefs(
+    user_prefs::PrefRegistrySyncable* registry) {
+  registry->RegisterDictionaryPref(prefs::kRecurrentSSLInterstitial);
 }
 
 void ChromeSSLHostStateDelegate::AllowCert(const std::string& host,
@@ -488,6 +603,70 @@ bool ChromeSSLHostStateDelegate::DidHostRunInsecureContent(
   NOTREACHED();
   return false;
 }
-void ChromeSSLHostStateDelegate::SetClock(std::unique_ptr<base::Clock> clock) {
+
+void ChromeSSLHostStateDelegate::SetClockForTesting(
+    std::unique_ptr<base::Clock> clock) {
   clock_ = std::move(clock);
+}
+
+void ChromeSSLHostStateDelegate::DidDisplayErrorPage(int error) {
+  if (error != net::ERR_CERT_SYMANTEC_LEGACY &&
+      error != net::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED) {
+    return;
+  }
+
+  if (!base::FeatureList::IsEnabled(kRecurrentInterstitialFeature)) {
+    return;
+  }
+
+  const std::string mode_param = base::GetFieldTrialParamValueByFeature(
+      kRecurrentInterstitialFeature, kRecurrentInterstitialModeParam);
+  const int threshold = base::GetFieldTrialParamByFeatureAsInt(
+      kRecurrentInterstitialFeature, kRecurrentInterstitialThresholdParam,
+      kRecurrentInterstitialDefaultThreshold);
+
+  if (mode_param.empty() || mode_param == kRecurrentInterstitialModeInMemory) {
+    const auto count_it = recurrent_errors_.find(error);
+    if (count_it == recurrent_errors_.end()) {
+      recurrent_errors_[error] = 1;
+      return;
+    }
+    if (count_it->second >= threshold) {
+      return;
+    }
+    recurrent_errors_[error] = count_it->second + 1;
+  } else if (mode_param == kRecurrentInterstitialModePref) {
+    UpdateRecurrentInterstitialPref(profile_, clock_.get(), error, threshold);
+  }
+}
+
+bool ChromeSSLHostStateDelegate::HasSeenRecurrentErrors(int error) const {
+  if (!base::FeatureList::IsEnabled(kRecurrentInterstitialFeature)) {
+    return false;
+  }
+
+  const std::string mode_param = base::GetFieldTrialParamValueByFeature(
+      kRecurrentInterstitialFeature, kRecurrentInterstitialModeParam);
+  const int threshold = base::GetFieldTrialParamByFeatureAsInt(
+      kRecurrentInterstitialFeature, kRecurrentInterstitialThresholdParam,
+      kRecurrentInterstitialDefaultThreshold);
+
+  if (mode_param.empty() || mode_param == kRecurrentInterstitialModeInMemory) {
+    const auto count_it = recurrent_errors_.find(error);
+    if (count_it == recurrent_errors_.end())
+      return false;
+    return count_it->second >= threshold;
+  } else if (mode_param == kRecurrentInterstitialModePref) {
+    return DoesRecurrentInterstitialPrefMeetThreshold(profile_, clock_.get(),
+                                                      error, threshold);
+  }
+
+  return false;
+}
+
+void ChromeSSLHostStateDelegate::ResetRecurrentErrorCountForTesting() {
+  recurrent_errors_.clear();
+  DictionaryPrefUpdate pref_update(profile_->GetPrefs(),
+                                   prefs::kRecurrentSSLInterstitial);
+  pref_update->Clear();
 }

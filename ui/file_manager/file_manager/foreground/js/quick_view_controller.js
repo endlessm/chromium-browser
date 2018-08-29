@@ -133,6 +133,7 @@ QuickViewController.LOCAL_VOLUME_TYPES_ = [
   VolumeManagerCommon.VolumeType.ARCHIVE,
   VolumeManagerCommon.VolumeType.DOWNLOADS,
   VolumeManagerCommon.VolumeType.REMOVABLE,
+  VolumeManagerCommon.VolumeType.ANDROID_FILES,
 ];
 
 /**
@@ -458,7 +459,7 @@ QuickViewController.prototype.getQuickViewParameters_ = function(
         params.browsable = browsable;
         params.contentUrl = browsable ? URL.createObjectURL(file) : '';
         if (params.subtype == 'PDF')
-          params.contentUrl += '#view=Fit';
+          params.contentUrl += '#view=FitH';
         return params;
       }.bind(this))
       .catch(function(e) {

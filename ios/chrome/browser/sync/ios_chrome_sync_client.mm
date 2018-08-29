@@ -38,6 +38,7 @@
 #include "components/sync_preferences/pref_service_syncable.h"
 #include "components/sync_sessions/favicon_cache.h"
 #include "components/sync_sessions/local_session_event_router.h"
+#include "components/sync_sessions/session_sync_bridge.h"
 #include "components/sync_sessions/sync_sessions_client.h"
 #include "components/sync_sessions/synced_window_delegates_getter.h"
 #include "ios/chrome/browser/application_context.h"
@@ -310,37 +311,46 @@ IOSChromeSyncClient::GetSyncableServiceForType(syncer::ModelType type) {
   }
 }
 
-base::WeakPtr<syncer::ModelTypeSyncBridge>
-IOSChromeSyncClient::GetSyncBridgeForModelType(syncer::ModelType type) {
+base::WeakPtr<syncer::ModelTypeControllerDelegate>
+IOSChromeSyncClient::GetControllerDelegateForModelType(syncer::ModelType type) {
   switch (type) {
     case syncer::DEVICE_INFO:
       return IOSChromeProfileSyncServiceFactory::GetForBrowserState(
                  browser_state_)
-          ->GetDeviceInfoSyncBridge()
-          ->AsWeakPtr();
+          ->GetDeviceInfoSyncControllerDelegateOnUIThread();
     case syncer::READING_LIST: {
       ReadingListModel* reading_list_model =
           ReadingListModelFactory::GetForBrowserState(browser_state_);
-      return reading_list_model->GetModelTypeSyncBridge()->AsWeakPtr();
+      return reading_list_model->GetModelTypeSyncBridge()
+          ->change_processor()
+          ->GetControllerDelegateOnUIThread();
     }
     case syncer::AUTOFILL:
       return autofill::AutocompleteSyncBridge::FromWebDataService(
                  web_data_service_.get())
-          ->AsWeakPtr();
+          ->change_processor()
+          ->GetControllerDelegateOnUIThread();
     case syncer::TYPED_URLS: {
       history::HistoryService* history =
           ios::HistoryServiceFactory::GetForBrowserState(
               browser_state_, ServiceAccessType::EXPLICIT_ACCESS);
-      return history ? history->GetTypedURLSyncBridge()->AsWeakPtr()
-                     : base::WeakPtr<syncer::ModelTypeSyncBridge>();
+      return history ? history->GetTypedURLSyncBridge()
+                           ->change_processor()
+                           ->GetControllerDelegateOnUIThread()
+                     : base::WeakPtr<syncer::ModelTypeControllerDelegate>();
     }
     case syncer::USER_EVENTS:
       return IOSUserEventServiceFactory::GetForBrowserState(browser_state_)
           ->GetSyncBridge()
-          ->AsWeakPtr();
+          ->change_processor()
+          ->GetControllerDelegateOnUIThread();
+    case syncer::SESSIONS:
+      return IOSChromeProfileSyncServiceFactory::GetForBrowserState(
+                 browser_state_)
+          ->GetSessionSyncControllerDelegateOnUIThread();
     default:
       NOTREACHED();
-      return base::WeakPtr<syncer::ModelTypeSyncBridge>();
+      return base::WeakPtr<syncer::ModelTypeControllerDelegate>();
   }
 }
 

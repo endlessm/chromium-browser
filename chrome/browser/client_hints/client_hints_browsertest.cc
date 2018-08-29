@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <cctype>
+
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/run_loop.h"
@@ -12,7 +14,6 @@
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/metrics/subprocess_metrics_provider.h"
-#include "chrome/browser/net/url_request_mock_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -32,6 +33,8 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
+#include "services/network/public/cpp/cors/cors.h"
+#include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/network_switches.h"
 #include "third_party/blink/public/common/client_hints/client_hints.h"
 
@@ -79,6 +82,48 @@ class ThirdPartyURLLoaderInterceptor {
 
   DISALLOW_COPY_AND_ASSIGN(ThirdPartyURLLoaderInterceptor);
 };
+
+// Returns true only if |header_value| satisfies ABNF: 1*DIGIT [ "." 1*DIGIT ]
+bool IsSimilarToDoubleABNF(const std::string& header_value) {
+  if (header_value.empty())
+    return false;
+  char first_char = header_value.at(0);
+  if (!isdigit(first_char))
+    return false;
+
+  bool period_found = false;
+  bool digit_found_after_period = false;
+  for (char ch : header_value) {
+    if (isdigit(ch)) {
+      if (period_found) {
+        digit_found_after_period = true;
+      }
+      continue;
+    }
+    if (ch == '.') {
+      if (period_found)
+        return false;
+      period_found = true;
+      continue;
+    }
+    return false;
+  }
+  if (period_found)
+    return digit_found_after_period;
+  return true;
+}
+
+// Returns true only if |header_value| satisfies ABNF: 1*DIGIT
+bool IsSimilarToIntABNF(const std::string& header_value) {
+  if (header_value.empty())
+    return false;
+
+  for (char ch : header_value) {
+    if (!isdigit(ch))
+      return false;
+  }
+  return true;
+}
 
 }  // namespace
 
@@ -148,9 +193,6 @@ class ClientHintsBrowserTest : public InProcessBrowserTest {
 
   void SetUpOnMainThread() override {
     host_resolver()->AddRule("*", "127.0.0.1");
-    content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
-        base::BindOnce(&chrome_browser_net::SetUrlRequestMocksEnabled, true));
 
     request_interceptor_ = std::make_unique<ThirdPartyURLLoaderInterceptor>(
         GURL("https://foo.com/non-existing-image.jpg"));
@@ -266,15 +308,20 @@ class ClientHintsBrowserTest : public InProcessBrowserTest {
         EXPECT_TRUE(base::StringToDouble(
             request.headers.find("device-memory")->second, &value));
         EXPECT_LT(0.0, value);
+        EXPECT_TRUE(IsSimilarToDoubleABNF(
+            request.headers.find("device-memory")->second));
         main_frame_device_memory_observed_ = value;
 
         EXPECT_TRUE(
             base::StringToDouble(request.headers.find("dpr")->second, &value));
         EXPECT_LT(0.0, value);
+        EXPECT_TRUE(IsSimilarToDoubleABNF(request.headers.find("dpr")->second));
         main_frame_dpr_observed_ = value;
 
         EXPECT_TRUE(base::StringToDouble(
             request.headers.find("viewport-width")->second, &value));
+        EXPECT_TRUE(
+            IsSimilarToIntABNF(request.headers.find("viewport-width")->second));
 #if !defined(OS_ANDROID)
         EXPECT_LT(0.0, value);
 #else
@@ -293,6 +340,8 @@ class ClientHintsBrowserTest : public InProcessBrowserTest {
         EXPECT_TRUE(base::StringToDouble(
             request.headers.find("device-memory")->second, &value));
         EXPECT_LT(0.0, value);
+        EXPECT_TRUE(IsSimilarToDoubleABNF(
+            request.headers.find("device-memory")->second));
         if (main_frame_device_memory_observed_ > 0) {
           EXPECT_EQ(main_frame_device_memory_observed_, value);
         }
@@ -300,12 +349,15 @@ class ClientHintsBrowserTest : public InProcessBrowserTest {
         EXPECT_TRUE(
             base::StringToDouble(request.headers.find("dpr")->second, &value));
         EXPECT_LT(0.0, value);
+        EXPECT_TRUE(IsSimilarToDoubleABNF(request.headers.find("dpr")->second));
         if (main_frame_dpr_observed_ > 0) {
           EXPECT_EQ(main_frame_dpr_observed_, value);
         }
 
         EXPECT_TRUE(base::StringToDouble(
             request.headers.find("viewport-width")->second, &value));
+        EXPECT_TRUE(
+            IsSimilarToIntABNF(request.headers.find("viewport-width")->second));
 #if !defined(OS_ANDROID)
         EXPECT_LT(0.0, value);
 #else
@@ -352,6 +404,7 @@ class ClientHintsBrowserTest : public InProcessBrowserTest {
     EXPECT_TRUE(
         base::StringToInt(request.headers.find("rtt")->second, &rtt_value));
     EXPECT_LE(0, rtt_value);
+    EXPECT_TRUE(IsSimilarToIntABNF(request.headers.find("rtt")->second));
     // Verify that RTT value is a multiple of 50 milliseconds.
     EXPECT_EQ(0, rtt_value % 50);
     EXPECT_GE(3000, rtt_value);
@@ -360,12 +413,31 @@ class ClientHintsBrowserTest : public InProcessBrowserTest {
     EXPECT_TRUE(base::StringToDouble(request.headers.find("downlink")->second,
                                      &mbps_value));
     EXPECT_LE(0, mbps_value);
+    EXPECT_TRUE(
+        IsSimilarToDoubleABNF(request.headers.find("downlink")->second));
     // Verify that the mbps value is a multiple of 0.050 mbps.
     // Allow for small amount of noise due to double to integer conversions.
     EXPECT_NEAR(0, (static_cast<int>(mbps_value * 1000)) % 50, 1);
     EXPECT_GE(10.0, mbps_value);
 
     EXPECT_FALSE(request.headers.find("ect")->second.empty());
+
+    // TODO(tbansal): https://crbug.com/819244: When network servicification is
+    // enabled, the UI thread NQE observers do not receive notifications on
+    // change in the network quality.
+    if (!base::FeatureList::IsEnabled(network::features::kNetworkService)) {
+      // Effective connection type is forced to 2G using command line in these
+      // tests. RTT is expected to be 1800 msec but leave some gap to account
+      // for added noise and randomization.
+      EXPECT_NEAR(1800, rtt_value, 360);
+
+      // Effective connection type is forced to 2G using command line in these
+      // tests. downlink is expected to be 0.075 Mbps but leave some gap to
+      // account for added noise and randomization.
+      EXPECT_NEAR(0.075, mbps_value, 0.05);
+
+      EXPECT_EQ("2g", request.headers.find("ect")->second);
+    }
   }
 
   net::EmbeddedTestServer http_server_;
@@ -403,6 +475,24 @@ class ClientHintsAllowThirdPartyBrowserTest : public ClientHintsBrowserTest {
     ClientHintsBrowserTest::SetUpCommandLine(cmd);
   }
 };
+
+IN_PROC_BROWSER_TEST_F(ClientHintsBrowserTest, CorsChecks) {
+  for (size_t i = 0; i < blink::kClientHintsHeaderMappingCount; ++i) {
+    // Do not test for headers that have not been enabled on the blink "stable"
+    // yet.
+    if (std::string(blink::kClientHintsHeaderMapping[i]) == "rtt" ||
+        std::string(blink::kClientHintsHeaderMapping[i]) == "downlink" ||
+        std::string(blink::kClientHintsHeaderMapping[i]) == "ect") {
+      continue;
+    }
+    EXPECT_TRUE(network::cors::IsCORSSafelistedHeader(
+        blink::kClientHintsHeaderMapping[i], "42" /* value */));
+  }
+  EXPECT_FALSE(network::cors::IsCORSSafelistedHeader("not-a-client-hint-header",
+                                                     "" /* value */));
+  EXPECT_TRUE(
+      network::cors::IsCORSSafelistedHeader("save-data", "on" /* value */));
+}
 
 // Loads a webpage that requests persisting of client hints. Verifies that
 // the browser receives the mojo notification from the renderer and persists the

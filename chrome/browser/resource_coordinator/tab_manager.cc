@@ -21,6 +21,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/sys_info.h"
 #include "base/threading/thread.h"
 #include "base/trace_event/trace_event_argument.h"
 #include "build/build_config.h"
@@ -30,8 +31,8 @@
 #include "chrome/browser/memory/oom_memory_details.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/resource_coordinator/background_tab_navigation_throttle.h"
-#include "chrome/browser/resource_coordinator/resource_coordinator_web_contents_observer.h"
 #include "chrome/browser/resource_coordinator/tab_lifecycle_unit_external.h"
+#include "chrome/browser/resource_coordinator/tab_manager.h"
 #include "chrome/browser/resource_coordinator/tab_manager_features.h"
 #include "chrome/browser/resource_coordinator/tab_manager_resource_coordinator_signal_observer.h"
 #include "chrome/browser/resource_coordinator/tab_manager_stats_collector.h"
@@ -117,9 +118,13 @@ std::unique_ptr<base::trace_event::ConvertableToTraceFormat> DataAsTraceValue(
 
 int GetNumLoadedLifecycleUnits(LifecycleUnitSet lifecycle_unit_set) {
   int num_loaded_lifecycle_units = 0;
-  for (auto* lifecycle_unit : lifecycle_unit_set)
-    if (lifecycle_unit->GetState() == LifecycleUnit::State::LOADED)
+  for (auto* lifecycle_unit : lifecycle_unit_set) {
+    LifecycleState state = lifecycle_unit->GetState();
+    if (state != LifecycleState::DISCARDED &&
+        state != LifecycleState::PENDING_DISCARD) {
       num_loaded_lifecycle_units++;
+    }
+  }
   return num_loaded_lifecycle_units;
 }
 
@@ -174,9 +179,12 @@ TabManager::TabManager()
         new ResourceCoordinatorSignalObserver());
   }
   stats_collector_.reset(new TabManagerStatsCollector());
+  proactive_discard_params_ = GetStaticProactiveTabDiscardParams();
+  TabLoadTracker::Get()->AddObserver(this);
 }
 
 TabManager::~TabManager() {
+  TabLoadTracker::Get()->RemoveObserver(this);
   resource_coordinator_signal_observer_.reset();
   Stop();
 }
@@ -280,24 +288,6 @@ void TabManager::DiscardTab(DiscardReason reason) {
   DiscardTabImpl(reason);
 }
 
-void TabManager::DiscardTabById(int32_t tab_id, DiscardReason reason) {
-  for (LifecycleUnit* lifecycle_unit : lifecycle_units_) {
-    if (lifecycle_unit->GetID() == tab_id) {
-      lifecycle_unit->Discard(reason);
-      return;
-    }
-  }
-}
-
-void TabManager::FreezeTabById(int32_t tab_id) {
-  for (LifecycleUnit* lifecycle_unit : lifecycle_units_) {
-    if (lifecycle_unit->GetID() == tab_id) {
-      lifecycle_unit->Freeze();
-      return;
-    }
-  }
-}
-
 WebContents* TabManager::DiscardTabByExtension(content::WebContents* contents) {
   if (contents) {
     TabLifecycleUnitExternal* tab_lifecycle_unit_external =
@@ -312,14 +302,15 @@ WebContents* TabManager::DiscardTabByExtension(content::WebContents* contents) {
 }
 
 void TabManager::LogMemoryAndDiscardTab(DiscardReason reason) {
-  LogMemory("Tab Discards Memory details",
-            base::Bind(&TabManager::PurgeMemoryAndDiscardTab, reason));
+  // Discard immediately without waiting for LogMemory() (https://crbug/850545).
+  // Consider removing LogMemory() at all if nobody cares about the log.
+  LogMemory("Tab Discards Memory details");
+  PurgeMemoryAndDiscardTab(reason);
 }
 
-void TabManager::LogMemory(const std::string& title,
-                           const base::Closure& callback) {
+void TabManager::LogMemory(const std::string& title) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  memory::OomMemoryDetails::Log(title, callback);
+  memory::OomMemoryDetails::Log(title);
 }
 
 void TabManager::AddObserver(TabLifecycleObserver* observer) {
@@ -328,25 +319,6 @@ void TabManager::AddObserver(TabLifecycleObserver* observer) {
 
 void TabManager::RemoveObserver(TabLifecycleObserver* observer) {
   TabLifecycleUnitExternal::RemoveTabLifecycleObserver(observer);
-}
-
-void TabManager::SetTabAutoDiscardableState(int32_t tab_id, bool state) {
-  for (LifecycleUnit* lifecycle_unit : lifecycle_units_) {
-    if (lifecycle_unit->GetID() == tab_id) {
-      TabLifecycleUnitExternal* tab_lifecycle_unit_external =
-          lifecycle_unit->AsTabLifecycleUnitExternal();
-      // For now, all LifecycleUnits are TabLifecycleUnitExternals.
-      DCHECK(tab_lifecycle_unit_external);
-      tab_lifecycle_unit_external->SetAutoDiscardable(state);
-      return;
-    }
-  }
-}
-
-void TabManager::SetTabAutoDiscardableState(content::WebContents* contents,
-                                            bool state) {
-  TabLifecycleUnitExternal::FromWebContents(contents)->SetAutoDiscardable(
-      state);
 }
 
 bool TabManager::CanPurgeBackgroundedRenderer(int render_process_id) const {
@@ -611,6 +583,35 @@ void TabManager::TabReplacedAt(TabStripModel* tab_strip_model,
   WebContentsData::CopyState(old_contents, new_contents);
 }
 
+void TabManager::OnStartTracking(content::WebContents* web_contents,
+                                 LoadingState loading_state) {
+  GetWebContentsData(web_contents)->SetTabLoadingState(loading_state);
+}
+
+void TabManager::OnLoadingStateChange(content::WebContents* web_contents,
+                                      LoadingState loading_state) {
+  GetWebContentsData(web_contents)->SetTabLoadingState(loading_state);
+
+  if (loading_state == TabLoadTracker::LOADED) {
+    bool was_in_background_tab_opening_session =
+        IsInBackgroundTabOpeningSession();
+
+    loading_contents_.erase(web_contents);
+    stats_collector_->OnTabIsLoaded(web_contents);
+    LoadNextBackgroundTabIfNeeded();
+
+    if (was_in_background_tab_opening_session &&
+        !IsInBackgroundTabOpeningSession()) {
+      stats_collector_->OnBackgroundTabOpeningSessionEnded();
+    }
+  }
+}
+
+void TabManager::OnStopTracking(content::WebContents* web_contents,
+                                LoadingState loading_state) {
+  GetWebContentsData(web_contents)->SetTabLoadingState(loading_state);
+}
+
 // static
 TabManager::WebContentsData* TabManager::GetWebContentsData(
     content::WebContents* contents) {
@@ -694,8 +695,6 @@ TabManager::MaybeThrottleNavigation(BackgroundTabNavigationThrottle* throttle) {
   // Notify TabUIHelper that the navigation is delayed, so that the tab UI such
   // as favicon and title can be updated accordingly.
   TabUIHelper::FromWebContents(contents)->NotifyInitialNavigationDelayed(true);
-
-  GetWebContentsData(contents)->SetTabLoadingState(TAB_IS_NOT_LOADING);
   pending_navigations_.push_back(throttle);
   std::stable_sort(pending_navigations_.begin(), pending_navigations_.end(),
                    ComparePendingNavigations);
@@ -743,21 +742,6 @@ void TabManager::OnDidFinishNavigation(
       break;
     }
     it++;
-  }
-}
-
-void TabManager::OnTabIsLoaded(content::WebContents* contents) {
-  DCHECK_EQ(TAB_IS_LOADED, GetWebContentsData(contents)->tab_loading_state());
-  bool was_in_background_tab_opening_session =
-      IsInBackgroundTabOpeningSession();
-
-  loading_contents_.erase(contents);
-  stats_collector_->OnTabIsLoaded(contents);
-  LoadNextBackgroundTabIfNeeded();
-
-  if (was_in_background_tab_opening_session &&
-      !IsInBackgroundTabOpeningSession()) {
-    stats_collector_->OnBackgroundTabOpeningSessionEnded();
   }
 }
 
@@ -834,7 +818,6 @@ void TabManager::ResumeTabNavigationIfNeeded(content::WebContents* contents) {
 void TabManager::ResumeNavigation(BackgroundTabNavigationThrottle* throttle) {
   content::WebContents* contents =
       throttle->navigation_handle()->GetWebContents();
-  GetWebContentsData(contents)->SetTabLoadingState(TAB_IS_LOADING);
   loading_contents_.insert(contents);
   TabUIHelper::FromWebContents(contents)->NotifyInitialNavigationDelayed(false);
 
@@ -888,13 +871,10 @@ int TabManager::GetNumAliveTabs() const {
 }
 
 bool TabManager::IsTabLoadingForTest(content::WebContents* contents) const {
-  if (loading_contents_.count(contents) == 1) {
-    DCHECK_EQ(TAB_IS_LOADING,
-              GetWebContentsData(contents)->tab_loading_state());
+  if (base::ContainsKey(loading_contents_, contents))
     return true;
-  }
-
-  DCHECK_NE(TAB_IS_LOADING, GetWebContentsData(contents)->tab_loading_state());
+  DCHECK_NE(TabLoadTracker::LOADING,
+            GetWebContentsData(contents)->tab_loading_state());
   return false;
 }
 
@@ -911,28 +891,152 @@ bool TabManager::IsForceLoadTimerRunning() const {
   return force_load_timer_ && force_load_timer_->IsRunning();
 }
 
-void TabManager::OnLifecycleUnitStateChanged(LifecycleUnit* lifecycle_unit) {
-  if (lifecycle_unit->GetState() == LifecycleUnit::State::LOADED)
-    num_loaded_lifecycle_units_++;
-  else
+base::TimeDelta TabManager::GetTimeInBackgroundBeforeProactiveDiscard() const {
+  // Exceed high threshold - in excessive state.
+  if (num_loaded_lifecycle_units_ >=
+      proactive_discard_params_.high_loaded_tab_count) {
+    return base::TimeDelta();
+  }
+
+  // Exceed moderate threshold - in high state.
+  if (num_loaded_lifecycle_units_ >=
+      proactive_discard_params_.moderate_loaded_tab_count) {
+    return proactive_discard_params_.high_occluded_timeout;
+  }
+
+  // Exceed low threshold - in moderate state.
+  if (num_loaded_lifecycle_units_ >=
+      proactive_discard_params_.low_loaded_tab_count) {
+    return proactive_discard_params_.moderate_occluded_timeout;
+  }
+
+  // Didn't meet any thresholds - in low state.
+  return proactive_discard_params_.low_occluded_timeout;
+}
+
+LifecycleUnit* TabManager::GetNextDiscardableLifecycleUnit() const {
+  LifecycleUnit* next_to_discard = nullptr;
+  base::TimeTicks earliest_last_visible_time = base::TimeTicks::Max();
+
+  // TODO(fdoray), TODO(varunmohan) : switch this to use
+  // GetSortedLifecycleUnits(). Eventually, there will be some more advanced
+  // logic around LifecycleUnit importance (perhaps ML LifecycleUnit ranking)
+  // which will be used to determine which LifecycleUnit to discard. For now,
+  // choosing which LifecycleUnit to discard based on the longest duration a
+  // LifecycleUnit was backgrounded.
+  for (LifecycleUnit* lifecycle_unit : lifecycle_units_) {
+    // Ignore LifecycleUnits that cannot be discarded.
+    if (!lifecycle_unit->CanDiscard(DiscardReason::kProactive))
+      continue;
+
+    base::TimeTicks last_visible_time = lifecycle_unit->GetLastVisibleTime();
+
+    // This LifecycleUnit was last visible earlier than the current earliest
+    // LifecycleUnit, so it will be discarded earlier.
+    if (last_visible_time < earliest_last_visible_time) {
+      earliest_last_visible_time = last_visible_time;
+      next_to_discard = lifecycle_unit;
+    }
+  }
+
+  return next_to_discard;
+}
+
+void TabManager::UpdateProactiveDiscardTimerIfNecessary() {
+  // If the proactive discarding feature is not enabled, do nothing.
+  if (!base::FeatureList::IsEnabled(features::kProactiveTabDiscarding))
+    return;
+
+  // Create or stop |proactive_discard_timer_|.
+  if (!proactive_discard_timer_) {
+    proactive_discard_timer_ =
+        std::make_unique<base::OneShotTimer>(GetTickClock());
+  } else {
+    proactive_discard_timer_->Stop();
+  }
+
+  // No loaded LifecycleUnits. In Low threshold, but no timer is necessary.
+  if (num_loaded_lifecycle_units_ == 0)
+    return;
+
+  LifecycleUnit* next_to_discard = GetNextDiscardableLifecycleUnit();
+
+  // There were no discardable LifecycleUnits. No timer is necessary.
+  if (!next_to_discard)
+    return;
+
+  // Get the time |next_to_discard| was last visible and subtract it from the
+  // time that a LifecycleUnit can be in the background before being discarded
+  // to get the exact time until the next LifecycleUnit should be discarded.
+  base::TimeDelta time_backgrounded =
+      NowTicks() - next_to_discard->GetLastVisibleTime();
+  base::TimeDelta time_until_discard =
+      GetTimeInBackgroundBeforeProactiveDiscard() - time_backgrounded;
+
+  // Ensure |time_until_discard| is a non-negative base::TimeDelta.
+  time_until_discard = std::max(base::TimeDelta(), time_until_discard);
+
+  // On a |time_until_discard| long timer, discard |next_to_discard|. If for
+  // some reason |next_to_discard| is destroyed while this timer is waiting,
+  // OnLifecycleUnitDestroyed() will be called and the timer will be reset. When
+  // a tab is discarded, OnLifecycleUnitStateChanged() will be called, which
+  // will set up the timer for the next tab to be discarded.
+  proactive_discard_timer_->Start(
+      FROM_HERE, time_until_discard,
+      base::BindRepeating(
+          [](LifecycleUnit* lifecycle_unit, TabManager* tab_manager) {
+            // If |lifecycle_unit| can still be discarded, discard it.
+            // Otherwise, find a new tab to be discarded and reset
+            // |proactive_discard_timer|.
+            if (lifecycle_unit->CanDiscard(DiscardReason::kProactive))
+              lifecycle_unit->Discard(DiscardReason::kProactive);
+            else
+              tab_manager->UpdateProactiveDiscardTimerIfNecessary();
+          },
+          next_to_discard, this));
+}
+
+void TabManager::OnLifecycleUnitStateChanged(LifecycleUnit* lifecycle_unit,
+                                             LifecycleState last_state) {
+  LifecycleState state = lifecycle_unit->GetState();
+  bool was_discarded = (last_state == LifecycleState::PENDING_DISCARD ||
+                        last_state == LifecycleState::DISCARDED);
+  bool is_discarded = (state == LifecycleState::PENDING_DISCARD ||
+                       state == LifecycleState::DISCARDED);
+
+  if (is_discarded && !was_discarded)
     num_loaded_lifecycle_units_--;
+  else if (was_discarded && !is_discarded)
+    num_loaded_lifecycle_units_++;
 
   DCHECK_EQ(num_loaded_lifecycle_units_,
             GetNumLoadedLifecycleUnits(lifecycle_units_));
+
+  UpdateProactiveDiscardTimerIfNecessary();
+}
+
+void TabManager::OnLifecycleUnitVisibilityChanged(
+    LifecycleUnit* lifecycle_unit,
+    content::Visibility visibility) {
+  UpdateProactiveDiscardTimerIfNecessary();
 }
 
 void TabManager::OnLifecycleUnitDestroyed(LifecycleUnit* lifecycle_unit) {
-  if (lifecycle_unit->GetState() == LifecycleUnit::State::LOADED)
+  if (lifecycle_unit->GetState() != LifecycleState::DISCARDED &&
+      lifecycle_unit->GetState() != LifecycleState::PENDING_DISCARD) {
     num_loaded_lifecycle_units_--;
+  }
   lifecycle_units_.erase(lifecycle_unit);
 
   DCHECK_EQ(num_loaded_lifecycle_units_,
             GetNumLoadedLifecycleUnits(lifecycle_units_));
+
+  UpdateProactiveDiscardTimerIfNecessary();
 }
 
 void TabManager::OnLifecycleUnitCreated(LifecycleUnit* lifecycle_unit) {
   lifecycle_units_.insert(lifecycle_unit);
-  if (lifecycle_unit->GetState() == LifecycleUnit::State::LOADED)
+  if (lifecycle_unit->GetState() != LifecycleState::DISCARDED)
     num_loaded_lifecycle_units_++;
 
   // Add an observer to be notified of destruction.
@@ -940,6 +1044,8 @@ void TabManager::OnLifecycleUnitCreated(LifecycleUnit* lifecycle_unit) {
 
   DCHECK_EQ(num_loaded_lifecycle_units_,
             GetNumLoadedLifecycleUnits(lifecycle_units_));
+
+  UpdateProactiveDiscardTimerIfNecessary();
 }
 
 }  // namespace resource_coordinator

@@ -81,6 +81,7 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="2381405137052800939">Základní nastavení</translation>
 <translation id="2386793615875593361">Vybrána 1 fotka</translation>
 <translation id="2435457462613246316">Zobrazit heslo</translation>
+<translation id="2481538920734869610">PŘIDAT ÚČET</translation>
 <translation id="2523363575747517183">Tento web se opakovaně pokouší otevřít jinou aplikaci.</translation>
 <translation id="2529021024822217800">Otevřít vše</translation>
 <translation id="2572712655377361602">Přístup k vašim fotkám blokují zásady zařízení.</translation>
@@ -112,6 +113,7 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="2909437209446960244">Nedávno použité karty</translation>
 <translation id="291754862089661335">Do tohoto rámce umístěte QR kód nebo čárový kód.</translation>
 <translation id="2921219216347069551">Stránku nelze sdílet.</translation>
+<translation id="2923448633003185837">Vložit a přejít</translation>
 <translation id="292639812446257861">Označit jako nepřečtené</translation>
 <translation id="2933759065870693102">Svítilna</translation>
 <translation id="2969979262385602596">Přihlášení se nezdařilo. Zkuste to znovu později.</translation>
@@ -131,6 +133,7 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> z <ph name="NUM_SUGGESTIONS" /></translation>
 <translation id="3268451620468152448">Otevřené karty</translation>
 <translation id="3277021493514034324">Adresa webu byla zkopírována</translation>
+<translation id="3290875554372353449">Vyberte účet</translation>
 <translation id="3324193307694657476">Druhý řádek adresy</translation>
 <translation id="3329904751041170572">Nelze se připojit k serveru.</translation>
 <translation id="3335947283844343239">Znovu otevřít zavřenou kartu</translation>
@@ -151,6 +154,7 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="3588820906588687999">Otevřít obrázek na nové kartě</translation>
 <translation id="3603009562372709545">Kopírovat adresu URL odkazu</translation>
 <translation id="3607167657931203000">Data automatického vyplňování</translation>
+<translation id="3609785682760573515">Synchronizace...</translation>
 <translation id="3628119975092896051">Seznam obsahu k přečtení je k dispozici offline. Chcete-li na něj přidat stránku, klepněte na <ph name="SHARE_OPENING_ICON" />.</translation>
 <translation id="3638472932233958418">Přednačítat stránky</translation>
 <translation id="3691593122358196899">Záložka přidána do složky <ph name="FOLDER_TITLE" /></translation>
@@ -171,6 +175,7 @@ Některé webové stránky na tento požadavek mohou reagovat například tím, 
 <translation id="4049507953662678203">Zkontrolujte, zda jste připojeni k síti a zkuste to znovu.</translation>
 <translation id="4084682180776658562">Záložka</translation>
 <translation id="411254640334432676">Stahování se nezdařilo.</translation>
+<translation id="4112644173421521737">Hledat</translation>
 <translation id="4121993058175073134">Chcete-li odesílat data nástroje net-export, nakonfigurujte e-mailový účet v aplikaci Nastavení.</translation>
 <translation id="4124987746317609294">Časové období</translation>
 <translation id="4172051516777682613">Vždy zobrazovat</translation>
@@ -338,10 +343,12 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="7159472599653637159">Vyžádat web pro mobily</translation>
 <translation id="7167621057293532233">Typy dat</translation>
 <translation id="7175593937868963913">Napsat e-mail</translation>
+<translation id="7180611975245234373">Obnovit</translation>
 <translation id="7189598951263744875">Sdílet...</translation>
 <translation id="7203585745079012652">Vyslovovat odpovědi</translation>
 <translation id="722055596168483966">Přizpůsobení služeb Google</translation>
 <translation id="7272437679830969316">Vaši totožnost nelze ověřit. Heslo nebylo zkopírováno.</translation>
+<translation id="7285236536143823449">ANO, ZAPNOUT</translation>
 <translation id="7291368939935408496">Příprava hesel…</translation>
 <translation id="7336264872878993241">Staženo <ph name="PERCENT" /> %</translation>
 <translation id="7346909386216857016">Dobře, rozumím</translation>
@@ -356,6 +363,7 @@ Vaše data byla <ph name="TIME" /> zašifrována pomocí heslové fráze pro syn
 <translation id="750493650310597496">Vybráno 0</translation>
 <translation id="7514365320538308">Stáhnout</translation>
 <translation id="7537586195939242955">Pass v této chvíli do aplikace Passbook nelze nainstalovat.</translation>
+<translation id="7554791636758816595">Nová karta</translation>
 <translation id="7561196759112975576">Vždy</translation>
 <translation id="7603852183842204213">Blokována vyskakovací okna (<ph name="NUMBER_OF_BLOCKED_POPUPS" />)</translation>
 <translation id="7605594153474022051">Synchronizace nefunguje</translation>

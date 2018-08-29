@@ -20,7 +20,6 @@ import time
 from xml.etree import ElementTree
 from xml.dom import minidom
 
-from chromite.cbuildbot import chroot_lib
 from chromite.cbuildbot import lkgm_manager
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import patch_series
@@ -32,6 +31,7 @@ from chromite.cbuildbot.stages import build_stages
 from chromite.lib import buildbucket_lib
 from chromite.lib import build_requests
 from chromite.lib import clactions
+from chromite.lib import clactions_metrics
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import commandline
@@ -1029,9 +1029,14 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
     # Note that this function is only called after the repo is already
     # sync'd, so AcquirePoolFromManifest does not need to sync.
     self.pool = validation_pool.ValidationPool.AcquirePoolFromManifest(
-        manifest, self._run.config.overlays, self.repo,
-        self._run.buildnumber, self._run.GetBuilderName(),
-        self._run.config.master, self._run.options.debug,
+        manifest=manifest,
+        overlays=self._run.config.overlays,
+        repo=self.repo,
+        build_number=self._run.buildnumber,
+        builder_name=self._run.GetBuilderName(),
+        buildbucket_id=self._run.options.buildbucket_id,
+        is_master=self._run.config.master,
+        dryrun=self._run.options.debug,
         builder_run=self._run)
 
   def _GetLKGMVersionFromManifest(self, manifest):
@@ -1063,9 +1068,12 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
         query = (self._run.options.cq_gerrit_override, None)
 
       self.pool = validation_pool.ValidationPool.AcquirePool(
-          self._run.config.overlays, self.repo,
-          self._run.buildnumber, self._run.GetBuilderName(),
-          query,
+          overlays=self._run.config.overlays,
+          repo=self.repo,
+          build_number=self._run.buildnumber,
+          builder_name=self._run.GetBuilderName(),
+          buildbucket_id=self._run.options.buildbucket_id,
+          query=query,
           dryrun=self._run.options.debug,
           check_tree_open=(not self._run.options.debug or
                            self._run.options.mock_tree_status),
@@ -1092,18 +1100,6 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
 
   def ManifestCheckout(self, next_manifest):
     """Checks out the repository to the given manifest."""
-    lkgm_version = self._GetLKGMVersionFromManifest(next_manifest)
-    chroot_manager = chroot_lib.ChrootManager(self._build_root)
-
-    # Make sure the chroot version is valid.
-    using_fresh_chroot = chroot_manager.EnsureChrootAtVersion(lkgm_version)
-    metrics.Counter(constants.MON_CHROOT_USED).increment(
-        fields={'build_config': self._run.config.name,
-                'used_fresh_chroot': using_fresh_chroot})
-
-    # Clear the chroot version as we are in the middle of building it.
-    chroot_manager.ClearChrootVersion()
-
     # Sync to the provided manifest on slaves. On the master, we're
     # already synced to this manifest, so self.skip_sync is set and
     # this is a no-op.
@@ -1164,9 +1160,13 @@ class PreCQSyncStage(SyncStage):
   def PerformStage(self):
     super(PreCQSyncStage, self).PerformStage()
     self.pool = validation_pool.ValidationPool.AcquirePreCQPool(
-        self._run.config.overlays, self._build_root,
-        self._run.buildnumber, self._run.config.name,
-        dryrun=self._run.options.debug_forced, candidates=self.patches,
+        overlays=self._run.config.overlays,
+        build_root=self._build_root,
+        build_number=self._run.buildnumber,
+        builder_name=self._run.config.name,
+        buildbucket_id=self._run.options.buildbucket_id,
+        dryrun=self._run.options.debug_forced,
+        candidates=self.patches,
         builder_run=self._run)
     self.pool.ApplyPoolIntoRepo()
 
@@ -2067,7 +2067,7 @@ class PreCQLauncherStage(SyncStage):
       if db:
         submitted_change_actions = db.GetActionsForChanges(submitted)
         strategies = {m: constants.STRATEGY_PRECQ_SUBMIT for m in submitted}
-        clactions.RecordSubmissionMetrics(
+        clactions_metrics.RecordSubmissionMetrics(
             clactions.CLActionHistory(submitted_change_actions), strategies)
 
     self._LaunchPreCQsIfNeeded(pool, changes)
@@ -2107,10 +2107,12 @@ class PreCQLauncherStage(SyncStage):
 
     # Loop through all of the changes until we hit a timeout.
     validation_pool.ValidationPool.AcquirePool(
-        self._run.config.overlays, self.repo,
-        self._run.buildnumber,
-        self._run.GetBuilderName(),
-        query,
+        overlays=self._run.config.overlays,
+        repo=self.repo,
+        build_number=self._run.buildnumber,
+        builder_name=self._run.GetBuilderName(),
+        buildbucket_id=self._run.options.buildbucket_id,
+        query=query,
         dryrun=self._run.options.debug,
         check_tree_open=False, change_filter=self.ProcessChanges,
         builder_run=self._run)

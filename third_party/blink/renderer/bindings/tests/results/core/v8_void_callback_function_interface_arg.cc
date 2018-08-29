@@ -9,20 +9,20 @@
 
 // clang-format off
 
-#include "v8_void_callback_function_interface_arg.h"
+#include "third_party/blink/renderer/bindings/tests/results/core/v8_void_callback_function_interface_arg.h"
 
-#include "bindings/core/v8/exception_state.h"
-#include "bindings/core/v8/generated_code_helper.h"
-#include "bindings/core/v8/native_value_traits_impl.h"
-#include "bindings/core/v8/to_v8_for_core.h"
-#include "bindings/core/v8/v8_binding_for_core.h"
-#include "bindings/core/v8/v8_html_div_element.h"
-#include "core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
+#include "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h"
+#include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
+#include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_html_div_element.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 
 namespace blink {
 
 v8::Maybe<void> V8VoidCallbackFunctionInterfaceArg::Invoke(ScriptWrappable* callback_this_value, HTMLDivElement* divElement) {
-  // This function implements "invoke" steps in
+  // This function implements "invoke" algorithm defined in
   // "3.10. Invoking callback functions".
   // https://heycam.github.io/webidl/#es-invoking-callback-functions
 

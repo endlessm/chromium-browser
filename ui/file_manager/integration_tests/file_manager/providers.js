@@ -10,8 +10,8 @@ var appId;
 
 /**
  * Returns steps for initializing test cases.
- * @param {string} manifest Name of the manifest to load for the testing
- *     provider extension.
+ * @param {string} manifest The manifest name of testing provider extension
+ *     to launch for the test case.
  * @return {!Array<function>}
  */
 function getSetupSteps(manifest) {
@@ -19,9 +19,11 @@ function getSetupSteps(manifest) {
     function() {
       chrome.test.sendMessage(
           JSON.stringify({
-            name: 'installProviderExtension',
+            name: 'launchProviderExtension',
             manifest: manifest
-          }));
+          }), this.next);
+    },
+    function() {
       setupAndWaitUntilReady(null, RootPath.DOWNLOADS, this.next);
     },
     function(results) {
@@ -175,27 +177,34 @@ function requestMountNotInMenuInternal(manifest) {
   ]);
 }
 
-function requestMount() {
-  requestMountInternal(false /* multipleMounts */, 'manifest.json');
-}
+/**
+ * Tests mounting a single mount point in the button menu.
+ */
+testcase.requestMount = function() {
+  const multipleMounts = false;
+  requestMountInternal(multipleMounts, 'manifest.json');
+};
 
-function requestMountMultipleMounts() {
-  requestMountInternal(
-      true /* multipleMounts */, 'manifest_multiple_mounts.json');
-}
+/**
+ * Tests mounting multiple mount points in the button menu.
+ */
+testcase.requestMountMultipleMounts = function() {
+  const multipleMounts = true;
+  requestMountInternal(multipleMounts, 'manifest_multiple_mounts.json');
+};
 
-function requestMountSourceDevice() {
+/**
+ * Tests mounting a device not present in the button menu.
+ */
+testcase.requestMountSourceDevice = function() {
   requestMountNotInMenuInternal('manifest_source_device.json');
-}
+};
 
-function requestMountSourceFile() {
+/**
+ * Tests mounting a file not present in the button menu.
+ */
+testcase.requestMountSourceFile = function() {
   requestMountNotInMenuInternal('manifest_source_file.json');
-}
-
-// Exports test functions.
-testcase.requestMount = requestMount;
-testcase.requestMountMultipleMounts = requestMountMultipleMounts;
-testcase.requestMountSourceDevice = requestMountSourceDevice;
-testcase.requestMountSourceFile = requestMountSourceFile;
+};
 
 })();

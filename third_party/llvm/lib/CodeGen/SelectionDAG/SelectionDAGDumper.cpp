@@ -26,6 +26,8 @@
 #include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
+#include "llvm/CodeGen/ValueTypes.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -34,7 +36,6 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/ModuleSlotTracker.h"
 #include "llvm/IR/Value.h"
-#include "llvm/IR/ValueTypes.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Compiler.h"
@@ -425,15 +426,28 @@ static Printable PrintNodeId(const SDNode &Node) {
 
 // Print the MMO with more information from the SelectionDAG.
 static void printMemOperand(raw_ostream &OS, const MachineMemOperand &MMO,
-                            const SelectionDAG *G) {
-  const MachineFunction &MF = G->getMachineFunction();
-  const Function &F = MF.getFunction();
-  const MachineFrameInfo &MFI = MF.getFrameInfo();
-  const TargetInstrInfo *TII = G->getSubtarget().getInstrInfo();
-  ModuleSlotTracker MST(F.getParent());
-  MST.incorporateFunction(F);
+                            const MachineFunction *MF, const Module *M,
+                            const MachineFrameInfo *MFI,
+                            const TargetInstrInfo *TII, LLVMContext &Ctx) {
+  ModuleSlotTracker MST(M);
+  if (MF)
+    MST.incorporateFunction(MF->getFunction());
   SmallVector<StringRef, 0> SSNs;
-  MMO.print(OS, MST, SSNs, *G->getContext(), &MFI, TII);
+  MMO.print(OS, MST, SSNs, Ctx, MFI, TII);
+}
+
+static void printMemOperand(raw_ostream &OS, const MachineMemOperand &MMO,
+                            const SelectionDAG *G) {
+  if (G) {
+    const MachineFunction *MF = &G->getMachineFunction();
+    return printMemOperand(OS, MMO, MF, MF->getFunction().getParent(),
+                           &MF->getFrameInfo(), G->getSubtarget().getInstrInfo(),
+                           *G->getContext());
+  } else {
+    LLVMContext Ctx;
+    return printMemOperand(OS, MMO, /*MF=*/nullptr, /*M=*/nullptr,
+                           /*MFI=*/nullptr, /*TII=*/nullptr, Ctx);
+  }
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
@@ -465,9 +479,6 @@ void SDNode::print_details(raw_ostream &OS, const SelectionDAG *G) const {
   if (getFlags().hasExact())
     OS << " exact";
 
-  if (getFlags().hasUnsafeAlgebra())
-    OS << " unsafe";
-
   if (getFlags().hasNoNaNs())
     OS << " nnan";
 
@@ -482,6 +493,12 @@ void SDNode::print_details(raw_ostream &OS, const SelectionDAG *G) const {
 
   if (getFlags().hasAllowContract())
     OS << " contract";
+
+  if (getFlags().hasApproximateFuncs())
+    OS << " afn";
+
+  if (getFlags().hasAllowReassociation())
+    OS << " reassoc";
 
   if (getFlags().hasVectorReduction())
     OS << " vector-reduction";
@@ -820,5 +837,9 @@ void SDNode::print(raw_ostream &OS, const SelectionDAG *G) const {
   for (unsigned i = 0, e = getNumOperands(); i != e; ++i) {
     if (i) OS << ", "; else OS << " ";
     printOperand(OS, G, getOperand(i));
+  }
+  if (DebugLoc DL = getDebugLoc()) {
+    OS << ", ";
+    DL.print(OS);
   }
 }

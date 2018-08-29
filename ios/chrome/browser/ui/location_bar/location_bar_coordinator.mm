@@ -13,9 +13,13 @@
 #include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/search_engines/util.h"
 #include "components/strings/grit/components_strings.h"
+#include "components/variations/net/variations_http_headers.h"
 #include "ios/chrome/browser/autocomplete/autocomplete_scheme_classifier_impl.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/search_engines/template_url_service_factory.h"
+#import "ios/chrome/browser/ui/fullscreen/fullscreen_controller.h"
+#import "ios/chrome/browser/ui/fullscreen/fullscreen_controller_factory.h"
+#import "ios/chrome/browser/ui/fullscreen/fullscreen_ui_updater.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_constants.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_mediator.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_url_loader.h"
@@ -28,7 +32,10 @@
 #import "ios/chrome/browser/ui/toolbar/clean/toolbar_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/url_loader.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
+#include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
+#include "ios/public/provider/chrome/browser/voice/voice_search_provider.h"
 #import "ios/third_party/material_components_ios/src/components/Typography/src/MaterialTypography.h"
+#import "ios/web/public/navigation_manager.h"
 #import "ios/web/public/referrer.h"
 #include "url/gurl.h"
 
@@ -47,7 +54,10 @@ const int kLocationAuthorizationStatusCount = 4;
 @interface LocationBarCoordinator ()<LocationBarDelegate,
                                      LocationBarViewControllerDelegate,
                                      LocationBarConsumer> {
+  // API endpoint for omnibox.
   std::unique_ptr<WebOmniboxEditControllerImpl> _editController;
+  // Observer that updates |viewController| for fullscreen events.
+  std::unique_ptr<FullscreenControllerObserver> _fullscreenObserver;
 }
 // Coordinator for the omnibox popup.
 @property(nonatomic, strong) OmniboxPopupCoordinator* omniboxPopupCoordinator;
@@ -91,16 +101,30 @@ const int kLocationAuthorizationStatusCount = 4;
           tintColor:tintColor];
   self.viewController.incognito = isIncognito;
   self.viewController.delegate = self;
+  self.viewController.dispatcher = static_cast<
+      id<ActivityServiceCommands, BrowserCommands, ApplicationCommands>>(
+      self.dispatcher);
+  self.viewController.voiceSearchEnabled = ios::GetChromeBrowserProvider()
+                                               ->GetVoiceSearchProvider()
+                                               ->IsVoiceSearchEnabled();
 
   _editController = std::make_unique<WebOmniboxEditControllerImpl>(self);
   _editController->SetURLLoader(self);
 
   self.omniboxCoordinator = [[OmniboxCoordinator alloc] init];
-  self.omniboxCoordinator.textField = self.viewController.textField;
   self.omniboxCoordinator.editController = _editController.get();
   self.omniboxCoordinator.browserState = self.browserState;
   self.omniboxCoordinator.dispatcher = self.dispatcher;
   [self.omniboxCoordinator start];
+
+  [self.omniboxCoordinator.managedViewController
+      willMoveToParentViewController:self.viewController];
+  [self.viewController
+      addChildViewController:self.omniboxCoordinator.managedViewController];
+  [self.viewController
+      setEditView:self.omniboxCoordinator.managedViewController.view];
+  [self.omniboxCoordinator.managedViewController
+      didMoveToParentViewController:self.viewController];
 
   self.omniboxPopupCoordinator =
       [self.omniboxCoordinator createPopupCoordinator:self.popupPositioner];
@@ -111,6 +135,12 @@ const int kLocationAuthorizationStatusCount = 4;
       [[LocationBarMediator alloc] initWithToolbarModel:[self toolbarModel]];
   self.mediator.webStateList = self.webStateList;
   self.mediator.consumer = self;
+
+  _fullscreenObserver =
+      std::make_unique<FullscreenUIUpdater>(self.viewController);
+  FullscreenControllerFactory::GetInstance()
+      ->GetForBrowserState(self.browserState)
+      ->AddObserver(_fullscreenObserver.get());
 }
 
 - (void)stop {
@@ -172,10 +202,10 @@ const int kLocationAuthorizationStatusCount = 4;
     // |loadURL|?  It doesn't seem to be causing major problems.  If we call
     // cancel before load, then any prerendered pages get destroyed before the
     // call to load.
-    [self.URLLoader loadURL:url
-                   referrer:web::Referrer()
-                 transition:transition
-          rendererInitiated:NO];
+    web::NavigationManager::WebLoadParams params(url);
+    params.transition_type = transition;
+    params.extra_headers = [self variationHeadersForURL:url];
+    [self.URLLoader loadURLWithParams:params];
 
     if (google_util::IsGoogleSearchUrl(url)) {
       UMA_HISTOGRAM_ENUMERATION(
@@ -249,6 +279,26 @@ const int kLocationAuthorizationStatusCount = 4;
 
 #pragma mark - private
 
+// Returns a dictionary with variation headers for qualified URLs. Can be empty.
+- (NSDictionary*)variationHeadersForURL:(const GURL&)URL {
+  // Note: It's OK to pass SignedIn::kNo if it's unknown, as it does not
+  // affect transmission of experiments coming from the variations server.
+  net::HttpRequestHeaders variation_headers;
+  variations::AppendVariationHeaders(
+      URL,
+      self.browserState->IsOffTheRecord() ? variations::InIncognito::kYes
+                                          : variations::InIncognito::kNo,
+      variations::SignedIn::kNo, &variation_headers);
+  NSMutableDictionary* result = [NSMutableDictionary dictionary];
+  net::HttpRequestHeaders::Iterator header_iterator(variation_headers);
+  while (header_iterator.GetNext()) {
+    NSString* name = base::SysUTF8ToNSString(header_iterator.name());
+    NSString* value = base::SysUTF8ToNSString(header_iterator.value());
+    result[name] = value;
+  }
+  return [result copy];
+}
+
 // Navigate to |query| from omnibox.
 - (void)loadURLForQuery:(NSString*)query {
   GURL searchURL;
@@ -264,12 +314,10 @@ const int kLocationAuthorizationStatusCount = 4;
     // It is necessary to include PAGE_TRANSITION_FROM_ADDRESS_BAR in the
     // transition type is so that query-in-the-omnibox is triggered for the
     // URL.
-    ui::PageTransition transition = ui::PageTransitionFromInt(
+    web::NavigationManager::WebLoadParams params(searchURL);
+    params.transition_type = ui::PageTransitionFromInt(
         ui::PAGE_TRANSITION_LINK | ui::PAGE_TRANSITION_FROM_ADDRESS_BAR);
-    [self.URLLoader loadURL:GURL(searchURL)
-                   referrer:web::Referrer()
-                 transition:transition
-          rendererInitiated:NO];
+    [self.URLLoader loadURLWithParams:params];
   }
 }
 

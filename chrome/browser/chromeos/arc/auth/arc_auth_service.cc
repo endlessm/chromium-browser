@@ -23,10 +23,14 @@
 #include "components/arc/arc_features.h"
 #include "components/arc/arc_prefs.h"
 #include "components/arc/arc_service_manager.h"
+#include "components/arc/arc_supervision_transition.h"
 #include "components/arc/arc_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/storage_partition.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace arc {
 
@@ -132,6 +136,9 @@ ArcAuthService::ArcAuthService(content::BrowserContext* browser_context,
                                ArcBridgeService* arc_bridge_service)
     : profile_(Profile::FromBrowserContext(browser_context)),
       arc_bridge_service_(arc_bridge_service),
+      url_loader_factory_(
+          content::BrowserContext::GetDefaultStoragePartition(profile_)
+              ->GetURLLoaderFactoryForBrowserProcess()),
       weak_ptr_factory_(this) {
   arc_bridge_service_->auth()->SetHost(this);
   arc_bridge_service_->auth()->AddObserver(this);
@@ -200,6 +207,27 @@ void ArcAuthService::ReportAccountCheckStatus(
   UpdateAuthAccountCheckStatus(status);
 }
 
+void ArcAuthService::ReportSupervisionChangeStatus(
+    mojom::SupervisionChangeStatus status) {
+  switch (status) {
+    case mojom::SupervisionChangeStatus::CLOUD_DPC_DISABLED:
+    case mojom::SupervisionChangeStatus::CLOUD_DPC_ALREADY_DISABLED:
+    case mojom::SupervisionChangeStatus::CLOUD_DPC_ENABLED:
+    case mojom::SupervisionChangeStatus::CLOUD_DPC_ALREADY_ENABLED:
+      profile_->GetPrefs()->SetInteger(
+          prefs::kArcSupervisionTransition,
+          static_cast<int>(ArcSupervisionTransition::NO_TRANSITION));
+      // TODO(brunokim): notify potential observers.
+      break;
+    case mojom::SupervisionChangeStatus::INVALID_SUPERVISION_STATE:
+    case mojom::SupervisionChangeStatus::CLOUD_DPC_DISABLING_FAILED:
+    case mojom::SupervisionChangeStatus::CLOUD_DPC_ENABLING_FAILED:
+    default:
+      LOG(WARNING) << "Failed to changed supervision: " << status;
+      // TODO(crbug/841939): Block ARC++ in case of Unicorn graduation failure.
+  }
+}
+
 void ArcAuthService::OnAccountInfoReady(mojom::AccountInfoPtr account_info,
                                         mojom::ArcSignInStatus status) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -244,7 +272,8 @@ void ArcAuthService::RequestAccountInfo(bool initial_signin) {
   } else {
     // Optionally retrieve auth code in silent mode.
     auth_code_fetcher = std::make_unique<ArcBackgroundAuthCodeFetcher>(
-        profile_, ArcSessionManager::Get()->auth_context(), initial_signin);
+        url_loader_factory_, profile_, ArcSessionManager::Get()->auth_context(),
+        initial_signin);
   }
   auth_code_fetcher->Fetch(base::Bind(&ArcAuthService::OnAuthCodeFetched,
                                       weak_ptr_factory_.GetWeakPtr()));
@@ -304,6 +333,11 @@ void ArcAuthService::OnAuthCodeFetched(bool success,
     OnAccountInfoReady(
         nullptr, mojom::ArcSignInStatus::CHROME_SERVER_COMMUNICATION_ERROR);
   }
+}
+
+void ArcAuthService::SetURLLoaderFactoryForTesting(
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
+  url_loader_factory_ = std::move(url_loader_factory);
 }
 
 }  // namespace arc

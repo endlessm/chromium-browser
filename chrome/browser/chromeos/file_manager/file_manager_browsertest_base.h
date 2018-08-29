@@ -6,20 +6,13 @@
 #define CHROME_BROWSER_CHROMEOS_FILE_MANAGER_FILE_MANAGER_BROWSERTEST_BASE_H_
 
 #include <map>
+#include <memory>
 #include <string>
 
-#include "base/memory/linked_ptr.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/profiles/profile.h"
-
-// Slow tests are disabled on debug build. http://crbug.com/327719
-// Disabled under MSAN, ASAN, and LSAN as well. http://crbug.com/468980.
-#if !defined(NDEBUG) || defined(MEMORY_SANITIZER) || \
-    defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER)
-#define DISABLE_SLOW_FILESAPP_TESTS
-#endif
 
 class NotificationDisplayServiceTester;
 
@@ -31,51 +24,69 @@ class DriveTestVolume;
 class FakeTestVolume;
 class LocalTestVolume;
 
-// The base test class.
-class FileManagerBrowserTestBase : public ExtensionApiTest {
+class FileManagerBrowserTestBase : public extensions::ExtensionApiTest {
  protected:
   FileManagerBrowserTestBase();
   ~FileManagerBrowserTestBase() override;
 
+  // ExtensionApiTest overrides.
   void SetUp() override;
-
+  void SetUpCommandLine(base::CommandLine* command_line) override;
   void SetUpInProcessBrowserTestFixture() override;
-
   void SetUpOnMainThread() override;
 
-  // Adds an incognito and guest-mode flags for tests in the guest mode.
-  void SetUpCommandLine(base::CommandLine* command_line) override;
+  // Launches the test extension from GetTestExtensionManifestName() and uses
+  // it to drive the testing the actual FileManager component extension under
+  // test by calling RunTestMessageLoop().
+  void StartTest();
 
-  // Installs an extension at the specified |path| using the |manifest_name|
-  // manifest.
-  void InstallExtension(const base::FilePath& path, const char* manifest_name);
-  // Loads our testing extension and sends it a string identifying the current
-  // test.
-  virtual void StartTest();
+  // Overrides for each FileManagerBrowserTest test extension type.
+  virtual GuestMode GetGuestMode() const = 0;
+  virtual const char* GetTestCaseName() const = 0;
+  virtual const char* GetTestExtensionManifestName() const = 0;
+
+ private:
+  // Returns true if the test requires incognito mode.
+  bool IsIncognitoModeTest() const { return GetGuestMode() == IN_INCOGNITO; }
+
+  // Returns true if the test requires in guest mode.
+  bool IsGuestModeTest() const { return GetGuestMode() == IN_GUEST_MODE; }
+
+  // Called during setup if needed, to create a drive integration service for
+  // the given |profile|. Caller owns the return result.
+  drive::DriveIntegrationService* CreateDriveIntegrationService(
+      Profile* profile);
+
+  // Launches the test extension with manifest |manifest_name|. The extension
+  // manifest_name file should reside in the specified |path| relative to the
+  // Chromium src directory.
+  void LaunchExtension(const base::FilePath& path, const char* manifest_name);
+
+  // Runs the test: awaits chrome.test messsage commands and chrome.test PASS
+  // or FAIL messsages to process. |OnCommand| is used to handle the commands
+  // sent from the test extension. Returns on test PASS or FAIL.
   void RunTestMessageLoop();
 
-  // Overriding point for test configurations.
-  virtual const char* GetTestManifestName() const = 0;
-  virtual GuestMode GetGuestModeParam() const = 0;
-  virtual const char* GetTestCaseNameParam() const = 0;
-  virtual void OnMessage(const std::string& name,
-                         const base::DictionaryValue& value,
-                         std::string* output);
+  // Process test extension command |name|, with arguments |value|. Write the
+  // results to |output|.
+  void OnCommand(const std::string& name,
+                 const base::DictionaryValue& value,
+                 std::string* output);
 
   std::unique_ptr<LocalTestVolume> local_volume_;
-  linked_ptr<DriveTestVolume> drive_volume_;
-  std::map<Profile*, linked_ptr<DriveTestVolume>> drive_volumes_;
+  std::unique_ptr<DriveTestVolume> drive_volume_;
+  std::map<Profile*, std::unique_ptr<DriveTestVolume>> drive_volumes_;
   std::unique_ptr<FakeTestVolume> usb_volume_;
   std::unique_ptr<FakeTestVolume> mtp_volume_;
 
- private:
-  drive::DriveIntegrationService* CreateDriveIntegrationService(
-      Profile* profile);
   drive::DriveIntegrationServiceFactory::FactoryCallback
       create_drive_integration_service_;
   std::unique_ptr<drive::DriveIntegrationServiceFactory::ScopedFactoryForTest>
       service_factory_for_test_;
+
   std::unique_ptr<NotificationDisplayServiceTester> display_service_;
+
+  DISALLOW_COPY_AND_ASSIGN(FileManagerBrowserTestBase);
 };
 
 }  // namespace file_manager

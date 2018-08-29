@@ -21,9 +21,10 @@ import org.chromium.components.content_view.ContentView;
 import org.chromium.components.navigation_interception.InterceptNavigationDelegate;
 import org.chromium.components.navigation_interception.NavigationParams;
 import org.chromium.components.web_contents_delegate_android.WebContentsDelegateAndroid;
-import org.chromium.content.browser.ContentVideoViewEmbedder;
+import org.chromium.content_public.browser.ContentVideoViewEmbedder;
 import org.chromium.content_public.browser.ContentViewCore;
 import org.chromium.content_public.browser.LoadUrlParams;
+import org.chromium.content_public.browser.RenderCoordinates;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.ui.base.ViewAndroidDelegate;
@@ -40,6 +41,9 @@ public class OverlayPanelContent {
 
     /** The WebContents that this panel will display. */
     private WebContents mWebContents;
+
+    /** The container view that this panel uses. */
+    private ViewGroup mContainerView;
 
     /** The pointer to the native version of this class. */
     private long mNativeOverlayPanelContentPtr;
@@ -169,8 +173,13 @@ public class OverlayPanelContent {
             }
 
             @Override
-            public void toggleFullscreenModeForTab(boolean enterFullscreen) {
-                mIsFullscreen = enterFullscreen;
+            public void enterFullscreenModeForTab(boolean prefersNavigationBar) {
+                mIsFullscreen = true;
+            }
+
+            @Override
+            public void exitFullscreenModeForTab() {
+                mIsFullscreen = false;
             }
 
             @Override
@@ -222,9 +231,7 @@ public class OverlayPanelContent {
             mLoadedUrl = url;
             mDidStartLoadingUrl = true;
             mIsProcessingPendingNavigation = true;
-            if (!mContentDelegate.handleInterceptLoadUrl(mContentViewCore, url)) {
-                mWebContents.getNavigationController().loadUrl(new LoadUrlParams(url));
-            }
+            mWebContents.getNavigationController().loadUrl(new LoadUrlParams(url));
         }
     }
 
@@ -283,14 +290,7 @@ public class OverlayPanelContent {
         // Dummny ViewAndroidDelegate since the container view for overlay panel is
         // never added to the view hierarchy.
         ViewAndroidDelegate delegate =
-                new ViewAndroidDelegate() {
-                    private ViewGroup mContainerView;
-
-                    private ViewAndroidDelegate init(ViewGroup containerView) {
-                        mContainerView = containerView;
-                        return this;
-                    }
-
+                new ViewAndroidDelegate(cv) {
                     @Override
                     public View acquireView() {
                         return null;
@@ -303,11 +303,7 @@ public class OverlayPanelContent {
                     @Override
                     public void removeView(View anchorView) { }
 
-                    @Override
-                    public ViewGroup getContainerView() {
-                        return mContainerView;
-                    }
-                }.init(cv);
+                };
         mContentViewCore = ContentViewCore.create(mActivity, ChromeVersionInfo.getProductVersion(),
                 mWebContents, delegate, cv, mActivity.getWindowAndroid());
 
@@ -349,6 +345,7 @@ public class OverlayPanelContent {
                     }
                 };
 
+        mContainerView = cv;
         mInterceptNavigationDelegate = new InterceptNavigationDelegateImpl();
         nativeSetInterceptNavigationDelegate(
                 mNativeOverlayPanelContentPtr, mInterceptNavigationDelegate, mWebContents);
@@ -410,8 +407,8 @@ public class OverlayPanelContent {
      * Reset the ContentViewCore's scroll position to (0, 0).
      */
     public void resetContentViewScroll() {
-        if (mContentViewCore != null) {
-            mContentViewCore.scrollTo(0, 0);
+        if (mWebContents != null) {
+            mWebContents.getEventForwarder().scrollTo(0, 0);
         }
     }
 
@@ -419,8 +416,9 @@ public class OverlayPanelContent {
      * @return The Y scroll position.
      */
     public float getContentVerticalScroll() {
-        return mContentViewCore != null
-                ? mContentViewCore.computeVerticalScrollOffset() : -1.f;
+        return mWebContents != null
+                ? RenderCoordinates.fromWebContents(mWebContents).getScrollYPixInt()
+                : -1.f;
     }
 
     /**
@@ -481,16 +479,12 @@ public class OverlayPanelContent {
         mNativeOverlayPanelContentPtr = 0;
     }
 
-    /**
-     * @return This panel's ContentViewCore.
-     */
-    @VisibleForTesting
-    public ContentViewCore getContentViewCore() {
-        return mContentViewCore;
+    protected WebContents getWebContents() {
+        return mWebContents;
     }
 
-    private WebContents getWebContents() {
-        return mWebContents;
+    ViewGroup getContainerView() {
+        return mContainerView;
     }
 
     void onSizeChanged(int width, int height) {

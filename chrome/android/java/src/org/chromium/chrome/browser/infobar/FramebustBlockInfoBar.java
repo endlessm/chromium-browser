@@ -20,6 +20,7 @@ import org.chromium.components.url_formatter.UrlFormatter;
  * continue the redirection by tapping on a link.
  */
 public class FramebustBlockInfoBar extends InfoBar {
+
     private final String mBlockedUrl;
 
     /** Whether the infobar should be shown as a mini-infobar or a classic expanded one. */
@@ -56,12 +57,16 @@ public class FramebustBlockInfoBar extends InfoBar {
         schemeView.setText(scheme);
 
         TextView urlView = ellipsizerView.findViewById(R.id.url_minus_scheme);
-        urlView.setText(formattedUrl.substring(scheme.length()));
+        String textToEllipsize = formattedUrl.substring(scheme.length());
+        // Handle adjusting the text to workaround Android crashes when ellipsizing on old versions.
+        // TODO(donnd): remove this class when older versions of Android are no longer supported.
+        ((TextViewEllipsizerSafe) urlView).setTextSafely(textToEllipsize);
 
         ellipsizerView.setOnClickListener(view -> onLinkClicked());
 
         control.addView(ellipsizerView);
-        layout.setButtons(getContext().getResources().getString(R.string.got_it), null);
+        layout.setButtons(
+                getContext().getResources().getString(R.string.always_allow_redirects), null);
     }
 
     @Override

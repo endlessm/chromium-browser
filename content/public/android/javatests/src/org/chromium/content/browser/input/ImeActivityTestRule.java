@@ -30,7 +30,6 @@ import org.chromium.content.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.content.browser.test.util.TestInputMethodManagerWrapper;
 import org.chromium.content.browser.test.util.TestInputMethodManagerWrapper.InputConnectionProvider;
 import org.chromium.content.browser.webcontents.WebContentsImpl;
-import org.chromium.content_public.browser.ContentViewCore;
 import org.chromium.content_public.browser.ImeAdapter;
 import org.chromium.content_shell_apk.ContentShellActivityTestRule;
 import org.chromium.ui.base.ime.TextInputType;
@@ -54,16 +53,13 @@ class ImeActivityTestRule extends ContentShellActivityTestRule {
     static final String PASSWORD_FORM_HTML = "content/test/data/android/input/password_form.html";
     static final String INPUT_MODE_HTML = "content/test/data/android/input/input_mode.html";
 
-    private ContentViewCore mContentViewCore;
     private SelectionPopupControllerImpl mSelectionPopupController;
     private TestCallbackHelperContainer mCallbackContainer;
     private TestInputMethodManagerWrapper mInputMethodManagerWrapper;
 
     public void setUpForUrl(String url) throws Exception {
         launchContentShellWithUrlSync(url);
-        mContentViewCore = getContentViewCore();
-        mSelectionPopupController =
-                SelectionPopupControllerImpl.fromWebContents(mContentViewCore.getWebContents());
+        mSelectionPopupController = SelectionPopupControllerImpl.fromWebContents(getWebContents());
 
         final ImeAdapter imeAdapter = getImeAdapter();
         InputConnectionProvider provider =
@@ -107,9 +103,10 @@ class ImeActivityTestRule extends ContentShellActivityTestRule {
                 new TestInputConnectionFactory(getImeAdapter().getInputConnectionFactoryForTest());
         getImeAdapter().setInputConnectionFactory(mConnectionFactory);
 
-        mCallbackContainer = new TestCallbackHelperContainer(mContentViewCore);
-        DOMUtils.waitForNonZeroNodeBounds(getWebContents(), "input_text");
-        boolean result = DOMUtils.clickNode(mContentViewCore, "input_text");
+        WebContentsImpl webContents = (WebContentsImpl) getWebContents();
+        mCallbackContainer = new TestCallbackHelperContainer(webContents);
+        DOMUtils.waitForNonZeroNodeBounds(webContents, "input_text");
+        boolean result = DOMUtils.clickNode(webContents, "input_text");
 
         Assert.assertEquals("Failed to dispatch touch event.", true, result);
         assertWaitForKeyboardStatus(true);
@@ -160,16 +157,14 @@ class ImeActivityTestRule extends ContentShellActivityTestRule {
 
     void clearEventLogs() throws Exception {
         final String code = "clearEventLogs()";
-        JavaScriptUtils.executeJavaScriptAndWaitForResult(
-                getContentViewCore().getWebContents(), code);
+        JavaScriptUtils.executeJavaScriptAndWaitForResult(getWebContents(), code);
     }
 
     void waitForEventLogs(String expectedLogs) throws Exception {
         final String code = "getEventLogs()";
         final String sanitizedExpectedLogs = "\"" + expectedLogs + "\"";
         Assert.assertEquals(sanitizedExpectedLogs,
-                JavaScriptUtils.executeJavaScriptAndWaitForResult(
-                        getContentViewCore().getWebContents(), code));
+                JavaScriptUtils.executeJavaScriptAndWaitForResult(getWebContents(), code));
     }
 
     void assertTextsAroundCursor(CharSequence before, CharSequence selected, CharSequence after)
@@ -558,8 +553,8 @@ class ImeActivityTestRule extends ContentShellActivityTestRule {
     }
 
     void attachPhysicalKeyboard() {
-        Configuration hardKeyboardConfig = new Configuration(
-                getContentViewCore().getContext().getResources().getConfiguration());
+        Configuration hardKeyboardConfig =
+                new Configuration(getActivity().getResources().getConfiguration());
         hardKeyboardConfig.keyboard = Configuration.KEYBOARD_QWERTY;
         hardKeyboardConfig.keyboardHidden = Configuration.KEYBOARDHIDDEN_YES;
         hardKeyboardConfig.hardKeyboardHidden = Configuration.HARDKEYBOARDHIDDEN_NO;
@@ -567,8 +562,8 @@ class ImeActivityTestRule extends ContentShellActivityTestRule {
     }
 
     void detachPhysicalKeyboard() {
-        Configuration softKeyboardConfig = new Configuration(
-                getContentViewCore().getContext().getResources().getConfiguration());
+        Configuration softKeyboardConfig =
+                new Configuration(getActivity().getResources().getConfiguration());
         softKeyboardConfig.keyboard = Configuration.KEYBOARD_NOKEYS;
         softKeyboardConfig.keyboardHidden = Configuration.KEYBOARDHIDDEN_NO;
         softKeyboardConfig.hardKeyboardHidden = Configuration.HARDKEYBOARDHIDDEN_YES;
@@ -680,6 +675,11 @@ class ImeActivityTestRule extends ContentShellActivityTestRule {
         @Override
         public void onViewDetachedFromWindow() {
             mFactory.onViewDetachedFromWindow();
+        }
+
+        @Override
+        public void setTriggerDelayedOnCreateInputConnection(boolean trigger) {
+            mFactory.setTriggerDelayedOnCreateInputConnection(trigger);
         }
     }
 }

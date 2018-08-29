@@ -14,14 +14,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
-import android.content.res.Resources;
-import android.graphics.Color;
-import android.graphics.PorterDuff;
-import android.graphics.Rect;
-import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
-import android.net.Uri;
-import android.os.Build;
 import android.os.Parcelable;
 import android.os.SystemClock;
 import android.provider.Settings;
@@ -31,7 +24,6 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.util.AttributeSet;
-import android.util.Pair;
 import android.util.SparseArray;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
@@ -47,7 +39,6 @@ import android.widget.ListView;
 import android.widget.TextView;
 
 import org.chromium.base.ApiCompatibilityUtils;
-import org.chromium.base.CollectionUtil;
 import org.chromium.base.CommandLine;
 import org.chromium.base.Log;
 import org.chromium.base.ObserverList;
@@ -58,7 +49,6 @@ import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.NativePage;
-import org.chromium.chrome.browser.UrlConstants;
 import org.chromium.chrome.browser.WindowDelegate;
 import org.chromium.chrome.browser.locale.LocaleManager;
 import org.chromium.chrome.browser.ntp.NativePageFactory;
@@ -69,7 +59,7 @@ import org.chromium.chrome.browser.omnibox.AutocompleteController.OnSuggestionsR
 import org.chromium.chrome.browser.omnibox.OmniboxResultsAdapter.OmniboxResultItem;
 import org.chromium.chrome.browser.omnibox.OmniboxResultsAdapter.OmniboxSuggestionDelegate;
 import org.chromium.chrome.browser.omnibox.geo.GeolocationHeader;
-import org.chromium.chrome.browser.page_info.PageInfoPopup;
+import org.chromium.chrome.browser.page_info.PageInfoController;
 import org.chromium.chrome.browser.preferences.privacy.PrivacyPreferencesManager;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.search_engines.TemplateUrlService;
@@ -80,14 +70,12 @@ import org.chromium.chrome.browser.toolbar.ToolbarPhone;
 import org.chromium.chrome.browser.util.ColorUtils;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.browser.util.KeyNavigationUtil;
-import org.chromium.chrome.browser.util.ViewUtils;
 import org.chromium.chrome.browser.widget.FadingBackgroundView;
+import org.chromium.chrome.browser.widget.TintedDrawable;
 import org.chromium.chrome.browser.widget.TintedImageButton;
 import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet;
-import org.chromium.components.security_state.ConnectionSecurityLevel;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.base.PageTransition;
@@ -96,7 +84,6 @@ import org.chromium.ui.base.WindowAndroid;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -112,34 +99,6 @@ public class LocationBarLayout
     // Delay triggering the omnibox results upon key press to allow the location bar to repaint
     // with the new characters.
     private static final long OMNIBOX_SUGGESTION_START_DELAY_MS = 30;
-
-    private static final int OMNIBOX_RESULTS_BG_COLOR = 0xFFF5F5F6;
-    private static final int OMNIBOX_RESULTS_CHROME_MODERN_BG_COLOR = 0xFFFFFFFF;
-    private static final int OMNIBOX_INCOGNITO_RESULTS_BG_COLOR = 0xFF323232;
-    private static final int OMNIBOX_INCOGNITO_RESULTS_CHROME_MODERN_BG_COLOR = 0xFF3C4043;
-
-    // Unicode "Left-To-Right Mark" (LRM) character.
-    private static final char LRM = '\u200E';
-
-    /**
-     * URI schemes that ContentView can handle.
-     *
-     * Copied from UrlUtilities.java.  UrlUtilities uses a URI to check for schemes, which
-     * is more strict than Uri and causes the path stripping to fail.
-     *
-     * The following additions have been made: "chrome", "ftp".
-     */
-    private static final HashSet<String> ACCEPTED_SCHEMES = CollectionUtil.newHashSet(
-            ContentUrlConstants.ABOUT_SCHEME, UrlConstants.DATA_SCHEME, UrlConstants.FILE_SCHEME,
-            UrlConstants.FTP_SCHEME, UrlConstants.HTTP_SCHEME, UrlConstants.HTTPS_SCHEME,
-            UrlConstants.INLINE_SCHEME, UrlConstants.JAVASCRIPT_SCHEME, UrlConstants.CHROME_SCHEME);
-
-    /**
-     * The URL schemes that should be displayed complete with path.
-     */
-    protected static final HashSet<String> UNSUPPORTED_SCHEMES_TO_SPLIT =
-            CollectionUtil.newHashSet(UrlConstants.FILE_SCHEME,
-                    UrlConstants.JAVASCRIPT_SCHEME, UrlConstants.DATA_SCHEME);
 
     protected ImageView mNavigationButton;
     protected TintedImageButton mSecurityButton;
@@ -306,7 +265,7 @@ public class LocationBarLayout
                                 mSuggestionList.getSelectedItemPosition());
                 // Set the UrlBar text to empty, so that it will trigger a text change when we
                 // set the text to the suggestion again.
-                setUrlBarText("", null);
+                setUrlBarText(UrlBarData.EMPTY);
                 mUrlBar.setText(selectedItem.getSuggestion().getFillIntoEdit());
                 mSuggestionList.setSelection(0);
                 mUrlBar.setSelection(mUrlBar.getText().length());
@@ -383,8 +342,7 @@ public class LocationBarLayout
 
             String suggestionMatchUrl = updateSuggestionUrlIfNeeded(suggestionMatch,
                         suggestionMatchPosition, skipOutOfBoundsCheck);
-            loadUrlFromOmniboxMatch(suggestionMatchUrl, suggestionMatch.getTransition(),
-                    suggestionMatchPosition, suggestionMatch.getType());
+            loadUrlFromOmniboxMatch(suggestionMatchUrl, suggestionMatchPosition, suggestionMatch);
         }
     }
 
@@ -407,227 +365,6 @@ public class LocationBarLayout
     public static final int BUTTON_TYPE_SECURITY_ICON = 1;
     /** Navigation button should be shown. */
     public static final int BUTTON_TYPE_NAVIGATION_ICON = 2;
-
-    /**
-     * A widget for showing a list of omnibox suggestions.
-     */
-    @VisibleForTesting
-    public class OmniboxSuggestionsList extends ListView {
-        private final int mSuggestionHeight;
-        private final int mSuggestionAnswerHeight;
-        private final int mSuggestionDefinitionHeight;
-        private final View mAnchorView;
-
-        private final int[] mTempPosition = new int[2];
-        private final Rect mTempRect = new Rect();
-
-        private final int mBackgroundVerticalPadding;
-
-        private float mMaxRequiredWidth;
-        private float mMaxMatchContentsWidth;
-
-        /**
-         * Constructs a new list designed for containing omnibox suggestions.
-         * @param context Context used for contained views.
-         */
-        public OmniboxSuggestionsList(Context context) {
-            super(context, null, android.R.attr.dropDownListViewStyle);
-
-            setDivider(null);
-            setFocusable(true);
-            setFocusableInTouchMode(true);
-
-            mSuggestionHeight = context.getResources().getDimensionPixelOffset(
-                    R.dimen.omnibox_suggestion_height);
-            mSuggestionAnswerHeight = context.getResources().getDimensionPixelOffset(
-                    R.dimen.omnibox_suggestion_answer_height);
-            mSuggestionDefinitionHeight = context.getResources().getDimensionPixelOffset(
-                    R.dimen.omnibox_suggestion_definition_height);
-
-            int paddingTop = useModernDesign()
-                    ? 0
-                    : context.getResources().getDimensionPixelOffset(
-                              R.dimen.omnibox_suggestion_list_padding_top);
-            int paddingBottom = context.getResources().getDimensionPixelOffset(
-                    R.dimen.omnibox_suggestion_list_padding_bottom);
-            ApiCompatibilityUtils.setPaddingRelative(this, 0, paddingTop, 0, paddingBottom);
-
-            Drawable background = getSuggestionPopupBackground();
-            setBackground(background);
-            background.getPadding(mTempRect);
-
-            mBackgroundVerticalPadding =
-                    mTempRect.top + mTempRect.bottom + getPaddingTop() + getPaddingBottom();
-
-            mAnchorView = LocationBarLayout.this.getRootView().findViewById(R.id.toolbar);
-        }
-
-        private void show() {
-            updateLayoutParams();
-            if (getVisibility() != VISIBLE) {
-                mIgnoreOmniboxItemSelection = true;  // Reset to default value.
-                setVisibility(VISIBLE);
-                if (getSelectedItemPosition() != 0) setSelection(0);
-            }
-        }
-
-        /**
-         * Invalidates all of the suggestion views in the list.  Only applicable when this
-         * is visible.
-         */
-        public void invalidateSuggestionViews() {
-            if (!isShown()) return;
-            ListView suggestionsList = mSuggestionList;
-            for (int i = 0; i < suggestionsList.getChildCount(); i++) {
-                if (suggestionsList.getChildAt(i) instanceof SuggestionView) {
-                    suggestionsList.getChildAt(i).postInvalidateOnAnimation();
-                }
-            }
-        }
-
-        /**
-         * Updates the maximum widths required to render the suggestions.
-         * This is needed for infinite suggestions where we try to vertically align the leading
-         * ellipsis.
-         */
-        public void resetMaxTextWidths() {
-            mMaxRequiredWidth = 0;
-            mMaxMatchContentsWidth = 0;
-        }
-
-        /**
-         * Updates the max text width values for the suggestions.
-         * @param requiredWidth a new required width.
-         * @param matchContentsWidth a new match contents width.
-         */
-        public void updateMaxTextWidths(float requiredWidth, float matchContentsWidth) {
-            mMaxRequiredWidth = Math.max(mMaxRequiredWidth, requiredWidth);
-            mMaxMatchContentsWidth = Math.max(mMaxMatchContentsWidth, matchContentsWidth);
-        }
-
-        /**
-         * @return max required width for the suggestions.
-         */
-        public float getMaxRequiredWidth() {
-            return mMaxRequiredWidth;
-        }
-
-        /**
-         * @return max match contents width for the suggestions.
-         */
-        public float getMaxMatchContentsWidth() {
-            return mMaxMatchContentsWidth;
-        }
-
-        private void updateLayoutParams() {
-            boolean updateLayout = false;
-            FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) getLayoutParams();
-            if (layoutParams == null) {
-                layoutParams = new FrameLayout.LayoutParams(0, 0);
-                setLayoutParams(layoutParams);
-            }
-
-            // Compare the relative positions of the anchor view to the list parent view to
-            // determine the offset to apply to the suggestions list.  By using layout positioning,
-            // this avoids issues where getLocationInWindow can be inaccurate on certain devices.
-            View contentView =
-                    LocationBarLayout.this.getRootView().findViewById(android.R.id.content);
-            ViewUtils.getRelativeLayoutPosition(contentView, mAnchorView, mTempPosition);
-            int anchorX = mTempPosition[0];
-            int anchorY = mTempPosition[1];
-
-            ViewUtils.getRelativeLayoutPosition(contentView, (View) getParent(), mTempPosition);
-            int parentY = mTempPosition[1];
-
-            int anchorBottomRelativeToContent = anchorY + mAnchorView.getMeasuredHeight();
-            int desiredTopMargin = anchorBottomRelativeToContent - parentY;
-            if (layoutParams.topMargin != desiredTopMargin) {
-                layoutParams.topMargin = desiredTopMargin;
-                updateLayout = true;
-            }
-
-            int contentLeft = contentView.getLeft();
-            int anchorLeftRelativeToContent = anchorX - contentLeft;
-            if (layoutParams.leftMargin != anchorLeftRelativeToContent) {
-                layoutParams.leftMargin = anchorLeftRelativeToContent;
-                updateLayout = true;
-            }
-
-            getWindowDelegate().getWindowVisibleDisplayFrame(mTempRect);
-            int decorHeight = getWindowDelegate().getDecorViewHeight();
-            int additionalHeightForBottomNavMenu =
-                    mBottomSheet != null ? mBottomSheet.getToolbarShadowHeight() : 0;
-            int availableViewportHeight =
-                    Math.min(mTempRect.height(), decorHeight) + additionalHeightForBottomNavMenu;
-            int availableListHeight = availableViewportHeight - anchorBottomRelativeToContent;
-            // The suggestions should consume all available space in Modern on phone.
-            int desiredHeight = useModernDesign() && !mIsTablet
-                    ? availableListHeight
-                    : Math.min(availableListHeight, getIdealHeight());
-            if (layoutParams.height != desiredHeight) {
-                layoutParams.height = desiredHeight;
-                updateLayout = true;
-            }
-
-            int desiredWidth = getDesiredWidth();
-            if (layoutParams.width != desiredWidth) {
-                layoutParams.width = desiredWidth;
-                updateLayout = true;
-            }
-
-            if (updateLayout) requestLayout();
-        }
-
-        private int getIdealHeight() {
-            int idealListSize = mBackgroundVerticalPadding;
-            for (int i = 0; i < mSuggestionItems.size(); i++) {
-                OmniboxResultItem item = mSuggestionItems.get(i);
-                if (!TextUtils.isEmpty(item.getSuggestion().getAnswerContents())) {
-                    int num = SuggestionView.parseNumAnswerLines(
-                            item.getSuggestion().getAnswer().getSecondLine().getTextFields());
-                    if (num > 1) {
-                        idealListSize += mSuggestionDefinitionHeight;
-                    } else {
-                        idealListSize += mSuggestionAnswerHeight;
-                    }
-                } else {
-                    idealListSize += mSuggestionHeight;
-                }
-            }
-            return idealListSize;
-        }
-
-        private int getDesiredWidth() {
-            return mAnchorView.getWidth();
-        }
-
-        @Override
-        protected void layoutChildren() {
-            super.layoutChildren();
-            // In ICS, the selected view is not marked as selected despite calling setSelection(0),
-            // so we bootstrap this after the children have been laid out.
-            if (!isInTouchMode() && getSelectedView() != null) {
-                getSelectedView().setSelected(true);
-            }
-        }
-
-        private void updateSuggestionsLayoutDirection(int layoutDirection) {
-            if (!isShown()) return;
-
-            for (int i = 0; i < getChildCount(); i++) {
-                View childView = getChildAt(i);
-                if (!(childView instanceof SuggestionView)) continue;
-                ApiCompatibilityUtils.setLayoutDirection(childView, layoutDirection);
-            }
-        }
-
-        /**
-         * @return Whether or not the suggestions list is scrolled any amount.
-         */
-        private int getVerticalScroll() {
-            return computeVerticalScrollOffset();
-        }
-    }
 
     public LocationBarLayout(Context context, AttributeSet attrs) {
         this(context, attrs, R.layout.location_bar);
@@ -962,9 +699,9 @@ public class LocationBarLayout
         } else {
             String currentUrl = mToolbarDataProvider.getCurrentUrl();
             if (NativePageFactory.isNativePageUrl(currentUrl, mToolbarDataProvider.isIncognito())) {
-                setUrlBarText("", null);
+                setUrlBarText(UrlBarData.EMPTY);
             } else {
-                setUrlBarText(mToolbarDataProvider.getDisplayText(), currentUrl);
+                setUrlBarText(mToolbarDataProvider.getUrlBarData());
                 selectAll();
             }
             hideSuggestions();
@@ -1021,9 +758,8 @@ public class LocationBarLayout
 
         if (hasFocus) {
             if (mNativeInitialized) RecordUserAction.record("FocusLocation");
-            String editingText = mToolbarDataProvider.getEditingText();
-            if (editingText == null
-                    || !setUrlBarText(mToolbarDataProvider.getCurrentUrl(), editingText)) {
+            UrlBarData urlBarData = mToolbarDataProvider.getUrlBarData();
+            if (urlBarData.editingText == null || !setUrlBarText(urlBarData)) {
                 mUrlBar.deEmphasizeUrl();
             }
 
@@ -1215,7 +951,7 @@ public class LocationBarLayout
 
         if (pastedText != null) {
             // This must be happen after requestUrlFocus(), which changes the selection.
-            mUrlBar.setUrl(pastedText, null);
+            mUrlBar.setUrl(UrlBarData.forNonUrlText(pastedText));
             mUrlBar.setSelection(mUrlBar.getText().length());
         }
     }
@@ -1295,43 +1031,6 @@ public class LocationBarLayout
     }
 
     /**
-     * @param provider The {@link ToolbarDataProvider}.
-     * @param resources The Resources for the Context.
-     * @return The {@link ColorStateList} to use to tint the security state icon.
-     */
-    public static ColorStateList getColorStateList(
-            ToolbarDataProvider provider, Resources resources) {
-        int securityLevel = provider.getSecurityLevel();
-
-        ColorStateList list = null;
-        int color = provider.getPrimaryColor();
-        boolean needLightIcon = ColorUtils.shouldUseLightForegroundOnBackground(color);
-        if (provider.isIncognito() || needLightIcon) {
-            // For a dark theme color, use light icons.
-            list = ApiCompatibilityUtils.getColorStateList(resources, R.color.light_mode_tint);
-        } else if (provider.isUsingBrandColor()) {
-            // For theme colors which are not dark and are also not
-            // light enough to warrant an opaque URL bar, use dark
-            // icons.
-            list = ApiCompatibilityUtils.getColorStateList(resources, R.color.dark_mode_tint);
-        } else {
-            // For the default toolbar color, use a green or red icon.
-            if (securityLevel == ConnectionSecurityLevel.DANGEROUS) {
-                assert !provider.shouldDisplaySearchTerms();
-                list = ApiCompatibilityUtils.getColorStateList(resources, R.color.google_red_700);
-            } else if (!provider.shouldDisplaySearchTerms()
-                    && (securityLevel == ConnectionSecurityLevel.SECURE
-                               || securityLevel == ConnectionSecurityLevel.EV_SECURE)) {
-                list = ApiCompatibilityUtils.getColorStateList(resources, R.color.google_green_700);
-            } else {
-                list = ApiCompatibilityUtils.getColorStateList(resources, R.color.dark_mode_tint);
-            }
-        }
-        assert list != null : "Missing ColorStateList for Security Button.";
-        return list;
-    }
-
-    /**
      * Updates the security icon displayed in the LocationBar.
      */
     @Override
@@ -1343,7 +1042,7 @@ public class LocationBarLayout
         } else {
             // ImageView#setImageResource is no-op if given resource is the current one.
             mSecurityButton.setImageResource(id);
-            mSecurityButton.setTint(getColorStateList(mToolbarDataProvider, getResources()));
+            mSecurityButton.setTint(mToolbarDataProvider.getSecurityIconColorStateList());
         }
 
         updateVerboseStatusVisibility();
@@ -1405,11 +1104,9 @@ public class LocationBarLayout
         if (!mIsTablet) return;
         switch (buttonType) {
             case PAGE:
-                Drawable page = ApiCompatibilityUtils.getDrawable(
-                        getResources(), R.drawable.ic_omnibox_page);
-                page.setColorFilter(mUseDarkColors
-                        ? ApiCompatibilityUtils.getColor(getResources(), R.color.light_normal_color)
-                        : Color.WHITE, PorterDuff.Mode.SRC_IN);
+                Drawable page = TintedDrawable.constructTintedDrawable(getResources(),
+                        R.drawable.ic_omnibox_page,
+                        mUseDarkColors ? R.color.dark_mode_tint : R.color.light_mode_tint);
                 mNavigationButton.setImageDrawable(page);
                 break;
             case MAGNIFIER:
@@ -1617,7 +1314,39 @@ public class LocationBarLayout
         getRootView().findViewById(R.id.control_container)
                 .addOnLayoutChangeListener(suggestionListResizer);
 
-        mSuggestionList = new OmniboxSuggestionsList(getContext());
+        OmniboxSuggestionsList.OmniboxSuggestionListEmbedder embedder =
+                new OmniboxSuggestionsList.OmniboxSuggestionListEmbedder() {
+                    @Override
+                    public boolean useModernDesign() {
+                        return LocationBarLayout.this.useModernDesign();
+                    }
+
+                    @Override
+                    public boolean isTablet() {
+                        return mIsTablet;
+                    }
+
+                    @Override
+                    public boolean isIncognito() {
+                        return mToolbarDataProvider.isIncognito();
+                    }
+
+                    @Override
+                    public WindowDelegate getWindowDelegate() {
+                        return mWindowDelegate;
+                    }
+
+                    @Override
+                    public BottomSheet getBottomSheet() {
+                        return mBottomSheet;
+                    }
+
+                    @Override
+                    public View getAnchorView() {
+                        return getRootView().findViewById(R.id.toolbar);
+                    }
+                };
+        mSuggestionList = new OmniboxSuggestionsList(getContext(), embedder);
 
         // Ensure the results container is initialized and add the suggestion list to it.
         initOmniboxResultsContainer();
@@ -1641,8 +1370,7 @@ public class LocationBarLayout
                 }
                 String suggestionMatchUrl = updateSuggestionUrlIfNeeded(
                         suggestion, position, false);
-                loadUrlFromOmniboxMatch(suggestionMatchUrl, suggestion.getTransition(), position,
-                        suggestion.getType());
+                loadUrlFromOmniboxMatch(suggestionMatchUrl, position, suggestion);
                 hideSuggestions();
                 UiUtils.hideKeyboard(mUrlBar);
             }
@@ -1650,7 +1378,7 @@ public class LocationBarLayout
             @Override
             public void onRefineSuggestion(OmniboxSuggestion suggestion) {
                 stopAutocomplete(false);
-                mUrlBar.setUrl(suggestion.getFillIntoEdit(), null);
+                mUrlBar.setUrl(UrlBarData.forNonUrlText(suggestion.getFillIntoEdit()));
                 mUrlBar.setSelection(mUrlBar.getText().length());
                 if (suggestion.isUrlSuggestion()) {
                     RecordUserAction.record("MobileOmniboxRefineSuggestion.Url");
@@ -1662,14 +1390,16 @@ public class LocationBarLayout
             @Override
             public void onSetUrlToSuggestion(OmniboxSuggestion suggestion) {
                 if (mIgnoreOmniboxItemSelection) return;
-                setUrlBarText(suggestion.getFillIntoEdit(), null);
+                setUrlBarText(UrlBarData.forNonUrlText(suggestion.getFillIntoEdit()));
                 mUrlBar.setSelection(mUrlBar.getText().length());
                 mIgnoreOmniboxItemSelection = true;
             }
 
             @Override
-            public void onDeleteSuggestion(int position) {
-                if (mAutocomplete != null) mAutocomplete.deleteSuggestion(position);
+            public void onDeleteSuggestion(OmniboxSuggestion suggestion, int position) {
+                if (mAutocomplete != null) {
+                    mAutocomplete.deleteSuggestion(position, suggestion.hashCode());
+                }
             }
 
             @Override
@@ -1705,41 +1435,6 @@ public class LocationBarLayout
     }
 
     /**
-     * @return The view that the suggestion popup should be anchored below.
-     */
-    protected View getSuggestionPopupAnchorView() {
-        return this;
-    }
-
-    /**
-     * @return The background for the omnibox suggestions popup.
-     */
-    protected Drawable getSuggestionPopupBackground() {
-        int omniboxResultsColorForNonIncognito = OMNIBOX_RESULTS_BG_COLOR;
-        int omniboxResultsColorForIncognito = OMNIBOX_INCOGNITO_RESULTS_BG_COLOR;
-        if (useModernDesign()) {
-            omniboxResultsColorForNonIncognito = OMNIBOX_RESULTS_CHROME_MODERN_BG_COLOR;
-            if (!mIsTablet) {
-                omniboxResultsColorForIncognito = OMNIBOX_INCOGNITO_RESULTS_CHROME_MODERN_BG_COLOR;
-            }
-        }
-
-        int color = mToolbarDataProvider.isIncognito() ? omniboxResultsColorForIncognito
-                                                       : omniboxResultsColorForNonIncognito;
-        if (!isHardwareAccelerated()) {
-            // When HW acceleration is disabled, changing mSuggestionList' items somehow erases
-            // mOmniboxResultsContainer' background from the area not covered by mSuggestionList.
-            // To make sure mOmniboxResultsContainer is always redrawn, we make list background
-            // color slightly transparent. This makes mSuggestionList.isOpaque() to return false,
-            // and forces redraw of the parent view (mOmniboxResultsContainer).
-            if (Color.alpha(color) == 255) {
-                color = Color.argb(254, Color.red(color), Color.green(color), Color.blue(color));
-            }
-        }
-        return new ColorDrawable(color);
-    }
-
-    /**
      * Handles showing/hiding the suggestions list.
      * @param visible Whether the suggestions list should be visible.
      */
@@ -1748,6 +1443,7 @@ public class LocationBarLayout
         if (mSuggestionList != null) {
             final boolean isShowing = mSuggestionList.isShown();
             if (visible && !isShowing) {
+                mIgnoreOmniboxItemSelection = true; // Reset to default value.
                 mSuggestionList.show();
             } else if (!visible && isShowing) {
                 mSuggestionList.setVisibility(GONE);
@@ -1801,7 +1497,7 @@ public class LocationBarLayout
             long elapsedTimeSinceInputChange = mNewOmniboxEditSessionTimestamp > 0
                     ? (SystemClock.elapsedRealtime() - mNewOmniboxEditSessionTimestamp) : -1;
             updatedUrl = mAutocomplete.updateMatchDestinationUrlWithQueryFormulationTime(
-                    verifiedIndex, elapsedTimeSinceInputChange);
+                    verifiedIndex, suggestion.hashCode(), elapsedTimeSinceInputChange);
         }
 
         return updatedUrl == null ? suggestion.getUrl() : updatedUrl;
@@ -1908,7 +1604,7 @@ public class LocationBarLayout
             return;
         }
 
-        setUrlBarText(query, null);
+        setUrlBarText(UrlBarData.forNonUrlText(query));
         setUrlBarFocus(true);
         selectAll();
         stopAutocomplete(false);
@@ -1936,7 +1632,7 @@ public class LocationBarLayout
     public void onClick(View v) {
         if (v == mDeleteButton) {
             if (!TextUtils.isEmpty(mUrlBar.getTextWithAutocomplete())) {
-                setUrlBarText("", null);
+                setUrlBarText(UrlBarData.EMPTY);
                 hideSuggestions();
                 updateButtonVisibility();
             }
@@ -1949,8 +1645,8 @@ public class LocationBarLayout
                     && mWindowAndroid != null) {
                 Activity activity = mWindowAndroid.getActivity().get();
                 if (activity != null) {
-                    PageInfoPopup.show(
-                            activity, getCurrentTab(), null, PageInfoPopup.OPENED_FROM_TOOLBAR);
+                    PageInfoController.show(activity, getCurrentTab(), null,
+                            PageInfoController.OPENED_FROM_TOOLBAR);
                 }
             }
         } else if (v == mMicButton && mVoiceRecognitionHandler != null) {
@@ -2102,47 +1798,6 @@ public class LocationBarLayout
     }
 
     /**
-     * Given the URL display text, this will remove any path portion contained within.
-     * @param displayText The text to strip the path from.
-     * @return A pair where the first item is the text without any path content (if the path was
-     *         successfully found), and the second item is the path content (or null if no path
-     *         was found or parsing the path failed).
-     * @see ToolbarDataProvider#getDisplayText()
-     */
-    // TODO(tedchoc): Move this logic into the original display text calculation.
-    @VisibleForTesting
-    public static Pair<String, String> splitPathFromUrlDisplayText(String displayText) {
-        int pathSearchOffset = 0;
-        Uri uri = Uri.parse(displayText);
-        String scheme = uri.getScheme();
-        if (!TextUtils.isEmpty(scheme)) {
-            if (UNSUPPORTED_SCHEMES_TO_SPLIT.contains(scheme)) {
-                return Pair.create(displayText, null);
-            } else if (ACCEPTED_SCHEMES.contains(scheme)) {
-                for (pathSearchOffset = scheme.length();
-                        pathSearchOffset < displayText.length();
-                        pathSearchOffset++) {
-                    char c = displayText.charAt(pathSearchOffset);
-                    if (c != ':' && c != '/') break;
-                }
-            }
-        }
-        int pathOffset = -1;
-        if (pathSearchOffset < displayText.length()) {
-            pathOffset = displayText.indexOf('/', pathSearchOffset);
-        }
-        if (pathOffset != -1) {
-            String prePathText = displayText.substring(0, pathOffset);
-            // If the '/' is the last character and the beginning of the path, then just drop
-            // the path entirely.
-            String pathText = pathOffset == displayText.length() - 1
-                    ? null : displayText.substring(pathOffset);
-            return Pair.create(prePathText, pathText);
-        }
-        return Pair.create(displayText, null);
-    }
-
-    /**
      * Sets the displayed URL to be the URL of the page currently showing.
      *
      * <p>The URL is converted to the most user friendly format (removing HTTP:// for example).
@@ -2167,13 +1822,8 @@ public class LocationBarLayout
         }
 
         mOriginalUrl = currentUrl;
-        String displayText = getDisplayText();
-        if (TextUtils.isEmpty(displayText)) {
-            setUrlBarText("", null);
-        } else {
-            if (setUrlBarText(currentUrl, displayText)) {
-                emphasizeUrl();
-            }
+        if (setUrlBarText(mToolbarDataProvider.getUrlBarData())) {
+            emphasizeUrl();
         }
         if (!mToolbarDataProvider.hasTab()) return;
 
@@ -2182,37 +1832,25 @@ public class LocationBarLayout
         if (profile != null) mOmniboxPrerender.clear(profile);
     }
 
-    private String getDisplayText() {
-        if (!mToolbarDataProvider.hasTab()) return "";
-
-        String displayText = mToolbarDataProvider.getDisplayText();
-        // Because Android versions 4.2 and before lack proper RTL support,
-        // force the formatted URL to render as LTR using an LRM character.
-        // See: https://www.ietf.org/rfc/rfc3987.txt and crbug.com/709417
-        if (!TextUtils.isEmpty(displayText)
-                && Build.VERSION.SDK_INT <= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            displayText = LRM + displayText;
-        }
-        return displayText;
-    }
-
     /**
      * Changes the text on the url bar.
-     * @param originalText The original text (URL or search terms) for copy/cut.
-     * @param displayText The text (URL or search terms) for user display.
+     * @param urlBarData The contents of the URL bar, both for editing and displaying.
      * @return Whether the URL was changed as a result of this call.
      */
-    private boolean setUrlBarText(String originalText, String displayText) {
+    private boolean setUrlBarText(UrlBarData urlBarData) {
         mUrlBar.setIgnoreTextChangesForAutocomplete(true);
-        boolean urlChanged = mUrlBar.setUrl(originalText, displayText);
+        boolean urlChanged = mUrlBar.setUrl(urlBarData);
         mUrlBar.setIgnoreTextChangesForAutocomplete(false);
         return urlChanged;
     }
 
-    private void loadUrlFromOmniboxMatch(String url, int transition, int matchPosition, int type) {
+    private void loadUrlFromOmniboxMatch(
+            String url, int matchPosition, OmniboxSuggestion suggestion) {
         // loadUrl modifies AutocompleteController's state clearing the native
         // AutocompleteResults needed by onSuggestionsSelected. Therefore,
         // loadUrl should should be invoked last.
+        int transition = suggestion.getTransition();
+        int type = suggestion.getType();
         String currentPageUrl = mToolbarDataProvider.getCurrentUrl();
         WebContents webContents =
                 mToolbarDataProvider.hasTab() ? getCurrentTab().getWebContents() : null;
@@ -2222,10 +1860,9 @@ public class LocationBarLayout
                 && (mDeferredOnSelection != null)
                 && !mDeferredOnSelection.shouldLog();
         if (!shouldSkipNativeLog) {
-            mAutocomplete.onSuggestionSelected(matchPosition, type, currentPageUrl,
-                    mUrlFocusedFromFakebox, elapsedTimeSinceModified,
-                    mUrlBar.getAutocompleteLength(),
-                    webContents);
+            mAutocomplete.onSuggestionSelected(matchPosition, suggestion.hashCode(), type,
+                    currentPageUrl, mUrlFocusedFromFakebox, elapsedTimeSinceModified,
+                    mUrlBar.getAutocompleteLength(), webContents);
         }
         if (((transition & PageTransition.CORE_MASK) == PageTransition.TYPED)
                 && TextUtils.equals(url, mToolbarDataProvider.getCurrentUrl())) {
@@ -2414,7 +2051,8 @@ public class LocationBarLayout
         } else if (hasWindowFocus && mUrlHasFocus && mNativeInitialized) {
             Editable currentUrlBarText = mUrlBar.getText();
             if (TextUtils.isEmpty(currentUrlBarText)
-                    || TextUtils.equals(currentUrlBarText, getDisplayText())) {
+                    || TextUtils.equals(currentUrlBarText,
+                               mToolbarDataProvider.getUrlBarData().getEditingOrDisplayText())) {
                 startZeroSuggest();
             } else {
                 onTextChangedForAutocomplete();
@@ -2475,7 +2113,7 @@ public class LocationBarLayout
         mUrlBar.setUseDarkTextColors(mUseDarkColors);
 
         if (mSuggestionList != null) {
-            mSuggestionList.setBackground(getSuggestionPopupBackground());
+            mSuggestionList.refreshPopupBackground();
         }
         mSuggestionListAdapter.setUseDarkColors(mUseDarkColors);
     }

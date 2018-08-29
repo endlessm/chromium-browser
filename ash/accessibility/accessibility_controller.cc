@@ -13,16 +13,22 @@
 #include "ash/autoclick/autoclick_controller.h"
 #include "ash/components/autoclick/public/mojom/autoclick.mojom.h"
 #include "ash/high_contrast/high_contrast_controller.h"
+#include "ash/policy/policy_recommendation_restorer.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/config.h"
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller.h"
 #include "ash/session/session_observer.h"
 #include "ash/shell.h"
 #include "ash/shell_port.h"
 #include "ash/sticky_keys/sticky_keys_controller.h"
+#include "ash/strings/grit/ash_strings.h"
 #include "ash/system/power/backlights_forced_off_setter.h"
 #include "ash/system/power/scoped_backlights_forced_off.h"
+#include "ash/wm/tablet_mode/tablet_mode_controller.h"
+#include "base/command_line.h"
+#include "base/strings/string16.h"
 #include "chromeos/audio/cras_audio_handler.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -34,12 +40,29 @@
 #include "services/ui/public/interfaces/constants.mojom.h"
 #include "ui/aura/window.h"
 #include "ui/base/cursor/cursor_type.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/keyboard/keyboard_util.h"
+#include "ui/message_center/message_center.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 
 using session_manager::SessionState;
 
 namespace ash {
 namespace {
+
+constexpr char kNotificationId[] = "chrome://settings/accessibility";
+constexpr char kNotifierAccessibility[] = "ash.accessibility";
+
+// TODO(warx): Signin screen has more controllable accessibility prefs. We may
+// want to expand this to a complete list. If so, merge this with
+// |kCopiedOnSigninAccessibilityPrefs|.
+constexpr const char* const kA11yPrefsForRecommendedValueOnSignin[]{
+    prefs::kAccessibilityLargeCursorEnabled,
+    prefs::kAccessibilityHighContrastEnabled,
+    prefs::kAccessibilityScreenMagnifierEnabled,
+    prefs::kAccessibilitySpokenFeedbackEnabled,
+    prefs::kAccessibilityVirtualKeyboardEnabled,
+};
 
 // List of accessibility prefs that are to be copied (if changed by the user) on
 // signin screen profile to a newly created user profile or a guest session.
@@ -48,6 +71,7 @@ constexpr const char* const kCopiedOnSigninAccessibilityPrefs[]{
     prefs::kAccessibilityAutoclickEnabled,
     prefs::kAccessibilityCaretHighlightEnabled,
     prefs::kAccessibilityCursorHighlightEnabled,
+    prefs::kAccessibilityDictationEnabled,
     prefs::kAccessibilityFocusHighlightEnabled,
     prefs::kAccessibilityHighContrastEnabled,
     prefs::kAccessibilityLargeCursorEnabled,
@@ -131,6 +155,70 @@ void CopySigninPrefsIfNeeded(PrefService* previous_pref_service,
   }
 }
 
+// Used to indicate which accessibility notification should be shown.
+enum class A11yNotificationType {
+  // No accessibility notification.
+  kNone,
+  // Shown when spoken feedback is set enabled with A11Y_NOTIFICATION_SHOW.
+  kSpokenFeedbackEnabled,
+  // Shown when braille display is connected while spoken feedback is enabled.
+  kBrailleDisplayConnected,
+  // Shown when braille display is connected while spoken feedback is not
+  // enabled yet. Note: in this case braille display connected would enable
+  // spoken feeback.
+  kSpokenFeedbackBrailleEnabled,
+};
+
+// Returns notification icon based on the A11yNotificationType.
+const gfx::VectorIcon& GetNotificationIcon(A11yNotificationType type) {
+  if (type == A11yNotificationType::kSpokenFeedbackBrailleEnabled)
+    return kNotificationAccessibilityIcon;
+  if (type == A11yNotificationType::kBrailleDisplayConnected)
+    return kNotificationAccessibilityBrailleIcon;
+  return kNotificationChromevoxIcon;
+}
+
+void ShowAccessibilityNotification(A11yNotificationType type) {
+  message_center::MessageCenter* message_center =
+      message_center::MessageCenter::Get();
+  message_center->RemoveNotification(kNotificationId, false /* by_user */);
+
+  if (type == A11yNotificationType::kNone)
+    return;
+
+  base::string16 text;
+  base::string16 title;
+  if (type == A11yNotificationType::kBrailleDisplayConnected) {
+    text = l10n_util::GetStringUTF16(
+        IDS_ASH_STATUS_TRAY_BRAILLE_DISPLAY_CONNECTED);
+  } else {
+    bool is_tablet = Shell::Get()
+                         ->tablet_mode_controller()
+                         ->IsTabletModeWindowManagerEnabled();
+
+    title = l10n_util::GetStringUTF16(
+        type == A11yNotificationType::kSpokenFeedbackBrailleEnabled
+            ? IDS_ASH_STATUS_TRAY_SPOKEN_FEEDBACK_BRAILLE_ENABLED_TITLE
+            : IDS_ASH_STATUS_TRAY_SPOKEN_FEEDBACK_ENABLED_TITLE);
+    text = l10n_util::GetStringUTF16(
+        is_tablet ? IDS_ASH_STATUS_TRAY_SPOKEN_FEEDBACK_ENABLED_TABLET
+                  : IDS_ASH_STATUS_TRAY_SPOKEN_FEEDBACK_ENABLED);
+  }
+  message_center::RichNotificationData options;
+  options.should_make_spoken_feedback_for_popup_updates = false;
+  std::unique_ptr<message_center::Notification> notification =
+      message_center::Notification::CreateSystemNotification(
+          message_center::NOTIFICATION_TYPE_SIMPLE, kNotificationId, title,
+          text, gfx::Image(), base::string16(), GURL(),
+          message_center::NotifierId(
+              message_center::NotifierId::SYSTEM_COMPONENT,
+              kNotifierAccessibility),
+          options, nullptr, GetNotificationIcon(type),
+          message_center::SystemNotificationWarningLevel::NORMAL);
+  notification->set_priority(message_center::SYSTEM_PRIORITY);
+  message_center->AddNotification(std::move(notification));
+}
+
 }  // namespace
 
 AccessibilityController::AccessibilityController(
@@ -158,6 +246,7 @@ void AccessibilityController::RegisterProfilePrefs(PrefRegistrySimple* registry,
                                   false);
     registry->RegisterBooleanPref(prefs::kAccessibilityCursorHighlightEnabled,
                                   false);
+    registry->RegisterBooleanPref(prefs::kAccessibilityDictationEnabled, false);
     registry->RegisterBooleanPref(prefs::kAccessibilityFocusHighlightEnabled,
                                   false);
     registry->RegisterBooleanPref(prefs::kAccessibilityHighContrastEnabled,
@@ -188,6 +277,7 @@ void AccessibilityController::RegisterProfilePrefs(PrefRegistrySimple* registry,
   registry->RegisterForeignPref(prefs::kAccessibilityAutoclickDelayMs);
   registry->RegisterForeignPref(prefs::kAccessibilityCaretHighlightEnabled);
   registry->RegisterForeignPref(prefs::kAccessibilityCursorHighlightEnabled);
+  registry->RegisterForeignPref(prefs::kAccessibilityDictationEnabled);
   registry->RegisterForeignPref(prefs::kAccessibilityFocusHighlightEnabled);
   registry->RegisterForeignPref(prefs::kAccessibilityHighContrastEnabled);
   registry->RegisterForeignPref(prefs::kAccessibilityLargeCursorEnabled);
@@ -250,6 +340,23 @@ bool AccessibilityController::IsCursorHighlightEnabled() const {
   return cursor_highlight_enabled_;
 }
 
+void AccessibilityController::SetDictationEnabled(bool enabled) {
+  if (!active_user_prefs_)
+    return;
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          chromeos::switches::kEnableExperimentalAccessibilityFeatures)) {
+    return;
+  }
+
+  active_user_prefs_->SetBoolean(prefs::kAccessibilityDictationEnabled,
+                                 enabled);
+  active_user_prefs_->CommitPendingWrite();
+}
+
+bool AccessibilityController::IsDictationEnabled() const {
+  return dictation_enabled_;
+}
+
 void AccessibilityController::SetFocusHighlightEnabled(bool enabled) {
   if (!active_user_prefs_)
     return;
@@ -303,10 +410,14 @@ void AccessibilityController::SetSpokenFeedbackEnabled(
     AccessibilityNotificationVisibility notify) {
   if (!active_user_prefs_)
     return;
-  spoken_feedback_notification_ = notify;
   active_user_prefs_->SetBoolean(prefs::kAccessibilitySpokenFeedbackEnabled,
                                  enabled);
   active_user_prefs_->CommitPendingWrite();
+
+  A11yNotificationType type = A11yNotificationType::kNone;
+  if (enabled && notify == A11Y_NOTIFICATION_SHOW)
+    type = A11yNotificationType::kSpokenFeedbackEnabled;
+  ShowAccessibilityNotification(type);
 }
 
 bool AccessibilityController::IsSpokenFeedbackEnabled() const {
@@ -323,6 +434,21 @@ void AccessibilityController::SetSelectToSpeakEnabled(bool enabled) {
 
 bool AccessibilityController::IsSelectToSpeakEnabled() const {
   return select_to_speak_enabled_;
+}
+
+void AccessibilityController::RequestSelectToSpeakStateChange() {
+  client_->RequestSelectToSpeakStateChange();
+}
+
+void AccessibilityController::SetSelectToSpeakState(
+    mojom::SelectToSpeakState state) {
+  select_to_speak_state_ = state;
+  NotifyAccessibilityStatusChanged();
+}
+
+mojom::SelectToSpeakState AccessibilityController::GetSelectToSpeakState()
+    const {
+  return select_to_speak_state_;
 }
 
 void AccessibilityController::SetStickyKeysEnabled(bool enabled) {
@@ -349,6 +475,14 @@ bool AccessibilityController::IsVirtualKeyboardEnabled() const {
   return virtual_keyboard_enabled_;
 }
 
+bool AccessibilityController::IsDictationActive() const {
+  return dictation_active_;
+}
+
+void AccessibilityController::SetDictationActive(bool is_active) {
+  dictation_active_ = is_active;
+}
+
 void AccessibilityController::TriggerAccessibilityAlert(
     mojom::AccessibilityAlert alert) {
   if (client_)
@@ -373,8 +507,21 @@ void AccessibilityController::HandleAccessibilityGesture(
 }
 
 void AccessibilityController::ToggleDictation() {
-  if (client_)
-    client_->ToggleDictation();
+  // Do nothing if dictation is not enabled.
+  if (!IsDictationEnabled())
+    return;
+
+  if (client_) {
+    client_->ToggleDictation(base::BindOnce(
+        [](AccessibilityController* self, bool is_active) {
+          self->SetDictationActive(is_active);
+          if (is_active)
+            Shell::Get()->OnDictationStarted();
+          else
+            Shell::Get()->OnDictationEnded();
+        },
+        base::Unretained(this)));
+  }
 }
 
 void AccessibilityController::SilenceSpokenFeedback() {
@@ -424,11 +571,17 @@ void AccessibilityController::SetDarkenScreen(bool darken) {
 }
 
 void AccessibilityController::BrailleDisplayStateChanged(bool connected) {
-  braille_display_connected_ = connected;
-  if (braille_display_connected_)
-    SetSpokenFeedbackEnabled(true, A11Y_NOTIFICATION_SHOW);
+  A11yNotificationType type = A11yNotificationType::kNone;
+  if (connected && spoken_feedback_enabled_)
+    type = A11yNotificationType::kBrailleDisplayConnected;
+  else if (connected && !spoken_feedback_enabled_)
+    type = A11yNotificationType::kSpokenFeedbackBrailleEnabled;
+
+  if (connected)
+    SetSpokenFeedbackEnabled(true, A11Y_NOTIFICATION_NONE);
   NotifyAccessibilityStatusChanged();
-  NotifyShowAccessibilityNotification();
+
+  ShowAccessibilityNotification(type);
 }
 
 void AccessibilityController::SetFocusHighlightRect(
@@ -453,6 +606,14 @@ void AccessibilityController::SetAccessibilityPanelFullscreen(bool fullscreen) {
 
 void AccessibilityController::OnSigninScreenPrefServiceInitialized(
     PrefService* prefs) {
+  // Make |kA11yPrefsForRecommendedValueOnSignin| observing recommended values
+  // on signin screen. See PolicyRecommendationRestorer.
+  PolicyRecommendationRestorer* policy_recommendation_restorer =
+      Shell::Get()->policy_recommendation_restorer();
+  for (auto* const pref_name : kA11yPrefsForRecommendedValueOnSignin)
+    policy_recommendation_restorer->ObservePref(pref_name);
+
+  // Observe user settings. This must happen after PolicyRecommendationRestorer.
   ObservePrefs(prefs);
 }
 
@@ -496,6 +657,10 @@ void AccessibilityController::ObservePrefs(PrefService* prefs) {
       base::BindRepeating(
           &AccessibilityController::UpdateCursorHighlightFromPref,
           base::Unretained(this)));
+  pref_change_registrar_->Add(
+      prefs::kAccessibilityDictationEnabled,
+      base::BindRepeating(&AccessibilityController::UpdateDictationFromPref,
+                          base::Unretained(this)));
   pref_change_registrar_->Add(
       prefs::kAccessibilityFocusHighlightEnabled,
       base::BindRepeating(
@@ -624,6 +789,19 @@ void AccessibilityController::UpdateCursorHighlightFromPref() {
   UpdateAccessibilityHighlightingFromPrefs();
 }
 
+void AccessibilityController::UpdateDictationFromPref() {
+  DCHECK(active_user_prefs_);
+  const bool enabled =
+      active_user_prefs_->GetBoolean(prefs::kAccessibilityDictationEnabled);
+
+  if (dictation_enabled_ == enabled)
+    return;
+
+  dictation_enabled_ = enabled;
+
+  NotifyAccessibilityStatusChanged();
+}
+
 void AccessibilityController::UpdateFocusHighlightFromPref() {
   DCHECK(active_user_prefs_);
   bool enabled = active_user_prefs_->GetBoolean(
@@ -720,9 +898,6 @@ void AccessibilityController::UpdateSpokenFeedbackFromPref() {
 
   NotifyAccessibilityStatusChanged();
 
-  if (spoken_feedback_notification_ != A11Y_NOTIFICATION_NONE)
-    NotifyShowAccessibilityNotification();
-
   // TODO(warx): ChromeVox loading/unloading requires browser process started,
   // thus it is still handled on Chrome side.
 
@@ -757,6 +932,8 @@ void AccessibilityController::UpdateSelectToSpeakFromPref() {
     return;
 
   select_to_speak_enabled_ = enabled;
+  select_to_speak_state_ =
+      mojom::SelectToSpeakState::kSelectToSpeakStateInactive;
 
   NotifyAccessibilityStatusChanged();
 }
@@ -806,11 +983,6 @@ void AccessibilityController::UpdateVirtualKeyboardFromPref() {
     Shell::Get()->CreateKeyboard();
   else
     Shell::Get()->DestroyKeyboard();
-}
-
-void AccessibilityController::NotifyShowAccessibilityNotification() {
-  for (auto& observer : observers_)
-    observer.ShowAccessibilityNotification();
 }
 
 }  // namespace ash

@@ -11,10 +11,10 @@
 package org.webrtc.audio;
 
 import android.annotation.TargetApi;
-import android.media.AudioFormat;
-import android.media.AudioRecord;
-import android.media.AudioManager;
 import android.content.Context;
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioRecord;
 import android.media.MediaRecorder.AudioSource;
 import android.os.Process;
 import java.lang.System;
@@ -24,7 +24,6 @@ import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
 import org.webrtc.CalledByNative;
 import org.webrtc.Logging;
-import org.webrtc.NativeClassQualifiedName;
 import org.webrtc.ThreadUtils;
 import org.webrtc.audio.JavaAudioDeviceModule.AudioRecordErrorCallback;
 import org.webrtc.audio.JavaAudioDeviceModule.AudioRecordStartErrorCode;
@@ -109,9 +108,10 @@ class WebRtcAudioRecord {
             nativeDataIsRecorded(nativeAudioRecord, bytesRead);
           }
           if (audioSamplesReadyCallback != null) {
-            // Copy the entire byte buffer array.  Assume that the start of the byteBuffer is
+            // Copy the entire byte buffer array. The start of the byteBuffer is not necessarily
             // at index 0.
-            byte[] data = Arrays.copyOf(byteBuffer.array(), byteBuffer.capacity());
+            byte[] data = Arrays.copyOfRange(byteBuffer.array(), byteBuffer.arrayOffset(),
+                byteBuffer.capacity() + byteBuffer.arrayOffset());
             audioSamplesReadyCallback.onWebRtcAudioRecordSamplesReady(
                 new JavaAudioDeviceModule.AudioSamples(audioRecord.getAudioFormat(),
                     audioRecord.getChannelCount(), audioRecord.getSampleRate(), data));
@@ -186,13 +186,13 @@ class WebRtcAudioRecord {
 
   @CalledByNative
   private boolean enableBuiltInAEC(boolean enable) {
-    Logging.d(TAG, "enableBuiltInAEC(" + enable + ')');
+    Logging.d(TAG, "enableBuiltInAEC(" + enable + ")");
     return effects.setAEC(enable);
   }
 
   @CalledByNative
   private boolean enableBuiltInNS(boolean enable) {
-    Logging.d(TAG, "enableBuiltInNS(" + enable + ')');
+    Logging.d(TAG, "enableBuiltInNS(" + enable + ")");
     return effects.setNS(enable);
   }
 
@@ -206,6 +206,10 @@ class WebRtcAudioRecord {
     final int bytesPerFrame = channels * (BITS_PER_SAMPLE / 8);
     final int framesPerBuffer = sampleRate / BUFFERS_PER_SECOND;
     byteBuffer = ByteBuffer.allocateDirect(bytesPerFrame * framesPerBuffer);
+    if (!(byteBuffer.hasArray())) {
+      reportWebRtcAudioRecordInitError("ByteBuffer does not have backing array.");
+      return -1;
+    }
     Logging.d(TAG, "byteBuffer.capacity: " + byteBuffer.capacity());
     emptyBytes = new byte[byteBuffer.capacity()];
     // Rather than passing the ByteBuffer with every callback (requiring
@@ -316,11 +320,9 @@ class WebRtcAudioRecord {
     return (channels == 1 ? AudioFormat.CHANNEL_IN_MONO : AudioFormat.CHANNEL_IN_STEREO);
   }
 
-  @NativeClassQualifiedName("webrtc::android_adm::AudioRecordJni")
-  private native void nativeCacheDirectBufferAddress(long nativeAudioRecord, ByteBuffer byteBuffer);
-
-  @NativeClassQualifiedName("webrtc::android_adm::AudioRecordJni")
-  private native void nativeDataIsRecorded(long nativeAudioRecord, int bytes);
+  private native void nativeCacheDirectBufferAddress(
+      long nativeAudioRecordJni, ByteBuffer byteBuffer);
+  private native void nativeDataIsRecorded(long nativeAudioRecordJni, int bytes);
 
   // Sets all recorded samples to zero if |mute| is true, i.e., ensures that
   // the microphone is muted.

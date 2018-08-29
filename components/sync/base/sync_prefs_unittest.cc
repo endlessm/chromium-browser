@@ -66,8 +66,8 @@ TEST_F(SyncPrefsTest, DefaultTypes) {
   SyncPrefs sync_prefs(&pref_service_);
   sync_prefs.SetKeepEverythingSynced(false);
 
-  // Only bookmarks and device info are enabled by default.
-  ModelTypeSet expected(BOOKMARKS, DEVICE_INFO);
+  // Only device info is enabled by default.
+  ModelTypeSet expected(DEVICE_INFO);
   ModelTypeSet preferred_types = sync_prefs.GetPreferredDataTypes(UserTypes());
   EXPECT_EQ(expected, preferred_types);
 
@@ -248,6 +248,26 @@ TEST_F(SyncPrefsTest, InvalidationVersions) {
   for (auto map_iter : versions2) {
     EXPECT_EQ(versions[map_iter.first], map_iter.second);
   }
+}
+
+TEST_F(SyncPrefsTest, ShortPollInterval) {
+  SyncPrefs sync_prefs(&pref_service_);
+  EXPECT_TRUE(sync_prefs.GetShortPollInterval().is_zero());
+
+  sync_prefs.SetShortPollInterval(base::TimeDelta::FromMinutes(30));
+
+  EXPECT_FALSE(sync_prefs.GetShortPollInterval().is_zero());
+  EXPECT_EQ(sync_prefs.GetShortPollInterval().InMinutes(), 30);
+}
+
+TEST_F(SyncPrefsTest, LongPollInterval) {
+  SyncPrefs sync_prefs(&pref_service_);
+  EXPECT_TRUE(sync_prefs.GetLongPollInterval().is_zero());
+
+  sync_prefs.SetLongPollInterval(base::TimeDelta::FromMinutes(60));
+
+  EXPECT_FALSE(sync_prefs.GetLongPollInterval().is_zero());
+  EXPECT_EQ(sync_prefs.GetLongPollInterval().InMinutes(), 60);
 }
 
 }  // namespace

@@ -15,6 +15,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(
@@ -742,7 +743,8 @@ class RunIsolatedTest(RunIsolatedTestBase):
   def test_clean_caches(self):
     # Create an isolated cache and a named cache each with 2 items. Ensure that
     # one item from each is removed.
-    fake_time = 1
+    now = int(time.time())
+    fake_time = now + 1
     fake_free_space = [102400]
     np = os.path.join(self.tempdir, 'named_cache')
     ip = os.path.join(self.tempdir, 'isolated_cache')
@@ -766,14 +768,14 @@ class RunIsolatedTest(RunIsolatedTestBase):
     small_digest = unicode(ALGO(small).hexdigest())
     big_digest = unicode(ALGO(big).hexdigest())
     with isolate_cache:
-      fake_time = 1
+      fake_time = now + 1
       isolate_cache.write(big_digest, [big])
-      fake_time = 2
+      fake_time = now + 2
       isolate_cache.write(small_digest, [small])
     with named_cache_manager.open(time_fn=lambda: fake_time):
-      fake_time = 1
+      fake_time = now + 1
       put_to_named_cache(named_cache_manager, u'first', u'big', big)
-      fake_time = 3
+      fake_time = now + 3
       put_to_named_cache(named_cache_manager, u'second', u'small', small)
 
     # Ensures the cache contain the expected data.
@@ -787,16 +789,16 @@ class RunIsolatedTest(RunIsolatedTestBase):
       os.path.join(cache_small, u'small'): small,
       os.path.join(cache_big, u'big'): big,
       u'state.json':
-          '{"items":[["first",["%s",1]],["second",["%s",3]]],"version":2}' % (
-          cache_big, cache_small),
+          '{"items":[["first",["%s",%s]],["second",["%s",%s]]],"version":2}' % (
+          cache_big, now+1, cache_small, now+3),
     }
     self.assertEqual(expected, actual)
     expected = {
       big_digest: big,
       small_digest: small,
       u'state.json':
-          '{"items":[["%s",[10140,1]],["%s",[10,2]]],"version":2}' % (
-          big_digest, small_digest),
+          '{"items":[["%s",[10140,%s]],["%s",[10,%s]]],"version":2}' % (
+          big_digest, now+1, small_digest, now+2),
     }
     self.assertEqual(expected, genTree(ip))
 
@@ -811,8 +813,8 @@ class RunIsolatedTest(RunIsolatedTestBase):
     isolate_cache = isolateserver.process_cache_options(options, trim=False)
     named_cache_manager = named_cache.process_named_cache_options(
         parser, options)
-    actual = run_isolated.clean_caches(
-        options, isolate_cache, named_cache_manager)
+    # This function uses real time, hence the time.time() calls above.
+    actual = run_isolated.clean_caches(isolate_cache, named_cache_manager)
     self.assertEqual(2, actual)
     # One of each entry should have been cleaned up. This only happen to work
     # because:
@@ -823,13 +825,15 @@ class RunIsolatedTest(RunIsolatedTestBase):
     expected = {
       os.path.join(cache_small, u'small'): small,
       u'state.json':
-          '{"items":[["second",["%s",3]]],"version":2}' % cache_small,
+          '{"items":[["second",["%s",%s]]],"version":2}' %
+          (cache_small, now+3),
     }
     self.assertEqual(expected, actual)
     expected = {
       small_digest: small,
       u'state.json':
-          '{"items":[["%s",[10,2]]],"version":2}' % small_digest,
+          '{"items":[["%s",[10,%s]]],"version":2}' %
+          (small_digest, now+2),
     }
     self.assertEqual(expected, genTree(ip))
 
@@ -922,6 +926,269 @@ class RunIsolatedTestRun(RunIsolatedTestBase):
       server.close()
 
 
+FILE, LINK, RELATIVE_LINK, DIR = range(4)
+
+
+class RunIsolatedTestOutputs(RunIsolatedTestBase):
+  # Unit test for link_outputs_to_outdir function.
+
+  def create_src_tree(self, run_dir, src_dir):
+    # Create files and directories specified by src_dir in run_dir.
+    for path in src_dir:
+      full_path = os.path.join(run_dir, path)
+      (t, content) = src_dir[path]
+      if t == FILE:
+        open(full_path, 'w').write(content)
+      elif t == RELATIVE_LINK:
+        os.symlink(content, full_path)
+      elif t == LINK:
+        root_dir = os.path.join(self.tempdir, 'ir')
+        real_path = os.path.join(root_dir, content)
+        os.symlink(real_path, full_path)
+      else:
+        os.mkdir(full_path)
+        self.create_src_tree(os.path.join(run_dir, path), content)
+
+  def assertExpectedTree(self, expected):
+    # Return True is the entries in out_dir are exactly the same as entries in
+    # expected. Return False otherwise.
+    count = 0
+    for path in expected:
+      content = expected[path]
+      # Assume expected path are always relative to root.
+      root_dir = os.path.join(self.tempdir, 'io')
+      full_path = os.path.join(root_dir, path)
+      self.assertTrue(os.path.exists(full_path))
+      while fs.islink(full_path):
+        full_path = os.readlink(full_path)
+      # If we expect a non-empty directory, check the entries in dir.
+      # If we expect an empty dir, its existence (checked above) is sufficient.
+      if not os.path.isdir(full_path):
+        with open(full_path, 'r') as f:
+          self.assertEqual(f.read(), content)
+      count += 1
+    self.assertEqual(count, len(expected))
+
+  def link_outputs_test(self, src_dir, outputs):
+    run_dir = os.path.join(self.tempdir, 'ir')
+    out_dir = os.path.join(self.tempdir, 'io')
+    os.mkdir(run_dir)
+    os.mkdir(out_dir)
+    self.create_src_tree(run_dir, src_dir)
+    run_isolated.link_outputs_to_outdir(run_dir, out_dir, outputs)
+
+  def test_file(self):
+    src_dir = {
+        'foo_file': (FILE, 'contents of foo'),
+    }
+    outputs = ['foo_file']
+    expected = {
+        'foo_file': 'contents of foo',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_symlink_to_file(self):
+    src_dir = {
+        'foo_file': (FILE, 'contents of foo'),
+        'foo_link': (LINK, 'foo_file'),
+    }
+    outputs = ['foo_link']
+    expected = {
+        'foo_link': 'contents of foo',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_dir_containing_files(self):
+    src_dir = {
+        'subdir': (DIR, {
+            'child_a': (FILE, 'contents of a'),
+            'child_b': (FILE, 'contents of b'),
+        })
+    }
+    outputs = ['subdir/']
+    expected = {
+        'subdir/child_a': 'contents of a',
+        'subdir/child_b': 'contents of b',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_relative_symlink(self):
+    src_dir = {
+        'foo_file': (FILE, 'contents of foo'),
+        'subdir': (DIR, {
+            'foo_link': (RELATIVE_LINK, '../foo_file'),
+            'subsubdir': (DIR, {
+                'bar_link': (RELATIVE_LINK, '../foo_link'),
+            }),
+        }),
+    }
+    outputs = ['subdir/subsubdir/bar_link']
+    expected = {
+        'subdir/subsubdir/bar_link': 'contents of foo',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_symlink_to_dir_containing_files(self):
+    src_dir = {
+        'subdir_link': (LINK, 'subdir'),
+        'subdir': (DIR, {
+            'child_a': (FILE, 'contents of a'),
+        }),
+    }
+    outputs = ['subdir_link']
+    expected = {
+        'subdir_link/child_a': 'contents of a',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_symlink_to_symlink_to_dir_containing_files(self):
+    src_dir = {
+        'subdir_link': (LINK, 'subdir_link2'),
+        'subdir_link2': (LINK, 'subdir'),
+        'subdir': (DIR, {
+            'child_a': (FILE, 'contents of a'),
+            'child_b': (FILE, 'contents of b'),
+        }),
+    }
+    outputs = ['subdir_link']
+    expected = {
+        'subdir_link/child_a': 'contents of a',
+        'subdir_link/child_b': 'contents of b',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_empty_dir(self):
+    src_dir = {
+        'subdir': (DIR, {}),
+    }
+    outputs = ['subdir/']
+    expected = {
+        'subdir/': '',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_dir_ignore_trailing_slash(self):
+    src_dir = {
+        'subdir': (DIR, {}),
+    }
+    outputs = ['subdir/']
+    expected = {
+        'subdir': '',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_dir_containing_empty_dir(self):
+    src_dir = {
+        'subdir': (DIR, {
+            'subsubdir': (DIR, ''),
+        }),
+    }
+    outputs = ['subdir/']
+    expected = {
+        'subdir/subsubdir/': '',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_symlink_to_empty_dir(self):
+    src_dir = {
+        'subdir': (DIR, {}),
+        'subdir_link': (LINK, 'subdir'),
+    }
+    outputs = ['subdir_link']
+    expected = {
+        'subdir_link/': '',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_symlink_to_nonexistent_file(self):
+    src_dir = {
+        'bad_link': (LINK, 'nonexistent_file'),
+    }
+    outputs = ['bad_link']
+    expected = {}
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_symlink_to_symlink_to_file(self):
+    src_dir = {
+        'first_link': (LINK, 'second_link'),
+        'second_link': (LINK, 'foo_file'),
+        'foo_file': (FILE, 'contents of foo'),
+    }
+    outputs = ['first_link']
+    expected = {
+        'first_link': 'contents of foo',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_symlink_to_symlink_to_nonexistent_file(self):
+    src_dir = {
+        'first_link': (LINK, 'second_link'),
+        'second_link': (LINK, 'nonexistent_file'),
+    }
+    outputs = ['first_link']
+    expected = {}
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_symlink_to_file_in_parent(self):
+    src_dir = {
+        'subdir': (DIR, {
+            'subsubdir': (DIR, {
+                'foo_link': (LINK, 'subdir/foo_file'),
+            }),
+            'foo_file': (FILE, 'contents of foo'),
+        }),
+    }
+    outputs = ['subdir/subsubdir/foo_link', 'subdir/foo_file']
+    expected = {
+        'subdir/subsubdir/foo_link': 'contents of foo',
+        'subdir/foo_file': 'contents of foo',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_symlink_to_file_in_dir(self):
+    src_dir = {
+        'subdir_link': (LINK, 'subdir/child_a'),
+        'subdir': (DIR, {
+            'child_a': (FILE, 'contents of a'),
+        }),
+    }
+    outputs = ['subdir_link']
+    expected = {
+        'subdir_link': 'contents of a',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+  def test_symlink_to_symlink_to_file_in_dir(self):
+    src_dir = {
+        'first_link': (LINK, 'subdir_link'),
+        'subdir_link': (LINK, 'subdir/child_a'),
+        'subdir': (DIR, {
+            'child_a': (FILE, 'contents of a'),
+        }),
+    }
+    outputs = ['first_link']
+    expected = {
+        'first_link': 'contents of a',
+    }
+    self.link_outputs_test(src_dir, outputs)
+    self.assertExpectedTree(expected)
+
+
 class RunIsolatedTestOutputFiles(RunIsolatedTestBase):
   # Like RunIsolatedTestRun, but ensures that specific output files
   # (as opposed to anything in $(ISOLATED_OUTDIR)) are returned.
@@ -930,20 +1197,25 @@ class RunIsolatedTestOutputFiles(RunIsolatedTestBase):
     # back after the task completed.
     server = isolateserver_mock.MockIsolateServer()
     try:
-      # Output two files. If we're on Linux, we'll try to make one of them a
-      # symlink to ensure that we correctly follow symlinks. Note that this only
-      # tests file symlinks, not directory symlinks.
-      # TODO(aludwin): follow directory symlinks
+      # Output the following structure:
+      #
+      # foo1
+      # foodir --> foo2_sl (symlink to "foo2_content" file)
+      # bardir --> bar1
+      #
+      # Create the symlinks only on Linux.
       script = (
         'import os\n'
         'import sys\n'
-        'open(sys.argv[1], "w").write("bar")\n'
+        'open(sys.argv[1], "w").write("foo1")\n'
+        'bar1_path = os.path.join(sys.argv[3], "bar1")\n'
+        'open(bar1_path, "w").write("bar1")\n'
         'if sys.platform.startswith("linux"):\n'
-        '  realpath = os.path.abspath("contents_of_symlink")\n'
-        '  open(realpath, "w").write("baz")\n'
-        '  os.symlink(realpath, sys.argv[2])\n'
+        '  foo_realpath = os.path.abspath("foo2_content")\n'
+        '  open(foo_realpath, "w").write("foo2")\n'
+        '  os.symlink(foo_realpath, sys.argv[2])\n'
         'else:\n'
-        '  open(sys.argv[2], "w").write("baz")\n')
+        '  open(sys.argv[2], "w").write("foo2")\n')
       script_hash = isolateserver_mock.hash_content(script)
       isolated['files']['cmd.py'] = {
         'h': script_hash,
@@ -966,7 +1238,7 @@ class RunIsolatedTestOutputFiles(RunIsolatedTestBase):
           isolated_hash=isolated_hash,
           storage=store,
           isolate_cache=isolateserver.MemoryCache(),
-          outputs=['foo', 'foodir/foo2'],
+          outputs=['foo1', 'foodir/foo2_sl', 'bardir/'],
           install_named_caches=init_named_caches_stub,
           leak_temp_dir=False,
           root_dir=None,
@@ -983,31 +1255,40 @@ class RunIsolatedTestOutputFiles(RunIsolatedTestBase):
 
       # It uploaded back. Assert the store has a new item containing foo.
       hashes = {isolated_hash, script_hash}
-      foo_output_hash = isolateserver_mock.hash_content('bar')
-      foo2_output_hash = isolateserver_mock.hash_content('baz')
-      hashes.add(foo_output_hash)
+      foo1_output_hash = isolateserver_mock.hash_content('foo1')
+      foo2_output_hash = isolateserver_mock.hash_content('foo2')
+      bar1_output_hash = isolateserver_mock.hash_content('bar1')
+      hashes.add(foo1_output_hash)
       hashes.add(foo2_output_hash)
+      hashes.add(bar1_output_hash)
       isolated = {
         u'algo': u'sha-1',
         u'files': {
-          u'foo': {
-            u'h': foo_output_hash,
+          u'foo1': {
+            u'h': foo1_output_hash,
             # TODO(maruel): Handle umask.
             u'm': 0640,
-            u's': 3,
+            u's': 4,
           },
-          u'foodir/foo2': {
+          u'foodir/foo2_sl': {
             u'h': foo2_output_hash,
             # TODO(maruel): Handle umask.
             u'm': 0640,
-            u's': 3,
+            u's': 4,
+          },
+          u'bardir/bar1': {
+            u'h': bar1_output_hash,
+            # TODO(maruel): Handle umask.
+            u'm': 0640,
+            u's': 4,
           },
         },
         u'version': isolated_format.ISOLATED_FILE_VERSION,
       }
       if sys.platform == 'win32':
-        isolated['files']['foo'].pop('m')
-        isolated['files']['foodir/foo2'].pop('m')
+        isolated['files']['foo1'].pop('m')
+        isolated['files']['foodir/foo2_sl'].pop('m')
+        isolated['files']['bardir/bar1'].pop('m')
       uploaded = json_dumps(isolated)
       uploaded_hash = isolateserver_mock.hash_content(uploaded)
       hashes.add(uploaded_hash)
@@ -1026,7 +1307,7 @@ class RunIsolatedTestOutputFiles(RunIsolatedTestBase):
   def test_output_cmd_isolated(self):
     isolated = {
       u'algo': u'sha-1',
-      u'command': [u'cmd.py', u'foo', u'foodir/foo2'],
+      u'command': [u'cmd.py', u'foo1', u'foodir/foo2_sl', 'bardir/'],
       u'files': {},
       u'version': isolated_format.ISOLATED_FILE_VERSION,
     }
@@ -1038,7 +1319,8 @@ class RunIsolatedTestOutputFiles(RunIsolatedTestBase):
       u'files': {},
       u'version': isolated_format.ISOLATED_FILE_VERSION,
     }
-    self._run_test(isolated, ['cmd.py', 'foo', 'foodir/foo2'], [])
+    self._run_test(
+        isolated, ['cmd.py', 'foo1', 'foodir/foo2_sl', 'bardir/'], [])
 
   def test_output_cmd_isolated_extra_args(self):
     isolated = {
@@ -1047,7 +1329,7 @@ class RunIsolatedTestOutputFiles(RunIsolatedTestBase):
       u'files': {},
       u'version': isolated_format.ISOLATED_FILE_VERSION,
     }
-    self._run_test(isolated, [], ['foo', 'foodir/foo2'])
+    self._run_test(isolated, [], ['foo1', 'foodir/foo2_sl', 'bardir/'])
 
 
 class RunIsolatedJsonTest(RunIsolatedTestBase):

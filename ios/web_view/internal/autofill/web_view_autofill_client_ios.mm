@@ -21,7 +21,7 @@ WebViewAutofillClientIOS::WebViewAutofillClientIOS(
     PrefService* pref_service,
     PersonalDataManager* personal_data_manager,
     web::WebState* web_state,
-    id<AutofillClientIOSBridge> bridge,
+    id<CWVAutofillClientIOSBridge> bridge,
     identity::IdentityManager* identity_manager,
     scoped_refptr<AutofillWebDataService> autofill_web_data_service)
     : pref_service_(pref_service),
@@ -60,11 +60,6 @@ AddressNormalizer* WebViewAutofillClientIOS::GetAddressNormalizer() {
   return nullptr;
 }
 
-SaveCardBubbleController*
-WebViewAutofillClientIOS::GetSaveCardBubbleController() {
-  return nullptr;
-}
-
 void WebViewAutofillClientIOS::ShowAutofillSettings() {
   NOTREACHED();
 }
@@ -72,19 +67,24 @@ void WebViewAutofillClientIOS::ShowAutofillSettings() {
 void WebViewAutofillClientIOS::ShowUnmaskPrompt(
     const CreditCard& card,
     UnmaskCardReason reason,
-    base::WeakPtr<CardUnmaskDelegate> delegate) {}
+    base::WeakPtr<CardUnmaskDelegate> delegate) {
+  [bridge_ showUnmaskPromptForCard:card reason:reason delegate:delegate];
+}
 
 void WebViewAutofillClientIOS::OnUnmaskVerificationResult(
-    PaymentsRpcResult result) {}
+    PaymentsRpcResult result) {
+  [bridge_ didReceiveUnmaskVerificationResult:result];
+}
 
 void WebViewAutofillClientIOS::ConfirmSaveCreditCardLocally(
     const CreditCard& card,
-    const base::Closure& callback) {}
+    const base::RepeatingClosure& callback) {
+  [bridge_ confirmSaveCreditCardLocally:card callback:callback];
+}
 
 void WebViewAutofillClientIOS::ConfirmSaveCreditCardToCloud(
     const CreditCard& card,
     std::unique_ptr<base::DictionaryValue> legal_message,
-    bool should_cvc_be_requested,
     const base::Closure& callback) {}
 
 void WebViewAutofillClientIOS::ConfirmCreditCardFillAssist(

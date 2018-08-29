@@ -20,6 +20,7 @@ import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeSwitches;
@@ -347,8 +348,7 @@ public class OfflinePageBridgeTest {
                         "Tab is null", mActivityTestRule.getActivity().getActivityTab());
                 Assert.assertEquals("URL does not match requested.", mTestPage,
                         mActivityTestRule.getActivity().getActivityTab().getUrl());
-                Assert.assertNotNull("WebContents is null",
-                        mActivityTestRule.getActivity().getActivityTab().getWebContents());
+                Assert.assertNotNull("WebContents is null", mActivityTestRule.getWebContents());
 
                 mOfflinePageBridge.addObserver(new OfflinePageModelObserver() {
                     @Override
@@ -387,9 +387,8 @@ public class OfflinePageBridgeTest {
                         semaphore.release();
                     }
                 });
-                mOfflinePageBridge.savePage(
-                        mActivityTestRule.getActivity().getActivityTab().getWebContents(),
-                        TEST_CLIENT_ID, origin, new SavePageCallback() {
+                mOfflinePageBridge.savePage(mActivityTestRule.getWebContents(), TEST_CLIENT_ID,
+                        origin, new SavePageCallback() {
                             @Override
                             public void onSavePageDone(
                                     int savePageResult, String url, long offlineId) {}
@@ -405,6 +404,7 @@ public class OfflinePageBridgeTest {
 
     @Test
     @SmallTest
+    @DisabledTest(message = "crbug.com/842801")
     public void testSavePageNoOrigin() throws Exception {
         mActivityTestRule.loadUrl(mTestPage);
         savePage(SavePageResult.SUCCESS, mTestPage);
@@ -491,12 +491,10 @@ public class OfflinePageBridgeTest {
                         "Tab is null", mActivityTestRule.getActivity().getActivityTab());
                 Assert.assertEquals("URL does not match requested.", expectedUrl,
                         mActivityTestRule.getActivity().getActivityTab().getUrl());
-                Assert.assertNotNull("WebContents is null",
-                        mActivityTestRule.getActivity().getActivityTab().getWebContents());
+                Assert.assertNotNull("WebContents is null", mActivityTestRule.getWebContents());
 
                 mOfflinePageBridge.savePage(
-                        mActivityTestRule.getActivity().getActivityTab().getWebContents(), clientId,
-                        new SavePageCallback() {
+                        mActivityTestRule.getWebContents(), clientId, new SavePageCallback() {
                             @Override
                             public void onSavePageDone(
                                     int savePageResult, String url, long offlineId) {

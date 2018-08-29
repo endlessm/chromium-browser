@@ -81,8 +81,6 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
   void WasUnOccluded() override;
   void WasOccluded() override;
   gfx::Rect GetViewBounds() const override;
-  void SetBackgroundColor(SkColor color) override;
-  SkColor background_color() const override;
 #if defined(OS_MACOSX)
   void SetActive(bool active) override;
   void ShowDefinitionForSelection() override {}
@@ -94,11 +92,12 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
   void SubmitCompositorFrame(
       const viz::LocalSurfaceId& local_surface_id,
       viz::CompositorFrame frame,
-      viz::mojom::HitTestRegionListPtr hit_test_region_list) override;
+      base::Optional<viz::HitTestRegionList> hit_test_region_list) override;
   void ClearCompositorFrame() override {}
   void SetNeedsBeginFrames(bool needs_begin_frames) override {}
   void SetWantsAnimateOnlyBeginFrames() override {}
   void TakeFallbackContentFrom(RenderWidgetHostView* view) override;
+  void EnsureSurfaceSynchronizedForLayoutTest() override {}
 
   // RenderWidgetHostViewBase:
   void InitAsPopup(RenderWidgetHostView* parent_host_view,
@@ -111,7 +110,6 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
                          int error_code) override;
   void Destroy() override;
   void SetTooltipText(const base::string16& tooltip_text) override {}
-  gfx::Vector2d GetOffsetFromRootSurface() override;
   gfx::Rect GetBoundsInRootWindow() override;
   bool LockMouse() override;
   void UnlockMouse() override;
@@ -138,6 +136,9 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
   void OnFrameTokenChanged(uint32_t frame_token) override;
 
  protected:
+  // RenderWidgetHostViewBase:
+  void UpdateBackgroundColor() override;
+
   viz::FrameSinkId frame_sink_id_;
 
  private:
@@ -145,7 +146,6 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
   bool is_occluded_;
   bool did_swap_compositor_frame_;
   bool did_change_compositor_frame_sink_ = false;
-  SkColor background_color_;
   ui::DummyTextInputClient text_input_client_;
 
 #if defined(USE_AURA)

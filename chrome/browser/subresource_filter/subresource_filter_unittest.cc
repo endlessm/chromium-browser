@@ -9,8 +9,6 @@
 #include "chrome/browser/subresource_filter/subresource_filter_content_settings_manager.h"
 #include "chrome/browser/subresource_filter/subresource_filter_test_harness.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "components/rappor/public/rappor_parameters.h"
-#include "components/rappor/test_rappor_service.h"
 #include "components/safe_browsing/db/util.h"
 #include "components/safe_browsing/db/v4_protocol_manager_util.h"
 #include "components/subresource_filter/content/browser/content_activation_list_utils.h"
@@ -102,42 +100,23 @@ TEST_F(SubresourceFilterTest, ExplicitWhitelisting_ShouldNotClearMetadata) {
   EXPECT_NE(nullptr, GetSettingsManager()->GetSiteMetadata(url));
 }
 
-TEST_F(SubresourceFilterTest,
-       NavigationToBadSchemeUrlWithNoActivation_DoesNotReportBadScheme) {
-  // Don't report UNSUPPORTED_SCHEME if the navigation has no matching
-  // configuration.
-  scoped_configuration().ResetConfiguration(subresource_filter::Configuration(
-      subresource_filter::ActivationLevel::DISABLED,
-      subresource_filter::ActivationScope::NO_SITES));
+TEST_F(SubresourceFilterTest, SimpleAllowedLoad_WithObserver) {
+  GURL url("https://example.test");
+  ConfigureAsSubresourceFilterOnlyURL(url);
 
   subresource_filter::TestSubresourceFilterObserver observer(web_contents());
-  GURL url("data:text/html,hello world");
   SimulateNavigateAndCommit(url, main_rfh());
-  EXPECT_TRUE(CreateAndNavigateDisallowedSubframe(main_rfh()));
-  EXPECT_EQ(
-      subresource_filter::ActivationDecision::ACTIVATION_CONDITIONS_NOT_MET,
-      observer.GetPageActivation(url));
 
-  // Also don't report UNSUPPORTED_SCHEME if the navigation matches a
-  // configuration with DISABLED activation level.
-  scoped_configuration().ResetConfiguration(subresource_filter::Configuration(
-      subresource_filter::ActivationLevel::DISABLED,
-      subresource_filter::ActivationScope::ALL_SITES));
+  EXPECT_EQ(subresource_filter::ActivationDecision::ACTIVATED,
+            observer.GetPageActivation(url).value());
 
-  SimulateNavigateAndCommit(url, main_rfh());
-  EXPECT_TRUE(CreateAndNavigateDisallowedSubframe(main_rfh()));
-  EXPECT_EQ(subresource_filter::ActivationDecision::ACTIVATION_DISABLED,
-            observer.GetPageActivation(url));
-
-  // Sanity check that UNSUPPORTED_SCHEME is reported if the navigation does
-  // activate.
-  scoped_configuration().ResetConfiguration(subresource_filter::Configuration(
-      subresource_filter::ActivationLevel::ENABLED,
-      subresource_filter::ActivationScope::ALL_SITES));
-  SimulateNavigateAndCommit(url, main_rfh());
-  EXPECT_TRUE(CreateAndNavigateDisallowedSubframe(main_rfh()));
-  EXPECT_EQ(subresource_filter::ActivationDecision::UNSUPPORTED_SCHEME,
-            observer.GetPageActivation(url));
+  GURL allowed_url("https://example.test/foo");
+  auto* subframe =
+      content::RenderFrameHostTester::For(main_rfh())->AppendChild("subframe");
+  SimulateNavigateAndCommit(GURL(allowed_url), subframe);
+  EXPECT_EQ(subresource_filter::LoadPolicy::ALLOW,
+            *observer.GetSubframeLoadPolicy(allowed_url));
+  EXPECT_FALSE(*observer.GetIsAdSubframe(allowed_url));
 }
 
 TEST_F(SubresourceFilterTest, SimpleDisallowedLoad_WithObserver) {
@@ -152,10 +131,9 @@ TEST_F(SubresourceFilterTest, SimpleDisallowedLoad_WithObserver) {
 
   GURL disallowed_url(SubresourceFilterTest::kDefaultDisallowedUrl);
   EXPECT_FALSE(CreateAndNavigateDisallowedSubframe(main_rfh()));
-  auto optional_load_policy = observer.GetSubframeLoadPolicy(disallowed_url);
-  EXPECT_TRUE(optional_load_policy.has_value());
   EXPECT_EQ(subresource_filter::LoadPolicy::DISALLOW,
-            observer.GetSubframeLoadPolicy(disallowed_url).value());
+            *observer.GetSubframeLoadPolicy(disallowed_url));
+  EXPECT_TRUE(*observer.GetIsAdSubframe(disallowed_url));
 }
 
 TEST_F(SubresourceFilterTest, RefreshMetadataOnActivation) {
@@ -233,26 +211,6 @@ TEST_F(SubresourceFilterTest, ToggleOffForceActivation_AfterCommit) {
   // UI should not have shown though.
   histogram_tester.ExpectBucketCount("SubresourceFilter.Actions",
                                      kActionUIShown, 0);
-}
-
-TEST_F(SubresourceFilterTest, UIShown_LogsRappor) {
-  rappor::TestRapporServiceImpl rappor_tester;
-  TestingBrowserProcess::GetGlobal()->SetRapporServiceImpl(&rappor_tester);
-  const char kRapporMetric[] = "SubresourceFilter.UIShown";
-  const GURL url("https://example.test");
-
-  ConfigureAsSubresourceFilterOnlyURL(url);
-  SimulateNavigateAndCommit(url, main_rfh());
-  EXPECT_FALSE(CreateAndNavigateDisallowedSubframe(main_rfh()));
-  EXPECT_TRUE(GetClient()->did_show_ui_for_navigation());
-
-  std::string sample_string;
-  rappor::RapporType type;
-  EXPECT_TRUE(rappor_tester.GetRecordedSampleForMetric(kRapporMetric,
-                                                       &sample_string, &type));
-  EXPECT_EQ(rappor::RapporType::UMA_RAPPOR_TYPE, type);
-  // The host is the same as the etld+1 in this case.
-  EXPECT_EQ(url.host(), sample_string);
 }
 
 TEST_F(SubresourceFilterTest, NotifySafeBrowsing) {

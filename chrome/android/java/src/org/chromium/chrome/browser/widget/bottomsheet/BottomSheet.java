@@ -125,7 +125,7 @@ public class BottomSheet extends FrameLayout
     private static final float THRESHOLD_TO_NEXT_STATE_2 = 0.3f;
 
     /** The height ratio for the sheet in the SHEET_STATE_HALF state. */
-    private static final float HALF_HEIGHT_RATIO = 0.55f;
+    private static final float HALF_HEIGHT_RATIO = 0.65f;
 
     /** The fraction of the width of the screen that, when swiped, will cause the sheet to move. */
     private static final float SWIPE_ALLOWED_FRACTION = 0.2f;
@@ -152,6 +152,9 @@ public class BottomSheet extends FrameLayout
 
     /** The visible rect for the screen taking the keyboard into account. */
     private final Rect mVisibleViewportRect = new Rect();
+
+    /** An out-array for use with getLocationInWindow to prevent constant allocations. */
+    private final int[] mCachedLocation = new int[2];
 
     /** The minimum distance between half and full states to allow the half state. */
     private final float mMinHalfFullDistance;
@@ -256,6 +259,9 @@ public class BottomSheet extends FrameLayout
     /** Whether or not scroll events are currently being blocked for the 'velocity' swipe logic. */
     private boolean mVelocityLogicBlockSwipe;
 
+    /** Whether or not the slim peek UI should be used for the current sheet content. */
+    private boolean mUseSlimPeek;
+
     /**
      * An interface defining content that can be displayed inside of the bottom sheet for Chrome
      * Home.
@@ -297,6 +303,11 @@ public class BottomSheet extends FrameLayout
          * @return Whether swiping the sheet down hard enough will cause the sheet to be dismissed.
          */
         boolean swipeToDismissEnabled();
+
+        /**
+         * @return Whether a slimmer peek UI should be used for this content.
+         */
+        boolean useSlimPeek();
     }
 
     /**
@@ -619,7 +630,7 @@ public class BottomSheet extends FrameLayout
                     // mode. Ensure the sheet state is reset to peek so that the sheet does not
                     // open over the fullscreen video. See crbug.com/740499.
                     if (mFullscreenManager != null
-                            && mFullscreenManager.getPersistentFullscreenMode()) {
+                            && mFullscreenManager.getPersistentFullscreenMode() && isSheetOpen()) {
                         setSheetState(SHEET_STATE_PEEK, false);
                     } else {
                         setSheetState(mCurrentState, false);
@@ -717,6 +728,15 @@ public class BottomSheet extends FrameLayout
         return (swipeToDismissEnabled() ? getHiddenRatio() : getPeekRatio()) * mContainerHeight;
     }
 
+    @Override
+    public boolean isTouchEventInToolbar(MotionEvent event) {
+        mToolbarHolder.getLocationInWindow(mCachedLocation);
+        // This check only tests for collision for the Y component since the sheet is the full width
+        // of the screen. We only care if the touch event is above the bottom of the toolbar since
+        // we won't receive an event if the touch is outside the sheet.
+        return mCachedLocation[1] + mToolbarHolder.getHeight() > event.getRawY();
+    }
+
     /**
      * @return Whether flinging down hard enough will close the sheet.
      */
@@ -737,11 +757,6 @@ public class BottomSheet extends FrameLayout
         return getFullRatio() * mContainerHeight;
     }
 
-    @Override
-    public float getContainerHeightPx() {
-        return mContainerHeight;
-    }
-
     /**
      * Show content in the bottom sheet's content area.
      * @param content The {@link BottomSheetContent} to show, or null if no content should be shown.
@@ -752,6 +767,9 @@ public class BottomSheet extends FrameLayout
 
         // If the desired content is already showing, do nothing.
         if (mSheetContent == content) return;
+
+        // TODO(twellington): Handle updates to the peek UI while the sheet is showing?
+        if (content != null && mUseSlimPeek != content.useSlimPeek()) updatePeekUI(content);
 
         List<Animator> animators = new ArrayList<>();
         mContentSwapAnimatorSet = new AnimatorSet();
@@ -820,6 +838,24 @@ public class BottomSheet extends FrameLayout
         if (mSheetContent == null || isInOverviewMode() || SysUtils.isLowEndDevice()) {
             mContentSwapAnimatorSet.end();
         }
+    }
+
+    /**
+     * Updates the peek UI for the current BottomSheetcontent.
+     * @param content The current {@link BottomSheetContent}
+     */
+    private void updatePeekUI(BottomSheetContent content) {
+        mUseSlimPeek = content.useSlimPeek();
+
+        int peekHeightId = mUseSlimPeek ? R.dimen.bottom_control_container_slim_expanded_height
+                                        : R.dimen.bottom_control_container_peek_height;
+        mDefaultToolbarView.getLayoutParams().height =
+                getResources().getDimensionPixelSize(peekHeightId);
+
+        int toolbarHeightId = mUseSlimPeek ? R.dimen.bottom_control_container_slim_peek_height
+                                           : R.dimen.bottom_control_container_peek_height;
+        mToolbarHeight = getResources().getDimensionPixelSize(toolbarHeightId);
+        updateSheetStateRatios();
     }
 
     /**
@@ -1109,14 +1145,14 @@ public class BottomSheet extends FrameLayout
     /**
      * @return The ratio of the height of the screen that the hidden state is.
      */
-    private float getHiddenRatio() {
+    @VisibleForTesting
+    float getHiddenRatio() {
         return mStateRatios[SHEET_STATE_HIDDEN];
     }
 
     /**
      * @return The ratio of the height of the screen that the peeking state is.
      */
-    @VisibleForTesting
     public float getPeekRatio() {
         return mStateRatios[SHEET_STATE_PEEK];
     }
@@ -1125,7 +1161,7 @@ public class BottomSheet extends FrameLayout
      * @return The ratio of the height of the screen that the half expanded state is.
      */
     @VisibleForTesting
-    public float getHalfRatio() {
+    float getHalfRatio() {
         return mStateRatios[SHEET_STATE_HALF];
     }
 
@@ -1133,14 +1169,13 @@ public class BottomSheet extends FrameLayout
      * @return The ratio of the height of the screen that the fully expanded state is.
      */
     @VisibleForTesting
-    public float getFullRatio() {
+    float getFullRatio() {
         return mStateRatios[SHEET_STATE_FULL];
     }
 
     /**
      * @return The height of the container that the bottom sheet exists in.
      */
-    @VisibleForTesting
     public float getSheetContainerHeight() {
         return mContainerHeight;
     }
@@ -1154,7 +1189,7 @@ public class BottomSheet extends FrameLayout
         float offsetWithBrowserControls = getCurrentOffsetPx() - getOffsetFromBrowserControls();
 
         // Do not send events for states less than the hidden state unless 0 has not been sent.
-        if (offsetWithBrowserControls < getSheetHeightForState(SHEET_STATE_HIDDEN)
+        if (offsetWithBrowserControls <= getSheetHeightForState(SHEET_STATE_HIDDEN)
                 && mLastOffsetRatioSent <= 0) {
             return;
         }
@@ -1172,7 +1207,9 @@ public class BottomSheet extends FrameLayout
                     MathUtils.areFloatsEqual(hiddenFullRatio, 0) ? 0 : hiddenFullRatio;
         }
 
-        for (BottomSheetObserver o : mObservers) o.onSheetOffsetChanged(mLastOffsetRatioSent);
+        for (BottomSheetObserver o : mObservers) {
+            o.onSheetOffsetChanged(mLastOffsetRatioSent, getCurrentOffsetPx());
+        }
 
         if (MathUtils.areFloatsEqual(
                     offsetWithBrowserControls, getSheetHeightForState(SHEET_STATE_PEEK))) {

@@ -4,6 +4,7 @@
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/memory/memory_pressure_listener.h"
 #include "base/run_loop.h"
 #include "base/test/histogram_tester.h"
@@ -12,8 +13,10 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
+#include "chrome/browser/resource_coordinator/tab_lifecycle_unit.h"
 #include "chrome/browser/resource_coordinator/tab_lifecycle_unit_external.h"
 #include "chrome/browser/resource_coordinator/tab_manager.h"
+#include "chrome/browser/resource_coordinator/tab_manager_features.h"
 #include "chrome/browser/resource_coordinator/tab_manager_web_contents_data.h"
 #include "chrome/browser/resource_coordinator/time.h"
 #include "chrome/browser/ui/browser.h"
@@ -51,6 +54,19 @@ namespace {
 
 constexpr char kBlinkPageLifecycleFeature[] = "PageLifecycle";
 constexpr base::TimeDelta kShortDelay = base::TimeDelta::FromSeconds(1);
+
+bool ObserveNavEntryCommitted(const GURL& expected_url,
+                              const content::NotificationSource& source,
+                              const content::NotificationDetails& details) {
+  return content::Details<content::LoadCommittedDetails>(details)
+             ->entry->GetURL() == expected_url;
+}
+
+bool IsTabDiscarded(content::WebContents* web_contents) {
+  return TabLifecycleUnitExternal::FromWebContents(web_contents)->IsDiscarded();
+}
+
+}  // namespace
 
 class TabManagerTest : public InProcessBrowserTest {
  public:
@@ -93,22 +109,18 @@ class TabManagerTest : public InProcessBrowserTest {
     ASSERT_EQ(2, browser()->tab_strip_model()->count());
   }
 
+  // Gets the TabLifecycleUnit from |contents| and sends the signal that
+  // indicates that the page is frozen. In production, this is sent by the
+  // renderer process. This is done to finish a proactive tab discard.
+  void SimulateFreezeSignal(content::WebContents* contents) {
+    static_cast<TabLifecycleUnitSource::TabLifecycleUnit*>(
+        TabLifecycleUnitExternal::FromWebContents(contents))
+        ->UpdateLifecycleState(mojom::LifecycleState::kFrozen);
+  }
+
   base::SimpleTestTickClock test_clock_;
   ScopedSetTickClockForTesting scoped_set_tick_clock_for_testing_;
 };
-
-bool ObserveNavEntryCommitted(const GURL& expected_url,
-                              const content::NotificationSource& source,
-                              const content::NotificationDetails& details) {
-  return content::Details<content::LoadCommittedDetails>(details)
-             ->entry->GetURL() == expected_url;
-}
-
-bool IsTabDiscarded(content::WebContents* web_contents) {
-  return TabLifecycleUnitExternal::FromWebContents(web_contents)->IsDiscarded();
-}
-
-}  // namespace
 
 IN_PROC_BROWSER_TEST_F(TabManagerTest, TabManagerBasics) {
   using content::WindowedNotificationObserver;
@@ -172,24 +184,31 @@ IN_PROC_BROWSER_TEST_F(TabManagerTest, TabManagerBasics) {
 
   EXPECT_EQ(3, tsm->count());
 
-  // Discard a tab.  It should kill the first tab, since it was the oldest
-  // and was not selected.
-  EXPECT_TRUE(tab_manager->DiscardTabImpl(DiscardReason::kProactive));
+  // Discard a tab.
+  EXPECT_TRUE(tab_manager->DiscardTabImpl(DiscardReason::kUrgent));
   EXPECT_EQ(3, tsm->count());
-  EXPECT_TRUE(IsTabDiscarded(tsm->GetWebContentsAt(0)));
-  EXPECT_FALSE(IsTabDiscarded(tsm->GetWebContentsAt(1)));
+  if (base::FeatureList::IsEnabled(features::kTabRanker)) {
+    // In testing configs with TabRanker enabled, we don't always know which tab
+    // it will kill. But exactly one of the first two tabs should be killed.
+    EXPECT_TRUE(IsTabDiscarded(tsm->GetWebContentsAt(0)) ^
+                IsTabDiscarded(tsm->GetWebContentsAt(1)));
+  } else {
+    // With TabRanker disabled, it should kill the first tab, since it was the
+    // oldest and was not selected.
+    EXPECT_TRUE(IsTabDiscarded(tsm->GetWebContentsAt(0)));
+    EXPECT_FALSE(IsTabDiscarded(tsm->GetWebContentsAt(1)));
+  }
   EXPECT_FALSE(IsTabDiscarded(tsm->GetWebContentsAt(2)));
 
-  // Run discard again, make sure it kills the second tab.
-  EXPECT_TRUE(tab_manager->DiscardTabImpl(DiscardReason::kProactive));
+  // Run discard again. Both unselected tabs should now be killed.
+  EXPECT_TRUE(tab_manager->DiscardTabImpl(DiscardReason::kUrgent));
   EXPECT_EQ(3, tsm->count());
   EXPECT_TRUE(IsTabDiscarded(tsm->GetWebContentsAt(0)));
   EXPECT_TRUE(IsTabDiscarded(tsm->GetWebContentsAt(1)));
   EXPECT_FALSE(IsTabDiscarded(tsm->GetWebContentsAt(2)));
 
-  // Kill the third tab. It should not kill the last tab, since it is active
-  // tab.
-  EXPECT_FALSE(tab_manager->DiscardTabImpl(DiscardReason::kProactive));
+  // Run discard again. It should not kill the last tab, since it is active.
+  EXPECT_FALSE(tab_manager->DiscardTabImpl(DiscardReason::kUrgent));
   EXPECT_TRUE(IsTabDiscarded(tsm->GetWebContentsAt(0)));
   EXPECT_TRUE(IsTabDiscarded(tsm->GetWebContentsAt(1)));
   EXPECT_FALSE(IsTabDiscarded(tsm->GetWebContentsAt(2)));
@@ -199,7 +218,7 @@ IN_PROC_BROWSER_TEST_F(TabManagerTest, TabManagerBasics) {
 
   EXPECT_EQ(1, tsm->active_index());
   EXPECT_FALSE(IsTabDiscarded(tsm->GetWebContentsAt(1)));
-  tab_manager->DiscardTabImpl(DiscardReason::kProactive);
+  tab_manager->DiscardTabImpl(DiscardReason::kUrgent);
   EXPECT_TRUE(IsTabDiscarded(tsm->GetWebContentsAt(2)));
 
   // Force creation of the FindBarController.
@@ -464,13 +483,15 @@ IN_PROC_BROWSER_TEST_F(TabManagerTest, AutoDiscardable) {
   ASSERT_EQ(2, tsm->count());
 
   // Set the auto-discardable state of the first tab to false.
-  tab_manager->SetTabAutoDiscardableState(tsm->GetWebContentsAt(0), false);
+  TabLifecycleUnitExternal::FromWebContents(tsm->GetWebContentsAt(0))
+      ->SetAutoDiscardable(false);
 
   // Shouldn't discard the tab, since auto-discardable is deactivated.
   EXPECT_FALSE(tab_manager->DiscardTabImpl(DiscardReason::kProactive));
 
   // Reset auto-discardable state to true.
-  tab_manager->SetTabAutoDiscardableState(tsm->GetWebContentsAt(0), true);
+  TabLifecycleUnitExternal::FromWebContents(tsm->GetWebContentsAt(0))
+      ->SetAutoDiscardable(true);
 
   // Now it should be able to discard the tab.
   EXPECT_TRUE(tab_manager->DiscardTabImpl(DiscardReason::kProactive));
@@ -589,6 +610,8 @@ IN_PROC_BROWSER_TEST_F(TabManagerTest, ProactiveFastShutdownSingleTabProcess) {
       content::NotificationService::AllSources());
   base::HistogramTester tester;
   EXPECT_TRUE(tab_manager->DiscardTabImpl(DiscardReason::kProactive));
+  SimulateFreezeSignal(browser()->tab_strip_model()->GetWebContentsAt(1));
+
   tester.ExpectUniqueSample(
       "TabManager.Discarding.DiscardedTabCouldFastShutdown", true, 1);
   observer.Wait();
@@ -625,6 +648,8 @@ IN_PROC_BROWSER_TEST_F(TabManagerTest, ProactiveFastShutdownSharedTabProcess) {
   // will be made.
   base::HistogramTester tester;
   EXPECT_TRUE(tab_manager->DiscardTabImpl(DiscardReason::kProactive));
+  SimulateFreezeSignal(browser()->tab_strip_model()->GetWebContentsAt(1));
+
   tester.ExpectUniqueSample(
       "TabManager.Discarding.DiscardedTabCouldFastShutdown", false, 1);
 }
@@ -664,6 +689,8 @@ IN_PROC_BROWSER_TEST_F(TabManagerTest, ProactiveFastShutdownWithUnloadHandler) {
   // one of them is current, and the other has an unload handler. No unsafe
   // attempts will be made.
   EXPECT_TRUE(tab_manager->DiscardTabImpl(DiscardReason::kProactive));
+  SimulateFreezeSignal(browser()->tab_strip_model()->GetWebContentsAt(1));
+
   tester.ExpectUniqueSample(
       "TabManager.Discarding.DiscardedTabCouldFastShutdown", false, 1);
 }
@@ -712,6 +739,8 @@ IN_PROC_BROWSER_TEST_F(TabManagerTest,
   // attempts will be made.
   base::HistogramTester tester;
   EXPECT_TRUE(tab_manager->DiscardTabImpl(DiscardReason::kProactive));
+  SimulateFreezeSignal(browser()->tab_strip_model()->GetWebContentsAt(1));
+
   tester.ExpectUniqueSample(
       "TabManager.Discarding.DiscardedTabCouldFastShutdown", false, 1);
 }
@@ -839,6 +868,7 @@ IN_PROC_BROWSER_TEST_F(TabManagerTest, TabManagerWasDiscarded) {
   TabLifecycleUnitExternal::FromWebContents(
       browser()->tab_strip_model()->GetActiveWebContents())
       ->DiscardTab();
+  SimulateFreezeSignal(browser()->tab_strip_model()->GetActiveWebContents());
 
   // Here we simulate re-focussing the tab causing reload with navigation,
   // the navigation will reload the tab.
@@ -850,6 +880,49 @@ IN_PROC_BROWSER_TEST_F(TabManagerTest, TabManagerWasDiscarded) {
       browser()->tab_strip_model()->GetWebContentsAt(0), kDiscardedStateJS,
       &discarded_result));
   EXPECT_TRUE(discarded_result);
+}
+
+IN_PROC_BROWSER_TEST_F(TabManagerTest, DiscardedTabHasNoProcess) {
+  GURL test_page(ui_test_utils::GetTestUrl(
+      base::FilePath(), base::FilePath(FILE_PATH_LITERAL("simple.html"))));
+  ui_test_utils::NavigateToURL(browser(), test_page);
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  // The renderer process should be alive at this point.
+  content::RenderProcessHost* process =
+      web_contents->GetMainFrame()->GetProcess();
+  ASSERT_TRUE(process);
+  EXPECT_TRUE(process->HasConnection());
+  EXPECT_NE(base::kNullProcessHandle, process->GetProcess().Handle());
+  int renderer_id = process->GetID();
+
+  // Discard the tab. This simulates a tab discard.
+  TabLifecycleUnitExternal::FromWebContents(web_contents)->DiscardTab();
+  content::WebContents* new_web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_NE(new_web_contents, web_contents);
+  web_contents = new_web_contents;
+  content::RenderProcessHost* new_process =
+      web_contents->GetMainFrame()->GetProcess();
+  EXPECT_NE(new_process, process);
+  EXPECT_NE(new_process->GetID(), renderer_id);
+  process = new_process;
+  SimulateFreezeSignal(web_contents);
+
+  // The renderer process should be dead after a discard.
+  EXPECT_EQ(process, web_contents->GetMainFrame()->GetProcess());
+  EXPECT_FALSE(process->HasConnection());
+  EXPECT_EQ(base::kNullProcessHandle, process->GetProcess().Handle());
+
+  // Here we simulate re-focussing the tab causing reload with navigation,
+  // the navigation will reload the tab.
+  ui_test_utils::NavigateToURL(browser(), test_page);
+
+  // Reload should mean that the renderer process is alive now.
+  EXPECT_EQ(process, web_contents->GetMainFrame()->GetProcess());
+  EXPECT_TRUE(process->HasConnection());
+  EXPECT_NE(base::kNullProcessHandle, process->GetProcess().Handle());
 }
 
 IN_PROC_BROWSER_TEST_F(TabManagerTest,

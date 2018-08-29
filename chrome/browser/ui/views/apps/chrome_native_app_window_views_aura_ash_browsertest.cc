@@ -12,6 +12,8 @@
 #include "ui/base/ui_base_types.h"
 #include "ui/wm/core/window_util.h"
 
+#include "chromeos/login/login_state.h"
+
 class ChromeNativeAppWindowViewsAuraAshBrowserTest
     : public extensions::PlatformAppBrowserTest {
  public:
@@ -31,13 +33,21 @@ IN_PROC_BROWSER_TEST_F(ChromeNativeAppWindowViewsAuraAshBrowserTest,
   ASSERT_TRUE(window != nullptr);
   ASSERT_TRUE(window->immersive_fullscreen_controller_.get() != nullptr);
   EXPECT_FALSE(window->immersive_fullscreen_controller_->IsEnabled());
+  constexpr int kFrameHeight = 32;
+
+  views::ClientView* client_view =
+      window->widget()->non_client_view()->client_view();
+  EXPECT_EQ(kFrameHeight, client_view->bounds().y());
 
   // Verify that when fullscreen is toggled on, immersive mode is enabled and
   // that when fullscreen is toggled off, immersive mode is disabled.
   app_window->OSFullscreen();
   EXPECT_TRUE(window->immersive_fullscreen_controller_->IsEnabled());
+  EXPECT_EQ(0, client_view->bounds().y());
+
   app_window->Restore();
   EXPECT_FALSE(window->immersive_fullscreen_controller_->IsEnabled());
+  EXPECT_EQ(kFrameHeight, client_view->bounds().y());
 
   // Verify that since the auto hide title bars in tablet mode feature turned
   // on, immersive mode is enabled once tablet mode is entered, and disabled
@@ -47,9 +57,12 @@ IN_PROC_BROWSER_TEST_F(ChromeNativeAppWindowViewsAuraAshBrowserTest,
   tablet_mode_controller->EnableTabletModeWindowManager(true);
   tablet_mode_controller->FlushForTesting();
   EXPECT_TRUE(window->immersive_fullscreen_controller_->IsEnabled());
+  EXPECT_EQ(0, client_view->bounds().y());
+
   tablet_mode_controller->EnableTabletModeWindowManager(false);
   tablet_mode_controller->FlushForTesting();
   EXPECT_FALSE(window->immersive_fullscreen_controller_->IsEnabled());
+  EXPECT_EQ(kFrameHeight, client_view->bounds().y());
 
   // Verify that the window was fullscreened before entering tablet mode, it
   // will remain fullscreened after exiting tablet mode.
@@ -111,4 +124,47 @@ IN_PROC_BROWSER_TEST_F(ChromeNativeAppWindowViewsAuraAshBrowserTest,
   EXPECT_EQ(ui::SHOW_STATE_MAXIMIZED, window->GetRestoredState());
 
   CloseAppWindow(app_window);
+}
+
+// Verify that immersive mode stays disabled when entering tablet mode in
+// forced fullscreen mode (e.g. when running in a kiosk session).
+IN_PROC_BROWSER_TEST_F(ChromeNativeAppWindowViewsAuraAshBrowserTest,
+                       NoImmersiveModeWhenForcedFullscreen) {
+  extensions::AppWindow* app_window = CreateTestAppWindow("{}");
+  auto* window = static_cast<ChromeNativeAppWindowViewsAuraAsh*>(
+      GetNativeAppWindowForAppWindow(app_window));
+  ASSERT_TRUE(window != nullptr);
+  ASSERT_TRUE(window->immersive_fullscreen_controller_.get() != nullptr);
+
+  app_window->ForcedFullscreen();
+
+  ash::TabletModeController* tablet_mode_controller =
+      ash::Shell::Get()->tablet_mode_controller();
+  tablet_mode_controller->EnableTabletModeWindowManager(true);
+  tablet_mode_controller->FlushForTesting();
+  EXPECT_FALSE(window->immersive_fullscreen_controller_->IsEnabled());
+  tablet_mode_controller->EnableTabletModeWindowManager(false);
+  tablet_mode_controller->FlushForTesting();
+  EXPECT_FALSE(window->immersive_fullscreen_controller_->IsEnabled());
+}
+
+// Make sure a normal window is not in immersive mode, and uses
+// immersive in fullscreen.
+IN_PROC_BROWSER_TEST_F(ChromeNativeAppWindowViewsAuraAshBrowserTest,
+                       PublicSessionImmersiveMode) {
+  chromeos::LoginState::Get()->SetLoggedInState(
+      chromeos::LoginState::LOGGED_IN_ACTIVE,
+      chromeos::LoginState::LOGGED_IN_USER_PUBLIC_ACCOUNT);
+
+  extensions::AppWindow* app_window = CreateTestAppWindow("{}");
+  auto* window = static_cast<ChromeNativeAppWindowViewsAuraAsh*>(
+      GetNativeAppWindowForAppWindow(app_window));
+  ASSERT_TRUE(window != nullptr);
+  ASSERT_TRUE(window->immersive_fullscreen_controller_.get() != nullptr);
+  EXPECT_FALSE(window->immersive_fullscreen_controller_->IsEnabled());
+
+  app_window->SetFullscreen(extensions::AppWindow::FULLSCREEN_TYPE_HTML_API,
+                            true);
+
+  EXPECT_TRUE(window->immersive_fullscreen_controller_->IsEnabled());
 }

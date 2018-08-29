@@ -94,6 +94,24 @@ void FillEntryPropertiesValueForDrive(const drive::ResourceEntry& entry_proto,
       base::Time::FromInternalValue(entry_proto.last_modified_by_me())
           .ToJsTime()));
 
+  if (entry_proto.has_alternate_url()) {
+    properties->alternate_url.reset(
+        new std::string(entry_proto.alternate_url()));
+
+    // Set |share_url| to a modified version of |alternate_url| that opens the
+    // sharing dialog for files and folders (add ?userstoinvite="" to the URL).
+    // TODO(sashab): Add an endpoint to the Drive API that generates this URL,
+    // instead of manually modifying it here.
+    GURL share_url = GURL(entry_proto.alternate_url());
+    GURL::Replacements replacements;
+    std::string new_query =
+        (share_url.has_query() ? share_url.query() + "&" : "") +
+        "userstoinvite=%22%22";
+    replacements.SetQueryStr(new_query);
+    properties->share_url.reset(
+        new std::string(share_url.ReplaceComponents(replacements).spec()));
+  }
+
   if (!entry_proto.has_file_specific_info())
     return;
 

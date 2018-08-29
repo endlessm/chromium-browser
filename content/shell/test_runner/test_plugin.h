@@ -14,7 +14,6 @@
 #include "cc/resources/shared_bitmap_id_registrar.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/command_buffer/common/sync_token.h"
-#include "third_party/blink/public/platform/web_layer.h"
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_element.h"
 #include "third_party/blink/public/web/web_local_frame.h"
@@ -24,7 +23,6 @@
 
 namespace blink {
 class WebGraphicsContext3DProvider;
-class WebLayer;
 struct WebPluginParams;
 }
 
@@ -176,7 +174,6 @@ class TestPlugin : public blink::WebPlugin, public cc::TextureLayerClient {
   GLuint framebuffer_;
   Scene scene_;
   scoped_refptr<cc::TextureLayer> layer_;
-  std::unique_ptr<blink::WebLayer> web_layer_;
 
   blink::WebPluginContainer::TouchEventRequestType touch_event_request_;
   // Requests touch events from the WebPluginContainerImpl multiple times to

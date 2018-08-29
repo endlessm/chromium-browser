@@ -40,16 +40,17 @@ TEST_F(SyncCycleSnapshotTest, SyncCycleSnapshotToValue) {
   const int kNumEncryptionConflicts = 1054;
   const int kNumHierarchyConflicts = 1055;
   const int kNumServerConflicts = 1057;
-
-  SyncCycleSnapshot snapshot(model_neutral, download_progress_markers,
-                             kIsSilenced, kNumEncryptionConflicts,
-                             kNumHierarchyConflicts, kNumServerConflicts, false,
-                             0, base::Time::Now(), base::Time::Now(),
-                             std::vector<int>(MODEL_TYPE_COUNT, 0),
-                             std::vector<int>(MODEL_TYPE_COUNT, 0),
-                             sync_pb::SyncEnums::UNKNOWN_ORIGIN);
+  SyncCycleSnapshot snapshot(
+      model_neutral, download_progress_markers, kIsSilenced,
+      kNumEncryptionConflicts, kNumHierarchyConflicts, kNumServerConflicts,
+      false, 0, base::Time::Now(), base::Time::Now(),
+      std::vector<int>(MODEL_TYPE_COUNT, 0),
+      std::vector<int>(MODEL_TYPE_COUNT, 0), sync_pb::SyncEnums::UNKNOWN_ORIGIN,
+      /*short_poll_interval=*/base::TimeDelta::FromMinutes(30),
+      /*long_poll_interval=*/base::TimeDelta::FromMinutes(180),
+      /*has_remaining_local_changes=*/false);
   std::unique_ptr<base::DictionaryValue> value(snapshot.ToValue());
-  EXPECT_EQ(16u, value->size());
+  EXPECT_EQ(20u, value->size());
   ExpectDictIntegerValue(model_neutral.num_successful_commits, *value,
                          "numSuccessfulCommits");
   ExpectDictIntegerValue(model_neutral.num_successful_bookmark_commits, *value,
@@ -73,6 +74,13 @@ TEST_F(SyncCycleSnapshotTest, SyncCycleSnapshotToValue) {
                          "numHierarchyConflicts");
   ExpectDictIntegerValue(kNumServerConflicts, *value, "numServerConflicts");
   ExpectDictBooleanValue(false, *value, "notificationsEnabled");
+  ExpectDictBooleanValue(false, *value, "hasRemainingLocalChanges");
+  ExpectDictStringValue("0h 30m", *value, "short_poll_interval");
+  ExpectDictStringValue("3h 0m", *value, "long_poll_interval");
+  // poll_finish_time includes the local time zone, so simply verify its
+  // existence.
+  EXPECT_TRUE(
+      value->FindKeyOfType("poll_finish_time", base::Value::Type::STRING));
 }
 
 }  // namespace

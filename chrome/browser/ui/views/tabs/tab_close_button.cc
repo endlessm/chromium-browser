@@ -18,6 +18,9 @@
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/material_design/material_design_controller.h"
+#include "ui/gfx/animation/tween.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/rect_based_targeting_utils.h"
@@ -26,17 +29,7 @@
 #include "ui/aura/env.h"
 #endif
 
-namespace {
-
-const gfx::VectorIcon& GetTouchIcon(views::Button::ButtonState state,
-                                    bool is_incognito) {
-  if (state == views::Button::STATE_NORMAL)
-    return kTabCloseButtonTouchIcon;
-  return is_incognito ? kTabCloseButtonTouchIncognitoHoveredPressedIcon
-                      : kTabCloseButtonTouchHoveredPressedIcon;
-}
-
-}  // namespace
+using MD = ui::MaterialDesignController;
 
 TabCloseButton::TabCloseButton(views::ButtonListener* listener,
                                MouseEventCallback mouse_event_callback)
@@ -44,19 +37,6 @@ TabCloseButton::TabCloseButton(views::ButtonListener* listener,
       mouse_event_callback_(std::move(mouse_event_callback)) {
   SetEventTargeter(std::make_unique<views::ViewTargeter>(this));
   SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE));
-
-  if (!ui::MaterialDesignController::IsTouchOptimizedUiEnabled()) {
-    // The normal image is set by OnButtonColorMaybeChanged() because it depends
-    // on the current theme and active state.  The hovered and pressed images
-    // don't depend on the these, so we can set them here.
-    const gfx::ImageSkia& hovered = gfx::CreateVectorIcon(
-        kTabCloseHoveredPressedIcon, SkColorSetRGB(0xDB, 0x44, 0x37));
-    const gfx::ImageSkia& pressed = gfx::CreateVectorIcon(
-        kTabCloseHoveredPressedIcon, SkColorSetRGB(0xA8, 0x35, 0x2A));
-    SetImage(views::Button::STATE_HOVERED, &hovered);
-    SetImage(views::Button::STATE_PRESSED, &pressed);
-  }
-
   // Disable animation so that the red danger sign shows up immediately
   // to help avoid mis-clicks.
   SetAnimationDuration(0);
@@ -64,27 +44,26 @@ TabCloseButton::TabCloseButton(views::ButtonListener* listener,
 
 TabCloseButton::~TabCloseButton() {}
 
-void TabCloseButton::SetTabColor(SkColor color) {
-  const gfx::ImageSkia& close_button_normal_image =
-      gfx::CreateVectorIcon(kTabCloseNormalIcon, color);
-  SetImage(views::Button::STATE_NORMAL, &close_button_normal_image);
+void TabCloseButton::SetTabColor(SkColor color, bool tab_color_is_dark) {
+  SkColor hover_color = SkColorSetRGB(0xDB, 0x44, 0x37);
+  SkColor pressed_color = SkColorSetRGB(0xA8, 0x35, 0x2A);
+  SkColor icon_color = SK_ColorWHITE;
+  if (MD::IsRefreshUi()) {
+    hover_color = tab_color_is_dark ? gfx::kGoogleGrey700 : gfx::kGoogleGrey200;
+    pressed_color =
+        tab_color_is_dark ? gfx::kGoogleGrey600 : gfx::kGoogleGrey300;
+    icon_color = color;
+  }
+  GenerateImages(false, color, icon_color, hover_color, pressed_color);
 }
 
 void TabCloseButton::ActiveStateChanged(const Tab* parent_tab) {
-  constexpr views::Button::ButtonState states[] = {
-      views::Button::STATE_NORMAL, views::Button::STATE_HOVERED,
-      views::Button::STATE_PRESSED};
-  const bool is_incognito = parent_tab->controller()->IsIncognito();
-
-  // The tab close button icon has 8 combination of colors depending on what
-  // state the button is in, and whether this is an incognito browsing session.
-  // The 8 combination is achieved by creating 3 vector .icon files and setting
-  // the colors for them here.
-  for (const auto& state : states) {
-    SetImage(state,
-             gfx::CreateVectorIcon(GetTouchIcon(state, is_incognito),
-                                   parent_tab->GetCloseTabButtonColor(state)));
-  }
+  SkColor icon_color =
+      parent_tab->GetCloseTabButtonColor(views::Button::STATE_NORMAL);
+  GenerateImages(
+      true, icon_color, icon_color,
+      parent_tab->GetCloseTabButtonColor(views::Button::STATE_HOVERED),
+      parent_tab->GetCloseTabButtonColor(views::Button::STATE_PRESSED));
 }
 
 views::View* TabCloseButton::GetTooltipHandlerForPoint(
@@ -127,6 +106,12 @@ const char* TabCloseButton::GetClassName() const {
   return "TabCloseButton";
 }
 
+void TabCloseButton::PaintButtonContents(gfx::Canvas* canvas) {
+  canvas->SaveLayerAlpha(GetOpacity());
+  views::ImageButton::PaintButtonContents(canvas);
+  canvas->Restore();
+}
+
 views::View* TabCloseButton::TargetForRect(views::View* root,
                                            const gfx::Rect& rect) {
   CHECK_EQ(root, this);
@@ -158,4 +143,44 @@ bool TabCloseButton::GetHitTestMask(gfx::Path* mask) const {
   // We need to define this so hit-testing won't include the border region.
   mask->addRect(gfx::RectToSkRect(GetMirroredRect(GetContentsBounds())));
   return true;
+}
+
+SkAlpha TabCloseButton::GetOpacity() {
+  Tab* tab = static_cast<Tab*>(parent());
+  if (!MD::IsRefreshUi() || IsMouseHovered() || tab->IsActive())
+    return SK_AlphaOPAQUE;
+  const double animation_value = tab->hover_controller()->GetAnimationValue();
+  return gfx::Tween::IntValueBetween(animation_value, 0, 255);
+}
+
+void TabCloseButton::GenerateImages(bool is_touch,
+                                    SkColor normal_icon_color,
+                                    SkColor hover_pressed_icon_color,
+                                    SkColor hover_highlight_color,
+                                    SkColor pressed_highlight_color) {
+  const gfx::VectorIcon& button_icon =
+      is_touch ? kTabCloseButtonTouchIcon : kTabCloseNormalIcon;
+  const gfx::VectorIcon& highlight = is_touch
+                                         ? kTabCloseButtonTouchHighlightIcon
+                                         : kTabCloseButtonHighlightIcon;
+  const gfx::ImageSkia& normal =
+      gfx::CreateVectorIcon(button_icon, normal_icon_color);
+  const gfx::ImageSkia& hover_pressed =
+      normal_icon_color != hover_pressed_icon_color
+          ? gfx::CreateVectorIcon(button_icon, hover_pressed_icon_color)
+          : normal;
+
+  const gfx::ImageSkia& hover_highlight =
+      gfx::CreateVectorIcon(highlight, hover_highlight_color);
+  const gfx::ImageSkia& pressed_highlight =
+      gfx::CreateVectorIcon(highlight, pressed_highlight_color);
+  const gfx::ImageSkia& hover =
+      gfx::ImageSkiaOperations::CreateSuperimposedImage(hover_highlight,
+                                                        hover_pressed);
+  const gfx::ImageSkia& pressed =
+      gfx::ImageSkiaOperations::CreateSuperimposedImage(pressed_highlight,
+                                                        hover_pressed);
+  SetImage(views::Button::STATE_NORMAL, normal);
+  SetImage(views::Button::STATE_HOVERED, hover);
+  SetImage(views::Button::STATE_PRESSED, pressed);
 }

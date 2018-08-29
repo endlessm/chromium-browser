@@ -81,7 +81,6 @@ import org.chromium.chrome.browser.suggestions.SuggestionsUiDelegate;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.chrome.test.util.browser.suggestions.ContentSuggestionsTestUtils.CategoryInfoBuilder;
 import org.chromium.chrome.test.util.browser.suggestions.FakeSuggestionsSource;
 import org.chromium.components.signin.AccountManagerFacade;
@@ -102,10 +101,11 @@ import java.util.List;
  */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE, shadows = {CustomShadowAsyncTask.class})
-@DisableFeatures({ChromeFeatureList.NTP_CONDENSED_LAYOUT, ChromeFeatureList.CHROME_HOME,
-        ChromeFeatureList.CONTENT_SUGGESTIONS_SCROLL_TO_LOAD,
+
+@DisableFeatures({ChromeFeatureList.CONTENT_SUGGESTIONS_SCROLL_TO_LOAD,
         ChromeFeatureList.NTP_ARTICLE_SUGGESTIONS_EXPANDABLE_HEADER,
-        ChromeFeatureList.NTP_SHORTCUTS, ChromeFeatureList.CHROME_DUPLEX})
+        ChromeFeatureList.SIMPLIFIED_NTP, ChromeFeatureList.CHROME_DUPLEX})
+
 public class NewTabPageAdapterTest {
     @Rule
     public DisableHistogramsRule mDisableHistogramsRule = new DisableHistogramsRule();
@@ -260,10 +260,6 @@ public class NewTabPageAdapterTest {
 
         public void expectFooter() {
             mInOrder.verify(mVisitor, mVerification).visitFooter();
-        }
-
-        public void expectSpacingItem() {
-            mInOrder.verify(mVisitor, mVerification).visitSpacingItem();
         }
 
         public void expectEnd() {
@@ -883,28 +879,23 @@ public class NewTabPageAdapterTest {
         // 2-4 | Sugg*3
         // 5   | Action
         // 6   | Footer
-        // 7   | Spacer
 
         // Dismiss the second suggestion of the second section.
         mAdapter.dismissItem(3, itemDismissedCallback);
         verify(itemDismissedCallback).onResult(anyString());
         verify(dataObserver).onItemRangeRemoved(3, 1);
-        verify(dataObserver).onItemRangeChanged(6, 1, null);
 
         // Make sure the call with the updated position works properly.
         mAdapter.dismissItem(3, itemDismissedCallback);
         verify(itemDismissedCallback, times(2)).onResult(anyString());
         verify(dataObserver, times(2)).onItemRangeRemoved(3, 1);
-        verify(dataObserver).onItemRangeChanged(5, 1, null);
 
         // Dismiss the last suggestion in the section. We should now show the status card.
         reset(dataObserver);
         mAdapter.dismissItem(2, itemDismissedCallback);
         verify(itemDismissedCallback, times(3)).onResult(anyString());
         verify(dataObserver).onItemRangeRemoved(2, 1); // Suggestion removed
-        verify(dataObserver).onItemRangeChanged(4, 1, null); // Spacer refresh
         verify(dataObserver).onItemRangeInserted(2, 1); // Status card added
-        verify(dataObserver).onItemRangeChanged(5, 1, null); // Spacer refresh
 
         // Adapter content:
         // Idx | Item
@@ -915,16 +906,13 @@ public class NewTabPageAdapterTest {
         // 3   | Action
         // 4   | Progress Indicator
         // 5   | Footer
-        // 6   | Spacer
 
         final int newSuggestionCount = 7;
         reset(dataObserver);
         suggestionsSource.setSuggestionsForCategory(
                 TEST_CATEGORY, createDummySuggestions(newSuggestionCount, TEST_CATEGORY));
         verify(dataObserver).onItemRangeInserted(2, newSuggestionCount);
-        verify(dataObserver).onItemRangeChanged(5 + newSuggestionCount, 1, null); // Spacer refresh
         verify(dataObserver).onItemRangeRemoved(2 + newSuggestionCount, 1);
-        verify(dataObserver).onItemRangeChanged(4 + newSuggestionCount, 1, null); // Spacer refresh
 
         // Adapter content:
         // Idx | Item
@@ -934,7 +922,6 @@ public class NewTabPageAdapterTest {
         // 2-8 | Sugg*7
         // 9   | Action
         // 10  | Footer
-        // 11  | Spacer
 
         reset(dataObserver);
         suggestionsSource.setSuggestionsForCategory(
@@ -943,9 +930,6 @@ public class NewTabPageAdapterTest {
                 TEST_CATEGORY, CategoryStatus.CATEGORY_EXPLICITLY_DISABLED);
         // All suggestions as well as the header and the action should be gone.
         verify(dataObserver).onItemRangeRemoved(1, newSuggestionCount + 2);
-        // The spacer gets refreshed twice: Once when the section is removed, and then again when
-        // the "all dismissed" item gets added.
-        verify(dataObserver, times(2)).onItemRangeChanged(2, 1, null);
     }
 
     @Test
@@ -1030,10 +1014,9 @@ public class NewTabPageAdapterTest {
         assertEquals(0, preferenceManager.getNewTabPageSigninPromoSuppressionPeriodStart());
     }
 
-    @Ignore // Disabled for new Chrome Home, see: https://crbug.com/805160
+    @Ignore // Disabled for new Chrome Home, see: https://crbug.com/805160, re-enable for Modern
     @Test
     @Feature({"Ntp"})
-    @EnableFeatures(ChromeFeatureList.CHROME_HOME)
     public void testSigninPromoModern() {
         when(mMockSigninManager.isSignInAllowed()).thenReturn(true);
         when(mMockSigninManager.isSignedInOnNative()).thenReturn(false);
@@ -1090,7 +1073,6 @@ public class NewTabPageAdapterTest {
         // 2   | Status
         // 3   | Progress Indicator
         // 4   | Footer
-        // 5   | Spacer
         assertEquals(4, mAdapter.getFirstPositionForType(ItemViewType.FOOTER));
         assertEquals(RecyclerView.NO_POSITION,
                 mAdapter.getFirstPositionForType(ItemViewType.ALL_DISMISSED));
@@ -1105,7 +1087,6 @@ public class NewTabPageAdapterTest {
         // ----|--------------------
         // 0   | Above-the-fold
         // 1   | All Dismissed
-        // 2   | Spacer
         assertEquals(
                 RecyclerView.NO_POSITION, mAdapter.getFirstPositionForType(ItemViewType.FOOTER));
         assertEquals(1, mAdapter.getFirstPositionForType(ItemViewType.ALL_DISMISSED));
@@ -1119,7 +1100,6 @@ public class NewTabPageAdapterTest {
         // 0   | Above-the-fold
         // 1   | Sign In Promo
         // 2   | Footer
-        // 3   | Spacer
         assertEquals(2, mAdapter.getFirstPositionForType(ItemViewType.FOOTER));
         assertEquals(RecyclerView.NO_POSITION,
                 mAdapter.getFirstPositionForType(ItemViewType.ALL_DISMISSED));
@@ -1132,7 +1112,6 @@ public class NewTabPageAdapterTest {
         // ----|--------------------
         // 0   | Above-the-fold
         // 1   | All Dismissed
-        // 2   | Spacer
         assertEquals(
                 RecyclerView.NO_POSITION, mAdapter.getFirstPositionForType(ItemViewType.FOOTER));
         assertEquals(1, mAdapter.getFirstPositionForType(ItemViewType.ALL_DISMISSED));
@@ -1146,7 +1125,6 @@ public class NewTabPageAdapterTest {
         // 0   | Above-the-fold
         // 1   | Sign In Promo
         // 2   | Footer
-        // 3   | Spacer
         assertEquals(ItemViewType.FOOTER, mAdapter.getItemViewType(2));
         assertEquals(RecyclerView.NO_POSITION,
                 mAdapter.getFirstPositionForType(ItemViewType.ALL_DISMISSED));
@@ -1162,8 +1140,6 @@ public class NewTabPageAdapterTest {
         // 0   | Above-the-fold
         assertEquals(
                 RecyclerView.NO_POSITION, mAdapter.getFirstPositionForType(ItemViewType.FOOTER));
-        assertEquals(
-                RecyclerView.NO_POSITION, mAdapter.getFirstPositionForType(ItemViewType.SPACING));
         assertEquals(RecyclerView.NO_POSITION,
                 mAdapter.getFirstPositionForType(ItemViewType.ALL_DISMISSED));
         assertEquals(
@@ -1178,7 +1154,7 @@ public class NewTabPageAdapterTest {
         mSource.setStatusForCategory(TEST_CATEGORY, CategoryStatus.AVAILABLE);
         mSource.setSuggestionsForCategory(TEST_CATEGORY, createDummySuggestions(1, TEST_CATEGORY));
         mSource.setInfoForCategory(TEST_CATEGORY, new CategoryInfoBuilder(TEST_CATEGORY).build());
-        assertEquals(4, mAdapter.getItemCount()); // TODO(dgn): rewrite with section descriptors.
+        assertEquals(3, mAdapter.getItemCount()); // TODO(dgn): rewrite with section descriptors.
 
         // On Sign in, we should reset the sections, bring back suggestions instead of the All
         // Dismissed item.
@@ -1192,16 +1168,14 @@ public class NewTabPageAdapterTest {
         // 1   | Header
         // 2   | Suggestion
         // 4   | Footer
-        // 5   | Spacer
         assertEquals(3, mAdapter.getFirstPositionForType(ItemViewType.FOOTER));
         assertEquals(RecyclerView.NO_POSITION,
                 mAdapter.getFirstPositionForType(ItemViewType.ALL_DISMISSED));
     }
 
-    @Ignore // Disabled for new Chrome Home, see: https://crbug.com/805160
+    @Ignore // Disabled for new Chrome Home, see: https://crbug.com/805160, re-enable for Modern
     @Test
     @Feature({"Ntp"})
-    @EnableFeatures(ChromeFeatureList.CHROME_HOME)
     public void testAllDismissedModern() {
         when(mUiDelegate.isVisible()).thenReturn(true);
 
@@ -1268,7 +1242,6 @@ public class NewTabPageAdapterTest {
         } else {
             matcher.expectFooter();
         }
-        matcher.expectSpacingItem();
         matcher.expectEnd();
     }
 
@@ -1279,7 +1252,6 @@ public class NewTabPageAdapterTest {
         matcher.expectAboveTheFoldItem();
         matcher.expectSection(section);
         matcher.expectFooter(); // TODO(dgn): Handle scroll to reload with removes the footer
-        matcher.expectSpacingItem();
         matcher.expectEnd();
     }
 
@@ -1290,7 +1262,6 @@ public class NewTabPageAdapterTest {
         matcher.expectAboveTheFoldItem();
         matcher.expectAllDismissedItem();
         matcher.expectSection(section);
-        matcher.expectSpacingItem();
         matcher.expectEnd();
     }
 

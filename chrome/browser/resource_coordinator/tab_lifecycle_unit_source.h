@@ -10,6 +10,7 @@
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit_source_base.h"
+#include "chrome/browser/resource_coordinator/page_signal_receiver.h"
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/ui/browser_tab_strip_tracker.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
@@ -28,6 +29,7 @@ class TabLifecycleUnitExternal;
 // Creates and destroys LifecycleUnits as tabs are created and destroyed.
 class TabLifecycleUnitSource : public BrowserListObserver,
                                public LifecycleUnitSourceBase,
+                               public PageSignalObserver,
                                public TabStripModelObserver {
  public:
   TabLifecycleUnitSource();
@@ -52,7 +54,20 @@ class TabLifecycleUnitSource : public BrowserListObserver,
 
  private:
   friend class TabLifecycleUnitTest;
-
+  friend class TabManagerTest;
+  FRIEND_TEST_ALL_PREFIXES(TabLifecycleUnitSourceTest,
+                           TabProactiveDiscardedByFrozenCallback);
+  FRIEND_TEST_ALL_PREFIXES(TabManagerTest, TabManagerWasDiscarded);
+  FRIEND_TEST_ALL_PREFIXES(TabManagerTest,
+                           TabManagerWasDiscardedCrossSiteSubFrame);
+  FRIEND_TEST_ALL_PREFIXES(TabManagerTest,
+                           ProactiveFastShutdownSingleTabProcess);
+  FRIEND_TEST_ALL_PREFIXES(TabManagerTest,
+                           ProactiveFastShutdownSharedTabProcess);
+  FRIEND_TEST_ALL_PREFIXES(TabManagerTest,
+                           ProactiveFastShutdownWithUnloadHandler);
+  FRIEND_TEST_ALL_PREFIXES(TabManagerTest,
+                           ProactiveFastShutdownWithBeforeunloadHandler);
   class TabLifecycleUnit;
 
   // Returns the TabLifecycleUnit instance associated with |web_contents|, or
@@ -77,7 +92,9 @@ class TabLifecycleUnitSource : public BrowserListObserver,
                      content::WebContents* contents,
                      int index,
                      bool foreground) override;
-  void TabDetachedAt(content::WebContents* contents, int index) override;
+  void TabDetachedAt(content::WebContents* contents,
+                     int index,
+                     bool was_active) override;
   void ActiveTabChanged(content::WebContents* old_contents,
                         content::WebContents* new_contents,
                         int index,
@@ -93,6 +110,10 @@ class TabLifecycleUnitSource : public BrowserListObserver,
   // BrowserListObserver:
   void OnBrowserSetLastActive(Browser* browser) override;
   void OnBrowserNoLongerActive(Browser* browser) override;
+
+  // PageSignalObserver:
+  void OnLifecycleStateChanged(content::WebContents* web_contents,
+                               mojom::LifecycleState state) override;
 
   // Tracks the BrowserList and all TabStripModels.
   BrowserTabStripTracker browser_tab_strip_tracker_;

@@ -8,6 +8,7 @@ include_rules = [
   # app_shell may depend on apps, but not vice versa.
   "-extensions/shell",
   "+net/base",
+  "+services/service_manager",
 ]
 
 specific_include_rules = {
@@ -26,5 +27,7 @@ specific_include_rules = {
     # Pieces of the extensions system that need to move to src/extensions.
     # See http://crbug.com/162530 for details.
     "+chrome/browser/extensions/api/file_system/file_system_api.h",
+    # To access sandbox includes.
+    "+services/service_manager/sandbox",
   ]
 }

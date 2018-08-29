@@ -11,10 +11,10 @@
 #include "chromeos/components/proximity_auth/messenger_observer.h"
 #include "chromeos/components/proximity_auth/remote_status_update.h"
 #include "components/cryptauth/connection.h"
-#include "components/cryptauth/cryptauth_test_util.h"
 #include "components/cryptauth/fake_connection.h"
 #include "components/cryptauth/fake_secure_context.h"
-#include "components/cryptauth/remote_device.h"
+#include "components/cryptauth/remote_device_ref.h"
+#include "components/cryptauth/remote_device_test_util.h"
 #include "components/cryptauth/wire_message.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -64,7 +64,7 @@ class TestMessenger : public MessengerImpl {
  public:
   TestMessenger()
       : MessengerImpl(std::make_unique<cryptauth::FakeConnection>(
-                          cryptauth::CreateClassicRemoteDeviceForTest()),
+                          cryptauth::CreateRemoteDeviceRefForTest()),
                       std::make_unique<cryptauth::FakeSecureContext>()) {}
   explicit TestMessenger(std::unique_ptr<cryptauth::Connection> connection)
       : MessengerImpl(std::move(connection),
@@ -94,18 +94,6 @@ TEST(ProximityAuthMessengerImplTest, SupportsSignIn_ProtocolVersionThreeZero) {
 
 TEST(ProximityAuthMessengerImplTest, SupportsSignIn_ProtocolVersionThreeOne) {
   TestMessenger messenger;
-  messenger.GetFakeSecureContext()->set_protocol_version(
-      cryptauth::SecureContext::PROTOCOL_VERSION_THREE_ONE);
-  EXPECT_TRUE(messenger.SupportsSignIn());
-}
-
-TEST(ProximityAuthMessengerImplTest, SupportsSignIn_EmptyBluetoothAddress) {
-  cryptauth::RemoteDevice ble_remote_device =
-      cryptauth::CreateLERemoteDeviceForTest();
-  ble_remote_device.bluetooth_address = "";
-
-  TestMessenger messenger(std::unique_ptr<cryptauth::Connection>(
-      new cryptauth::FakeConnection(ble_remote_device)));
   messenger.GetFakeSecureContext()->set_protocol_version(
       cryptauth::SecureContext::PROTOCOL_VERSION_THREE_ONE);
   EXPECT_TRUE(messenger.SupportsSignIn());

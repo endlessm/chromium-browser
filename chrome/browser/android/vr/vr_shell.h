@@ -79,7 +79,8 @@ class VrShell : device::GvrGamepadDataProvider,
           float display_height_meters,
           int display_width_pixels,
           int display_height_pixels,
-          bool pause_content);
+          bool pause_content,
+          bool low_density);
   void SwapContents(JNIEnv* env,
                     const base::android::JavaParamRef<jobject>& obj,
                     const base::android::JavaParamRef<jobject>& web_contents);
@@ -128,13 +129,22 @@ class VrShell : device::GvrGamepadDataProvider,
                     const base::android::JavaParamRef<jobject>& obj,
                     jboolean incognito,
                     jint id);
-  void OnContentPaused(bool paused);
   void Navigate(GURL url, NavigationMethod method);
   void NavigateBack();
   void NavigateForward();
   void ReloadTab();
   void OpenNewTab(bool incognito);
+  void SelectTab(int id, bool incognito);
+  void OpenBookmarks();
+  void OpenRecentTabs();
+  void OpenHistory();
+  void OpenDownloads();
+  void OpenShare();
+  void OpenSettings();
+  void CloseTab(int id, bool incognito);
+  void CloseAllTabs();
   void CloseAllIncognitoTabs();
+  void OpenFeedback();
   void ExitCct();
   void CloseHostedDialog();
   void ToggleCardboardGamepad(bool enabled);
@@ -216,8 +226,8 @@ class VrShell : device::GvrGamepadDataProvider,
                         const base::android::JavaParamRef<jobject>& obj);
   void SetDialogBufferSize(JNIEnv* env,
                            const base::android::JavaParamRef<jobject>& obj,
-                           float width,
-                           float height);
+                           int width,
+                           int height);
   void SetAlertDialogSize(JNIEnv* env,
                           const base::android::JavaParamRef<jobject>& obj,
                           float width,
@@ -269,6 +279,21 @@ class VrShell : device::GvrGamepadDataProvider,
   void AcceptDoffPromptForTesting(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj);
+
+  void PerformUiActionForTesting(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      jint element_name,
+      jint action_type,
+      jfloat x,
+      jfloat y);
+
+  void SetUiExpectingActivityForTesting(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      jint quiescence_timeout_ms);
+
+  void ReportUiActivityResultForTesting(VrUiTestActivityResult result);
 
  private:
   ~VrShell() override;
@@ -349,8 +374,7 @@ class VrShell : device::GvrGamepadDataProvider,
   gl::SurfaceTexture* ui_surface_texture_ = nullptr;
 
   base::Timer waiting_for_assets_component_timer_;
-
-  std::set<int> incognito_tab_ids_;
+  bool can_load_new_assets_ = false;
 
   base::WeakPtrFactory<VrShell> weak_ptr_factory_;
 

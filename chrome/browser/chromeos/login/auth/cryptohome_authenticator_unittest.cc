@@ -14,7 +14,6 @@
 #include "base/files/file_util.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/chromeos/login/auth/chrome_cryptohome_authenticator.h"
@@ -193,7 +192,8 @@ class TestCryptohomeClient : public ::chromeos::FakeCryptohomeClient {
 class CryptohomeAuthenticatorTest : public testing::Test {
  public:
   CryptohomeAuthenticatorTest()
-      : user_context_(AccountId::FromUserEmail("me@nowhere.org")),
+      : user_context_(user_manager::USER_TYPE_REGULAR,
+                      AccountId::FromUserEmail("me@nowhere.org")),
         user_manager_(new chromeos::FakeChromeUserManager()),
         user_manager_enabler_(base::WrapUnique(user_manager_)),
         mock_caller_(NULL),
@@ -709,15 +709,18 @@ TEST_F(CryptohomeAuthenticatorTest, DriveDataRecoverButFail) {
   base::RunLoop().Run();
 }
 
-TEST_F(CryptohomeAuthenticatorTest, ResolveNoMountToFailedMount) {
+TEST_F(CryptohomeAuthenticatorTest, ResolveOfflineNoMount) {
   // Set up state as though a cryptohome mount attempt has occurred
   // and been rejected because the user doesn't exist.
   state_->PresetCryptohomeStatus(cryptohome::MOUNT_ERROR_USER_DOES_NOT_EXIST);
 
-  // When there is no online attempt and online results, NO_MOUNT will be
-  // resolved to FAILED_MOUNT.
-  EXPECT_EQ(CryptohomeAuthenticator::FAILED_MOUNT,
+  // When there is no online attempt and online results, the missing mount will
+  // be resolved to OFFLINE_NO_MOUNT.
+  EXPECT_EQ(CryptohomeAuthenticator::OFFLINE_NO_MOUNT,
             SetAndResolveState(auth_.get(), state_.release()));
+
+  ExpectLoginFailure(AuthFailure(AuthFailure::MISSING_CRYPTOHOME));
+  RunResolve(auth_.get());
 }
 
 TEST_F(CryptohomeAuthenticatorTest, ResolveCreateNew) {

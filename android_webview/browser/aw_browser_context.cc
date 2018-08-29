@@ -134,7 +134,7 @@ AwBrowserContext* AwBrowserContext::FromWebContents(
 
 void AwBrowserContext::PreMainMessageLoopRun(net::NetLog* net_log) {
   FilePath cache_path;
-  PathService::Get(base::DIR_CACHE, &cache_path);
+  base::PathService::Get(base::DIR_CACHE, &cache_path);
   cache_path =
       cache_path.Append(FILE_PATH_LITERAL("org.chromium.android_webview"));
 
@@ -179,7 +179,9 @@ void AwBrowserContext::PreMainMessageLoopRun(net::NetLog* net_log) {
       new safe_browsing::RemoteSafeBrowsingDatabaseManager();
   safe_browsing_trigger_manager_ =
       std::make_unique<safe_browsing::TriggerManager>(
-          safe_browsing_ui_manager_.get());
+          safe_browsing_ui_manager_.get(),
+          /*referrer_chain_provider=*/nullptr,
+          /*local_state_prefs=*/nullptr);
   safe_browsing_whitelist_manager_ = CreateSafeBrowsingWhitelistManager();
 
   content::WebUIControllerFactory::RegisterFactory(

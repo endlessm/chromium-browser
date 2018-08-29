@@ -9,6 +9,7 @@
 #include "base/logging.h"
 #include "base/memory/singleton.h"
 #include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/task_scheduler/task_scheduler.h"
 #include "remoting/base/chromium_url_request.h"
 #include "remoting/base/telemetry_log_writer.h"
@@ -31,7 +32,7 @@ ChromotingClientRuntime* ChromotingClientRuntime::GetInstance() {
 ChromotingClientRuntime::ChromotingClientRuntime() {
   base::TaskScheduler::CreateAndStartWithDefaultParams("Remoting");
 
-  DCHECK(!base::MessageLoop::current());
+  DCHECK(!base::MessageLoopCurrent::Get());
 
   VLOG(1) << "Starting main message loop";
   ui_loop_.reset(new base::MessageLoopForUI());
@@ -57,10 +58,7 @@ ChromotingClientRuntime::ChromotingClientRuntime() {
   display_task_runner_ = AutoThread::Create("native_disp", ui_task_runner_);
   network_task_runner_ = AutoThread::CreateWithType(
       "native_net", ui_task_runner_, base::MessageLoop::TYPE_IO);
-  file_task_runner_ = AutoThread::CreateWithType("native_file", ui_task_runner_,
-                                                 base::MessageLoop::TYPE_IO);
-  url_requester_ =
-      new URLRequestContextGetter(network_task_runner_, file_task_runner_);
+  url_requester_ = new URLRequestContextGetter(network_task_runner_);
 }
 
 ChromotingClientRuntime::~ChromotingClientRuntime() {

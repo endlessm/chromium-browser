@@ -20,16 +20,16 @@
 #include "chrome/browser/chromeos/arc/arc_session_manager.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
+#include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
-#include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
-#include "chrome/browser/ui/ash/launcher/arc_app_deferred_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/arc_app_window_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_test_util.h"
+#include "chrome/browser/ui/ash/launcher/shelf_spinner_controller.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_util.h"
@@ -120,8 +120,8 @@ class AppAnimatedWaiter {
   void Wait() {
     const base::TimeDelta threshold =
         base::TimeDelta::FromMilliseconds(kAppAnimatedThresholdMs);
-    ArcAppDeferredLauncherController* controller =
-        ChromeLauncherController::instance()->GetArcDeferredLauncher();
+    ShelfSpinnerController* controller =
+        ChromeLauncherController::instance()->GetShelfSpinnerController();
     while (controller->GetActiveTime(app_id_) < threshold) {
       base::RunLoop().RunUntilIdle();
     }
@@ -154,7 +154,7 @@ std::string CreateIntentUriWithShelfGroup(const std::string& shelf_group_id) {
 
 }  // namespace
 
-class ArcAppLauncherBrowserTest : public ExtensionBrowserTest {
+class ArcAppLauncherBrowserTest : public extensions::ExtensionBrowserTest {
  public:
   ArcAppLauncherBrowserTest() {}
   ~ArcAppLauncherBrowserTest() override {}
@@ -162,13 +162,13 @@ class ArcAppLauncherBrowserTest : public ExtensionBrowserTest {
  protected:
   // content::BrowserTestBase:
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    ExtensionBrowserTest::SetUpCommandLine(command_line);
+    extensions::ExtensionBrowserTest::SetUpCommandLine(command_line);
     arc::SetArcAvailableCommandLineForTesting(command_line);
   }
 
   void SetUpInProcessBrowserTestFixture() override {
-    ExtensionBrowserTest::SetUpInProcessBrowserTestFixture();
-    arc::ArcSessionManager::DisableUIForTesting();
+    extensions::ExtensionBrowserTest::SetUpInProcessBrowserTestFixture();
+    arc::ArcSessionManager::SetUiEnabledForTesting(false);
   }
 
   void SetUpOnMainThread() override {
@@ -419,7 +419,7 @@ IN_PROC_BROWSER_TEST_P(ArcAppDeferredLauncherWithParamsBrowserTest,
       // should stop animation and delete icon from the shelf.
       InstallTestApps(kTestAppPackage, false);
       SendPackageAdded(kTestAppPackage, false);
-      EXPECT_TRUE(controller->GetArcDeferredLauncher()
+      EXPECT_TRUE(controller->GetShelfSpinnerController()
                       ->GetActiveTime(app_id)
                       .is_zero());
       EXPECT_EQ(is_pinned(), controller->GetItem(shelf_id) != nullptr);
@@ -432,7 +432,7 @@ IN_PROC_BROWSER_TEST_P(ArcAppDeferredLauncherWithParamsBrowserTest,
       ash::ShelfItemDelegate* delegate = GetShelfItemDelegate(app_id);
       ASSERT_TRUE(delegate);
       delegate->Close();
-      EXPECT_TRUE(controller->GetArcDeferredLauncher()
+      EXPECT_TRUE(controller->GetShelfSpinnerController()
                       ->GetActiveTime(app_id)
                       .is_zero());
       EXPECT_EQ(is_pinned(), controller->GetItem(shelf_id) != nullptr);
@@ -491,8 +491,8 @@ IN_PROC_BROWSER_TEST_F(ArcAppLauncherBrowserTest, IsAppOpen) {
   SendPackageAdded(kTestAppPackage, true);
   const std::string app_id = GetTestApp1Id(kTestAppPackage);
 
-  AppListService* service = AppListService::Get();
-  AppListControllerDelegate* delegate = service->GetControllerDelegate();
+  AppListClientImpl* client = AppListClientImpl::GetInstance();
+  AppListControllerDelegate* delegate = client->GetControllerDelegate();
   EXPECT_FALSE(delegate->IsAppOpen(app_id));
   arc::LaunchApp(profile(), app_id, ui::EF_LEFT_MOUSE_BUTTON);
   EXPECT_FALSE(delegate->IsAppOpen(app_id));

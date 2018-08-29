@@ -10,6 +10,7 @@
 
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/task_scheduler/post_task.h"
 #include "chrome/browser/browser_process.h"
@@ -23,6 +24,7 @@
 #include "components/policy/core/common/cloud/cloud_policy_client_registration_helper.h"
 #include "components/policy/core/common/cloud/device_management_service.h"
 #include "components/policy/core/common/cloud/machine_level_user_cloud_policy_manager.h"
+#include "components/policy/core/common/cloud/machine_level_user_cloud_policy_metrics.h"
 #include "components/policy/core/common/cloud/machine_level_user_cloud_policy_store.h"
 #include "components/policy/core/common/cloud/user_cloud_policy_manager.h"
 #include "components/policy/core/common/configuration_policy_provider.h"
@@ -37,9 +39,12 @@
 
 #if defined(OS_WIN)
 #include "base/win/registry.h"
+#include "chrome/install_static/install_util.h"
 #include "components/policy/core/common/policy_loader_win.h"
 #elif defined(OS_MACOSX)
 #include <CoreFoundation/CoreFoundation.h>
+#include "base/mac/foundation_util.h"
+#include "base/strings/sys_string_conversions.h"
 #include "components/policy/core/common/policy_loader_mac.h"
 #include "components/policy/core/common/preferences_mac.h"
 #elif defined(OS_POSIX) && !defined(OS_ANDROID)
@@ -52,25 +57,12 @@ namespace policy {
 
 namespace {
 
-#if defined(OS_MACOSX)
-base::FilePath GetManagedPolicyPath() {
-  CFBundleRef bundle(CFBundleGetMainBundle());
-  if (!bundle)
-    return base::FilePath();
-
-  CFStringRef bundle_id = CFBundleGetIdentifier(bundle);
-  if (!bundle_id)
-    return base::FilePath();
-
-  return policy::PolicyLoaderMac::GetManagedPolicyPath(bundle_id);
-}
-#endif  // defined(OS_MACOSX)
-
 #if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+
 std::unique_ptr<MachineLevelUserCloudPolicyManager>
 CreateMachineLevelUserCloudPolicyManager() {
   base::FilePath user_data_dir;
-  if (!PathService::Get(chrome::DIR_USER_DATA, &user_data_dir))
+  if (!base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir))
     return nullptr;
 
   DVLOG(1) << "Creating machine level cloud policy manager";
@@ -89,6 +81,12 @@ CreateMachineLevelUserCloudPolicyManager() {
       base::ThreadTaskRunnerHandle::Get(),
       content::BrowserThread::GetTaskRunnerForThread(
           content::BrowserThread::IO));
+}
+
+void RecordEnrollmentResult(
+    MachineLevelUserCloudPolicyEnrollmentResult result) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Enterprise.MachineLevelUserCloudPolicyEnrollment.Result", result);
 }
 #endif
 
@@ -126,6 +124,11 @@ void ChromeBrowserPolicyConnector::Init(
 #endif
 }
 
+bool ChromeBrowserPolicyConnector::IsEnterpriseManaged() const {
+  NOTREACHED() << "This method is only defined for Chrome OS";
+  return false;
+}
+
 void ChromeBrowserPolicyConnector::Shutdown() {
 #if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
   // Reset the registrar and fetcher before calling base class so that
@@ -143,6 +146,21 @@ ChromeBrowserPolicyConnector::GetPlatformProvider() {
       BrowserPolicyConnectorBase::GetPolicyProviderForTesting();
   return provider ? provider : platform_provider_;
 }
+
+void ChromeBrowserPolicyConnector::AddObserver(Observer* observer) {
+  observers_.AddObserver(observer);
+}
+
+void ChromeBrowserPolicyConnector::RemoveObserver(Observer* observer) {
+  observers_.RemoveObserver(observer);
+}
+
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
+MachineLevelUserCloudPolicyManager*
+ChromeBrowserPolicyConnector::GetMachineLevelUserCloudPolicyManager() {
+  return machine_level_user_cloud_policy_manager_;
+}
+#endif
 
 std::vector<std::unique_ptr<policy::ConfigurationPolicyProvider>>
 ChromeBrowserPolicyConnector::CreatePolicyProviders() {
@@ -182,15 +200,25 @@ ChromeBrowserPolicyConnector::CreatePlatformProvider() {
   return std::make_unique<AsyncPolicyProvider>(GetSchemaRegistry(),
                                                std::move(loader));
 #elif defined(OS_MACOSX)
-  std::unique_ptr<AsyncPolicyLoader> loader(new PolicyLoaderMac(
+#if defined(GOOGLE_CHROME_BUILD)
+  // Explicitly watch the "com.google.Chrome" bundle ID, no matter what this
+  // app's bundle ID actually is. All channels of Chrome should obey the same
+  // policies.
+  CFStringRef bundle_id = CFSTR("com.google.Chrome");
+#else
+  base::ScopedCFTypeRef<CFStringRef> bundle_id(
+      base::SysUTF8ToCFStringRef(base::mac::BaseBundleID()));
+#endif
+  auto loader = std::make_unique<PolicyLoaderMac>(
       base::CreateSequencedTaskRunnerWithTraits(
           {base::MayBlock(), base::TaskPriority::BACKGROUND}),
-      GetManagedPolicyPath(), new MacPreferences()));
+      policy::PolicyLoaderMac::GetManagedPolicyPath(bundle_id),
+      new MacPreferences(), bundle_id);
   return std::make_unique<AsyncPolicyProvider>(GetSchemaRegistry(),
                                                std::move(loader));
 #elif defined(OS_POSIX) && !defined(OS_ANDROID)
   base::FilePath config_dir_path;
-  if (PathService::Get(chrome::DIR_POLICY_FILES, &config_dir_path)) {
+  if (base::PathService::Get(chrome::DIR_POLICY_FILES, &config_dir_path)) {
     std::unique_ptr<AsyncPolicyLoader> loader(new ConfigDirPolicyLoader(
         base::CreateSequencedTaskRunnerWithTraits(
             {base::MayBlock(), base::TaskPriority::BACKGROUND}),
@@ -248,6 +276,16 @@ void ChromeBrowserPolicyConnector::InitializeMachineLevelUserCloudPolicies(
             base::Bind(&ChromeBrowserPolicyConnector::
                            RegisterForPolicyWithEnrollmentTokenCallback,
                        base::Unretained(this)));
+#if defined(OS_WIN)
+    // This metric is only published on Windows to indicate how many user level
+    // install Chrome try to enroll the policy which can't store the DM token
+    // in the Registry in the end of enrollment. Mac and Linux does not need
+    // this metric for now as they might use different token storage mechanism
+    // in the future.
+    UMA_HISTOGRAM_BOOLEAN(
+        "Enterprise.MachineLevelUserCloudPolicyEnrollment.InstallLevel_Win",
+        install_static::IsSystemInstall());
+#endif
   }
 }
 
@@ -267,6 +305,9 @@ void ChromeBrowserPolicyConnector::RegisterForPolicyWithEnrollmentTokenCallback(
     const std::string& client_id) {
   if (dm_token.empty()) {
     DVLOG(1) << "No DM token returned from browser registration";
+    RecordEnrollmentResult(
+        MachineLevelUserCloudPolicyEnrollmentResult::kFailedToFetch);
+    NotifyMachineLevelUserCloudPolicyRegisterFinished(false);
     return;
   }
 
@@ -275,13 +316,28 @@ void ChromeBrowserPolicyConnector::RegisterForPolicyWithEnrollmentTokenCallback(
   // TODO(alito): Log failures to store the DM token. Should we try again later?
   BrowserDMTokenStorage::Get()->StoreDMToken(
       dm_token, base::BindOnce([](bool success) {
-        DVLOG(1) << (success ? "Successfully stored the DM token"
-                             : "Failed to store the DM token");
+        if (!success) {
+          DVLOG(1) << "Failed to store the DM token";
+          RecordEnrollmentResult(
+              MachineLevelUserCloudPolicyEnrollmentResult::kFailedToStore);
+        } else {
+          DVLOG(1) << "Successfully stored the DM token";
+          RecordEnrollmentResult(
+              MachineLevelUserCloudPolicyEnrollmentResult::kSuccess);
+        }
       }));
 
   // Start fetching policies.
   machine_level_user_cloud_policy_fetcher_->SetupRegistrationAndFetchPolicy(
       dm_token, client_id);
+  NotifyMachineLevelUserCloudPolicyRegisterFinished(true);
+}
+
+void ChromeBrowserPolicyConnector::
+    NotifyMachineLevelUserCloudPolicyRegisterFinished(bool succeeded) {
+  for (auto& observer : observers_) {
+    observer.OnMachineLevelUserCloudPolicyRegisterFinished(succeeded);
+  }
 }
 
 #endif  // !defined(OS_ANDROID) && !defined(OS_CHROMEOS)

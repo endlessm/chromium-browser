@@ -49,12 +49,11 @@
 1442 OPENGL D3D11 : dEQP-GLES31.functional.image_load_store.* = SKIP
 
 // TODO(jiawei.shao@intel.com): Implement FramebufferTextureEXT entry point defined in OpenGL ES 3.1 extension GL_EXT_geometry_shader
-1941 OPENGL D3D11 : dEQP-GLES31.functional.geometry_shading.query.framebuffer_* = SKIP
+1941 OPENGL D3D11 : dEQP-GLES31.functional.geometry_shading.query.framebuffer_attachment_layered = SKIP
+1941 OPENGL D3D11 : dEQP-GLES31.functional.geometry_shading.query.framebuffer_incomplete_layer_targets = SKIP
 1941 OPENGL D3D11 : dEQP-GLES31.functional.geometry_shading.layered.* = SKIP
 1941 OPENGL D3D11 : dEQP-GLES31.functional.geometry_shading.instanced.invocation_per_layer_* = SKIP
 1941 OPENGL D3D11 : dEQP-GLES31.functional.geometry_shading.instanced.multiple_layers_per_invocation_* = SKIP
-// TODO(jiawei.shao@intel.com): Implement validations on transform feedback required in OpenGL ES 3.1 extension GL_EXT_geometry_shader
-1941 OPENGL D3D11 : dEQP-GLES31.functional.geometry_shading.vertex_transform_feedback.* = SKIP
 
 // D3D11 Failing Tests
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_compute_shared_memory_size_* = FAIL
@@ -70,7 +69,6 @@
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_shader_storage_buffer_bindings_* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_shader_storage_block_size_* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_combined_shader_storage_blocks_* = FAIL
-1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_combined_shader_output_resources_* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_uniform_buffer_bindings_* = FAIL
 1442 D3D11 : dEQP-GLES31.functional.state_query.integer.max_combined_texture_image_units_* = FAIL
 1729 D3D11 : dEQP-GLES31.functional.state_query.indexed.atomic_counter_buffer_* = FAIL
@@ -1577,6 +1575,7 @@
 1941 D3D11 : dEQP-GLES31.functional.geometry_shading.instanced.draw_* = FAIL
 1941 D3D11 : dEQP-GLES31.functional.geometry_shading.input.* = FAIL
 1941 D3D11 : dEQP-GLES31.functional.geometry_shading.negative.* = FAIL
+1941 D3D11 : dEQP-GLES31.functional.geometry_shading.vertex_transform_feedback.* = FAIL
 1941 D3D11 : dEQP-GLES31.functional.shaders.linkage.es31.geometry.* = FAIL
 1941 D3D11 : dEQP-GLES31.functional.debug.negative_coverage.callbacks.shader_directive.geometry_shader = FAIL
 1941 D3D11 : dEQP-GLES31.functional.debug.negative_coverage.log.shader_directive.geometry_shader = FAIL
@@ -1645,8 +1644,6 @@
 1442 OPENGL D3D11 : dEQP-GLES31.functional.debug.negative_coverage.get_error.shader_directive.primitive_bounding_box = FAIL
 1442 OPENGL D3D11 : dEQP-GLES31.functional.debug.negative_coverage.get_error.shader_directive.tessellation_shader = FAIL
 1442 OPENGL D3D11 : dEQP-GLES31.functional.debug.object_labels.program_pipeline = FAIL
-
-1941 OPENGL D3D11 : dEQP-GLES31.functional.geometry_shading.query.referenced_by_geometry_shader = FAIL
 
 2324 DEBUG RELEASE : dEQP-GLES31.functional.debug.negative_coverage.callbacks.compute.program_not_active = FAIL
 2324 DEBUG RELEASE : dEQP-GLES31.functional.debug.negative_coverage.log.compute.program_not_active = FAIL

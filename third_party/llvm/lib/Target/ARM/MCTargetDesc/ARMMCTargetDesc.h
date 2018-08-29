@@ -68,11 +68,6 @@ MCCodeEmitter *createARMBEMCCodeEmitter(const MCInstrInfo &MCII,
                                         const MCRegisterInfo &MRI,
                                         MCContext &Ctx);
 
-MCAsmBackend *createARMAsmBackend(const Target &T, const MCSubtargetInfo &STI,
-                                  const MCRegisterInfo &MRI,
-                                  const MCTargetOptions &Options,
-                                  bool IsLittleEndian);
-
 MCAsmBackend *createARMLEAsmBackend(const Target &T, const MCSubtargetInfo &STI,
                                     const MCRegisterInfo &MRI,
                                     const MCTargetOptions &Options);
@@ -81,21 +76,11 @@ MCAsmBackend *createARMBEAsmBackend(const Target &T, const MCSubtargetInfo &STI,
                                     const MCRegisterInfo &MRI,
                                     const MCTargetOptions &Options);
 
-MCAsmBackend *createThumbLEAsmBackend(const Target &T,
-                                      const MCSubtargetInfo &STI,
-                                      const MCRegisterInfo &MRI,
-                                      const MCTargetOptions &Options);
-
-MCAsmBackend *createThumbBEAsmBackend(const Target &T,
-                                      const MCSubtargetInfo &STI,
-                                      const MCRegisterInfo &MRI,
-                                      const MCTargetOptions &Options);
-
 // Construct a PE/COFF machine code streamer which will generate a PE/COFF
 // object file.
 MCStreamer *createARMWinCOFFStreamer(MCContext &Context,
                                      std::unique_ptr<MCAsmBackend> &&MAB,
-                                     raw_pwrite_stream &OS,
+                                     std::unique_ptr<MCObjectWriter> &&OW,
                                      std::unique_ptr<MCCodeEmitter> &&Emitter,
                                      bool RelaxAll,
                                      bool IncrementalLinkerCompatible);

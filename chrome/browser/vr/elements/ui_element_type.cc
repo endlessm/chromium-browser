@@ -16,6 +16,7 @@ static const char* g_ui_element_type_strings[] = {
     "kTypeButtonBackground",
     "kTypeButtonForeground",
     "kTypeButtonHitTarget",
+    "kTypeButtonText",
     "kTypeHostedUiBackplane",
     "kTypeScaledDepthAdjuster",
     "kTypeOmniboxSuggestionBackground",
@@ -27,27 +28,30 @@ static const char* g_ui_element_type_strings[] = {
     "kTypeOmniboxSuggestionDescriptionText",
     "kTypePromptBackplane",
     "kTypePromptShadow",
+    "kTypePromptBackground",
+    "kTypePromptIcon",
+    "kTypePromptText",
+    "kTypePromptPrimaryButton",
+    "kTypePromptSecondaryButton",
     "kTypeSpacer",
     "kTypeTextInputHint",
     "kTypeTextInputText",
     "kTypeTextInputCursor",
     "kTypeToastBackground",
-    "kTypeToastContainer",
-    "kTypeToastIcon",
     "kTypeToastText",
-    "kTypeSnackbarButton",
-    "kTypeSnackbarDescription",
     "kTypeCursorBackground",
     "kTypeCursorForeground",
     "kTypeOverflowMenuButton",
     "kTypeOverflowMenuItem",
     "kTypeTooltip",
     "kTypeLabel",
+    "kTypeTabItem",
+    "kTypeTabItemRemoveButton",
 };
 
 static_assert(
     kNumUiElementTypes == arraysize(g_ui_element_type_strings),
-    "Mismatch between the kUiElementName enum and the corresponding array "
+    "Mismatch between the kUiElementType enum and the corresponding array "
     "of strings.");
 
 }  // namespace

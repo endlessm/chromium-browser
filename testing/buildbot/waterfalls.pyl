@@ -59,11 +59,6 @@
           'cronet_package',
         ],
       },
-      'Android MIPS Builder (dbg)': {
-        'additional_compile_targets': [
-          'all',
-        ],
-      },
       'Android arm Builder (dbg)': {
         'additional_compile_targets': [
           'dump_syms',
@@ -161,6 +156,51 @@
           'instrumentation_tests': 'system_webview_shell_instrumentation_tests',
         },
         'use_swarming': False,
+        'os_type': 'android',
+      },
+      'Android WebView O (dbg)': {
+        'test_suites': {
+          'cts_tests': 'android_o_cts_tests',
+        },
+        'use_swarming': False,
+        'os_type': 'android',
+      },
+      'android-kitkat-arm-rel': {
+        'additional_compile_targets': [
+          'cronet_test_instrumentation_apk',
+          'monochrome_static_initializers',
+        ],
+        'test_suites': {
+          'gtest_tests': 'chromium_android_gtests',
+          'junit_tests': 'chromium_junit_tests',
+          'isolated_scripts': 'monochrome_apk_checker_isolated_script',
+        },
+        'swarming': {
+          'dimension_sets': [
+            {
+              'device_os': 'KTU84P',
+              'device_type': 'hammerhead',
+            },
+          ],
+        },
+        'os_type': 'android',
+      },
+      'android-marshmallow-arm64-rel': {
+        'additional_compile_targets': [
+          'monochrome_static_initializers',
+        ],
+        'test_suites': {
+          'gtest_tests': 'chromium_android_gtests',
+          'isolated_scripts': 'marshmallow_isolated_scripts',
+        },
+        'swarming': {
+          'dimension_sets': [
+            {
+              'device_os': 'MMB29Q',
+              'device_type': 'bullhead',
+            },
+          ],
+        },
         'os_type': 'android',
       },
       'KitKat Phone Tester (dbg)': {
@@ -352,48 +392,6 @@
         },
         'os_type': 'android',
       },
-      'Android Tests (trial)(dbg)': {
-        'test_suites': {
-          'scripts': 'telemetry_unittests_scripts',
-        },
-        'use_swarming': False,
-      },
-      'Android Tests with Tracing': {
-        'test_suites': {
-          'instrumentation_tests': 'android_fyi_instrumentation_tests',
-        },
-      },
-      'Jelly Bean Tester': {
-        'test_suites': {
-          'gtest_tests': 'chromium_android_gtests',
-          'instrumentation_tests': 'android_fyi_instrumentation_tests',
-        },
-        'use_swarming': False,
-      },
-      'Lollipop Consumer Tester': {
-        'test_suites': {
-          'gtest_tests': 'chromium_android_gtests',
-          'instrumentation_tests': 'android_fyi_instrumentation_tests',
-        },
-        'use_swarming': False,
-      },
-      'Lollipop Low-end Tester': {
-        'os_type': 'android',
-        'skip_cipd_packages': True,
-        'skip_output_links': True,
-        'swarming': {
-          'dimension_sets': [
-            {
-              'device_os': 'LMY47W',
-              'device_type': 'sprout',
-            }
-          ],
-          'expiration': 14400,
-        },
-        'test_suites': {
-          'gtest_tests': 'chromium_android_gtests',
-        },
-      },
       'Memory Infra Tester': {
         'swarming': {
           'dimension_sets': [
@@ -471,7 +469,7 @@
         'skip_cipd_packages': True,
         'skip_output_links': True,
         'test_suites': {
-          'gtest_tests': 'chromium_android_clang_and_gl_gtests',
+          'gtest_tests': 'chromium_android_gtests',
         },
       },
       'x86 Cloud Tester': {
@@ -493,51 +491,6 @@
     },
   },
   {
-    'name': 'chromium.angle',
-    'machines': {
-      'Linux Tests (ANGLE)': {
-        'test_suites': {
-          'gtest_tests': 'angle_gtests',
-        },
-      },
-      'Linux Tests (dbg) (ANGLE)': {
-        'test_suites': {
-          'gtest_tests': 'angle_gtests',
-        },
-      },
-      'Mac10.8 Tests (ANGLE)': {
-        'test_suites': {
-          'gtest_tests': 'angle_gtests',
-        },
-      },
-      'Mac10.8 Tests (dbg) (ANGLE)': {
-        'test_suites': {
-          'gtest_tests': 'angle_gtests',
-        },
-      },
-      'Win7 Tests (ANGLE)': {
-        'test_suites': {
-          'gtest_tests': 'angle_gtests',
-        },
-      },
-      'Win7 Tests (dbg) (ANGLE)': {
-        'test_suites': {
-          'gtest_tests': 'angle_gtests',
-        },
-      },
-      'Win7 Tests x64 (ANGLE)': {
-        'test_suites': {
-          'gtest_tests': 'angle_gtests',
-        },
-      },
-      'Win7 Tests x64 (dbg) (ANGLE)': {
-        'test_suites': {
-          'gtest_tests': 'angle_gtests',
-        },
-      },
-    },
-  },
-  {
     'name': 'chromium.chrome',
     'machines': {
     },
@@ -545,20 +498,22 @@
   {
     'name': 'chromium.chromiumos',
     'machines': {
-      'Linux ChromiumOS Builder': {
-        'additional_compile_targets': [
-          'gn_all',
-        ],
-      },
-      'Linux ChromiumOS Tests (dbg)(1)': {
-        'test_suites': {
-          'gtest_tests': 'linux_chromeos_dbg_gtests',
-        },
-      },
       'chromeos-amd64-generic-rel': {
         'additional_compile_targets': [
           'chromiumos_preflight',
         ],
+        'test_suites': {
+          'gtest_tests': 'chromeos_gtests',
+        },
+        'swarming': {
+          'dimension_sets': [
+            {
+              'kvm': '1',
+              'os': 'Ubuntu-14.04',
+              'pool': 'Chrome-CrOS-VM',
+            },
+          ],
+        },
       },
       'chromeos-daisy-rel': {
         'additional_compile_targets': [
@@ -576,7 +531,6 @@
         ],
         'test_suites': {
           'gtest_tests': 'linux_chromeos_rel_gtests',
-          'isolated_scripts': 'linux_chromeos_rel_isolated_scripts',
         },
       },
     },
@@ -605,36 +559,6 @@
         },
       },
       'CrWinAsanCov': {
-        'test_suites': {
-          'gtest_tests': 'chromium_win_clang_gtests',
-        },
-      },
-      'CrWinClang': {
-        'test_suites': {
-          'gtest_tests': 'chromium_win_clang_gtests',
-        },
-      },
-      'CrWinClang(dbg)': {
-        'test_suites': {
-          'gtest_tests': 'chromium_win_clang_gtests',
-        },
-      },
-      'CrWinClang(shared)': {
-        'test_suites': {
-          'gtest_tests': 'chromium_win_clang_gtests',
-        },
-      },
-      'CrWinClang64': {
-        'test_suites': {
-          'gtest_tests': 'chromium_win_clang_gtests',
-        },
-      },
-      'CrWinClang64(dbg)': {
-        'test_suites': {
-          'gtest_tests': 'chromium_win_clang_gtests',
-        },
-      },
-      'CrWinClang64(dll)': {
         'test_suites': {
           'gtest_tests': 'chromium_win_clang_gtests',
         },
@@ -713,7 +637,7 @@
           ],
         },
         'test_suites': {
-          'gtest_tests': 'chromium_android_clang_and_gl_gtests',
+          'gtest_tests': 'chromium_android_gtests',
         },
       },
       'ToTLinux': {
@@ -849,7 +773,31 @@
           'gtest_tests': 'goma_gtests',
         },
       },
+      'Chromium Linux Goma RBE Staging (clobber)': {
+        'additional_compile_targets': [
+          'all',
+        ],
+        'test_suites': {
+          'gtest_tests': 'goma_gtests',
+        },
+      },
       'Chromium Linux Goma RBE Staging': {
+        'additional_compile_targets': [
+          'all',
+        ],
+        'test_suites': {
+          'gtest_tests': 'goma_gtests',
+        },
+      },
+      'Chromium Linux Goma RBE Staging (dbg) (clobber)': {
+        'additional_compile_targets': [
+          'all',
+        ],
+        'test_suites': {
+          'gtest_tests': 'goma_gtests',
+        },
+      },
+      'Chromium Linux Goma RBE Staging (dbg)': {
         'additional_compile_targets': [
           'all',
         ],
@@ -882,22 +830,6 @@
         },
       },
       'CrWinClangGomaGCEStaging': {
-        'additional_compile_targets': [
-          'all',
-        ],
-        'test_suites': {
-          'gtest_tests': 'goma_gtests',
-        },
-      },
-      'CrWinClexeGomaGCEStaging': {
-        'additional_compile_targets': [
-          'all',
-        ],
-        'test_suites': {
-          'gtest_tests': 'goma_gtests',
-        },
-      },
-      'CrWinGomaGCEStaging': {
         'additional_compile_targets': [
           'all',
         ],
@@ -943,13 +875,16 @@
       },
       'linux-annotator-rel': {
         'test_suites': {
-          'scripts': 'check_network_annotation_auditor_script',
+          'scripts': 'test_traffic_annotation_auditor_script',
         }
       },
       'mac-views-rel': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_fyi_gtests',
         },
+        'args': [
+          '--enable-features=ViewsBrowserWindows',
+        ],
       },
       'Chromium Mac 10.11': {
         'test_suites': {
@@ -973,21 +908,6 @@
       'Chromium Win 10 GCE Tests': {
         'test_suites': {
           'gtest_tests': 'chromium_win_fyi_gtests',
-        },
-      },
-      'CrWinAsan tester': {
-        'test_suites': {
-          'gtest_tests': 'chromium_win_clang_gtests',
-        },
-      },
-      'CrWinAsan(dll) tester': {
-        'test_suites': {
-          'gtest_tests': 'chromium_win_clang_gtests',
-        },
-      },
-      'CrWinAsanCov tester': {
-        'test_suites': {
-          'gtest_tests': 'chromium_win_clang_gtests',
         },
       },
       'Dummy WebKit Mac10.13': {
@@ -1079,6 +999,7 @@
       },
       'linux-blink-heap-incremental-marking': {
         'test_suites': {
+          'gtest_tests': 'chromium_gtests',
           'isolated_scripts': 'chromium_webkit_isolated_scripts',
         },
       },
@@ -1111,23 +1032,6 @@
           'gtest_tests': 'goma_gtests',
         },
       },
-      'Linux Xenial': {
-        'swarming': {
-          'dimension_sets': [
-            {
-              'os': 'Ubuntu-16.04',
-            },
-          ],
-        },
-        'additional_compile_targets': [
-          'all',
-        ],
-        'test_suites': {
-          'gtest_tests': 'chromium_linux_gtests',
-          'isolated_scripts': 'chromium_linux_rel_isolated_scripts',
-          'scripts': 'chromium_linux_scripts',
-        },
-      },
       'Linux Viz': {
         'additional_compile_targets': [
           'all',
@@ -1137,10 +1041,32 @@
           'isolated_scripts': 'linux_viz_isolated_scripts',
         },
       },
+      'linux-blink-gen-property-trees': {
+        'test_suites': {
+          'isolated_scripts': 'webkit_layout_tests_isolated_scripts',
+        },
+        'args': [
+          '--additional-driver-flag=--enable-blink-gen-property-trees',
+        ],
+      },
       'linux-blink-heap-verification': {
         'test_suites': {
           'gtest_tests': 'chromium_gtests',
           'isolated_scripts': 'chromium_webkit_isolated_scripts',
+        },
+      },
+      'linux-chromium-tests-staging-builder': {
+        'additional_compile_targets': [
+          'all'
+        ],
+        'test_suites': {
+          'scripts': 'check_network_annotations_script',
+        }
+      },
+      'linux-chromium-tests-staging-tests': {
+        'test_suites': {
+          'gtest_tests': 'chromium_linux_gtests',
+          'isolated_scripts': 'chromium_linux_rel_isolated_scripts',
         },
       },
       'Mac Builder (dbg) Goma Canary': {
@@ -1211,7 +1137,7 @@
       'Mojo Linux': {
         'test_suites': {
           'gtest_tests': 'network_service_gtests',
-          'isolated_scripts': 'mojo_linux_isolated_scripts',
+          'isolated_scripts': 'mojo_network_isolated_scripts',
         },
       },
       'Mojo Windows': {
@@ -1220,6 +1146,7 @@
         ],
         'test_suites': {
           'gtest_tests': 'mojo_windows_gtests',
+          'isolated_scripts': 'mojo_network_isolated_scripts',
         },
       },
       'Out of Process Profiling Android': {
@@ -1231,9 +1158,7 @@
           ],
         },
         'test_suites': {
-          # TODO(kbr): it's weird that this has the most in common with the
-          # clang testers' test suites.
-          'gtest_tests': 'chromium_android_clang_and_gl_gtests',
+          'gtest_tests': 'chromium_android_gtests',
         },
       },
       'Out of Process Profiling Linux': {
@@ -1271,23 +1196,22 @@
         },
       },
       'Site Isolation Linux': {
-        # TODO(dpranke): Remove this builder once the tests are running on
-        # the main 'Linux Tests' bot; base_unittests is a placeholder
+        # TODO(lukasza, dpranke): Remove this bot once site-per-process has
+        # been turned on by default for a while (e.g. once
+        # https://crrev.com/c/981019 "sticks").
+        # base_unittests is a placeholder
         # to keep the builder from building "all".
         'additional_compile_targets': [
           'base_unittests',
         ],
       },
       'Site Isolation Win': {
+        # TODO(lukasza, dpranke): Remove this bot once site-per-process has
+        # been turned on by default for a while (e.g. once
+        # https://crrev.com/c/981019 "sticks").
         'test_suites': {
           'gtest_tests': 'site_isolation_win_fyi_gtests',
         },
-      },
-      'ThinLTO Linux ToT': {
-        'test_suites': {
-          'gtest_tests': 'chromium_linux_clang_and_gl_gtests',
-        },
-        'use_swarming': False,
       },
       'VR Linux': {
         'additional_compile_targets': [
@@ -1371,12 +1295,10 @@
         },
       },
       'Win cl.exe Goma Canary LocalOutputCache': {
+        # Build only chromium's subproject using cl.exe.
         'additional_compile_targets': [
-          'all',
+          'v8:gn_all', 'pdfium_all', 'libANGLE',
         ],
-        'test_suites': {
-          'gtest_tests': 'goma_gtests',
-        },
       },
       'Win7 Builder (dbg) Goma Canary': {
         'additional_compile_targets': [
@@ -1396,23 +1318,57 @@
         },
       },
       'WinMSVC64 Goma Canary': {
+        # Build only chromium's subproject using cl.exe.
         'additional_compile_targets': [
-          'all',
+          'v8:gn_all', 'pdfium_all', 'libANGLE',
         ],
-        'test_suites': {
-          'gtest_tests': 'goma_gtests',
-        },
       },
       'chromeos-amd64-generic-rel-goma-canary': {
         'additional_compile_targets': [
           'chromiumos_preflight',
         ],
       },
+      'chromeos-amd64-generic-rel-vm-tests': {
+        'additional_compile_targets': [
+          'chromiumos_preflight',
+        ],
+        'test_suites': {
+          'gtest_tests': 'chromeos_gtests_experimental',
+          'isolated_scripts': 'chromeos_isolated_scripts',
+        },
+        'swarming': {
+          'dimension_sets': [
+            {
+              'kvm': '1',
+              'os': 'Ubuntu-14.04',
+              'pool': 'Chrome-CrOS-VM',
+            },
+          ],
+        },
+      },
     },
   },
   {
     'name': 'chromium.linux',
     'machines': {
+      'Cast Audio Linux': {
+        'additional_compile_targets': [
+          'cast_shell',
+          'cast_test_lists',
+        ],
+        'test_suites': {
+          'gtest_tests': 'chromium_linux_cast_audio_gtests',
+        },
+      },
+      'Cast Linux': {
+        'additional_compile_targets': [
+          'cast_shell',
+          'cast_test_lists',
+        ],
+        'test_suites': {
+          'gtest_tests': 'chromium_linux_cast_video_gtests',
+        },
+      },
       'Fuchsia ARM64': {
         'additional_compile_targets': [
           'gn_all',
@@ -1443,11 +1399,6 @@
           'scripts': 'check_network_annotations_script',
         }
       },
-      'linux64-jumbo-rel': {
-        'additional_compile_targets': [
-          'all'
-        ]
-      },
       'Linux Builder (dbg)': {
         'additional_compile_targets': [
           'all'
@@ -1458,24 +1409,6 @@
           'google_apis_unittests',
           'sync_integration_tests'
         ]
-      },
-      'Cast Audio Linux': {
-        'additional_compile_targets': [
-          'cast_shell',
-          'cast_test_lists',
-        ],
-        'test_suites': {
-          'gtest_tests': 'chromium_linux_cast_audio_gtests',
-        },
-      },
-      'Cast Linux': {
-        'additional_compile_targets': [
-          'cast_shell',
-          'cast_test_lists',
-        ],
-        'test_suites': {
-          'gtest_tests': 'chromium_linux_cast_video_gtests',
-        },
       },
       'Fuchsia x64': {
         'additional_compile_targets': [
@@ -1511,7 +1444,17 @@
           'isolated_scripts': 'chromium_linux_dbg_isolated_scripts',
         },
       },
-      'Ozone Linux': {
+      'linux-gcc-rel': {
+        'additional_compile_targets': [
+          'empty_main',
+        ],
+      },
+      'linux-jumbo-rel': {
+        'additional_compile_targets': [
+          'all'
+        ]
+      },
+      'linux-ozone-rel': {
         'additional_compile_targets': [
           'chrome',
         ],
@@ -1519,10 +1462,22 @@
           'gtest_tests': 'ozone_linux_gtests',
         },
       },
-      'linux-gcc-rel': {
+      'linux-xenial-rel': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Ubuntu-16.04',
+            },
+          ],
+        },
         'additional_compile_targets': [
-          'empty_main',
+          'all',
         ],
+        'test_suites': {
+          'gtest_tests': 'chromium_linux_gtests',
+          'isolated_scripts': 'chromium_linux_rel_isolated_scripts',
+          'scripts': 'chromium_linux_scripts',
+        },
       },
     },
   },
@@ -1629,6 +1584,11 @@
           'pdf_fuzzers',
         ],
       },
+      'mac-jumbo-rel': {
+        'additional_compile_targets': [
+          'all'
+        ]
+      },
       'Mac10.10 Tests': {
         'test_suites': {
           'gtest_tests': 'chromium_mac_gtests',
@@ -1674,8 +1634,9 @@
             },
           ],
         },
+        'os_type': 'android',
         'test_suites': {
-          'gtest_tests': 'chromium_android_clang_and_gl_gtests',
+          'gtest_tests': 'chromium_android_gtests',
         },
       },
       'Linux ASan LSan Tests (1)': {
@@ -1989,11 +1950,19 @@
           'frame_analyzer',
           'jingle_unittests',
           'remoting_unittests',
+          'remoting/webapp:webapp',
         ],
       },
       'Linux Builder (dbg)': {
         'additional_compile_targets': [
-          'all',
+          'browser_tests',
+          'capture_unittests',
+          'content_browsertests',
+          'content_unittests',
+          'frame_analyzer',
+          'jingle_unittests',
+          'remoting_unittests',
+          'remoting/webapp:webapp',
         ],
       },
       'Mac Builder': {
@@ -2013,8 +1982,10 @@
           'capture_unittests',
           'content_browsertests',
           'content_unittests',
+          'frame_analyzer',
           'jingle_unittests',
           'remoting_unittests',
+          'remoting/webapp:webapp',
         ],
       },
       'Win Builder': {
@@ -2026,11 +1997,19 @@
           'frame_analyzer',
           'jingle_unittests',
           'remoting_unittests',
+          'remoting/webapp:webapp',
         ],
       },
       'Win Builder (dbg)': {
         'additional_compile_targets': [
-          'all',
+          'browser_tests',
+          'capture_unittests',
+          'content_browsertests',
+          'content_unittests',
+          'frame_analyzer',
+          'jingle_unittests',
+          'remoting_unittests',
+          'remoting/webapp:webapp',
         ],
       },
     },
@@ -2046,19 +2025,10 @@
           'scripts': 'check_network_annotations_script',
         },
       },
-      'WinMSVC64': {
+      'win-jumbo-rel': {
         'additional_compile_targets': [
-          'all',
-        ],
-      },
-      'WinMSVC64 (dbg)': {
-        'additional_compile_targets': [
-          # TODO(crbug.com/777642): Add more compile targets if we get
-          # more capacity.
-          'chrome',
-          'browser_tests',
-          'unit_tests',
-        ],
+          'all'
+        ]
       },
       'Win 7 Tests x64 (1)': {
         'test_suites': {

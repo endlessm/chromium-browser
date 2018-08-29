@@ -51,6 +51,7 @@
 <translation id="2872353916818027657">প্রাথমিক মনিটর অদলবদল করুন</translation>
 <translation id="2914313326123580426">ডেভেলপার টুল প্যানেল দেখুন অথবা লুকান</translation>
 <translation id="292495055542441795">ফুলস্ক্রিন টগল করুন</translation>
+<translation id="3020183492814296499">শর্টকাট</translation>
 <translation id="3084301071537457911">আপনার শেল্ফে পরবর্তী আইটেমটি হাইলাইট করুন</translation>
 <translation id="309173601632226815">আপনার শেল্ফে লঞ্চার বোতামটি হাইলাইট করুন</translation>
 <translation id="3105917916468784889">স্ক্রিনশট নিন</translation>
@@ -101,6 +102,7 @@
 <translation id="5236674127086649162">ক্যাশ করা কন্টেন্ট ব্যবহার না করেই আপনার বর্তমান পৃষ্ঠাটি আবার লোড করুন</translation>
 <translation id="526651782186312376">লাইনের শুরুতে টেক্সট বেছে নিন</translation>
 <translation id="5316716239522500219">আয়না মনিটর</translation>
+<translation id="5487187679583934283">আপনি কি কথা বলছেন তা টাইপ করা শুরু অথবা বন্ধ করুন</translation>
 <translation id="5541719484267030947">ট্যাবটি টেনে আনার সময় <ph name="ESC" /> টিপুন</translation>
 <translation id="5554139136362089836">বর্তমান পৃষ্ঠায় খুঁজুন</translation>
 <translation id="5563050856984839829"><ph name="CTRL" /><ph name="SEPARATOR" /><ph name="SHIFT" /> টিপুন এবং একটি লিঙ্ক ক্লিক করুন</translation>
@@ -121,6 +123,7 @@
 <translation id="6185696379715117369">পৃষ্ঠায় উপরের দিকে যান</translation>
 <translation id="6228457605945141550">উজ্জ্বলতা কমান</translation>
 <translation id="6276708887952587684">পৃষ্ঠার সূত্র দেখুন</translation>
+<translation id="6296325018964936845">ফুলস্ক্রিন ম্যাগনিফায়ার চালু বা বন্ধ টগল করুন</translation>
 <translation id="6321940490215594447">ইতিহাস পৃষ্ঠাটি খুলুন</translation>
 <translation id="6359811074279051077"><ph name="MODIFIER" /><ph name="SEPARATOR" /><ph name="KEY" /></translation>
 <translation id="6395172954772765143">লাইনের শেষে টেক্সট বেছে নিন</translation>
@@ -143,6 +146,7 @@
 <translation id="6981982820502123353">অ্যাক্সেযোগ্যতা</translation>
 <translation id="7020813747703216897">মিলে যাওয়া কোনও ফলাফল খুঁজে পাওয়া যায়নি</translation>
 <translation id="7025325401470358758">পরবর্তী ফলক</translation>
+<translation id="7076878155205969899">সাউন্ড মিউট করুন</translation>
 <translation id="7077383985738259936">বুকমার্ক বারে ফোকাস করুন অথবা হাইলাইট করুন (দেখানো হলে)</translation>
 <translation id="7237562915163138771">অ্যাড্রেস বারে ওয়েব অ্যাড্রেস টাইপ করুন, তারপর <ph name="ALT" /><ph name="SEPARATOR" /><ph name="ENTER" /> টিপুন</translation>
 <translation id="7254764037241667478">ডিভাইসটি স্লিপ মোডে রাখুন (সাসপেন্ড)</translation>
@@ -170,6 +174,7 @@
 <translation id="8537650670971624753">সার্চ মোড থেকে বেরিয়ে আসুন</translation>
 <translation id="85690795166292698">একটি নতুন ট্যাবে লিঙ্কটি খুলুন</translation>
 <translation id="8609384513243082612">নতুন ট্যাব খুলুন</translation>
+<translation id="8642453848560580159">ডক করা ম্যাগনিফায়ার চালু বা বন্ধ টগল করুন</translation>
 <translation id="8644639153978066712">ফাইল অ্যাপে লুকিয়ে থাকা ফাইলগুলি ডিসপ্লে করুন</translation>
 <translation id="8717459106217102612">আগের শব্দ অথবা অক্ষরটি বেছে নিন</translation>
 <translation id="8727232706774971183">আপনার বিজ্ঞপ্তিগুলি দেখুন</translation>

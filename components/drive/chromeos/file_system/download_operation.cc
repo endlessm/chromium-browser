@@ -104,11 +104,9 @@ FileError CheckPreConditionForEnsureFileDownloaded(
     // We add the gdoc file extension in the temporary file, so that in cross
     // profile drag-and-drop between Drive folders, the destination profiles's
     // CopyOperation can detect the special JSON file only by the path.
-    if (!GeneratesUniquePathWithExtension(temporary_file_directory,
-                                          extension,
+    if (!GeneratesUniquePathWithExtension(temporary_file_directory, extension,
                                           &gdoc_file_path) ||
-        !util::CreateGDocFile(gdoc_file_path,
-                              GURL(entry->file_specific_info().alternate_url()),
+        !util::CreateGDocFile(gdoc_file_path, GURL(entry->alternate_url()),
                               entry->resource_id()) ||
         !base::GetFileInfo(gdoc_file_path,
                            reinterpret_cast<base::File::Info*>(&file_info)))
@@ -353,8 +351,7 @@ DownloadOperation::DownloadOperation(
       weak_ptr_factory_(this) {
 }
 
-DownloadOperation::~DownloadOperation() {
-}
+DownloadOperation::~DownloadOperation() = default;
 
 base::Closure DownloadOperation::EnsureFileDownloadedByLocalId(
     const std::string& local_id,
@@ -362,7 +359,7 @@ base::Closure DownloadOperation::EnsureFileDownloadedByLocalId(
     const GetFileContentInitializedCallback& initialized_callback,
     const google_apis::GetContentCallback& get_content_callback,
     const GetFileCallback& completion_callback) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK(!completion_callback.is_null());
 
   CheckPreconditionForEnsureFileDownloadedParams params;
@@ -396,7 +393,7 @@ base::Closure DownloadOperation::EnsureFileDownloadedByPath(
     const GetFileContentInitializedCallback& initialized_callback,
     const google_apis::GetContentCallback& get_content_callback,
     const GetFileCallback& completion_callback) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK(!completion_callback.is_null());
 
   CheckPreconditionForEnsureFileDownloadedParams params;
@@ -431,7 +428,7 @@ void DownloadOperation::EnsureFileDownloadedAfterCheckPreCondition(
     base::FilePath* cache_file_path,
     base::FilePath* temp_download_file_path,
     FileError error) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK(params);
   DCHECK(drive_file_path);
   DCHECK(cache_file_path);
@@ -478,7 +475,7 @@ void DownloadOperation::EnsureFileDownloadedAfterDownloadFile(
     std::unique_ptr<DownloadParams> params,
     google_apis::DriveApiErrorCode gdata_error,
     const base::FilePath& downloaded_file_path) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   DownloadParams* params_ptr = params.get();
   ResourceEntry* entry_after_update = new ResourceEntry;
@@ -500,7 +497,7 @@ void DownloadOperation::EnsureFileDownloadedAfterUpdateLocalState(
     std::unique_ptr<ResourceEntry> entry_after_update,
     base::FilePath* cache_file_path,
     FileError error) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   if (error != FILE_ERROR_OK) {
     params->OnError(error);

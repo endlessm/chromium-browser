@@ -7,14 +7,11 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "chromeos/components/tether/connect_tethering_operation.h"
 #include "chromeos/components/tether/host_connection_metrics_logger.h"
 #include "chromeos/components/tether/tether_connector.h"
 #include "chromeos/network/network_connection_handler.h"
-
-namespace base {
-class Clock;
-}  // namespace base
 
 namespace chromeos {
 
@@ -53,8 +50,7 @@ class TetherConnectorImpl : public TetherConnector,
       NotificationPresenter* notification_presenter,
       HostConnectionMetricsLogger* host_connection_metrics_logger,
       DisconnectTetheringRequestSender* disconnect_tethering_request_sender,
-      WifiHotspotDisconnector* wifi_hotspot_disconnector,
-      base::Clock* clock_);
+      WifiHotspotDisconnector* wifi_hotspot_disconnector);
   ~TetherConnectorImpl() override;
 
   void ConnectToNetwork(
@@ -67,14 +63,14 @@ class TetherConnectorImpl : public TetherConnector,
 
   // ConnectTetheringOperation::Observer:
   void OnConnectTetheringRequestSent(
-      const cryptauth::RemoteDevice& remote_device) override;
+      cryptauth::RemoteDeviceRef remote_device) override;
   void OnSuccessfulConnectTetheringResponse(
-      const cryptauth::RemoteDevice& remote_device,
+      cryptauth::RemoteDeviceRef remote_device,
       const std::string& ssid,
       const std::string& password) override;
   void OnConnectTetheringFailure(
-      const cryptauth::RemoteDevice& remote_device,
-      ConnectTetheringResponse_ResponseCode error_code) override;
+      cryptauth::RemoteDeviceRef remote_device,
+      ConnectTetheringOperation::HostResponseErrorCode error_code) override;
 
  private:
   friend class TetherConnectorImplTest;
@@ -87,13 +83,13 @@ class TetherConnectorImpl : public TetherConnector,
 
   void OnTetherHostToConnectFetched(
       const std::string& device_id,
-      std::unique_ptr<cryptauth::RemoteDevice> tether_host_to_connect);
+      base::Optional<cryptauth::RemoteDeviceRef> tether_host_to_connect);
   void OnWifiConnection(const std::string& device_id,
                         const std::string& wifi_network_guid);
   HostConnectionMetricsLogger::ConnectionToHostResult
   GetConnectionToHostResultFromErrorCode(
       const std::string& device_id,
-      ConnectTetheringResponse_ResponseCode error_code);
+      ConnectTetheringOperation::HostResponseErrorCode error_code);
 
   NetworkConnectionHandler* network_connection_handler_;
   NetworkStateHandler* network_state_handler_;
@@ -108,7 +104,6 @@ class TetherConnectorImpl : public TetherConnector,
   HostConnectionMetricsLogger* host_connection_metrics_logger_;
   DisconnectTetheringRequestSender* disconnect_tethering_request_sender_;
   WifiHotspotDisconnector* wifi_hotspot_disconnector_;
-  base::Clock* clock_;
 
   std::string device_id_pending_connection_;
   base::Closure success_callback_;

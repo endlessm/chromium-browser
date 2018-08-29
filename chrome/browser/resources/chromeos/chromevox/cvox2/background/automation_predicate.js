@@ -192,6 +192,7 @@ AutomationPredicate.leaf = function(node) {
        !hasActionableDescendant(node)) ||
       (!!node.descriptionFor && node.descriptionFor.length > 0 &&
        !hasActionableDescendant(node)) ||
+      (node.role == Role.MENU_ITEM && !hasActionableDescendant(node)) ||
       node.state[State.INVISIBLE] || node.children.every(function(n) {
         return n.state[State.INVISIBLE];
       });
@@ -360,8 +361,6 @@ AutomationPredicate.structuralContainer = AutomationPredicate.roles([
 AutomationPredicate.root = function(node) {
   switch (node.role) {
     case Role.WINDOW:
-    case Role.MENU:
-    case Role.MENU_BAR:
       return true;
     case Role.DIALOG:
       // The below logic handles nested dialogs properly in the desktop tree
@@ -578,6 +577,17 @@ AutomationPredicate.contextualBraille = function(node) {
  */
 AutomationPredicate.multiline = function(node) {
   return node.state[State.MULTILINE] || node.state[State.RICHLY_EDITABLE];
+};
+
+/**
+ * Matches against a node that should be auto-scrolled during navigation.
+ * @param {!AutomationNode} node
+ * @return {boolean}
+ */
+AutomationPredicate.autoScrollable = function(node) {
+  return node.scrollable &&
+      (node.role == Role.GRID || node.role == Role.LIST ||
+       node.role == Role.POP_UP_BUTTON || node.role == Role.SCROLL_VIEW);
 };
 
 });  // goog.scope

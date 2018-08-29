@@ -450,7 +450,9 @@ class Browser : public TabStripModelObserver,
   void TabClosingAt(TabStripModel* tab_strip_model,
                     content::WebContents* contents,
                     int index) override;
-  void TabDetachedAt(content::WebContents* contents, int index) override;
+  void TabDetachedAt(content::WebContents* contents,
+                     int index,
+                     bool was_active) override;
   void TabDeactivated(content::WebContents* contents) override;
   void ActiveTabChanged(content::WebContents* old_contents,
                         content::WebContents* new_contents,
@@ -496,12 +498,10 @@ class Browser : public TabStripModelObserver,
                                          bool allowed_per_prefs,
                                          const url::Origin& origin,
                                          const GURL& resource_url) override;
-  void OnAudioStateChanged(content::WebContents* web_contents,
-                           bool is_audible) override;
   void OnDidBlockFramebust(content::WebContents* web_contents,
                            const GURL& url) override;
-  void UpdatePictureInPictureSurfaceId(const viz::SurfaceId& surface_id,
-                                       const gfx::Size& natural_size) override;
+  gfx::Size EnterPictureInPicture(const viz::SurfaceId&,
+                                  const gfx::Size&) override;
   void ExitPictureInPicture() override;
 
   bool is_type_tabbed() const { return type_ == TYPE_TABBED; }
@@ -587,7 +587,7 @@ class Browser : public TabStripModelObserver,
                               content::InvalidateTypes changed_flags) override;
   void VisibleSecurityStateChanged(content::WebContents* source) override;
   void AddNewContents(content::WebContents* source,
-                      content::WebContents* new_contents,
+                      std::unique_ptr<content::WebContents> new_contents,
                       WindowOpenDisposition disposition,
                       const gfx::Rect& initial_rect,
                       bool user_gesture,
@@ -650,8 +650,10 @@ class Browser : public TabStripModelObserver,
                           int request_id,
                           const base::FilePath& path) override;
   bool EmbedsFullscreenWidget() const override;
-  void EnterFullscreenModeForTab(content::WebContents* web_contents,
-                                 const GURL& origin) override;
+  void EnterFullscreenModeForTab(
+      content::WebContents* web_contents,
+      const GURL& origin,
+      const blink::WebFullscreenOptions& options) override;
   void ExitFullscreenModeForTab(content::WebContents* web_contents) override;
   bool IsFullscreenForTabOrPending(
       const content::WebContents* web_contents) const override;
@@ -704,11 +706,11 @@ class Browser : public TabStripModelObserver,
 #endif
 
   // Overridden from CoreTabHelperDelegate:
-  // Note that the caller is responsible for deleting |old_contents|.
-  void SwapTabContents(content::WebContents* old_contents,
-                       content::WebContents* new_contents,
-                       bool did_start_load,
-                       bool did_finish_load) override;
+  std::unique_ptr<content::WebContents> SwapTabContents(
+      content::WebContents* old_contents,
+      std::unique_ptr<content::WebContents> new_contents,
+      bool did_start_load,
+      bool did_finish_load) override;
   bool CanReloadContents(content::WebContents* web_contents) const override;
   bool CanSaveContents(content::WebContents* web_contents) const override;
 
@@ -756,8 +758,8 @@ class Browser : public TabStripModelObserver,
 
   // Command and state updating ///////////////////////////////////////////////
 
-  // Handle changes to kDevTools preference.
-  void OnDevToolsDisabledChanged();
+  // Handle changes to kDevToolsAvailability preference.
+  void OnDevToolsAvailabilityChanged();
 
   // UI update coalescing and handling ////////////////////////////////////////
 
@@ -828,7 +830,7 @@ class Browser : public TabStripModelObserver,
   void CloseFrame();
 
   void TabDetachedAtImpl(content::WebContents* contents,
-                         int index,
+                         bool was_active,
                          DetachType type);
 
   // Updates the loading state for the window and tabstrip.
@@ -999,8 +1001,12 @@ class Browser : public TabStripModelObserver,
 
   std::unique_ptr<chrome::BrowserCommandController> command_controller_;
 
-  std::unique_ptr<content::PictureInPictureWindowController>
-      pip_window_controller_;
+  // |pip_window_controller_| is held as a SupportsUserData attachment on the
+  // content::WebContents, and thus scoped to the lifetime of the initiator
+  // content::WebContents.
+  // The current active Picture-in-Picture controller is held in case of
+  // updates to the relevant viz::SurfaceId.
+  content::PictureInPictureWindowController* pip_window_controller_ = nullptr;
 
   // True if the browser window has been shown at least once.
   bool window_has_shown_;

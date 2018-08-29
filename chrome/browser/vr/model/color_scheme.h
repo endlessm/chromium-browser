@@ -27,9 +27,9 @@ struct ButtonColors {
 struct TextSelectionColors {
   bool operator==(const TextSelectionColors& other) const;
   bool operator!=(const TextSelectionColors& other) const;
-  SkColor cursor;
-  SkColor background;
-  SkColor foreground;
+  SkColor cursor = SK_ColorBLACK;
+  SkColor background = SK_ColorBLACK;
+  SkColor foreground = SK_ColorBLACK;
 };
 
 struct ColorScheme {
@@ -90,6 +90,10 @@ struct ColorScheme {
   SkColor omnibox_background;
   TextSelectionColors omnibox_text_selection;
   SkColor hyperlink;
+
+  SkColor tab_item_background;
+  SkColor tab_item_text;
+  ButtonColors tab_mode_button_selected;
 
   ButtonColors indicator;
 

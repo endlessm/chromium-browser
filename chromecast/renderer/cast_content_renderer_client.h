@@ -11,7 +11,7 @@
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "chromecast/chromecast_buildflags.h"
-#include "chromecast/common/application_media_capabilities.mojom.h"
+#include "chromecast/common/mojom/application_media_capabilities.mojom.h"
 #include "content/public/renderer/content_renderer_client.h"
 #include "media/base/audio_codecs.h"
 #include "mojo/public/cpp/bindings/binding.h"
@@ -72,6 +72,8 @@ class CastContentRendererClient
                       const base::Closure& closure) override;
   bool AllowIdleMediaSuspend() override;
   void SetRuntimeFeaturesDefaultsBeforeBlinkInitialization() override;
+  std::unique_ptr<blink::WebSpeechSynthesizer> OverrideSpeechSynthesizer(
+      blink::WebSpeechSynthesizerClient* client) override;
 
  protected:
   CastContentRendererClient();
@@ -101,7 +103,6 @@ class CastContentRendererClient
       guest_view_container_dispatcher_;
 #endif
 
-  const bool allow_hidden_media_playback_;
   int supported_bitstream_audio_codecs_;
 
   DISALLOW_COPY_AND_ASSIGN(CastContentRendererClient);

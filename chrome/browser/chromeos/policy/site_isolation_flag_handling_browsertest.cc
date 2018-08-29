@@ -277,7 +277,7 @@ class SiteIsolationFlagHandlingTest
     // user session.
     auto fake_session_manager_client =
         std::make_unique<FakeSessionManagerClient>(
-            FakeSessionManagerClient::USE_HOST_POLICY);
+            FakeSessionManagerClient::PolicyStorageType::kOnDisk);
     fake_session_manager_client_ = fake_session_manager_client.get();
     DBusThreadManager::GetSetterForTesting()->SetSessionManagerClient(
         std::move(fake_session_manager_client));
@@ -370,7 +370,8 @@ IN_PROC_BROWSER_TEST_P(SiteIsolationFlagHandlingTest, FlagHandlingTest) {
   // it waits for a user session start unconditionally, which will not happen if
   // chrome requests a restart to set user-session flags.
   SkipToLoginScreen();
-  GetLoginDisplay()->ShowSigninScreenForCreds(kAccountId, kAccountPassword);
+  GetLoginDisplay()->ShowSigninScreenForTest(kAccountId, kAccountPassword,
+                                             kEmptyServices);
 
   // Wait for either the user session to start, or for restart to be requested
   // (whichever happens first).

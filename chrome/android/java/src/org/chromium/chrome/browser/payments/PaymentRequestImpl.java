@@ -32,6 +32,8 @@ import org.chromium.chrome.browser.payments.ui.PaymentRequestSection.OptionSecti
 import org.chromium.chrome.browser.payments.ui.PaymentRequestUI;
 import org.chromium.chrome.browser.payments.ui.SectionInformation;
 import org.chromium.chrome.browser.payments.ui.ShoppingCart;
+import org.chromium.chrome.browser.preferences.Pref;
+import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.preferences.PreferencesLauncher;
 import org.chromium.chrome.browser.preferences.autofill.AutofillAndPaymentsPreferences;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -1078,11 +1080,10 @@ public class PaymentRequestImpl
      * @amount The given payment amount.
      */
     private CurrencyFormatter getOrCreateCurrencyFormatter(PaymentCurrencyAmount amount) {
-        String key = amount.currency + amount.currencySystem;
+        String key = amount.currency;
         CurrencyFormatter formatter = mCurrencyFormatterMap.get(key);
         if (formatter == null) {
-            formatter = new CurrencyFormatter(
-                    amount.currency, amount.currencySystem, Locale.getDefault());
+            formatter = new CurrencyFormatter(amount.currency, Locale.getDefault());
             mCurrencyFormatterMap.put(key, formatter);
         }
         return formatter;
@@ -1103,6 +1104,10 @@ public class PaymentRequestImpl
     }
 
     private void providePaymentInformation() {
+        // Do not display service worker payment instrument summary in single line so as to display
+        // its origin completely.
+        mPaymentMethodsSection.setDisplaySelectedItemSummaryInSingleLineInNormalMode(
+                !(mPaymentMethodsSection.getSelectedItem() instanceof ServiceWorkerPaymentApp));
         mPaymentInformationCallback.onResult(
                 new PaymentInformation(mUiShoppingCart, mShippingAddressesSection,
                         mUiShippingOptions, mContactSection, mPaymentMethodsSection));
@@ -1606,9 +1611,7 @@ public class PaymentRequestImpl
             }
         }
 
-        if (mIsIncognito) {
-            mClient.onCanMakePayment(CanMakePaymentQueryResult.CAN_MAKE_PAYMENT);
-        } else if (isIgnoringQueryQuota) {
+        if (isIgnoringQueryQuota) {
             mClient.onCanMakePayment(response
                             ? CanMakePaymentQueryResult.WARNING_CAN_MAKE_PAYMENT
                             : CanMakePaymentQueryResult.WARNING_CANNOT_MAKE_PAYMENT);
@@ -1680,6 +1683,10 @@ public class PaymentRequestImpl
                 }
             }
         }
+
+        // Always return false when can make payment is disabled.
+        mCanMakePayment &=
+                PrefServiceBridge.getInstance().getBoolean(Pref.CAN_MAKE_PAYMENT_ENABLED);
 
         int additionalTextResourceId = app.getAdditionalAppTextResourceId();
         if (additionalTextResourceId != 0) {

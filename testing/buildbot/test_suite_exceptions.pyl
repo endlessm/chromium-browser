@@ -24,6 +24,7 @@
   'android_webview_unittests': {
     'remove_from': [
       # On chromium.android, these do not need to run prior to M.
+      'android-kitkat-arm-rel',
       'KitKat Phone Tester (dbg)',
       'KitKat Phone Tester (rel)',
       'KitKat Tablet Tester',
@@ -84,12 +85,13 @@
     ],
   },
   'base_unittests': {
-    'remove_from': [
-      # chromium.linux
-      'Fuchsia x64',
-    ],
     'modifications': {
       # chromium.android
+      'android-marshmallow-arm64-rel': {
+        'swarming': {
+          'hard_timeout': 960,
+        },
+      },
       'KitKat Tablet Tester': {
         'swarming': {
           'hard_timeout': 300,
@@ -117,11 +119,6 @@
         },
       },
       # chromium.fyi
-      'Fuchsia': {
-        'args': [
-          '--use-new-test-runner',
-        ],
-      },
       'Out of Process Profiling Mac': {
         'swarming': {
           'shards': 5,
@@ -131,31 +128,21 @@
   },
   'blink_heap_unittests': {
     'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      # chromium.clang
-      'CrWinAsan',
-      'CrWinAsan(dll)',
-      'CrWinAsanCov',
-      'ToTLinuxMSan',
-      # chromium.fyi
-      'CrWinAsan tester',
-      'CrWinAsan(dll) tester',
-      'CrWinAsanCov tester',
       # chromium.memory
       'Linux TSan Tests',  # https://crbug.com/831674
     ],
     'modifications': {
       # chromium.android
+      'android-kitkat-arm-rel': {
+        'swarming': {
+          'hard_timeout': 180,
+        },
+      },
+      'android-marshmallow-arm64-rel': {
+        'swarming': {
+          'hard_timeout': 960,
+        },
+      },
       'KitKat Phone Tester (dbg)': {
         'swarming': {
           'hard_timeout': 180,
@@ -179,38 +166,9 @@
       },
     },
   },
-  'blink_platform_unittests': {
-    'remove_from': [
-      # chromium.clang
-      'CrWinAsan',
-      'CrWinAsan(dll)',
-      'CrWinAsanCov',
-      'ToTLinuxMSan',
-      # chromium.fyi
-      'CrWinAsan tester',
-      'CrWinAsan(dll) tester',
-      'CrWinAsanCov tester',
-    ],
-  },
   'boringssl_crypto_tests': {
     'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
       # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
       'linux-chromeos-dbg',
       'linux-chromeos-rel',
       # On chromium.mac, unclear why these aren't run on "Mac10.12 Tests".
@@ -219,23 +177,7 @@
   },
   'boringssl_ssl_tests': {
     'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
       # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
       'linux-chromeos-dbg',
       'linux-chromeos-rel',
       # On chromium.mac, unclear why these aren't run on "Mac10.12 Tests".
@@ -268,29 +210,14 @@
       'linux-win_cross-rel',
       'ToTLinuxUBSanVptr',
       'UBSanVptr Linux',
-      # chromium.fyi
-      'CrWinAsanCov tester',
       # chromium.memory
       'Linux TSan Tests',  # https://crbug.com/368525
+      # chromium.win
+      'Win10 Tests x64 (dbg)',
     ],
     'modifications': {
       # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)': {
-        'swarming': {
-          'shards': 20,
-        },
-      },
       'linux-chromeos-dbg': {
-        'swarming': {
-          'shards': 20,
-        },
-      },
-      'CrWinClang(dbg)': {
-        'swarming': {
-          'shards': 20,
-        },
-      },
-      'CrWinClang64(dbg)': {
         'swarming': {
           'shards': 20,
         },
@@ -317,10 +244,14 @@
           'shards': 5,
         },
       },
-      'ThinLTO Linux ToT': {
-        # TODO(kbr): remove this spurious filter.
+      'Mac10.11 Tests': {
         'args': [
-          '--gtest_filter=-SaveType/SavePageMultiFrameBrowserTest.ObjectElements/0',
+          '--test-launcher-filter-file=../../testing/buildbot/filters/mac_window_server_killers.browser_tests.filter',
+        ],
+      },
+      'Mac10.12 Tests': {
+        'args': [
+          '--test-launcher-filter-file=../../testing/buildbot/filters/mac_window_server_killers.browser_tests.filter',
         ],
       },
       # chromium.memory
@@ -354,28 +285,6 @@
         },
       },
     },
-  },
-  'cacheinvalidation_unittests': {
-    'remove_from': [
-      # Unclear why these largely aren't run on Android.
-      # chromium.android:
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
-    ],
   },
   'capture_unittests': {
     'modifications': {
@@ -420,7 +329,6 @@
   'cast_unittests': {
     'remove_from': [
       # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
       'linux-chromeos-dbg',
       'linux-chromeos-rel',
       # Unclear why these largely aren't run on Android.
@@ -430,14 +338,11 @@
       # chromium.clang
       'ToTAndroidCFI',
       'ToTLinuxThinLTO',
-      # chromium.fyi
-      'ThinLTO Linux ToT',
     ],
   },
   'cc_unittests': {
     'remove_from': [
       # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
       'linux-chromeos-dbg',
       'linux-chromeos-rel',
     ],
@@ -468,8 +373,6 @@
   'chrome_public_test_apk': {
     'remove_gtest_from': [
       # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
       'Unswarmed N5 Tests Dummy Builder',
       'Unswarmed N5X Tests Dummy Builder',
     ],
@@ -481,9 +384,6 @@
     ],
     'key_removals': {
       # chromium.android.fyi
-      'Lollipop Low-end Tester': [
-        'args',
-      ],
       'Nougat Phone Tester': [
         'args',
       ],
@@ -493,6 +393,16 @@
     },
     'modifications': {
       # chromium.android
+      'android-kitkat-arm-rel': {
+        'swarming': {
+          'shards': 12,
+        },
+      },
+      'android-marshmallow-arm64-rel': {
+        # TODO(crbug.com/731759): Enable this once we're confident that it
+        # passes.
+        'experiment_percentage': 100,
+      },
       'KitKat Phone Tester (dbg)': {
         'swarming': {
           'shards': 20,
@@ -519,6 +429,9 @@
         },
       },
       'Marshmallow 64 bit Tester': {
+        # TODO(crbug.com/731759): Enable this once we're confident that it
+        # passes.
+        'experiment_percentage': 100,
         'swarming': {
           'hard_timeout': 1200,
           'shards': 14,
@@ -535,19 +448,6 @@
         },
       },
       # chromium.android.fyi
-      'Android Tests with Tracing': {
-        'args': [
-          '-f',
-          'ContextualSearchTapEventTest#*',
-        ],
-        'trace_output': True,
-      },
-      'Lollipop Low-end Tester': {
-        'swarming': {
-          'hard_timeout': 0,
-          'shards': 6,
-        },
-      },
       'Nougat Phone Tester': {
         'swarming': {
           'hard_timeout': 1200,
@@ -589,29 +489,25 @@
     },
   },
   'chrome_public_test_vr_apk': {
-    'remove_from': [
-      # chromium.android
-      'KitKat Phone Tester (dbg)',
-      'KitKat Tablet Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow Tablet Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Nougat Phone Tester chromium.android.fyi',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x64 Device Tester',
-      'x86 Cloud Tester',
-      # chromium.clang
-      'ToTAndroid x64',
-      # chromium.fyi
-      'Out of Process Profiling Android',
-      # chromium.memory
-      'Android CFI',
-    ],
     'modifications': {
+      'android-kitkat-arm-rel': {
+        'args': [
+          '--shared-prefs-file=//chrome/android/shared_preference_files/test/vr_cardboard_skipdon_setupcomplete.json',
+          '--additional-apk=//third_party/gvr-android-sdk/test-apks/vr_services/vr_services_current.apk',
+        ],
+        'swarming': {
+          'hard_timeout': 1920,
+        },
+      },
+      'android-marshmallow-arm64-rel': {
+        'args': [
+          '--shared-prefs-file=//chrome/android/shared_preference_files/test/vr_cardboard_skipdon_setupcomplete.json',
+          '--additional-apk=//third_party/gvr-android-sdk/test-apks/vr_services/vr_services_current.apk',
+        ],
+        'swarming': {
+          'hard_timeout': 1200,
+        },
+      },
       'KitKat Phone Tester (rel)': {
         'args': [
           '--shared-prefs-file=//chrome/android/shared_preference_files/test/vr_cardboard_skipdon_setupcomplete.json',
@@ -650,16 +546,11 @@
   'chrome_sync_shell_test_apk': {
     'remove_gtest_from': [
       # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
       'Unswarmed N5 Tests Dummy Builder',
       'Unswarmed N5X Tests Dummy Builder',
     ],
     'key_removals': {
       # chromium.android.fyi
-      'Lollipop Low-end Tester': [
-        'args',
-      ],
       'Nougat Phone Tester': [
         'args',
       ],
@@ -693,11 +584,6 @@
         },
       },
       # chromium.android.fyi
-      'Lollipop Low-end Tester': {
-        'swarming': {
-          'hard_timeout': 0,
-        },
-      },
       'x64 Device Tester': {
         'swarming': {
           'hard_timeout': 0,
@@ -736,38 +622,15 @@
   'chromedriver_unittests': {
     'remove_from': [
       # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
       'linux-chromeos-dbg',
       'linux-chromeos-rel',
-      # chromium.clang
-      'ToTLinuxASan',
-    ],
-  },
-  'components_background_task_scheduler_junit_tests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
     ],
   },
   'components_browsertests': {
     'remove_from': [
       # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
       'linux-chromeos-dbg',
       'linux-chromeos-rel',
-      # chromium.clang
-      'ToTLinux',
-      'ToTLinuxASan',
-      'ToTLinuxMSan',
-      'ToTMac',
-      'ToTMacASan',
       # chromium.fyi
       'mac-views-rel',
       'Chromium Mac 10.11',
@@ -781,15 +644,14 @@
       'Linux Tests (dbg)(1)(32)',
       # chromium.win
       'Win7 Tests (dbg)(1)',
-      # chromium.memory
-      'Linux ASan LSan Tests (1)',
-      'Linux ASan Tests (sandboxed)',
-      'Linux Chromium OS ASan LSan Tests (1)',
-      'Linux ChromiumOS MSan Tests',
-      'Linux MSan Tests',
-      'Linux TSan Tests',
+      'Win10 Tests x64 (dbg)',
     ],
     'modifications': {
+      'android-marshmallow-arm64-rel': {
+        'swarming': {
+          'hard_timeout': 960,
+        },
+      },
       'KitKat Tablet Tester': {
         'swarming': {
           'hard_timeout': 600,
@@ -814,15 +676,17 @@
   },
   'components_unittests': {
     'remove_from': [
-      # chromium.clang
-      'ToTLinuxUBSanVptr',
-      'UBSanVptr Linux',
       # On chromium.linux, unclear why these aren't run on the Cast bots.
       'Cast Audio Linux',
       'Cast Linux',
     ],
     'modifications': {
       # chromium.android
+      'android-marshmallow-arm64-rel': {
+        'swarming': {
+          'hard_timeout': 960,
+        },
+      },
       'KitKat Tablet Tester': {
         'swarming': {
           'hard_timeout': 1500,
@@ -854,12 +718,6 @@
         },
       },
       # chromium.android.fyi
-      'Lollipop Low-end Tester': {
-        'swarming': {
-          'hard_timeout': 0,
-          'shards': 1,
-        },
-      },
       'Nougat Phone Tester': {
         'swarming': {
           'hard_timeout': 960,
@@ -898,6 +756,12 @@
   'content_browsertests': {
     'modifications': {
       # chromium.android
+      'android-marshmallow-arm64-rel': {
+        'swarming': {
+          'hard_timeout': 1200,
+          'shards': 6,
+        },
+      },
       'KitKat Tablet Tester': {
         'swarming': {
           'hard_timeout': 1800,
@@ -935,12 +799,6 @@
         },
       },
       # chromium.android.fyi
-      'Lollipop Low-end Tester': {
-        'swarming': {
-          'hard_timeout': 0,
-          'shards': 4,
-        },
-      },
       'Nougat Phone Tester': {
         'swarming': {
           'hard_timeout': 1200,
@@ -972,11 +830,6 @@
         },
       },
       # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)': {
-        'swarming': {
-          'shards': 2,
-        },
-      },
       'Linux TSan Tests': {
         'swarming': {
           'shards': 5,
@@ -994,6 +847,15 @@
       },
       # chromium.clang
       'ToTLinuxUBSanVptr': {
+        'swarming': {
+          'shards': 5,
+        },
+      },
+      'linux-win_cross-rel': {
+        # content_browsertests sometimes times out without this override on
+        # the cross bot, probably because of https://crbug.com/803591,
+        # see also https://crbug.com/838559
+        # TODO(thakis): Remove this once 803591 is fixed.
         'swarming': {
           'shards': 5,
         },
@@ -1050,8 +912,6 @@
   },
   'content_shell_crash_test': {
     'remove_from': [
-      # chromium.clang
-      'ToTMac',
       # chromium.fyi
       'Chromium Mac 10.11',
       'Chromium Mac 10.13',
@@ -1067,6 +927,7 @@
       # On chromium.win, unclear why these only run on "Win7 Tests (1)".
       'Win 7 Tests x64 (1)',
       'Win10 Tests x64',
+      'Win10 Tests x64 (dbg)',
       'Win7 Tests (dbg)(1)',
       # client.v8.chromium
       'Linux - Future (dbg)',
@@ -1082,16 +943,11 @@
   'content_shell_test_apk': {
     'remove_gtest_from': [
       # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
       'Unswarmed N5 Tests Dummy Builder',
       'Unswarmed N5X Tests Dummy Builder',
     ],
     'key_removals': {
       # chromium.android.fyi
-      'Lollipop Low-end Tester': [
-        'args',
-      ],
       'Nougat Phone Tester': [
         'args',
       ],
@@ -1125,12 +981,6 @@
         },
       },
       # chromium.android.fyi
-      'Lollipop Low-end Tester': {
-        'swarming': {
-          'hard_timeout': 0,
-          'shards': 1,
-        },
-      },
       'Nougat Phone Tester': {
         'swarming': {
           'hard_timeout': 1200,
@@ -1208,11 +1058,6 @@
         },
       },
       # chromium.android.fyi
-      'Lollipop Low-end Tester': {
-        'swarming': {
-          'hard_timeout': 0,
-        },
-      },
       'Nougat Phone Tester': {
         'swarming': {
           'hard_timeout': 1200,
@@ -1248,16 +1093,9 @@
   'crashpad_tests': {
     'remove_from': [
       # chromium.clang
-      'CrWinAsan',
-      'CrWinAsan(dll)',
-      'CrWinAsanCov',
-      'linux-win_cross-rel',
-      'ToTMacASan',
+      'linux-win_cross-rel', # https://crbug.com/762167
       # chromium.fyi
       'Chromium Win 10 GCE Tests',
-      'CrWinAsan tester',
-      'CrWinAsan(dll) tester',
-      'CrWinAsanCov tester',
     ],
   },
   'cronet_test_instrumentation_apk': {
@@ -1276,61 +1114,14 @@
       },
     },
   },
-  'cronet_tests': {
-    'remove_from': [
-      # chromium.memory
-      'Linux TSan Tests',  # https://crbug.com/830819
-      # chromium.fyi
-      'Fuchsia (dbg)',
-    ],
-  },
-  'crypto_unittests': {
-    'remove_from': [
-      # TODO(kbr): these tests aren't run on Android except on one bot
-      # on chromium.android.fyi, which might just be an accident.
-      # Consider moving it to non_android_chromium_gtests.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
-      # TODO(kbr): on chromium.linux, it's unclear why these show up on "Cast
-      # Audio Linux" at all, since they're supposed to be compiled out for
-      # Chromecast.
-    ],
-    'modifications': {
-      # chromium.fyi
-      'Fuchsia': {
-        'args': [
-          '--use-new-test-runner',
-        ],
-      },
-    },
-  },
   'dbus_unittests': {
     'remove_from': [
-      # chromium.clang
-      'ToTLinuxASan',
       # chromium.linux
       'Linux Tests (dbg)(1)(32)',
     ],
   },
   'device_unittests': {
     'remove_from': [
-      # chromium.clang
-      'ToTMac',
-      'ToTMacASan',
       # chromium.fyi
       'mac-views-rel',
       'Chromium Mac 10.11',
@@ -1341,6 +1132,11 @@
       'Win7 Tests (dbg)(1)',
     ],
     'modifications': {
+      'android-marshmallow-arm64-rel': {
+        'swarming': {
+          'hard_timeout': 960,
+        },
+      },
       'KitKat Tablet Tester': {
         'swarming': {
           'hard_timeout': 120,
@@ -1378,24 +1174,7 @@
   },
   'display_unittests': {
     'remove_from': [
-      # On chromium.android, unclear why these aren't run.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
-      # chromium.fyi
+      # chromium.fyi, unclear why these aren't run.
       'mac-views-rel',
       'Chromium Mac 10.11 Force Mac Toolchain',
       # chromium.win
@@ -1403,10 +1182,6 @@
     ],
   },
   'events_unittests': {
-    'remove_from': [
-      # chromium.clang
-      'ToTLinuxASan',
-    ],
     'modifications': {
       'KitKat Tablet Tester': {
         'swarming': {
@@ -1427,10 +1202,6 @@
   },
   'extensions_browsertests': {
     'remove_from': [
-      # chromium.clang
-      'ToTLinux',
-      'ToTMac',
-      'ToTMacASan',
       # chromium.fyi
       'mac-views-rel',
       'Chromium Mac 10.11',
@@ -1448,6 +1219,8 @@
       'Linux Chromium OS ASan LSan Tests (1)',
       'Linux TSan Tests',
       'Mac ASan 64 Tests (1)',
+      # chromium.win
+      'Win10 Tests x64 (dbg)',
     ],
   },
   'filesystem_service_unittests': {
@@ -1455,40 +1228,9 @@
       'Linux Tests (dbg)(1)(32)',
     ],
   },
-  'gfx_unittests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'Nougat Phone Tester chromium.android',
-      # chromium.android.fyi
-      'Lollipop Low-end Tester',
-      'x86 Cloud Tester',
-      # chromium.win
-      'Win7 Tests (dbg)(1)',
-    ],
-  },
   'gin_unittests': {
     'remove_from': [
-      # On chromium.android, unclear why these aren't run.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
       # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
       'linux-chromeos-dbg',
       'linux-chromeos-rel',
       # chromium.clang
@@ -1533,13 +1275,11 @@
       'UBSanVptr Linux',
       # chromium.fyi
       'Out of Process Profiling Linux',
-      'ThinLTO Linux ToT',
       # chromium.memory
-      'Linux ASan LSan Tests (1)',  # https://crbug.com/830659
-      'Linux CFI',  # https://crbug.com/830659
-      'Linux MSan Tests',  # https://crbug.com/830659
-      'Linux ChromiumOS MSan Tests',  # https://crbug.com/830659
-      'Linux TSan Tests',  # https://crbug.com/830659
+      # Can't run on MSAN because gl_tests uses the hardware driver,
+      # which isn't instrumented.
+      'Linux MSan Tests',
+      'Linux ChromiumOS MSan Tests',
     ],
     'modifications': {
       'KitKat Tablet Tester': {
@@ -1552,6 +1292,73 @@
           'hard_timeout': 120,
         },
       },
+      # chromium.memory
+      # TODO(kbr): figure out a better way to specify blocks of
+      # arguments like this for tests on multiple machines.
+      'Linux ASan LSan Tests (1)': {
+        'args': [
+          '--use-gpu-in-tests',
+          '--no-xvfb',
+        ],
+        'swarming': {
+          'dimension_sets': [
+            {
+              'gpu': '10de:1cb3',
+              'os': 'Ubuntu',
+              'pool': 'Chrome-GPU',
+            },
+          ],
+        },
+        'use_xvfb': False,
+      },
+      'Linux ASan LSan Tests (1)': {
+        'args': [
+          '--use-gpu-in-tests',
+          '--no-xvfb',
+        ],
+        'swarming': {
+          'dimension_sets': [
+            {
+              'gpu': '10de:1cb3',
+              'os': 'Ubuntu',
+              'pool': 'Chrome-GPU',
+            },
+          ],
+        },
+        'use_xvfb': False,
+      },
+      'Linux CFI': {
+        'args': [
+          '--use-gpu-in-tests',
+          '--no-xvfb',
+        ],
+        'swarming': {
+          'dimension_sets': [
+            {
+              'gpu': '10de:1cb3',
+              'os': 'Ubuntu',
+              'pool': 'Chrome-GPU',
+            },
+          ],
+        },
+        'use_xvfb': False,
+      },
+      'Linux TSan Tests': {
+        'args': [
+          '--use-gpu-in-tests',
+          '--no-xvfb',
+        ],
+        'swarming': {
+          'dimension_sets': [
+            {
+              'gpu': '10de:1cb3',
+              'os': 'Ubuntu',
+              'pool': 'Chrome-GPU',
+            },
+          ],
+        },
+        'use_xvfb': False,
+      },
     },
   },
   'gl_unittests': {
@@ -1561,6 +1368,11 @@
     ],
     'modifications': {
       # chromium.android
+      'android-marshmallow-arm64-rel': {
+        'swarming': {
+          'hard_timeout': 120,
+        },
+      },
       'Lollipop Phone Tester': {
         'swarming': {
           'hard_timeout': 960,
@@ -1577,11 +1389,6 @@
         },
       },
       # chromium.android.fyi
-      'Lollipop Low-end Tester': {
-        'swarming': {
-          'hard_timeout': 0,
-        },
-      },
       'Nougat Phone Tester': {
         'swarming': {
           'hard_timeout': 960,
@@ -1641,11 +1448,6 @@
   },
   'gn_unittests': {
     'remove_from': [
-      # chromium.clang
-      'ToTLinux',
-      'ToTLinuxASan',
-      'ToTLinuxMSan',
-      'ToTLinuxUBSanVptr',
       # chromium.fyi
       'mac-views-rel',
       'Chromium Mac 10.11',
@@ -1655,32 +1457,6 @@
       'Out of Process Profiling Mac',
     ],
   },
-  'google_apis_unittests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
-      # On chromium.linux, unclear why these aren't run on Cast.
-      'Cast Audio Linux',
-      'Cast Linux',
-      # chromium.win
-      'Win7 Tests (dbg)(1)',
-    ],
-  },
   'headless_browsertests': {
     'remove_from': [
       'Linux Tests (dbg)(1)(32)',
@@ -1688,6 +1464,8 @@
       'Mac10.11 Tests',
       # client.v8.chromium
       'Linux - Future (dbg)',
+      # chromium.win
+      'Win10 Tests x64 (dbg)',
     ],
   },
   'headless_unittests': {
@@ -1741,11 +1519,6 @@
         },
       },
       # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)': {
-        'swarming': {
-          'shards': 3,
-        },
-      },
       'linux-chromeos-dbg': {
         'swarming': {
           'shards': 3,
@@ -1847,38 +1620,7 @@
           '600',
         ],
       },
-      # chromium.fyi
-      'Fuchsia': {
-        'args': [
-          '--use-new-test-runner',
-        ],
-      },
     },
-  },
-  'jingle_unittests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
-      # chromium.clang
-      'ToTAndroidCFI',
-      # chromium.memory
-      'Android CFI',
-    ],
   },
   'keyboard_unittests': {
     'remove_from': [
@@ -1891,31 +1633,10 @@
   },
   'latency_unittests': {
     'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x64 Device Tester',
-      'x86 Cloud Tester',
-      # chromium.clang
-      'ToTAndroid x64',
-      'ToTLinux',
-      'ToTLinuxASan',
-      'ToTLinuxThinLTO',
-      'ToTLinuxUBSanVptr',
-      'UBSanVptr Linux',
       # chromium.fyi
       'Out of Process Profiling Android',
       'Out of Process Profiling Linux',
-      'ThinLTO Linux ToT',
       # On chromium.linux, unclear why these aren't run.
-      'Linux Tests',
       'Linux Tests (dbg)(1)',
       'Linux Tests (dbg)(1)(32)',
     ],
@@ -1926,29 +1647,6 @@
         },
       },
     },
-  },
-  'libjingle_xmpp_unittests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
-      # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
-      'linux-chromeos-dbg',
-      'linux-chromeos-rel',
-    ],
   },
   'mash_browser_tests': {
     'remove_from': [
@@ -1968,9 +1666,6 @@
   },
   'mac_installer_unittests': {
     'remove_from': [
-      # chromium.clang
-      'ToTMac',
-      'ToTMacASan',
       # chromium.fyi
       'mac-views-rel',
       'Chromium Mac 10.11',
@@ -1980,25 +1675,6 @@
     ],
   },
   'media_blink_unittests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x64 Device Tester',
-      'x86 Cloud Tester',
-      # chromium.clang
-      'ToTAndroid x64',
-      # chromium.fyi
-      'Out of Process Profiling Android',
-    ],
     'modifications': {
       'Lollipop Tablet Tester': {
         'swarming': {
@@ -2019,14 +1695,6 @@
       # chromium.fyi
       'Fuchsia ARM64',
     ],
-    'modifications': {
-      # chromium.fyi
-      'Fuchsia': {
-        'args': [
-          '--use-new-test-runner',
-        ],
-      },
-    },
   },
   'message_center_unittests': {
     'remove_from': [
@@ -2055,44 +1723,10 @@
   },
   'metrics_python_tests': {
     'remove_from': [
-      # chromium.clang
-      'ToTMac',
       # chromium.fyi
       'Chromium Mac 10.11',
       'Chromium Mac 10.13',
       'Out of Process Profiling Mac',
-      # On chromium.mac, unclear why these only run on "Mac10.13 Tests".
-      'Mac10.10 Tests',
-      'Mac10.11 Tests',
-      'Mac10.12 Tests',
-      'Mac10.13 Tests (dbg)',
-      # chromium.win
-      'Win7 Tests (dbg)(1)',
-    ],
-  },
-  'midi_unittests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
-      # chromium.clang
-      'ToTAndroidCFI',
-      # chromium.memory
-      'Android CFI',
     ],
   },
   'mini_installer_tests': {
@@ -2101,77 +1735,7 @@
       'linux-win_cross-rel',  # https://crbug.com/799827
     ],
   },
-  'mojo_common_unittests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
-      'linux-chromeos-dbg',
-      'linux-chromeos-rel',
-      # chromium.clang
-      'ToTLinuxASan',
-      # chromium.linux
-      'Cast Audio Linux',
-      'Cast Linux',
-    ],
-    'modifications': {
-      # chromium.android
-      'Marshmallow Phone Tester (rel)': {
-        'swarming': {
-          'hard_timeout': 120,
-        },
-      },
-
-      # chromium.android.fyi
-      'x64 Device Tester': {
-        'swarming': {
-          'hard_timeout': 0,
-        },
-      },
-
-      # chromium.fyi
-      'Fuchsia': {
-        'args': [
-          '--use-new-test-runner',
-          '-v',  # Useful for getting debug info and SCP throughput stats.
-        ],
-      },
-    },
-  },
   'mojo_test_apk': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-       # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x64 Device Tester',
-      'x86 Cloud Tester',
-     # chromium.clang
-      'ToTAndroid x64',
-      # chromium.fyi
-      'Out of Process Profiling Android',
-    ],
     'modifications': {
       # chromium.clang
       'ToTAndroidCFI': {
@@ -2187,37 +1751,8 @@
       },
     },
   },
-  'mojo_unittests': {
-    'modifications': {
-      # chromium.fyi
-      'Fuchsia': {
-        'args': [
-          '--use-new-test-runner',
-        ],
-      },
-    },
-  },
-  'nacl_helper_nonsfi_unittests': {
-    'remove_from': [
-      # chromium.clang
-      'CFI Linux (icall)',
-      'CFI Linux ToT',
-      'ToTLinux (dbg)',
-      'ToTLinuxASan',
-      'ToTLinuxMSan',
-      'ToTLinuxThinLTO',
-      'ToTLinuxUBSanVptr',
-      'UBSanVptr Linux',
-      # chromium.fyi
-      'ThinLTO Linux ToT',
-      # chromium.memory
-      'Linux Chromium OS ASan LSan Tests (1)',
-    ],
-  },
   'nacl_loader_unittests': {
     'remove_from': [
-      # chromium.clang
-      'ToTLinuxASan',
       # chromium.fyi
       'mac-views-rel',
       'Chromium Mac 10.11',
@@ -2231,85 +1766,24 @@
   },
   'native_theme_unittests': {
     'remove_from': [
-      # chromium.clang
-      'ToTLinuxASan',
-      'ToTMacASan',
       # chromium.linux
       'Linux Tests (dbg)(1)(32)',
     ],
   },
   'net_unittests': {
     'remove_from': [
-      # chromium.clang
-      'CrWinAsanCov',
       # chromium.fyi
-      'CrWinAsanCov tester',
       'Fuchsia (dbg)',
       'Fuchsia ARM64',
       # chromium.linux
       'Fuchsia x64',
     ],
     'modifications': {
-      # chromium.android
-      'KitKat Tablet Tester': {
-        'swarming': {
-          'hard_timeout': 1800,
-        },
-      },
-      'Lollipop Phone Tester': {
-        'swarming': {
-          'hard_timeout': 1800,
-        },
-      },
-      'Lollipop Tablet Tester': {
-        'swarming': {
-          'hard_timeout': 1800,
-        },
-      },
-      'Marshmallow 64 bit Tester': {
-        'swarming': {
-          'hard_timeout': 960,
-        },
-      },
-      'Marshmallow Phone Tester (rel)': {
-        'swarming': {
-          'hard_timeout': 960,
-        },
-      },
-      'Marshmallow Tablet Tester': {
-        'swarming': {
-          'hard_timeout': 1800,
-        },
-      },
-      # chromium.android.fyi
-      'Lollipop Low-end Tester': {
-        'swarming': {
-          'hard_timeout': 0,
-          'shards': 1,
-        },
-      },
-      'Nougat Phone Tester': {
-        'swarming': {
-          'hard_timeout': 1200,
-          'shards': 2,
-        },
-      },
-      'x64 Device Tester': {
-        'swarming': {
-          'hard_timeout': 0,
-          'shards': 1,
-        },
-      },
-      'x86 Cloud Tester': {
-        'swarming': {
-          'hard_timeout': 0,
-          'shards': 1,
-        },
-      },
       # chromium.clang
       'ToTLinuxASan': {
+        # TODO(crbug.com/794372): net_unittests is slow under ASan.
         'swarming': {
-          'shards': 4,
+          'shards': 16,
         },
       },
       # chromium.memory
@@ -2334,21 +1808,17 @@
   },
   'notification_helper_unittests': {
     'remove_from': [
-      # chromium.win, this unit test requires WinRT, which only exists on Windows 8 or above.
+      # The test uses WinRT, which only exists in Windows 8 or above.
+      # (https://crbug.com/813553)
+      # chromium.win
       'Win 7 Tests x64 (1)',
       'Win7 (32) Tests',
       'Win7 Tests (1)',
       'Win7 Tests (dbg)(1)',
-      # chromium.clang, the following bots run on Windows 7, where the unit test doesn't run.
+      # chromium.clang; all these bots run Windows 7.
       'CrWinAsan',
       'CrWinAsan(dll)',
       'CrWinAsanCov',
-      'CrWinClang',
-      'CrWinClang(dbg)',
-      'CrWinClang(shared)',
-      'CrWinClang64',
-      'CrWinClang64(dbg)',
-      'CrWinClang64(dll)',
       'CrWinClangLLD',
       'CrWinClangLLD64',
       'CrWinClngLLD64dbg',
@@ -2363,182 +1833,21 @@
       'ToTWinCFI64',
       'ToTWinLibcxx64',
       'ToTWinThinLTO64',
-      # chromium.fyi
-      'CrWinAsan tester',
-      'CrWinAsan(dll) tester',
-      'CrWinAsanCov tester',
+      # chromium.fyi; all these bots run Windows 7.
       'Out of Process Profiling Windows',
     ],
   },
   'printing_unittests': {
     'remove_from': [
       # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
       'linux-chromeos-dbg',
     ],
   },
   'remoting_unittests': {
     'remove_from': [
-      # On chromium.android, unclear why these aren't run.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-       # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
-      # On chromium.linux, unclear why these aren't run on 32-bit.
-      'Linux Tests (dbg)(1)(32)',
-      # chromium.clang
-      'ToTAndroidCFI',
-      # chromium.memory
-      'Android CFI',
-    ],
-  },
-  'renderer_side_navigation_content_browsertests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x64 Device Tester',
-      'x86 Cloud Tester',
-      # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
-      'linux-chromeos-dbg',
-      'linux-chromeos-rel',
-      # chromium.clang
-      'ToTAndroid x64',
-      # chromium.fyi
-      'Out of Process Profiling Android',
       # On chromium.linux, unclear why these aren't run on 32-bit.
       'Linux Tests (dbg)(1)(32)',
     ],
-    'modifications': {
-      'Marshmallow 64 bit Tester': {
-        'swarming': {
-          'hard_timeout': 1200,
-          'shards': 6,
-        },
-      },
-    },
-  },
-  'renderer_side_navigation_content_shell_test_apk': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x64 Device Tester',
-      'x86 Cloud Tester',
-      # chromium.clang
-      'ToTAndroid x64',
-      # chromium.fyi
-      'Out of Process Profiling Android',
-    ],
-    'modifications': {
-      'Marshmallow 64 bit Tester': {
-        'swarming': {
-          'hard_timeout': 960,
-          'shards': 3,
-        },
-      },
-    },
-  },
-  'renderer_side_navigation_content_unittests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x64 Device Tester',
-      'x86 Cloud Tester',
-      # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
-      'linux-chromeos-dbg',
-      'linux-chromeos-rel',
-      # chromium.clang
-      'ToTAndroid x64',
-      # chromium.fyi
-      'Out of Process Profiling Android',
-      # On chromium.linux, unclear why these aren't run on 32-bit.
-      'Linux Tests (dbg)(1)(32)',
-    ],
-  },
-  'renderer_side_navigation_webview_instrumentation_test_apk': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x64 Device Tester',
-      'x86 Cloud Tester',
-      # chromium.clang
-      'ToTAndroid x64',
-      # chromium.fyi
-      'Out of Process Profiling Android',
-    ],
-    'modifications': {
-      'Marshmallow 64 bit Tester': {
-        'swarming': {
-          'hard_timeout': 1200,
-          'shards': 8,
-        },
-      },
-    },
   },
   'sandbox_linux_unittests': {
     'modifications': {
@@ -2551,11 +1860,6 @@
         'swarming': {
           'hard_timeout': 60,
         },
-      },
-      'Linux ChromiumOS Tests (dbg)(1)': {
-        'args': [
-          '--test-launcher-print-test-stdio=always',
-        ],
       },
       'linux-chromeos-dbg': {
         'args': [
@@ -2586,26 +1890,7 @@
   },
   'service_manager_unittests': {
     'remove_from': [
-      # On chromium.android, unclear why these aren't run.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-       # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x64 Device Tester',
-      'x86 Cloud Tester',
       # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
       'linux-chromeos-dbg',
       'linux-chromeos-rel',
       # chromium.fyi
@@ -2622,51 +1907,19 @@
       'Mac10.13 Tests (dbg)',
       'Win7 Tests (dbg)(1)',
       'Win10 Tests x64',
+      # chromium.win
+      'Win10 Tests x64 (dbg)',
     ],
-    'modifications': {
-      # chromium.fyi
-      'Fuchsia': {
-        'args': [
-          '--use-new-test-runner',
-        ],
-      },
-    }
   },
   'services_unittests': {
     'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-       # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x64 Device Tester',
-      'x86 Cloud Tester',
       # chromium.clang
-      'CFI Linux (icall)',
-      'CFI Linux ToT',
-      'CrWinAsan',
-      'CrWinAsan(dll)',
-      'CrWinAsanCov',
-      'ToTAndroidASan',
-      'ToTLinuxMSan',
-      'ToTLinuxThinLTO',
+      'ToTLinuxMSan',  # https://crbug.com/831676
       # chromium.fyi
       'mac-views-rel',
       'Chromium Mac 10.11',
       'Chromium Mac 10.11 Force Mac Toolchain',
       'Chromium Mac 10.13',
-      'CrWinAsan tester',
-      'CrWinAsan(dll) tester',
-      'CrWinAsanCov tester',
-      'ThinLTO Linux ToT',
       'Win 10 Fast Ring',
       # On chromium.linux, unclear why these aren't run on Cast.
       'Cast Audio Linux',
@@ -2676,7 +1929,7 @@
       'Linux MSan Tests',  # https://crbug.com/831676
     ],
   },
-  'site_per_process_browser_tests': {
+  'not_site_per_process_browser_tests': {
     'remove_from': [
       # chromium.fyi
       'Site Isolation Android',
@@ -2741,38 +1994,25 @@
       'Linux Tests (dbg)(1)(32)',
     ],
   },
-  'site_per_process_interactive_ui_tests': {
+  'not_site_per_process_interactive_ui_tests': {
     'remove_from': [
       # chromium.linux
       'Linux Tests (dbg)(1)(32)',
     ],
   },
-  'site_per_process_sync_integration_tests': {
+  'not_site_per_process_sync_integration_tests': {
     'remove_from': [
       # chromium.linux
       'Linux Tests (dbg)(1)(32)',
     ],
   },
-  'site_per_process_unit_tests': {
+  'not_site_per_process_unit_tests': {
     'remove_from': [
       # chromium.fyi
       'Site Isolation Android',
       # chromium.linux
       'Linux Tests (dbg)(1)(32)',
     ],
-    'modifications': {
-      'Linux - Future': {
-        'args': [
-          '--site-per-process',
-        ],
-      },
-      'Linux - Future (dbg)': {
-        # TODO(dpranke): this should be --site-per-process.
-        'args': [
-          '--site_per_process',
-        ],
-      },
-    },
   },
   'site_per_process_webkit_layout_tests': {
     'remove_from': [
@@ -2814,43 +2054,9 @@
       },
     },
   },
-  'skia_unittests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-       # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
-      # On chromium.linux, unclear why these aren't run on Cast.
-      'Cast Audio Linux',
-      'Cast Linux',
-    ],
-    'modifications': {
-      # chromium.fyi
-      'Fuchsia': {
-        'args': [
-          '--use-new-test-runner',
-          '-v',  # Useful for getting debug info and SCP throughput stats.
-        ],
-      },
-    },
-  },
   'snapshot_unittests': {
     'remove_from': [
       # chromium.chromiumos
-      'Linux ChromiumOS Tests (dbg)(1)',
       'linux-chromeos-dbg',
       'linux-chromeos-rel',
       # chromium.fyi
@@ -2888,29 +2094,20 @@
           'hard_timeout': 120,
         },
       },
-
-      # chromium.fyi
-      'Fuchsia': {
-        'args': [
-          '--use-new-test-runner',
-          '-v',  # Useful for getting debug info and SCP throughput stats.
-        ],
-      },
     },
   },
   'storage_unittests': {
     'remove_from': [
-      # chromium.clang
-      'ToTLinuxASan',
-      'ToTLinuxThinLTO',
-      'ToTLinuxUBSanVptr',
-      'UBSanVptr Linux',
       # chromium.fyi
       'Out of Process Profiling Mac',
-      'ThinLTO Linux ToT',
     ],
     'modifications': {
       # chromium.android
+      'android-kitkat-arm-rel': {
+        'swarming': {
+          'hard_timeout': 180,
+        },
+      },
       'KitKat Phone Tester (dbg)': {
         'swarming': {
           'hard_timeout': 180,
@@ -2969,6 +2166,36 @@
   'telemetry_perf_unittests': {
     'modifications': {
       # chromium.android
+      'android-kitkat-arm-rel': {
+        'args': [
+          '--browser=android-chromium',
+          '--device=android',
+        ],
+        'swarming': {
+          'dimension_sets': [
+            {
+              'temp_band': '<30',
+            },
+          ],
+          'hard_timeout': 1500,
+          'shards': 15,
+        },
+      },
+      'android-marshmallow-arm64-rel': {
+        'args': [
+          '--browser=android-chromium',
+          '--device=android',
+        ],
+        'swarming': {
+          'dimension_sets': [
+            {
+              'temp_band': '<30',
+            },
+          ],
+          'hard_timeout': 1500,
+          'shards': 15,
+        },
+      },
       'KitKat Phone Tester (rel)': {
         'args': [
           '--browser=android-chromium',
@@ -3009,13 +2236,6 @@
           'shards': 1,
         },
       },
-      # chromium.fyi
-      'Linux Xenial': {
-        'args': [
-          '--xvfb',
-          '--jobs=1',
-        ],
-      },
       # chromium.linux
       'Linux Tests': {
         'args': [
@@ -3024,6 +2244,12 @@
         ],
       },
       'Linux Tests (dbg)(1)': {
+        'args': [
+          '--xvfb',
+          '--jobs=1',
+        ],
+      },
+      'linux-xenial-rel': {
         'args': [
           '--xvfb',
           '--jobs=1',
@@ -3062,6 +2288,8 @@
       'Mac10.13 Tests (dbg)',
       # client.v8.chromium
       'Linux - Future (dbg)',
+      # chromium.win
+      'Win10 Tests x64 (dbg)',
     ],
   },
   'telemetry_unittests': {
@@ -3072,6 +2300,10 @@
         },
       },
     },
+    'remove_from': [
+      # chromium.win
+      'Win10 Tests x64 (dbg)',
+    ],
   },
   'traffic_annotation_auditor_unittests': {
     'modifications': {
@@ -3117,10 +2349,6 @@
     },
   },
   'ui_touch_selection_unittests': {
-    'remove_from': [
-      # chromium.clang
-      'ToTLinuxASan',
-    ],
     'modifications': {
       'KitKat Tablet Tester': {
         'swarming': {
@@ -3136,16 +2364,20 @@
   },
   'unit_tests': {
     'remove_from': [
-      # chromium.clang
-      'CrWinAsanCov',
-      # chromium.fyi
-      'CrWinAsanCov tester',
       # On chromium.linux, unclear why these aren't run on Cast.
       'Cast Audio Linux',
       'Cast Linux',
+      # chromium.win
+      'Win10 Tests x64 (dbg)',
     ],
     'modifications': {
       # chromium.android
+      'android-marshmallow-arm64-rel': {
+        'swarming': {
+          'hard_timeout': 960,
+          'shards': 2,
+        },
+      },
       'KitKat Tablet Tester': {
         'swarming': {
           'hard_timeout': 1200,
@@ -3183,11 +2415,6 @@
         },
       },
       # chromium.android.fyi
-      'Lollipop Low-end Tester': {
-        'swarming': {
-          'hard_timeout': 0,
-        },
-      },
       'Nougat Phone Tester': {
         'swarming': {
           'hard_timeout': 1200,
@@ -3236,34 +2463,16 @@
       },
     },
   },
-  'url_unittests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-       # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
-    ],
-  },
   'views_unittests': {
     'remove_from': [
-      # chromium.clang
-      'ToTLinuxASan',
-      'ToTMacASan',
       # chromium.linux
       'Linux Tests (dbg)(1)(32)',
+    ],
+  },
+  'viz_content_browsertests': {
+    'remove_from': [
+      # Currently flaky timeouts on Windows 10. crbug.com/839824
+      'Win10 Tests x64 (dbg)',
     ],
   },
   'viz_browser_tests': {
@@ -3273,39 +2482,24 @@
       'Win10 Tests x64',
       'Win7 Tests (1)',
       'Win7 Tests (dbg)(1)',
+      'Win10 Tests x64 (dbg)',
     ],
   },
   'viz_unittests': {
     'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'Nougat Phone Tester',
-      # chromium.clang
-      'CFI Linux (icall)',
-      'CFI Linux ToT',
-      'ToTAndroid x64',
-      'ToTAndroidASan',
-      'ToTLinux',
-      'ToTLinuxASan',
-      'ToTLinuxThinLTO',
-      'ToTLinuxUBSanVptr',
-      'UBSanVptr Linux',
-       # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x64 Device Tester',
-      'x86 Cloud Tester',
       # chromium.fyi
       'Chromium Win 10 GCE Tests',
       'Out of Process Profiling Android',
       'Out of Process Profiling Linux',
-      'ThinLTO Linux ToT',
       # chromium.win
       'Win10 Tests x64',
     ],
     'modifications': {
+      'android-marshmallow-arm64-rel': {
+        'swarming': {
+          'hard_timeout': 960,
+        },
+      },
       'KitKat Tablet Tester': {
         'swarming': {
           'hard_timeout': 300,
@@ -3330,20 +2524,6 @@
   },
   'vr_common_unittests': {
     'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'Nougat Phone Tester chromium.android',
-       # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x64 Device Tester',
-      'x86 Cloud Tester',
-      # chromium.clang
-      'ToTAndroid x64',
       # chromium.fyi
       'Chromium Win 10 GCE Tests',
       'Out of Process Profiling Android',
@@ -3352,6 +2532,11 @@
       'Win10 Tests x64',
     ],
     'modifications': {
+      'android-marshmallow-arm64-rel': {
+        'swarming': {
+          'hard_timeout': 960,
+        },
+      },
       'KitKat Tablet Tester': {
         'swarming': {
           'hard_timeout': 300,
@@ -3376,26 +2561,6 @@
   },
   'vr_pixeltests': {
     'remove_from': [
-      # chromium.android
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-       # chromium.android.fyi
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Nougat Phone Tester chromium.android.fyi',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x64 Device Tester',
-      'x86 Cloud Tester',
-      # chromium.clang
-      'ToTAndroid x64',
       # chromium.fyi
       'Chromium Win 10 GCE Tests',
       'Out of Process Profiling Android',
@@ -3409,8 +2574,6 @@
   },
   'webkit_layout_tests': {
     'remove_from': [
-      # chromium.clang
-      'ToTMac',
       # chromium.fyi
       'Chromium Mac 10.11',
       'Out of Process Profiling Mac',
@@ -3422,13 +2585,8 @@
       # chromium.win
       'Win 7 Tests x64 (1)',
       'Win10 Tests x64',
-      'Win7 Tests (1)',
+      'Win10 Tests x64 (dbg)',
     ],
-    'key_removals': {
-      'Win7 Tests (dbg)(1)': [
-        'results_handler',
-      ],
-    },
     'modifications': {
       # chromium.fyi
       'Dummy WebKit Mac10.13': {
@@ -3436,10 +2594,16 @@
           'shards': 12,
         },
       },
+      'linux-blink-gen-property-trees': {
+        'args': [
+          '--debug',
+          '--additional-driver-flag=--enable-blink-gen-property-trees',
+        ],
+      },
       'linux-blink-heap-incremental-marking': {
         'args': [
           '--debug',
-          '--additional-driver-flag=--enable-blink-features=HeapIncrementalMarking',
+          '--additional-driver-flag=--enable-blink-features=HeapIncrementalMarkingStress',
         ],
       },
       'WebKit Linux layout_ng Dummy Builder': {
@@ -3646,6 +2810,10 @@
         },
       },
 
+      'Win7 Tests (1)': {
+        'experiment_percentage': 100,
+      },
+
       # chromium.win
       'Win7 Tests (dbg)(1)': {
         'args': [
@@ -3667,41 +2835,16 @@
           ],
         },
       },
+      'Win10 Tests x64 (dbg)': {
+        'args': [
+          '--debug',
+          '--target',
+          'Debug_x64',
+        ],
+      },
     },
   },
   'webkit_unit_tests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Android Tests (trial)(dbg)',
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
-      # chromium.clang
-      'CrWinAsan',
-      'CrWinAsan(dll)',
-      'CrWinAsanCov',
-      'ToTLinuxMSan',
-      'ToTLinuxThinLTO',
-      # chromium.fyi
-      'CrWinAsan tester',
-      'CrWinAsan(dll) tester',
-      'CrWinAsanCov tester',
-      # chromium.chromiumos
-      'linux-chromeos-rel',  # crbug.com/795440
-    ],
     'modifications': {
       # chromium.memory
       'Linux ASan LSan Tests (1)': {
@@ -3715,21 +2858,21 @@
   },
   'webview_instrumentation_test_apk': {
     'remove_gtest_from': [
-      'Lollipop Consumer Tester',
       'Unswarmed N5 Tests Dummy Builder',
       'Unswarmed N5X Tests Dummy Builder',
     ],
     'remove_from': [
-      # On chromium.android, unclear why these aren't run on all bots.
+      # This test frequently fails on Android, https://crbug.com/824959
+      # chromium.android
+      'android-kitkat-arm-rel',
       'KitKat Phone Tester (dbg)',
       'KitKat Phone Tester (rel)',
       'KitKat Tablet Tester',
       'Nougat Phone Tester chromium.android',
       # chromium.android.fyi
-      'Android Tests with Tracing',
-      'Jelly Bean Tester',
-      # chromium.clang
+      # chromium.clang; matching chromium.android, the test fails on these.
       'ToTAndroid x64',
+      'ToTAndroid',
       # On chromium.swarm, this should possibly be being run (or removed
       # from Android N5X Swarm).
       'Android N5 Swarm',
@@ -3738,9 +2881,6 @@
     ],
     'key_removals': {
       # chromium.android.fyi
-      'Lollipop Low-end Tester': [
-        'args',
-      ],
       'Nougat Phone Tester': [
         'args',
       ],
@@ -3750,6 +2890,12 @@
     },
     'modifications': {
       # chromium.android
+      'android-marshmallow-arm64-rel': {
+        'swarming': {
+          'hard_timeout': 1200,
+          'shards': 8,
+        },
+      },
       'Lollipop Phone Tester': {
         'swarming': {
           'shards': 6,
@@ -3780,11 +2926,6 @@
         },
       },
       # chromium.android.fyi
-      'Lollipop Low-end Tester': {
-        'swarming': {
-          'shards': 2,
-        },
-      },
       'Nougat Phone Tester': {
         'swarming': {
           'hard_timeout': 1500,
@@ -3803,37 +2944,6 @@
       # chromium.fyi
       'Out of Process Profiling Windows',
       'Win 10 Fast Ring',
-    ],
-  },
-  'wtf_unittests': {
-    'remove_from': [
-      # On chromium.android, unclear why these aren't run.
-      'KitKat Phone Tester (dbg)',
-      'KitKat Phone Tester (rel)',
-      'KitKat Tablet Tester',
-      'Lollipop Phone Tester',
-      'Lollipop Tablet Tester',
-      'Marshmallow 64 bit Tester',
-      'Marshmallow Phone Tester (rel)',
-      'Marshmallow Tablet Tester',
-      'Nougat Phone Tester',
-      # chromium.android.fyi
-      'Android Tests (trial)(dbg)',
-      'Jelly Bean Tester',
-      'Lollipop Consumer Tester',
-      'Lollipop Low-end Tester',
-      'Unswarmed N5 Tests Dummy Builder',
-      'Unswarmed N5X Tests Dummy Builder',
-      'x86 Cloud Tester',
-      # chromium.clang
-      'CrWinAsan',
-      'CrWinAsan(dll)',
-      'CrWinAsanCov',
-      'ToTLinuxMSan',
-      # chromium.fyi
-      'CrWinAsan tester',
-      'CrWinAsan(dll) tester',
-      'CrWinAsanCov tester',
     ],
   },
   'zucchini_unittests': {

@@ -134,76 +134,6 @@ class CmdToStrTest(cros_test_lib.TestCase):
     self._testData(cros_build_lib.CmdToStr, tests)
 
 
-class RunCommandMock(partial_mock.PartialCmdMock):
-  """Provides a context where all RunCommand invocations low-level mocked."""
-
-  TARGET = 'chromite.lib.cros_build_lib'
-  ATTRS = ('RunCommand',)
-  DEFAULT_ATTR = 'RunCommand'
-
-  def RunCommand(self, cmd, *args, **kwargs):
-    result = self._results['RunCommand'].LookupResult(
-        (cmd,), kwargs=kwargs, hook_args=(cmd,) + args, hook_kwargs=kwargs)
-
-    popen_mock = PopenMock()
-    popen_mock.AddCmdResult(partial_mock.Ignore(), result.returncode,
-                            result.output, result.error)
-    with popen_mock:
-      return self.backup['RunCommand'](cmd, *args, **kwargs)
-
-
-class RunCommandTestCase(cros_test_lib.MockTestCase):
-  """MockTestCase that mocks out RunCommand by default."""
-
-  def setUp(self):
-    self.rc = self.StartPatcher(RunCommandMock())
-    self.rc.SetDefaultCmdResult()
-    self.assertCommandCalled = self.rc.assertCommandCalled
-    self.assertCommandContains = self.rc.assertCommandContains
-
-    # These ENV variables affect RunCommand behavior, hide them.
-    self._old_envs = {e: os.environ.pop(e) for e in constants.ENV_PASSTHRU
-                      if e in os.environ}
-
-  def tearDown(self):
-    # Restore hidden ENVs.
-    if hasattr(self, '_old_envs'):
-      os.environ.update(self._old_envs)
-
-
-class RunCommandTempDirTestCase(RunCommandTestCase,
-                                cros_test_lib.TempDirTestCase):
-  """Convenience class mixing TempDirTestCase and RunCommandTestCase"""
-
-
-class PopenMock(partial_mock.PartialCmdMock):
-  """Provides a context where all _Popen instances are low-level mocked."""
-
-  TARGET = 'chromite.lib.cros_build_lib._Popen'
-  ATTRS = ('__init__',)
-  DEFAULT_ATTR = '__init__'
-
-  def __init__(self):
-    partial_mock.PartialCmdMock.__init__(self, create_tempdir=True)
-
-  def _target__init__(self, inst, cmd, *args, **kwargs):
-    result = self._results['__init__'].LookupResult(
-        (cmd,), hook_args=(inst, cmd,) + args, hook_kwargs=kwargs)
-
-    script = os.path.join(self.tempdir, 'mock_cmd.sh')
-    stdout = os.path.join(self.tempdir, 'output')
-    stderr = os.path.join(self.tempdir, 'error')
-    osutils.WriteFile(stdout, result.output)
-    osutils.WriteFile(stderr, result.error)
-    osutils.WriteFile(
-        script,
-        ['#!/bin/bash\n', 'cat %s\n' % stdout, 'cat %s >&2\n' % stderr,
-         'exit %s' % result.returncode])
-    os.chmod(script, 0o700)
-    kwargs['cwd'] = self.tempdir
-    self.backup['__init__'](inst, [script, '--'] + cmd, *args, **kwargs)
-
-
 class TestRunCommandNoMock(cros_test_lib.TestCase):
   """Class that tests RunCommand by not mocking subprocess.Popen"""
 
@@ -724,6 +654,36 @@ class TestRunCommandOutput(cros_test_lib.TempDirTestCase,
       cros_build_lib.RunCommand(['cat', '/'], redirect_stderr=True)
     self.assertIsNotNone(cm.exception.result.error)
     self.assertNotEqual('', cm.exception.result.error)
+
+  def _CaptureLogOutput(self, cmd, **kwargs):
+    """Capture logging output of RunCommand."""
+    log = os.path.join(self.tempdir, 'output')
+    fh = logging.FileHandler(log)
+    fh.setLevel(logging.DEBUG)
+    logging.getLogger().addHandler(fh)
+    cros_build_lib.RunCommand(cmd, **kwargs)
+    logging.getLogger().removeHandler(fh)
+    return osutils.ReadFile(log)
+
+  @_ForceLoggingLevel
+  def testLogOutput(self):
+    """Normal log_output, stdout followed by stderr."""
+    cmd = 'echo Greece; echo Italy >&2; echo Spain'
+    log_output = ("RunCommand: /bin/bash -c "
+                  "'echo Greece; echo Italy >&2; echo Spain'\n"
+                  "(stdout):\nGreece\nSpain\n\n(stderr):\nItaly\n\n")
+    self.assertEquals(self._CaptureLogOutput(cmd, shell=True, log_output=True),
+                      log_output)
+
+  @_ForceLoggingLevel
+  def testStreamLog(self):
+    """Streaming log_output, stdout and stderr interwoven in order."""
+    cmd = 'echo Greece; echo Italy >&2; echo Spain'
+    log_output = ("RunCommand: /bin/bash -c "
+                  "'echo Greece; echo Italy >&2; echo Spain'\n"
+                  "(stdout/stderr):\n\nGreece\nItaly\nSpain\n")
+    self.assertEquals(self._CaptureLogOutput(cmd, shell=True, stream_log=True),
+                      log_output)
 
 
 class TestTimedSection(cros_test_lib.TestCase):
@@ -1500,7 +1460,7 @@ class FrozenAttributesTest(cros_test_lib.TestCase):
     self._TestBasics(Setattr)
 
 
-class TestGetIPv4Address(RunCommandTestCase):
+class TestGetIPv4Address(cros_test_lib.RunCommandTestCase):
   """Tests the GetIPv4Address function."""
 
   IP_GLOBAL_OUTPUT = """
@@ -1576,29 +1536,6 @@ class TestGetHostname(cros_test_lib.MockTestCase):
         fq_hostname=fq_hostname_gce_1, golo_only=True))
 
 
-class TestGetChrootVersion(cros_test_lib.MockTestCase):
-  """Tests GetChrootVersion functionality."""
-
-  def testSimpleBuildroot(self):
-    """Verify buildroot arg works"""
-    read_mock = self.PatchObject(osutils, 'ReadFile', return_value='12\n')
-    ret = cros_build_lib.GetChrootVersion(buildroot='/build/root')
-    self.assertEqual(ret, '12')
-    read_mock.assert_called_with('/build/root/chroot/etc/cros_chroot_version')
-
-  def testSimpleChroot(self):
-    """Verify chroot arg works"""
-    read_mock = self.PatchObject(osutils, 'ReadFile', return_value='70')
-    ret = cros_build_lib.GetChrootVersion(chroot='/ch/root')
-    self.assertEqual(ret, '70')
-    read_mock.assert_called_with('/ch/root/etc/cros_chroot_version')
-
-  def testNoChroot(self):
-    """Verify we don't blow up when there is no chroot yet"""
-    ret = cros_build_lib.GetChrootVersion(chroot='/.$om3/place/nowhere')
-    self.assertEqual(ret, None)
-
-
 class CollectionTest(cros_test_lib.TestCase):
   """Tests for Collection helper."""
 
@@ -1657,7 +1594,7 @@ class CollectionTest(cros_test_lib.TestCase):
     self.assertEqual("Collection_O(a=0, b='string', c={})", str(o))
 
 
-class GetImageDiskPartitionInfoTests(RunCommandTestCase):
+class GetImageDiskPartitionInfoTests(cros_test_lib.RunCommandTestCase):
   """Tests the GetImageDiskPartitionInfo function."""
 
   SAMPLE_PARTED = """/foo/chromiumos_qemu_image.bin:3360MB:file:512:512:gpt:;
@@ -1878,516 +1815,3 @@ class FailedCreateTarballTests(cros_test_lib.MockTestCase):
 
     self.assertEqual(self.mockRun.call_count, 2)
     self.assertEqual(cm.exception.args[1].returncode, 1)
-
-
-class TestFindVolumeGroupForDevice(cros_test_lib.MockTempDirTestCase):
-  """Tests the FindVolumeGroupForDevice function."""
-
-  def testExistingDevice(self):
-    with RunCommandMock() as rc_mock:
-      rc_mock.SetDefaultCmdResult(output='''
-  wrong_vg1\t/dev/sda1
-  test_vg\t/dev/loop1
-  wrong_vg2\t/dev/loop0
-''')
-      vg = cros_build_lib.FindVolumeGroupForDevice('/chroot', '/dev/loop1')
-      self.assertEqual(vg, 'test_vg')
-
-  def testNoMatchingVolumeGroup(self):
-    with RunCommandMock() as rc_mock:
-      rc_mock.SetDefaultCmdResult(output='''
-  wrong_vg1\t/dev/sda1
-  wrong_vg2\t/dev/loop0
-''')
-      vg = cros_build_lib.FindVolumeGroupForDevice('/chroot', '')
-      self.assertEqual(vg, 'cros_chroot_000')
-
-  def testPhysicalVolumeWithoutVolumeGroup(self):
-    with RunCommandMock() as rc_mock:
-      rc_mock.SetDefaultCmdResult(output='''
-  wrong_vg1\t/dev/sda1
-  \t/dev/loop0
-''')
-      vg = cros_build_lib.FindVolumeGroupForDevice('/chroot', '/dev/loop0')
-      self.assertEqual(vg, 'cros_chroot_000')
-
-  def testMatchingVolumeGroup(self):
-    with RunCommandMock() as rc_mock:
-      rc_mock.SetDefaultCmdResult(output='''
-  wrong_vg1\t/dev/sda1
-  cros_chroot_000\t/dev/loop1
-  wrong_vg2\t/dev/loop0
-''')
-      vg = cros_build_lib.FindVolumeGroupForDevice('/chroot', '')
-      self.assertEqual(vg, 'cros_chroot_001')
-
-  def testTooManyVolumeGroups(self):
-    with RunCommandMock() as rc_mock:
-      rc_mock.SetDefaultCmdResult(output='''
-  wrong_vg1\t/dev/sda1
-%s
-  wrong_vg2\t/dev/loop0
-''' % '\n'.join(['  cros_chroot_%03d\t/dev/any' % i for i in xrange(1000)]))
-      vg = cros_build_lib.FindVolumeGroupForDevice('/chroot', '')
-      self.assertIsNone(vg)
-
-  def testInvalidChars(self):
-    with RunCommandMock() as rc_mock:
-      rc_mock.SetDefaultCmdResult(output='''
-  wrong_vg1\t/dev/sda1
-  cros_chroot_000\t/dev/loop1
-  wrong_vg2\t/dev/loop0
-''')
-      vg = cros_build_lib.FindVolumeGroupForDevice(
-          '//full path /to& "my" /chroot', '')
-      self.assertEqual(vg, 'cros_full+path++to+++my+++chroot_000')
-
-  def testInvalidLines(self):
-    with RunCommandMock() as rc_mock:
-      rc_mock.SetDefaultCmdResult(output='''
-  \t/dev/sda1
-
-  wrong_vg2\t/dev/loop0\t
-''')
-      vg = cros_build_lib.FindVolumeGroupForDevice('/chroot', '')
-      self.assertEqual(vg, 'cros_chroot_000')
-
-
-class TestMountChroot(cros_test_lib.MockTempDirTestCase):
-  """Tests various partial setups for MountChroot."""
-
-  _VGS_LOOKUP = ['sudo', '--', 'vgs', partial_mock.Ignore()]
-  _VGCREATE = ['sudo', '--', 'vgcreate', '-q', partial_mock.Ignore(),
-               partial_mock.Ignore()]
-  _VGCHANGE = ['sudo', '--', 'vgchange', '-q', '-ay', partial_mock.Ignore()]
-  _LVS_LOOKUP = ['sudo', '--', 'lvs', partial_mock.Ignore()]
-  _LVCREATE = ['sudo', '--', 'lvcreate', '-q', '-L499G', '-T',
-               partial_mock.Ignore(), '-V500G', '-n', partial_mock.Ignore()]
-  _MKE2FS = ['sudo', '--', 'mke2fs', '-q', '-m', '0', '-t', 'ext4',
-             partial_mock.Ignore()]
-  _MOUNT = []  # Set correctly in setUp.
-  _LVM_FAILURE_CODE = 5  # Shell exit code when lvm commands fail.
-  _LVM_SUCCESS_CODE = 0  # Shell exit code when lvm commands succeed.
-
-  def _makeImageFile(self, chroot_img):
-    with open(chroot_img, 'w') as f:
-      f.seek(2**30)
-      f.write('\0')
-
-  def _mockFindVolumeGroupForDevice(self):
-    m = self.PatchObject(cros_build_lib, 'FindVolumeGroupForDevice')
-    m.return_value = 'cros_test_chroot_000'
-    return m
-
-  def _mockAttachDeviceToFile(self, loop_dev='loop0'):
-    m = self.PatchObject(cros_build_lib, '_AttachDeviceToFile')
-    m.return_value = '/dev/%s' % loop_dev
-    return m
-
-  def _mockDeviceFromFile(self, dev):
-    m = self.PatchObject(cros_build_lib, '_DeviceFromFile')
-    m.return_value = dev
-    return m
-
-  def setUp(self):
-    self.chroot_path = os.path.join(self.tempdir, 'chroot')
-    osutils.SafeMakedirsNonRoot(self.chroot_path)
-    self.chroot_img = self.chroot_path + '.img'
-
-    self._MOUNT = ['sudo', '--', 'mount', '-text4', '-onoatime',
-                   partial_mock.Ignore(), self.chroot_path]
-
-  def testFromScratch(self):
-    # Create the whole setup from nothing.
-    # Should call losetup, vgs, vgcreate, lvs, lvcreate, mke2fs, mount
-    m = self._mockFindVolumeGroupForDevice()
-    m2 = self._mockAttachDeviceToFile()
-
-    with RunCommandMock() as rc_mock:
-      rc_mock.AddCmdResult(self._VGS_LOOKUP, returncode=self._LVM_FAILURE_CODE)
-      rc_mock.AddCmdResult(self._VGCREATE, output='')
-      rc_mock.AddCmdResult(self._LVS_LOOKUP, returncode=self._LVM_FAILURE_CODE)
-      rc_mock.AddCmdResult(self._LVCREATE)
-      rc_mock.AddCmdResult(self._MKE2FS)
-      rc_mock.AddCmdResult(self._MOUNT)
-
-      success = cros_build_lib.MountChroot(self.chroot_path)
-      self.assertTrue(success)
-
-    m.assert_called_with(self.chroot_path, '/dev/loop0')
-    m2.assert_called_with(self.chroot_img)
-
-  def testMissingMount(self):
-    # Re-mount an image that has a loopback and VG active but isn't mounted.
-    # This can happen if the person unmounts the chroot or calls
-    # osutils.UmountTree() on the path.
-    # Should call losetup, vgchange, lvs, mount
-    self._makeImageFile(self.chroot_img)
-
-    m = self._mockFindVolumeGroupForDevice()
-    m2 = self._mockDeviceFromFile('/dev/loop1')
-
-    with RunCommandMock() as rc_mock:
-      rc_mock.AddCmdResult(self._VGS_LOOKUP, returncode=self._LVM_SUCCESS_CODE)
-      rc_mock.AddCmdResult(self._VGCHANGE)
-      rc_mock.AddCmdResult(self._LVS_LOOKUP, returncode=self._LVM_SUCCESS_CODE)
-      rc_mock.AddCmdResult(self._MOUNT)
-
-      success = cros_build_lib.MountChroot(self.chroot_path)
-      self.assertTrue(success)
-
-    m.assert_called_with(self.chroot_path, '/dev/loop1')
-    m2.assert_called_with(self.chroot_img)
-
-  def testImageAfterReboot(self):
-    # Re-mount an image that has everything setup, but doesn't have anything
-    # attached, e.g. after reboot.
-    # Should call losetup -j, losetup -f, vgs, vgchange, lvs, lvchange, mount
-    self._makeImageFile(self.chroot_img)
-
-    m = self._mockFindVolumeGroupForDevice()
-    m2 = self._mockDeviceFromFile('')
-    m3 = self._mockAttachDeviceToFile('loop1')
-
-    with RunCommandMock() as rc_mock:
-      rc_mock.AddCmdResult(self._VGS_LOOKUP, returncode=self._LVM_SUCCESS_CODE)
-      rc_mock.AddCmdResult(self._VGCHANGE)
-      rc_mock.AddCmdResult(self._LVS_LOOKUP, returncode=self._LVM_SUCCESS_CODE)
-      rc_mock.AddCmdResult(self._MOUNT)
-
-      success = cros_build_lib.MountChroot(self.chroot_path)
-      self.assertTrue(success)
-
-    m.assert_called_with(self.chroot_path, '/dev/loop1')
-    m2.assert_called_with(self.chroot_img)
-    m3.assert_called_with(self.chroot_img)
-
-  def testImagePresentNotSetup(self):
-    # Mount an image that is present but doesn't have anything set up.  This
-    # can't arise in normal usage, but could happen if cros_sdk crashes in the
-    # middle of setup.
-    # Should call losetup -j, losetup -f, vgs, vgcreate, lvs, lvcreate, mke2fs,
-    # mount
-    self._makeImageFile(self.chroot_img)
-
-    m = self._mockFindVolumeGroupForDevice()
-    m2 = self._mockAttachDeviceToFile()
-    m3 = self._mockDeviceFromFile('')
-
-    with RunCommandMock() as rc_mock:
-      rc_mock.AddCmdResult(self._VGS_LOOKUP, returncode=self._LVM_FAILURE_CODE)
-      rc_mock.AddCmdResult(self._VGCREATE)
-      rc_mock.AddCmdResult(self._LVS_LOOKUP, returncode=self._LVM_FAILURE_CODE)
-      rc_mock.AddCmdResult(self._LVCREATE)
-      rc_mock.AddCmdResult(self._MKE2FS)
-      rc_mock.AddCmdResult(self._MOUNT)
-
-      success = cros_build_lib.MountChroot(self.chroot_path)
-      self.assertTrue(success)
-
-    m.assert_called_with(self.chroot_path, '/dev/loop0')
-    m2.assert_called_with(self.chroot_img)
-    m3.assert_called_with(self.chroot_img)
-
-  def testImagePresentOnlyLoopbackSetup(self):
-    # Mount an image that is present and attached to a loopback device, but
-    # doesn't have anything else set up.  This can't arise in normal usage, but
-    # could happen if cros_sdk crashes in the middle of setup.
-    # Should call losetup, vgs, vgcreate, lvs, lvcreate, mke2fs, mount
-    self._makeImageFile(self.chroot_img)
-
-    m = self._mockFindVolumeGroupForDevice()
-    m2 = self._mockDeviceFromFile('/dev/loop0')
-
-    with RunCommandMock() as rc_mock:
-      rc_mock.AddCmdResult(self._VGS_LOOKUP, returncode=self._LVM_FAILURE_CODE)
-      rc_mock.AddCmdResult(self._VGCREATE)
-      rc_mock.AddCmdResult(self._LVS_LOOKUP, returncode=self._LVM_FAILURE_CODE)
-      rc_mock.AddCmdResult(self._LVCREATE)
-      rc_mock.AddCmdResult(self._MKE2FS)
-      rc_mock.AddCmdResult(self._MOUNT)
-
-      success = cros_build_lib.MountChroot(self.chroot_path)
-      self.assertTrue(success)
-
-    m.assert_called_with(self.chroot_path, '/dev/loop0')
-    m2.assert_called_with(self.chroot_img)
-
-  def testImagePresentOnlyVgSetup(self):
-    # Mount an image that is present, attached to a loopback device, and has a
-    # VG, but doesn't have anything else set up.  This can't arise in normal
-    # usage, but could happen if cros_sdk crashes in the middle of setup.
-    # Should call losetup, vgs, vgchange, lvs, lvcreate, mke2fs, mount
-    self._makeImageFile(self.chroot_img)
-
-    m = self._mockFindVolumeGroupForDevice()
-    m2 = self._mockDeviceFromFile('/dev/loop0')
-
-    with RunCommandMock() as rc_mock:
-      rc_mock.AddCmdResult(self._VGS_LOOKUP, returncode=self._LVM_SUCCESS_CODE)
-      rc_mock.AddCmdResult(self._VGCHANGE)
-      rc_mock.AddCmdResult(self._LVS_LOOKUP, returncode=self._LVM_FAILURE_CODE)
-      rc_mock.AddCmdResult(self._LVCREATE)
-      rc_mock.AddCmdResult(self._MKE2FS)
-      rc_mock.AddCmdResult(self._MOUNT)
-
-      success = cros_build_lib.MountChroot(self.chroot_path)
-      self.assertTrue(success)
-
-    m.assert_called_with(self.chroot_path, '/dev/loop0')
-    m2.assert_called_with(self.chroot_img)
-
-  def testMissingNoCreate(self):
-    # Chroot image isn't present, but create is False.
-    # Should return False without running any commands.
-    success = cros_build_lib.MountChroot(self.chroot_path, create=False)
-    self.assertFalse(success)
-
-  def testExistingChroot(self):
-    # Chroot version file exists in the chroot.
-    # Should return True without running any commands.
-    osutils.Touch(os.path.join(self.chroot_path, 'etc', 'cros_chroot_version'),
-                  makedirs=True)
-
-    success = cros_build_lib.MountChroot(self.chroot_path, create=False)
-    self.assertTrue(success)
-
-    success = cros_build_lib.MountChroot(self.chroot_path, create=True)
-    self.assertTrue(success)
-
-  def testEmptyChroot(self):
-    # Chroot mounted from proper image but without the version file present,
-    # e.g. if cros_sdk fails in the middle of populating the chroot.
-    # Should return True without running any commands.
-    proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
-    with open(proc_mounts, 'w') as f:
-      f.write('/dev/mapper/cros_test_000-chroot %s ext4 rw 0 0\n' %
-              self.chroot_path)
-
-    success = cros_build_lib.MountChroot(
-        self.chroot_path, create=False, proc_mounts=proc_mounts)
-    self.assertTrue(success)
-
-    success = cros_build_lib.MountChroot(
-        self.chroot_path, create=True, proc_mounts=proc_mounts)
-    self.assertTrue(success)
-
-  def testBadMount(self):
-    # Chroot with something else mounted on it.
-    # Should return False without running any commands.
-    proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
-    with open(proc_mounts, 'w') as f:
-      f.write('/dev/sda1 %s ext4 rw 0 0\n' % self.chroot_path)
-
-    success = cros_build_lib.MountChroot(
-        self.chroot_path, create=False, proc_mounts=proc_mounts)
-    self.assertFalse(success)
-
-    success = cros_build_lib.MountChroot(
-        self.chroot_path, create=True, proc_mounts=proc_mounts)
-    self.assertFalse(success)
-
-
-class TestFindChrootMountSource(cros_test_lib.MockTempDirTestCase):
-  """Tests the FindChrootMountSource function."""
-  def testNoMatchingMount(self):
-    proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
-    with open(proc_mounts, 'w') as f:
-      f.write('sysfs /sys sysfs rw 0 0\n')
-
-    vg, lv = cros_build_lib.FindChrootMountSource('/chroot',
-                                                  proc_mounts=proc_mounts)
-    self.assertIsNone(vg)
-    self.assertIsNone(lv)
-
-  def testMatchWrongName(self):
-    proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
-    with open(proc_mounts, 'w') as f:
-      f.write('/dev/sda1 /chroot ext4 rw 0 0\n')
-
-    vg, lv = cros_build_lib.FindChrootMountSource('/chroot',
-                                                  proc_mounts=proc_mounts)
-    self.assertIsNone(vg)
-    self.assertIsNone(lv)
-
-  def testMatchRightName(self):
-    proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
-    with open(proc_mounts, 'w') as f:
-      f.write('/dev/mapper/cros_vg_name-lv_name /chroot ext4 rw 0 0\n')
-
-    vg, lv = cros_build_lib.FindChrootMountSource('/chroot',
-                                                  proc_mounts=proc_mounts)
-    self.assertEqual(vg, 'cros_vg_name')
-    self.assertEqual(lv, 'lv_name')
-
-  def testMatchMultipleMounts(self):
-    proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
-    with open(proc_mounts, 'w') as f:
-      f.write('''/dev/mapper/cros_first_mount-lv_name /chroot ext4 rw 0 0
-/dev/mapper/cros_inner_mount-lv /chroot/inner ext4 rw 0 0
-/dev/mapper/cros_second_mount-lv_name /chroot ext4 rw 0 0
-''')
-
-    vg, lv = cros_build_lib.FindChrootMountSource('/chroot',
-                                                  proc_mounts=proc_mounts)
-    self.assertEqual(vg, 'cros_second_mount')
-    self.assertEqual(lv, 'lv_name')
-
-
-class TestCleanupChrootMount(cros_test_lib.MockTempDirTestCase):
-  """Tests the CleanupChrootMount function."""
-
-  _VGS_DEV_LOOKUP = ['sudo', '--', 'vgs', '-q', '--noheadings', '-o', 'pv_name',
-                     '--unbuffered', partial_mock.Ignore()]
-  _VGS_VG_LOOKUP = ['sudo', '--', 'vgs', partial_mock.Ignore()]
-  _LOSETUP_FIND = ['sudo', '--', 'losetup', '-j', partial_mock.Ignore()]
-  _LOSETUP_DETACH = ['sudo', '--', 'losetup', '-d', partial_mock.Ignore()]
-  _VGCHANGE_N = ['sudo', '--', 'vgchange', '-an', partial_mock.Ignore()]
-  _LVM_FAILURE_CODE = 5  # Shell exit code when lvm commands fail.
-  _LVM_SUCCESS_CODE = 0  # Shell exit code when lvm commands succeed.
-
-  def setUp(self):
-    self.chroot_path = os.path.join(self.tempdir, 'chroot')
-    osutils.SafeMakedirsNonRoot(self.chroot_path)
-    self.chroot_img = self.chroot_path + '.img'
-
-  def testMountedCleanup(self):
-    m = self.PatchObject(osutils, 'UmountTree')
-
-    proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
-    with open(proc_mounts, 'w') as f:
-      f.write('/dev/mapper/cros_vg_name-chroot %s ext4 rw 0 0\n' %
-              self.chroot_path)
-
-    with RunCommandMock() as rc_mock:
-      rc_mock.AddCmdResult(self._VGS_DEV_LOOKUP, output='  /dev/loop0')
-      rc_mock.AddCmdResult(self._VGCHANGE_N)
-      rc_mock.AddCmdResult(self._LOSETUP_DETACH)
-
-      cros_build_lib.CleanupChrootMount(
-          self.chroot_path, None, proc_mounts=proc_mounts)
-
-    m.assert_called_with(self.chroot_path)
-
-  def testMountedCleanupByBuildroot(self):
-    m = self.PatchObject(osutils, 'UmountTree')
-
-    proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
-    with open(proc_mounts, 'w') as f:
-      f.write('/dev/mapper/cros_vg_name-chroot %s ext4 rw 0 0\n' %
-              self.chroot_path)
-
-    with RunCommandMock() as rc_mock:
-      rc_mock.AddCmdResult(self._VGS_DEV_LOOKUP, output='  /dev/loop0')
-      rc_mock.AddCmdResult(self._VGCHANGE_N)
-      rc_mock.AddCmdResult(self._LOSETUP_DETACH)
-
-      cros_build_lib.CleanupChrootMount(
-          None, self.tempdir, proc_mounts=proc_mounts)
-
-    m.assert_called_with(self.chroot_path)
-
-  def testMountedCleanupWithDelete(self):
-    m = self.PatchObject(osutils, 'UmountTree')
-    m2 = self.PatchObject(osutils, 'SafeUnlink')
-
-    proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
-    with open(proc_mounts, 'w') as f:
-      f.write('/dev/mapper/cros_vg_name-chroot %s ext4 rw 0 0\n' %
-              self.chroot_path)
-
-    with RunCommandMock() as rc_mock:
-      rc_mock.AddCmdResult(self._VGS_DEV_LOOKUP, output='  /dev/loop0')
-      rc_mock.AddCmdResult(self._VGCHANGE_N)
-      rc_mock.AddCmdResult(self._LOSETUP_DETACH)
-
-      cros_build_lib.CleanupChrootMount(
-          self.chroot_path, None, delete_image=True, proc_mounts=proc_mounts)
-
-    m.assert_called_with(self.chroot_path)
-    m2.assert_called_with(self.chroot_img)
-
-  def testUnmountedCleanup(self):
-    m = self.PatchObject(osutils, 'UmountTree')
-    m2 = self.PatchObject(cros_build_lib, 'FindVolumeGroupForDevice')
-    m2.return_value = 'cros_chroot_001'
-
-    proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
-    with open(proc_mounts, 'w') as f:
-      f.write('sysfs /sys sysfs rw 0 0\n')
-
-    with RunCommandMock() as rc_mock:
-      rc_mock.AddCmdResult(self._LOSETUP_FIND, output='/dev/loop1')
-      rc_mock.AddCmdResult(self._VGS_VG_LOOKUP,
-                           returncode=self._LVM_SUCCESS_CODE)
-      rc_mock.AddCmdResult(self._VGCHANGE_N)
-      rc_mock.AddCmdResult(self._LOSETUP_DETACH)
-
-      cros_build_lib.CleanupChrootMount(
-          self.chroot_path, None, proc_mounts=proc_mounts)
-
-    m.assert_called_with(self.chroot_path)
-    m2.assert_called_with(self.chroot_path, '/dev/loop1')
-
-  def testDevOnlyCleanup(self):
-    m = self.PatchObject(osutils, 'UmountTree')
-    m2 = self.PatchObject(cros_build_lib, 'FindVolumeGroupForDevice')
-    m2.return_value = 'cros_chroot_001'
-
-    proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
-    with open(proc_mounts, 'w') as f:
-      f.write('sysfs /sys sysfs rw 0 0\n')
-
-    with RunCommandMock() as rc_mock:
-      rc_mock.AddCmdResult(self._LOSETUP_FIND, output='/dev/loop1')
-      rc_mock.AddCmdResult(self._VGS_VG_LOOKUP,
-                           returncode=self._LVM_FAILURE_CODE)
-      rc_mock.AddCmdResult(self._LOSETUP_DETACH)
-
-      cros_build_lib.CleanupChrootMount(
-          self.chroot_path, None, proc_mounts=proc_mounts)
-
-    m.assert_called_with(self.chroot_path)
-    m2.assert_called_with(self.chroot_path, '/dev/loop1')
-
-  def testNothingCleanup(self):
-    m = self.PatchObject(osutils, 'UmountTree')
-    m2 = self.PatchObject(cros_build_lib, 'FindVolumeGroupForDevice')
-    m2.return_value = 'cros_chroot_001'
-
-    proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
-    with open(proc_mounts, 'w') as f:
-      f.write('sysfs /sys sysfs rw 0 0\n')
-
-    with RunCommandMock() as rc_mock:
-      rc_mock.AddCmdResult(self._LOSETUP_FIND, returncode=1)
-      rc_mock.AddCmdResult(self._VGS_VG_LOOKUP,
-                           returncode=self._LVM_FAILURE_CODE)
-
-      cros_build_lib.CleanupChrootMount(
-          self.chroot_path, None, proc_mounts=proc_mounts)
-
-    m.assert_called_with(self.chroot_path)
-    m2.assert_called_with(self.chroot_path, None)
-
-  def testNothingCleanupWithDelete(self):
-    m = self.PatchObject(osutils, 'UmountTree')
-    m2 = self.PatchObject(cros_build_lib, 'FindVolumeGroupForDevice')
-    m2.return_value = 'cros_chroot_001'
-    m3 = self.PatchObject(osutils, 'SafeUnlink')
-
-    proc_mounts = os.path.join(self.tempdir, 'proc_mounts')
-    with open(proc_mounts, 'w') as f:
-      f.write('sysfs /sys sysfs rw 0 0\n')
-
-    with RunCommandMock() as rc_mock:
-      rc_mock.AddCmdResult(self._LOSETUP_FIND, returncode=1)
-      rc_mock.AddCmdResult(self._VGS_VG_LOOKUP,
-                           returncode=self._LVM_FAILURE_CODE)
-
-      cros_build_lib.CleanupChrootMount(
-          self.chroot_path, None, delete_image=True, proc_mounts=proc_mounts)
-
-    m.assert_called_with(self.chroot_path)
-    m2.assert_called_with(self.chroot_path, None)
-    m3.assert_called_with(self.chroot_img)

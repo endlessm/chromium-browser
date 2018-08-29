@@ -38,8 +38,6 @@ class Grid : public Rect {
     ~Renderer() override;
 
     void Draw(const gfx::Transform& model_view_proj_matrix,
-              SkColor edge_color,
-              SkColor center_color,
               SkColor grid_color,
               int gridline_count,
               float opacity);
@@ -48,9 +46,6 @@ class Grid : public Rect {
 
    private:
     GLuint model_view_proj_matrix_handle_;
-    GLuint scene_radius_handle_;
-    GLuint center_color_handle_;
-    GLuint edge_color_handle_;
     GLuint grid_color_handle_;
     GLuint opacity_handle_;
     GLuint lines_count_handle_;

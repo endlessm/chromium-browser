@@ -13,7 +13,7 @@
 <translation id="1165039591588034296">లోపం</translation>
 <translation id="1172898394251786223">తదుపరి ఫీల్డ్</translation>
 <translation id="1176932207622159128">చిత్రాన్ని సేవ్ చేయడం సాధ్యపడదు</translation>
-<translation id="1181037720776840403">తొలగించు</translation>
+<translation id="1181037720776840403">తీసివేయి</translation>
 <translation id="1201530049782216880">కొత్త అజ్ఞాత ట్యాబ్</translation>
 <translation id="1209206284964581585">ప్రస్తుతానికి దాచు</translation>
 <translation id="1219674500290482172">ఇంటర్నెట్‌కు కనెక్ట్ చేయడం సాధ్యపడలేదు.</translation>
@@ -81,6 +81,7 @@
 <translation id="2381405137052800939">ప్రాథమికాలు</translation>
 <translation id="2386793615875593361">1 ఎంచుకోబడింది</translation>
 <translation id="2435457462613246316">పాస్‌వర్డ్‌ను చూపించు</translation>
+<translation id="2481538920734869610">ఖాతాను జోడించు</translation>
 <translation id="2523363575747517183">ఈ వెబ్‌సైట్ మరో అప్లికేషన్‌ను తెరవడానికి పలుసార్లు ప్రయత్నిస్తోంది.</translation>
 <translation id="2529021024822217800">అన్నీ తెరువు</translation>
 <translation id="2572712655377361602">ఒక పరికర విధానం మీ ఫోటోలకు ప్రాప్యతను బ్లాక్ చేసింది</translation>
@@ -112,6 +113,7 @@
 <translation id="2909437209446960244">ఇటీవలి ట్యాబ్‌లు</translation>
 <translation id="291754862089661335">QR కోడ్‌ను లేదా బార్‌కోడ్‌ను ఈ ఫ్రేమ్‌లో ఉంచండి</translation>
 <translation id="2921219216347069551">పేజీ భాగస్వామ్యం సాధ్యపడలేదు</translation>
+<translation id="2923448633003185837">పేస్ట్ చేసి, ముందుకు వెళ్ళండి</translation>
 <translation id="292639812446257861">చదవనట్లు గుర్తు పెట్టు</translation>
 <translation id="2933759065870693102">టార్చ్</translation>
 <translation id="2969979262385602596">సైన్ ఇన్ చేయడం విఫలమైంది. దయచేసి తర్వాత మళ్లీ ప్రయత్నించండి.</translation>
@@ -131,6 +133,7 @@
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="NUM_SUGGESTIONS" />లో <ph name="INDEX" /></translation>
 <translation id="3268451620468152448">ఓపెన్ టాబ్‌లు</translation>
 <translation id="3277021493514034324">సైట్ చిరునామా కాపీ చేయబడింది</translation>
+<translation id="3290875554372353449">ఖాతాను ఎంచుకోండి</translation>
 <translation id="3324193307694657476">చిరునామా 2</translation>
 <translation id="3329904751041170572">సర్వర్‌కు కనెక్ట్ చేయడం సాధ్యపడలేదు.</translation>
 <translation id="3335947283844343239">మూసిన ట్యాబ్‌ను మళ్ళీ తెరువు</translation>
@@ -151,6 +154,7 @@
 <translation id="3588820906588687999">చిత్రాన్ని కొత్త ట్యాబ్‌లో తెరువు</translation>
 <translation id="3603009562372709545">లింక్ URLని కాపీ చేయి</translation>
 <translation id="3607167657931203000">స్వీయపూర్తి డేటా</translation>
+<translation id="3609785682760573515">సమకాలీకరిస్తోంది...</translation>
 <translation id="3628119975092896051">మీ పఠన జాబితా ఆఫ్‌లైన్‌లో అందుబాటులో ఉంది. మీ పఠన జాబితాకు పేజీని జోడించడానికి, <ph name="SHARE_OPENING_ICON" />ని నొక్కండి.</translation>
 <translation id="3638472932233958418">వెబ్‌పేజీలను ముందే లోడ్ చేయి</translation>
 <translation id="3691593122358196899"><ph name="FOLDER_TITLE" />కి బుక్‌మార్క్ చేయబడింది</translation>
@@ -171,6 +175,7 @@
 <translation id="4049507953662678203">మీకు నెట్‌వర్క్ కనెక్షన్ ఉందని నిర్ధారించుకుని, ఆపై మళ్లీ ప్రయత్నించండి.</translation>
 <translation id="4084682180776658562">బుక్‌మార్క్ చెయ్యి</translation>
 <translation id="411254640334432676">డౌన్‌లోడ్ చేయడం విఫలమైంది.</translation>
+<translation id="4112644173421521737">శోధన</translation>
 <translation id="4121993058175073134">నికర ఎగుమతి డేటాను పంపడానికి, దయచేసి సెట్టింగ్‌ల అనువర్తనంలో మీ ఇమెయిల్ ఖాతాను కాన్ఫిగర్ చేయండి.</translation>
 <translation id="4124987746317609294">సమయ పరిధి</translation>
 <translation id="4172051516777682613">ఎల్లప్పుడూ చూపు</translation>
@@ -338,10 +343,12 @@
 <translation id="7159472599653637159">మొబైల్ సైట్‌ని అభ్యర్థించు</translation>
 <translation id="7167621057293532233">డేటా రకాలు</translation>
 <translation id="7175593937868963913">ఇమెయిల్‌ను వ్రాయండి</translation>
+<translation id="7180611975245234373">రీఫ్రెష్ చేయి</translation>
 <translation id="7189598951263744875">భాగస్వామ్యం చేయి...</translation>
 <translation id="7203585745079012652">సమాధానాలను చదివి వినిపించు</translation>
 <translation id="722055596168483966">Google సేవలను వ్యక్తిగతీకరించండి</translation>
 <translation id="7272437679830969316">మీ గుర్తింపును ధృవీకరించడం సాధ్యపడలేదు. పాస్‌వర్డ్ కాపీ చేయబడలేదు.</translation>
+<translation id="7285236536143823449">సరే, నాకు సమ్మతమే</translation>
 <translation id="7291368939935408496">పాస్‌వర్డ్‌లను సిద్ధం చేస్తోంది...</translation>
 <translation id="7336264872878993241"><ph name="PERCENT" /> శాతం డౌన్‌లోడ్ అయ్యింది</translation>
 <translation id="7346909386216857016">సరే, అర్థమైంది</translation>
@@ -356,6 +363,7 @@
 <translation id="750493650310597496">0 ఎంచుకోబడ్డాయి</translation>
 <translation id="7514365320538308">డౌన్‌లోడ్ చేయి</translation>
 <translation id="7537586195939242955">క్షమించండి, ఈ సమయంలో పాస్‌బుక్‌కు మీ పాస్‌ను ఇన్‌స్టాల్ చేయడం సాధ్యపడదు.</translation>
+<translation id="7554791636758816595">కొత్త ట్యాబ్</translation>
 <translation id="7561196759112975576">ఎల్లప్పుడూ</translation>
 <translation id="7603852183842204213">పాప్-అప్‌లు బ్లాక్ చేయబడ్డాయి (<ph name="NUMBER_OF_BLOCKED_POPUPS" />)</translation>
 <translation id="7605594153474022051">సమకాలీకరణ పని చేయడం లేదు</translation>

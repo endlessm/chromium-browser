@@ -10,7 +10,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/extension_uninstall_dialog.h"
-#include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/harmony/chrome_layout_provider.h"
@@ -118,6 +117,7 @@ class ExtensionUninstallDialogDelegateView
 
   ExtensionUninstallDialogViews* dialog_;
   const base::string16 extension_name_;
+  const bool is_bubble_;
 
   views::Label* heading_;
   views::Checkbox* report_abuse_checkbox_;
@@ -188,6 +188,7 @@ ExtensionUninstallDialogDelegateView::ExtensionUninstallDialogDelegateView(
                                            : views::BubbleBorder::NONE),
       dialog_(dialog_view),
       extension_name_(base::UTF8ToUTF16(extension->name())),
+      is_bubble_(anchor_view != nullptr),
       report_abuse_checkbox_(nullptr),
       image_(gfx::ImageSkiaOperations::CreateResizedImage(
           *image,
@@ -278,7 +279,8 @@ bool ExtensionUninstallDialogDelegateView::Cancel() {
 
 gfx::Size ExtensionUninstallDialogDelegateView::CalculatePreferredSize() const {
   const int width = ChromeLayoutProvider::Get()->GetDistanceMetric(
-                        DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH) -
+                        is_bubble_ ? DISTANCE_BUBBLE_PREFERRED_WIDTH
+                                   : DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH) -
                     margins().width();
   return gfx::Size(width, GetHeightForWidth(width));
 }

@@ -10,6 +10,11 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/views/widget/widget.h"
 
+namespace views {
+class ImageButton;
+class ToggleImageButton;
+}  // namespace views
+
 // The Chrome desktop implementation of OverlayWindow. This will only be
 // implemented in views, which will support all desktop platforms.
 class OverlayWindowViews : public content::OverlayWindow, public views::Widget {
@@ -20,13 +25,20 @@ class OverlayWindowViews : public content::OverlayWindow, public views::Widget {
 
   // OverlayWindow:
   bool IsActive() const override;
-  void Show() override;
   void Close() override;
+  void Show() override;
+  void Hide() override;
   bool IsVisible() const override;
   bool IsAlwaysOnTop() const override;
   ui::Layer* GetLayer() override;
   gfx::Rect GetBounds() const override;
   void UpdateVideoSize(const gfx::Size& natural_size) override;
+  ui::Layer* GetVideoLayer() override;
+  ui::Layer* GetControlsBackgroundLayer() override;
+  ui::Layer* GetCloseControlsLayer() override;
+  ui::Layer* GetPlayPauseControlsLayer() override;
+  gfx::Rect GetCloseControlsBounds() override;
+  gfx::Rect GetPlayPauseControlsBounds() override;
 
   // views::Widget:
   gfx::Size GetMinimumSize() const override;
@@ -34,12 +46,23 @@ class OverlayWindowViews : public content::OverlayWindow, public views::Widget {
   void OnNativeWidgetWorkspaceChanged() override;
   void OnMouseEvent(ui::MouseEvent* event) override;
 
+  // views::internal::NativeWidgetDelegate:
+  void OnNativeWidgetMove() override;
+  void OnNativeWidgetSizeChanged(const gfx::Size& new_size) override;
+
  private:
   // Determine the intended bounds of |this|. This should be called when there
   // is reason for the bounds to change, such as switching primary displays or
   // playing a new video (i.e. different aspect ratio). This also updates
   // |min_size_| and |max_size_|.
   gfx::Rect CalculateAndUpdateBounds();
+
+  // Set up the views::Views that will be shown on the window.
+  void SetUpViews();
+
+  // Update |current_size_| closest to the |new_size| while adhering to the
+  // aspect ratio of the video, which is retrieved from |natural_size_|.
+  void UpdateCurrentSizeWithAspectRatio(gfx::Size new_size);
 
   // Not owned; |controller_| owns |this|.
   content::PictureInPictureWindowController* controller_;
@@ -51,12 +74,18 @@ class OverlayWindowViews : public content::OverlayWindow, public views::Widget {
   gfx::Size min_size_;
   gfx::Size max_size_;
 
-  // Current size of the Picture-in-Picture window.
-  gfx::Size current_size_;
+  // Current bounds of the Picture-in-Picture window.
+  gfx::Rect current_bounds_;
 
   // The natural size of the video to show. This is used to compute sizing and
   // ensuring factors such as aspect ratio is maintained.
   gfx::Size natural_size_;
+
+  // Views to be shown.
+  std::unique_ptr<views::View> video_view_;
+  std::unique_ptr<views::View> controls_background_view_;
+  std::unique_ptr<views::ImageButton> close_controls_view_;
+  std::unique_ptr<views::ToggleImageButton> play_pause_controls_view_;
 
   DISALLOW_COPY_AND_ASSIGN(OverlayWindowViews);
 };

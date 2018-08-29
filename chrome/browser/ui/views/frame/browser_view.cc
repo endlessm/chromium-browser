@@ -64,6 +64,7 @@
 #include "chrome/browser/ui/views/autofill/save_card_icon_view.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bubble_view.h"
+#include "chrome/browser/ui/views/confirm_quit_bubble_controller.h"
 #include "chrome/browser/ui/views/download/download_in_progress_dialog_view.h"
 #include "chrome/browser/ui/views/download/download_shelf_view.h"
 #include "chrome/browser/ui/views/exclusive_access_bubble_views.h"
@@ -82,6 +83,7 @@
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/location_bar/star_view.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_view_views.h"
+#include "chrome/browser/ui/views/page_action/page_action_icon_container_view.h"
 #include "chrome/browser/ui/views/profiles/profile_indicator_icon.h"
 #include "chrome/browser/ui/views/status_bubble_views.h"
 #include "chrome/browser/ui/views/tab_contents/chrome_web_contents_view_focus_helper.h"
@@ -95,6 +97,7 @@
 #include "chrome/browser/ui/views/update_recommended_message_box.h"
 #include "chrome/browser/ui/window_sizer/window_sizer.h"
 #include "chrome/common/channel_info.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/command.h"
 #include "chrome/common/pref_names.h"
@@ -139,6 +142,7 @@
 #include "ui/views/controls/button/menu_button.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/controls/webview/webview.h"
+#include "ui/views/event_monitor.h"
 #include "ui/views/focus/external_focus_tracker.h"
 #include "ui/views/layout/grid_layout.h"
 #include "ui/views/widget/native_widget.h"
@@ -896,7 +900,8 @@ void BrowserView::ExitFullscreen() {
 void BrowserView::UpdateExclusiveAccessExitBubbleContent(
     const GURL& url,
     ExclusiveAccessBubbleType bubble_type,
-    ExclusiveAccessBubbleHideCallback bubble_first_hide_callback) {
+    ExclusiveAccessBubbleHideCallback bubble_first_hide_callback,
+    bool force_update) {
   // Immersive mode has no exit bubble because it has a visible strip at the
   // top that gives the user a hover target. In a public session we show the
   // bubble.
@@ -916,7 +921,7 @@ void BrowserView::UpdateExclusiveAccessExitBubbleContent(
 
   if (exclusive_access_bubble_) {
     exclusive_access_bubble_->UpdateContent(
-        url, bubble_type, std::move(bubble_first_hide_callback));
+        url, bubble_type, std::move(bubble_first_hide_callback), force_update);
     return;
   }
 
@@ -960,6 +965,10 @@ void BrowserView::SetToolbarButtonProvider(ToolbarButtonProvider* provider) {
   // There should only be one toolbar button provider.
   DCHECK(!toolbar_button_provider_);
   toolbar_button_provider_ = provider;
+}
+
+PageActionIconContainer* BrowserView::GetPageActionIconContainer() {
+  return toolbar_button_provider_->GetPageActionIconContainerView();
 }
 
 LocationBar* BrowserView::GetLocationBar() const {
@@ -1156,8 +1165,10 @@ void BrowserView::ShowUpdateChromeDialog() {
 #if defined(OS_CHROMEOS)
 void BrowserView::ShowIntentPickerBubble(
     std::vector<IntentPickerBubbleView::AppInfo> app_info,
+    bool disable_stay_in_chrome,
     IntentPickerResponse callback) {
-  toolbar_->ShowIntentPickerBubble(std::move(app_info), std::move(callback));
+  toolbar_->ShowIntentPickerBubble(std::move(app_info), disable_stay_in_chrome,
+                                   std::move(callback));
 }
 
 void BrowserView::SetIntentPickerViewVisibility(bool visible) {
@@ -1183,7 +1194,7 @@ autofill::SaveCardBubbleView* BrowserView::ShowSaveCreditCardBubble(
     autofill::SaveCardBubbleController* controller,
     bool user_gesture) {
   LocationBarView* location_bar = GetLocationBarView();
-  BubbleIconView* card_view = location_bar->save_credit_card_icon_view();
+  PageActionIconView* card_view = location_bar->save_credit_card_icon_view();
 
   views::View* anchor_view = location_bar;
   if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
@@ -1321,6 +1332,14 @@ content::KeyboardEventProcessingResult BrowserView::PreHandleKeyboardEvent(
     // in content/renderer/render_widget.cc for details.
     return content::KeyboardEventProcessingResult::NOT_HANDLED;
   }
+
+#if defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+  if (base::FeatureList::IsEnabled(features::kWarnBeforeQuitting) &&
+      ConfirmQuitBubbleController::GetInstance()->HandleKeyboardEvent(
+          accelerator)) {
+    return content::KeyboardEventProcessingResult::HANDLED_WANTS_KEY_UP;
+  }
+#endif  // defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
 
 #if defined(OS_CHROMEOS)
   if (ash_util::IsAcceleratorDeprecated(accelerator)) {
@@ -1474,11 +1493,10 @@ void BrowserView::TabInsertedAt(TabStripModel* tab_strip_model,
   web_contents_close_handler_->TabInserted();
 }
 
-void BrowserView::TabDetachedAt(WebContents* contents, int index) {
-  // We use index here rather than comparing |contents| because by this time
-  // the model has already removed |contents| from its list, so
-  // browser_->GetActiveWebContents() will return null or something else.
-  if (index == browser_->tab_strip_model()->active_index()) {
+void BrowserView::TabDetachedAt(WebContents* contents,
+                                int index,
+                                bool was_active) {
+  if (was_active) {
     // We need to reset the current tab contents to null before it gets
     // freed. This is because the focus manager performs some operations
     // on the selected WebContents when it is removed.
@@ -1655,12 +1673,8 @@ void BrowserView::NativeThemeUpdated(const ui::NativeTheme* theme) {
 
 FullscreenControlHost* BrowserView::GetFullscreenControlHost() {
   if (!fullscreen_control_host_) {
-    // This is a do-nothing view that controls the z-order of the fullscreen
-    // control host. See DropdownBarHost::SetHostViewNative() for more details.
-    auto fullscreen_exit_host_view = std::make_unique<views::View>();
-    fullscreen_control_host_ = std::make_unique<FullscreenControlHost>(
-        this, fullscreen_exit_host_view.get());
-    AddChildView(fullscreen_exit_host_view.release());
+    fullscreen_control_host_ =
+        std::make_unique<FullscreenControlHost>(this, this);
   }
 
   return fullscreen_control_host_.get();
@@ -1804,13 +1818,13 @@ void BrowserView::OnWidgetDestroying(views::Widget* widget) {
   // Destroy any remaining WebContents early on. Doing so may result in
   // calling back to one of the Views/LayoutManagers or supporting classes of
   // BrowserView. By destroying here we ensure all said classes are valid.
-  std::vector<content::WebContents*> contents;
+  std::vector<std::unique_ptr<content::WebContents>> contents;
   while (browser()->tab_strip_model()->count())
     contents.push_back(browser()->tab_strip_model()->DetachWebContentsAt(0));
   // Note: The BrowserViewTest tests rely on the contents being destroyed in the
   // order that they were present in the tab strip.
-  for (auto* content : contents)
-    delete content;
+  for (auto& content : contents)
+    content.reset();
 }
 
 void BrowserView::OnWidgetActivationChanged(views::Widget* widget,
@@ -2088,6 +2102,14 @@ void BrowserView::OnThemeChanged() {
 // BrowserView, ui::AcceleratorTarget overrides:
 
 bool BrowserView::AcceleratorPressed(const ui::Accelerator& accelerator) {
+#if defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+  if (base::FeatureList::IsEnabled(features::kWarnBeforeQuitting) &&
+      ConfirmQuitBubbleController::GetInstance()->HandleKeyboardEvent(
+          accelerator)) {
+    return true;
+  }
+#endif  // defined(OS_WIN) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+
   int command_id;
   // Though AcceleratorManager should not send unknown |accelerator| to us, it's
   // still possible the command cannot be executed now.
@@ -2400,12 +2422,16 @@ void BrowserView::ProcessFullscreen(bool fullscreen,
     if (GetLocationBarView()->Contains(focus_manager->GetFocusedView()))
       focus_manager->ClearFocus();
 
-#if defined(USE_AURA)
     if (FullscreenControlHost::IsFullscreenExitUIEnabled()) {
+#if defined(USE_AURA)
       frame_->GetNativeView()->AddPreTargetHandler(
           GetFullscreenControlHost(), ui::EventTarget::Priority::kSystem);
-    }
+#else
+      fullscreen_control_host_event_monitor_ =
+          views::EventMonitor::CreateWindowMonitor(GetFullscreenControlHost(),
+                                                   GetNativeWindow());
 #endif
+    }
   } else {
     // Hide the fullscreen bubble as soon as possible, since the mode toggle can
     // take enough time for the user to notice.
@@ -2417,6 +2443,8 @@ void BrowserView::ProcessFullscreen(bool fullscreen,
       auto* native_view = frame_->GetNativeView();
       if (native_view)
         native_view->RemovePreTargetHandler(fullscreen_control_host_.get());
+#else
+      fullscreen_control_host_event_monitor_.reset();
 #endif
     }
   }
@@ -2436,7 +2464,8 @@ void BrowserView::ProcessFullscreen(bool fullscreen,
 
   if (fullscreen && !chrome::IsRunningInAppMode()) {
     UpdateExclusiveAccessExitBubbleContent(url, bubble_type,
-                                           ExclusiveAccessBubbleHideCallback());
+                                           ExclusiveAccessBubbleHideCallback(),
+                                           /*force_update=*/false);
   }
 
   // Undo our anti-jankiness hacks and force a re-layout.
@@ -2706,6 +2735,10 @@ void BrowserView::HideDownloadShelf() {
   StatusBubble* status_bubble = GetStatusBubble();
   if (status_bubble)
     status_bubble->Hide();
+}
+
+ExclusiveAccessBubbleViews* BrowserView::GetExclusiveAccessBubble() {
+  return exclusive_access_bubble();
 }
 
 ///////////////////////////////////////////////////////////////////////////////

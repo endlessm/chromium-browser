@@ -16,6 +16,7 @@ import org.junit.runner.RunWith;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.browsing_data.BrowsingDataType;
@@ -55,8 +56,7 @@ public class UkmTest {
     public String getElementContent(Tab normalTab, String elementId) throws Exception {
         mActivityTestRule.loadUrlInTab(
                 DEBUG_PAGE, PageTransition.TYPED | PageTransition.FROM_ADDRESS_BAR, normalTab);
-        return JavaScriptUtils.executeJavaScriptAndWaitForResult(
-                normalTab.getContentViewCore().getWebContents(),
+        return JavaScriptUtils.executeJavaScriptAndWaitForResult(normalTab.getWebContents(),
                 "document.getElementById('" + elementId + "').textContent");
     }
 
@@ -96,7 +96,7 @@ public class UkmTest {
 
     @Test
     @SmallTest
-    @RetryOnFailure
+    @DisabledTest // TODO(https://crbug.com/842999): Reenable after unflaking.
     public void testRegularPlusIncognitoCheck() throws Exception {
         // Keep in sync with UkmBrowserTest.RegularPlusIncognitoCheck in
         // chrome/browser/metrics/ukm_browsertest.cc.

@@ -137,11 +137,9 @@ class OmniboxEditModel {
   // Invoked to adjust the text before writting to the clipboard for a copy
   // (e.g. by adding 'http' to the front). |sel_min| gives the minimum position
   // of the selection e.g. min(selection_start, selection_end). |text| is the
-  // currently selected text. If |is_all_selected| is true all the text in the
-  // edit is selected. If the url should be copied to the clipboard |write_url|
-  // is set to true and |url_from_text| set to the url to write.
+  // currently selected text. If the url should be copied to the clipboard
+  // |write_url| is set to true and |url_from_text| set to the url to write.
   void AdjustTextForCopy(int sel_min,
-                         bool is_all_selected,
                          base::string16* text,
                          GURL* url_from_text,
                          bool* write_url);
@@ -195,9 +193,8 @@ class OmniboxEditModel {
   // Navigates to the destination last supplied to CanPasteAndGo.
   void PasteAndGo(const base::string16& text);
 
-  // Returns true if this is a paste-and-search rather than paste-and-go (or
-  // nothing).
-  bool IsPasteAndSearch(const base::string16& text) const;
+  // Returns true if |text| classifies as a Search rather than a URL.
+  bool ClassifiesAsSearch(const base::string16& text) const;
 
   // Asks the browser to load the popup's currently selected item, using the
   // supplied disposition.  This may close the popup. If |for_drop| is true,
@@ -351,6 +348,9 @@ class OmniboxEditModel {
   // Called when the current match has changed in the OmniboxController.
   void OnCurrentMatchChanged();
 
+  // Used for testing purposes only.
+  base::string16 GetUserTextForTesting() const { return user_text_; }
+
   // Name of the histogram tracking cut or copy omnibox commands.
   static const char kCutOrCopyAllTextHistogram[];
 
@@ -442,9 +442,9 @@ class OmniboxEditModel {
 
   // Sets |match| and |alternate_nav_url| based on classifying |text|.
   // |alternate_nav_url| may be NULL.
-  void ClassifyStringForPasteAndGo(const base::string16& text,
-                                   AutocompleteMatch* match,
-                                   GURL* alternate_nav_url) const;
+  void ClassifyString(const base::string16& text,
+                      AutocompleteMatch* match,
+                      GURL* alternate_nav_url) const;
 
   // Sets the state of user_input_in_progress_. Returns whether said state
   // changed, so that the caller can evoke NotifyObserversInputInProgress().

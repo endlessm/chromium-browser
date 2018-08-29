@@ -16,7 +16,6 @@
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/observer_list.h"
 #include "base/optional.h"
 #include "chromeos/chromeos_switches.h"
@@ -416,6 +415,21 @@ class CryptohomeClientImpl : public CryptohomeClient {
         cryptohome::kCryptohomeInterface,
         cryptohome::kCryptohomeTpmIsAttestationPrepared);
     return CallBoolMethod(&method_call, std::move(callback));
+  }
+
+  // CryptohomeClient override.
+  void TpmAttestationGetEnrollmentId(
+      bool ignore_cache,
+      DBusMethodCallback<TpmAttestationDataResult> callback) override {
+    dbus::MethodCall method_call(
+        cryptohome::kCryptohomeInterface,
+        cryptohome::kCryptohomeTpmAttestationGetEnrollmentId);
+    dbus::MessageWriter writer(&method_call);
+    writer.AppendBool(ignore_cache);
+    proxy_->CallMethod(
+        &method_call, kTpmDBusTimeoutMs,
+        base::BindOnce(&CryptohomeClientImpl::OnTpmAttestationDataMethod,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   // CryptohomeClient override.
@@ -909,6 +923,13 @@ class CryptohomeClientImpl : public CryptohomeClient {
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
         base::BindOnce(&CryptohomeClientImpl::OnBoolMethod,
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+  }
+
+  void GetSupportedKeyPolicies(
+      const cryptohome::GetSupportedKeyPoliciesRequest& request,
+      DBusMethodCallback<cryptohome::BaseReply> callback) override {
+    CallCryptohomeMethod(cryptohome::kCryptohomeGetSupportedKeyPolicies,
+                         request, std::move(callback));
   }
 
  protected:

@@ -66,6 +66,7 @@ void MCWasmStreamer::ChangeSection(MCSection *Section,
     Asm.registerSymbol(*Grp);
 
   this->MCObjectStreamer::ChangeSection(Section, Subsection);
+  Asm.registerSymbol(*Section->getBeginSymbol());
 }
 
 void MCWasmStreamer::EmitWeakReference(MCSymbol *Alias,
@@ -156,17 +157,8 @@ void MCWasmStreamer::EmitValueToAlignment(unsigned ByteAlignment, int64_t Value,
 }
 
 void MCWasmStreamer::EmitIdent(StringRef IdentString) {
-  MCSection *Comment = getAssembler().getContext().getWasmSection(
-      ".comment", SectionKind::getMetadata());
-  PushSection();
-  SwitchSection(Comment);
-  if (!SeenIdent) {
-    EmitIntValue(0, 1);
-    SeenIdent = true;
-  }
-  EmitBytes(IdentString);
-  EmitIntValue(0, 1);
-  PopSection();
+  // TODO(sbc): Add the ident section once we support mergable strings
+  // sections in the object format
 }
 
 void MCWasmStreamer::EmitInstToFragment(const MCInst &Inst,
@@ -198,16 +190,19 @@ void MCWasmStreamer::EmitInstToData(const MCInst &Inst,
 void MCWasmStreamer::FinishImpl() {
   EmitFrames(nullptr);
 
+  // Set fragment atoms so we can map from code fragment to defining symbol
+  addFragmentAtoms();
+
   this->MCObjectStreamer::FinishImpl();
 }
 
 MCStreamer *llvm::createWasmStreamer(MCContext &Context,
                                      std::unique_ptr<MCAsmBackend> &&MAB,
-                                     raw_pwrite_stream &OS,
+                                     std::unique_ptr<MCObjectWriter> &&OW,
                                      std::unique_ptr<MCCodeEmitter> &&CE,
                                      bool RelaxAll) {
   MCWasmStreamer *S =
-      new MCWasmStreamer(Context, std::move(MAB), OS, std::move(CE));
+      new MCWasmStreamer(Context, std::move(MAB), std::move(OW), std::move(CE));
   if (RelaxAll)
     S->getAssembler().setRelaxAll(true);
   return S;

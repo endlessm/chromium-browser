@@ -110,9 +110,7 @@ OpaqueBrowserFrameView::OpaqueBrowserFrameView(
     window_icon_->Update();
   }
 
-  window_title_ = new views::Label(browser_view->GetWindowTitle(),
-                                   views::Label::CustomFont{gfx::FontList(
-                                       BrowserFrame::GetTitleFontList())});
+  window_title_ = new views::Label(browser_view->GetWindowTitle());
   window_title_->SetVisible(browser_view->ShouldShowWindowTitle());
   window_title_->SetEnabledColor(SK_ColorWHITE);
   window_title_->SetSubpixelRenderingEnabled(false);
@@ -217,7 +215,7 @@ int OpaqueBrowserFrameView::NonClientHitTest(const gfx::Point& point) {
   // See if we're in the sysmenu region.  We still have to check the tabstrip
   // first so that clicks in a tab don't get treated as sysmenu clicks.
   gfx::Rect sysmenu_rect(IconBounds());
-  // In tablet mode we extend the rect to the screen corner to take advantage
+  // In maximized mode we extend the rect to the screen corner to take advantage
   // of Fitts' Law.
   if (layout_->IsTitleBarCondensed())
     sysmenu_rect.SetRect(0, 0, sysmenu_rect.right(), sysmenu_rect.bottom());
@@ -383,8 +381,7 @@ int OpaqueBrowserFrameView::GetIconSize() const {
 #else
   // The icon never shrinks below 16 px on a side.
   const int kIconMinimumSize = 16;
-  return std::max(BrowserFrame::GetTitleFontList().GetHeight(),
-                  kIconMinimumSize);
+  return std::max(gfx::FontList().GetHeight(), kIconMinimumSize);
 #endif
 }
 
@@ -597,7 +594,7 @@ void OpaqueBrowserFrameView::PaintClientEdge(gfx::Canvas* canvas) const {
                                         client_bounds, true);
   }
 
-  // In tablet mode, the only edge to draw is the top one, so we're done.
+  // In maximized mode, the only edge to draw is the top one, so we're done.
   if (layout_->IsTitleBarCondensed())
     return;
 

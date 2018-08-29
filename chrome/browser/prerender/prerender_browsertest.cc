@@ -530,17 +530,6 @@ page_load_metrics::PageLoadExtraInfo GenericPageLoadExtraInfo(
       dest_url, false /* started_in_foreground */);
 }
 
-// Helper function, to allow passing a UI closure to
-// CreateHangingFirstRequestInterceptor() instead of a IO callback.
-base::Callback<void(net::URLRequest*)> GetIOCallbackFromUIClosure(
-    base::Closure ui_closure) {
-  auto lambda = [](base::Closure closure, net::URLRequest*) {
-    content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE,
-                                     closure);
-  };
-  return base::Bind(lambda, ui_closure);
-}
-
 }  // namespace
 
 class PrerenderBrowserTest : public test_utils::PrerenderInProcessBrowserTest {
@@ -916,31 +905,23 @@ class PrerenderBrowserTest : public test_utils::PrerenderInProcessBrowserTest {
   void CreateHangingFirstRequestInterceptor(const GURL& url,
                                             const base::FilePath& file,
                                             base::Closure closure) {
-    // TODO(jam): use the URLLoaderInterceptor for the non-network service path
-    // once http://crbug.com/740130 is fixed.
-    if (base::FeatureList::IsEnabled(network::features::kNetworkService)) {
-      DCHECK(!interceptor_);
-      interceptor_ = std::make_unique<content::URLLoaderInterceptor>(
-          base::BindLambdaForTesting(
-              [=](content::URLLoaderInterceptor::RequestParams* params) {
-                if (params->url_request.url == url) {
-                  static bool first = true;
-                  if (first) {
-                    first = false;
-                    // Need to leak the client pipe, or else the renderer will
-                    // get a disconnect error and load the error page.
-                    auto* leak_client = new network::mojom::URLLoaderClientPtr;
-                    *leak_client = std::move(params->client);
-                    closure.Run();
-                    return true;
-                  }
+    DCHECK(!interceptor_);
+    interceptor_ = std::make_unique<content::URLLoaderInterceptor>(
+        base::BindLambdaForTesting(
+            [=](content::URLLoaderInterceptor::RequestParams* params) {
+              if (params->url_request.url == url) {
+                static bool first = true;
+                if (first) {
+                  first = false;
+                  // Need to leak the client pipe, or else the renderer will
+                  // get a disconnect error and load the error page.
+                  (void)params->client.PassInterface().PassHandle().release();
+                  closure.Run();
+                  return true;
                 }
-                return false;
-              }));
-    } else {
-      test_utils::CreateHangingFirstRequestInterceptor(
-          url, file, GetIOCallbackFromUIClosure(closure));
-    }
+              }
+              return false;
+            }));
   }
 
  private:
@@ -2648,7 +2629,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderCancelReferrerPolicy) {
 
 // Test interaction of the webNavigation and tabs API with prerender.
 class PrerenderBrowserTestWithExtensions : public PrerenderBrowserTest,
-                                           public ExtensionApiTest {
+                                           public extensions::ExtensionApiTest {
  public:
   PrerenderBrowserTestWithExtensions() {
     // The individual tests start the test server through ExtensionApiTest, so
@@ -2659,27 +2640,27 @@ class PrerenderBrowserTestWithExtensions : public PrerenderBrowserTest,
   void SetUp() override { PrerenderBrowserTest::SetUp(); }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    ExtensionApiTest::SetUpCommandLine(command_line);
+    extensions::ExtensionApiTest::SetUpCommandLine(command_line);
   }
 
   void SetUpInProcessBrowserTestFixture() override {
     PrerenderBrowserTest::SetUpInProcessBrowserTestFixture();
-    ExtensionApiTest::SetUpInProcessBrowserTestFixture();
+    extensions::ExtensionApiTest::SetUpInProcessBrowserTestFixture();
   }
 
   void TearDownInProcessBrowserTestFixture() override {
     PrerenderBrowserTest::TearDownInProcessBrowserTestFixture();
-    ExtensionApiTest::TearDownInProcessBrowserTestFixture();
+    extensions::ExtensionApiTest::TearDownInProcessBrowserTestFixture();
   }
 
   void TearDownOnMainThread() override {
     PrerenderBrowserTest::TearDownOnMainThread();
-    ExtensionApiTest::TearDownOnMainThread();
+    extensions::ExtensionApiTest::TearDownOnMainThread();
   }
 
   void SetUpOnMainThread() override {
     PrerenderBrowserTest::SetUpOnMainThread();
-    ExtensionApiTest::SetUpOnMainThread();
+    extensions::ExtensionApiTest::SetUpOnMainThread();
   }
 };
 
@@ -2734,6 +2715,9 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTestWithExtensions, TabsApi) {
 // Test that prerenders abort when navigating to a stream.
 // See chrome/browser/extensions/api/streams_private/streams_private_apitest.cc
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTestWithExtensions, StreamsTest) {
+  if (base::FeatureList::IsEnabled(network::features::kNetworkService))
+    return;  // Streams not used with network service.
+
   ASSERT_TRUE(StartEmbeddedTestServer());
 
   const extensions::Extension* extension = LoadExtension(
@@ -3208,7 +3192,8 @@ class HangingURLLoader : public network::mojom::URLLoader {
       : client_(std::move(client)) {}
   ~HangingURLLoader() override {}
   // mojom::URLLoader implementation:
-  void FollowRedirect() override {}
+  void FollowRedirect(const base::Optional<net::HttpRequestHeaders>&
+                          modified_request_headers) override {}
   void ProceedWithResponse() override {}
   void SetPriority(net::RequestPriority priority,
                    int32_t intra_priority_value) override {
@@ -3287,7 +3272,9 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, ResourcePriorityOverlappingSwap) {
   EXPECT_GT(priority, net::IDLE);
 }
 
-IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, FirstContentfulPaintTimingSimple) {
+// Flaky on chromium.linux/Linux Tests (dbg). https://crbug.com/832597
+IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
+                       DISABLED_FirstContentfulPaintTimingSimple) {
   GetPrerenderManager()->DisablePageLoadMetricsObserverForTesting();
   base::SimpleTestTickClock clock;
   OverridePrerenderManagerTimeTicks(&clock);
@@ -3538,8 +3525,9 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, FirstContentfulPaintHidden) {
       "Prerender.websame_PrefetchTTFCP.Warm.Cacheable.Hidden", 1654, 1);
 }
 
+// Flaky on chromium.linux/Linux Tests (dbg). https://crbug.com/832597
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
-                       FirstContentfulPaintHiddenNoCommit) {
+                       DISABLED_FirstContentfulPaintHiddenNoCommit) {
   GetPrerenderManager()->DisablePageLoadMetricsObserverForTesting();
   base::SimpleTestTickClock clock;
   OverridePrerenderManagerTimeTicks(&clock);

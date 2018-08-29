@@ -82,10 +82,8 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
   // Web Notification API and the Push API are not supported (crbug.com/434712)
   cl->AppendSwitch(switches::kDisableNotifications);
 
-#if BUILDFLAG(ENABLE_WEBRTC)
   // WebRTC hardware decoding is not supported, internal bug 15075307
   cl->AppendSwitch(switches::kDisableWebRtcHWDecoding);
-#endif
 
   // Check damage in OnBeginFrame to prevent unnecessary draws.
   cl->AppendSwitch(cc::switches::kCheckDamageEarly);
@@ -170,6 +168,10 @@ bool AwMainDelegate::BasicStartupComplete(int* exit_code) {
   // clear on how user can remove persistent media licenses from UI.
   CommandLineHelper::AddDisabledFeature(*cl,
                                         media::kMediaDrmPersistentLicense.name);
+
+  // WebView requires audio autoplay to respect the document autoplay behavior.
+  CommandLineHelper::AddDisabledFeature(*cl,
+                                        media::kAutoplayIgnoreWebAudio.name);
 
   CommandLineHelper::AddEnabledFeature(
       *cl, autofill::features::kAutofillSkipComparingInferredLabels.name);

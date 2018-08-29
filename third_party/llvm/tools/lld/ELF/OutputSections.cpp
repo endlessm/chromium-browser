@@ -31,8 +31,6 @@ using namespace lld;
 using namespace lld::elf;
 
 uint8_t Out::First;
-OutputSection *Out::Opd;
-uint8_t *Out::OpdBuf;
 PhdrEntry *Out::TlsPhdr;
 OutputSection *Out::DebugInfo;
 OutputSection *Out::ElfHeader;
@@ -123,7 +121,6 @@ void OutputSection::addSection(InputSection *IS) {
   Flags = AndFlags | OrFlags;
 
   Alignment = std::max(Alignment, IS->Alignment);
-  IS->OutSecOff = Size++;
 
   // If this section contains a table of fixed-size entries, sh_entsize
   // holds the element size. If it contains elements of different size we

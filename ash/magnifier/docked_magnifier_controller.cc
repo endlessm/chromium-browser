@@ -144,9 +144,16 @@ DockedMagnifierController::~DockedMagnifierController() {
 
 // static
 void DockedMagnifierController::RegisterProfilePrefs(
-    PrefRegistrySimple* registry) {
-  registry->RegisterBooleanPref(prefs::kDockedMagnifierEnabled, false,
-                                PrefRegistry::PUBLIC);
+    PrefRegistrySimple* registry,
+    bool for_test) {
+  if (for_test) {
+    // In tests there is no remote pref service. Make ash own the prefs.
+    registry->RegisterBooleanPref(prefs::kDockedMagnifierEnabled, false,
+                                  PrefRegistry::PUBLIC);
+  } else {
+    // TODO(warx): move ownership to ash.
+    registry->RegisterForeignPref(prefs::kDockedMagnifierEnabled);
+  }
   registry->RegisterDoublePref(prefs::kDockedMagnifierScale,
                                kDefaultMagnifierScale, PrefRegistry::PUBLIC);
 }
@@ -186,12 +193,6 @@ void DockedMagnifierController::SetScale(float scale) {
 void DockedMagnifierController::StepToNextScaleValue(int delta_index) {
   SetScale(magnifier_scale_utils::GetNextMagnifierScaleValue(
       delta_index, GetScale(), kMinMagnifierScale, kMaxMagnifierScale));
-}
-
-void DockedMagnifierController::SetClient(
-    mojom::DockedMagnifierClientPtr client) {
-  client_ = std::move(client);
-  NotifyClientWithStatusChanged();
 }
 
 void DockedMagnifierController::CenterOnPoint(
@@ -317,6 +318,16 @@ void DockedMagnifierController::OnScrollEvent(ui::ScrollEvent* event) {
   }
 }
 
+void DockedMagnifierController::OnTouchEvent(ui::TouchEvent* event) {
+  DCHECK(GetEnabled());
+
+  aura::Window* target = static_cast<aura::Window*>(event->target());
+  aura::Window* event_root = target->GetRootWindow();
+  gfx::Point event_screen_point = event->root_location();
+  ::wm::ConvertPointToScreen(event_root, &event_screen_point);
+  CenterOnPoint(event_screen_point);
+}
+
 void DockedMagnifierController::OnCaretBoundsChanged(
     const ui::TextInputClient* client) {
   DCHECK(GetEnabled());
@@ -389,10 +400,6 @@ void DockedMagnifierController::SetFullscreenMagnifierEnabled(bool enabled) {
     active_user_pref_service_->SetBoolean(
         prefs::kAccessibilityScreenMagnifierEnabled, enabled);
   }
-}
-
-void DockedMagnifierController::FlushClientPtrForTesting() {
-  client_.FlushForTesting();
 }
 
 const views::Widget* DockedMagnifierController::GetViewportWidgetForTesting()
@@ -507,7 +514,6 @@ void DockedMagnifierController::InitFromUserPrefs() {
           base::Unretained(this)));
 
   OnEnabledPrefChanged();
-  NotifyClientWithStatusChanged();
 }
 
 void DockedMagnifierController::OnEnabledPrefChanged() {
@@ -550,8 +556,6 @@ void DockedMagnifierController::OnEnabledPrefChanged() {
   // We use software composited mouse cursor so that it can be mirrored into the
   // magnifier viewport.
   shell->UpdateCursorCompositingEnabled();
-
-  NotifyClientWithStatusChanged();
 }
 
 void DockedMagnifierController::OnScalePrefChanged() {
@@ -579,11 +583,6 @@ void DockedMagnifierController::OnHighContrastEnabledPrefChanged() {
 void DockedMagnifierController::Refresh() {
   DCHECK(GetEnabled());
   CenterOnPoint(GetCursorScreenPoint());
-}
-
-void DockedMagnifierController::NotifyClientWithStatusChanged() {
-  if (client_)
-    client_->OnEnabledStatusChanged(GetEnabled());
 }
 
 void DockedMagnifierController::CreateMagnifierViewport() {

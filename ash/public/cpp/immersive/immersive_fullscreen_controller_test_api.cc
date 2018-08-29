@@ -32,8 +32,12 @@ void ImmersiveFullscreenControllerTestApi::SetupForTest() {
       bottommost_in_screen = bounds_in_screen[i].bottom();
   }
   gfx::Point cursor_pos(0, bottommost_in_screen + 10);
-  aura::Env::GetInstance()->set_last_mouse_location(cursor_pos);
+  aura::Env::GetInstance()->SetLastMouseLocation(cursor_pos);
   immersive_fullscreen_controller_->UpdateLocatedEventRevealedLock();
+}
+
+bool ImmersiveFullscreenControllerTestApi::IsTopEdgeHoverTimerRunning() const {
+  return immersive_fullscreen_controller_->top_edge_hover_timer_.IsRunning();
 }
 
 }  // namespace ash

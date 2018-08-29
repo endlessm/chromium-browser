@@ -19,7 +19,6 @@ from telemetry.internal.browser import browser_finder_exceptions
 from telemetry.internal.browser import profile_types
 from telemetry.internal.platform import device_finder
 from telemetry.internal.platform import remote_platform_options
-from telemetry.internal.platform.profiler import profiler_finder
 from telemetry.internal.util import binary_manager
 from telemetry.internal.util import global_hooks
 from telemetry.util import wpr_modes
@@ -40,7 +39,6 @@ class BrowserFinderOptions(optparse.Values):
 
     self.cros_remote = None
 
-    self.profiler = None
     self.verbosity = 0
 
     self.browser_options = BrowserOptions()
@@ -52,6 +50,10 @@ class BrowserFinderOptions(optparse.Values):
 
     # TODO(crbug.com/798703): remove this
     self.no_performance_mode = False
+
+    self.interval_profiling_target = ''
+    self.interval_profiling_periods = []
+    self.interval_profiling_frequency = 1000
 
   def __repr__(self):
     return str(sorted(self.__dict__.items()))
@@ -110,13 +112,6 @@ class BrowserFinderOptions(optparse.Values):
 
     # Debugging options
     group = optparse.OptionGroup(parser, 'When things go wrong')
-    profiler_choices = profiler_finder.GetAllAvailableProfilers()
-    group.add_option(
-        '--profiler', default=None, type='choice',
-        choices=profiler_choices,
-        help='Record profiling data using this tool. Supported values: %s. '
-             '(Notice: this flag cannot be used for Timeline Based Measurement '
-             'benchmarks.)' % ', '.join(profiler_choices))
     group.add_option(
         '-v', '--verbose', action='count', dest='verbosity',
         help='Increase verbosity level (repeat as needed)')
@@ -164,6 +159,32 @@ class BrowserFinderOptions(optparse.Values):
         'If not specified, only 0 or 1 connected devices are supported. '
         'If specified as "android", all available Android devices are '
         'used.')
+    parser.add_option_group(group)
+
+    # CPU profiling on Android.
+    group = optparse.OptionGroup(parser, (
+        'CPU profiling over intervals of interest, '
+        'Android and Linux only'))
+    group.add_option(
+        '--interval-profiling-target', dest='interval_profiling_target',
+        default='renderer:main', metavar='PROCESS_NAME[:THREAD_NAME]',
+        help='Run the CPU profiler on this process/thread (default=%default).')
+    group.add_option(
+        '--interval-profiling-period', dest='interval_profiling_periods',
+        type='choice', choices=('navigation', 'interactions'), action='append',
+        default=[], metavar='PERIOD',
+        help='Run the CPU profiler during this test period. '
+        'May be specified multiple times; available choices '
+        'are ["navigation", "interactions"]. Profile data will be written to'
+        'artifacts/*.perf.data (Android) or artifacts/*.profile.pb (Linux) '
+        'files in the output directory. See '
+        'https://developer.android.com/ndk/guides/simpleperf for more info on '
+        'Android profiling via simpleperf.')
+    group.add_option(
+        '--interval-profiling-frequency', default=1000, metavar='FREQUENCY',
+        type=int,
+        help='Frequency of CPU profiling samples, in samples per second '
+        '(default=%default).')
     parser.add_option_group(group)
 
     # Browser options.
@@ -226,6 +247,8 @@ class BrowserFinderOptions(optparse.Values):
           print '  ', device_name
           for browser_type in browser_types[device_name]:
             print '    ', browser_type
+          if len(browser_types[device_name]) == 0:
+            print '     No browsers found for this device'
         sys.exit(0)
 
       # Parse browser options.
@@ -327,6 +350,12 @@ class BrowserOptions(object):
     # Whether to take screen shot for failed page & put them in telemetry's
     # profiling results.
     self.take_screenshot_for_failed_page = False
+
+    # A list of tuples where the first element is path to an existing file,
+    # and the second argument is a path (relative to the user-data-dir) to copy
+    # the file to. Uses recursive directory creation if directories do not
+    # already exist.
+    self.profile_files_to_copy = []
 
   def __repr__(self):
     # This works around the infinite loop caused by the introduction of a

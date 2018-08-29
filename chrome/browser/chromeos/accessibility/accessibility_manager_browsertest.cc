@@ -18,10 +18,10 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chromeos/chromeos_switches.h"
+#include "components/account_id/account_id.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user_names.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/ime/chromeos/component_extension_ime_manager.h"
@@ -161,6 +161,14 @@ bool IsMonoAudioEnabled() {
   return AccessibilityManager::Get()->IsMonoAudioEnabled();
 }
 
+void SetSelectToSpeakEnabled(bool enabled) {
+  AccessibilityManager::Get()->SetSelectToSpeakEnabled(enabled);
+}
+
+bool IsSelectToSpeakEnabled() {
+  return AccessibilityManager::Get()->IsSelectToSpeakEnabled();
+}
+
 void SetAlwaysShowMenuEnabledPref(bool enabled) {
   GetActiveUserPrefs()->SetBoolean(
       ash::prefs::kShouldAlwaysShowAccessibilityMenu, enabled);
@@ -199,6 +207,11 @@ void SetVirtualKeyboardEnabledPref(bool enabled) {
 void SetMonoAudioEnabledPref(bool enabled) {
   GetActiveUserPrefs()->SetBoolean(ash::prefs::kAccessibilityMonoAudioEnabled,
                                    enabled);
+}
+
+void SetSelectToSpeakEnabledPref(bool enabled) {
+  GetActiveUserPrefs()->SetBoolean(
+      ash::prefs::kAccessibilitySelectToSpeakEnabled, enabled);
 }
 
 bool IsBrailleImeActive() {
@@ -252,6 +265,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerTest, TypePref) {
   EXPECT_EQ(default_autoclick_delay_, GetAutoclickDelay());
   EXPECT_FALSE(IsVirtualKeyboardEnabled());
   EXPECT_FALSE(IsMonoAudioEnabled());
+  EXPECT_FALSE(IsSelectToSpeakEnabled());
 
   SetLargeCursorEnabledPref(true);
   EXPECT_TRUE(IsLargeCursorEnabled());
@@ -274,6 +288,9 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerTest, TypePref) {
   SetMonoAudioEnabledPref(true);
   EXPECT_TRUE(IsMonoAudioEnabled());
 
+  SetSelectToSpeakEnabledPref(true);
+  EXPECT_TRUE(IsSelectToSpeakEnabled());
+
   SetLargeCursorEnabledPref(false);
   EXPECT_FALSE(IsLargeCursorEnabled());
 
@@ -291,6 +308,9 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerTest, TypePref) {
 
   SetMonoAudioEnabledPref(false);
   EXPECT_FALSE(IsMonoAudioEnabled());
+
+  SetSelectToSpeakEnabledPref(false);
+  EXPECT_FALSE(IsSelectToSpeakEnabled());
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityManagerTest,
@@ -351,6 +371,20 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerTest,
   EXPECT_FALSE(observer.observed_enabled());
   EXPECT_EQ(observer.observed_type(), ACCESSIBILITY_TOGGLE_MONO_AUDIO);
   EXPECT_FALSE(IsMonoAudioEnabled());
+
+  observer.reset();
+  SetSelectToSpeakEnabled(true);
+  EXPECT_TRUE(observer.observed());
+  EXPECT_TRUE(observer.observed_enabled());
+  EXPECT_EQ(observer.observed_type(), ACCESSIBILITY_TOGGLE_SELECT_TO_SPEAK);
+  EXPECT_TRUE(IsSelectToSpeakEnabled());
+
+  observer.reset();
+  SetSelectToSpeakEnabled(false);
+  EXPECT_TRUE(observer.observed());
+  EXPECT_FALSE(observer.observed_enabled());
+  EXPECT_EQ(observer.observed_type(), ACCESSIBILITY_TOGGLE_SELECT_TO_SPEAK);
+  EXPECT_FALSE(IsSelectToSpeakEnabled());
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityManagerTest,
@@ -411,6 +445,20 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerTest,
   EXPECT_FALSE(observer.observed_enabled());
   EXPECT_EQ(observer.observed_type(), ACCESSIBILITY_TOGGLE_MONO_AUDIO);
   EXPECT_FALSE(IsMonoAudioEnabled());
+
+  observer.reset();
+  SetSelectToSpeakEnabledPref(true);
+  EXPECT_TRUE(observer.observed());
+  EXPECT_TRUE(observer.observed_enabled());
+  EXPECT_EQ(observer.observed_type(), ACCESSIBILITY_TOGGLE_SELECT_TO_SPEAK);
+  EXPECT_TRUE(IsSelectToSpeakEnabled());
+
+  observer.reset();
+  SetSelectToSpeakEnabledPref(false);
+  EXPECT_TRUE(observer.observed());
+  EXPECT_FALSE(observer.observed_enabled());
+  EXPECT_EQ(observer.observed_type(), ACCESSIBILITY_TOGGLE_SELECT_TO_SPEAK);
+  EXPECT_FALSE(IsSelectToSpeakEnabled());
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityManagerTest, AccessibilityMenuVisibility) {
@@ -456,6 +504,11 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerTest, AccessibilityMenuVisibility) {
   SetMonoAudioEnabled(true);
   EXPECT_TRUE(ShouldShowAccessibilityMenu());
   SetMonoAudioEnabled(false);
+  EXPECT_FALSE(ShouldShowAccessibilityMenu());
+
+  SetSelectToSpeakEnabled(true);
+  EXPECT_TRUE(ShouldShowAccessibilityMenu());
+  SetSelectToSpeakEnabled(false);
   EXPECT_FALSE(ShouldShowAccessibilityMenu());
 }
 
@@ -521,7 +574,12 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerLoginTest, BrailleOnLoginScreen) {
   EXPECT_TRUE(IsSpokenFeedbackEnabled());
 }
 
-IN_PROC_BROWSER_TEST_F(AccessibilityManagerLoginTest, Login) {
+#if defined(OS_CHROMEOS)
+#define MAYBE_Login DISABLED_Login
+#else
+#define MAYBE_Login Login
+#endif
+IN_PROC_BROWSER_TEST_F(AccessibilityManagerLoginTest, MAYBE_Login) {
   WaitForSigninScreen();
   EXPECT_FALSE(IsLargeCursorEnabled());
   EXPECT_FALSE(IsSpokenFeedbackEnabled());

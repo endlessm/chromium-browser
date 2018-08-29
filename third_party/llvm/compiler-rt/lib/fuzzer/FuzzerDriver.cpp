@@ -615,13 +615,13 @@ int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
   Options.PrintFinalStats = Flags.print_final_stats;
   Options.PrintCorpusStats = Flags.print_corpus_stats;
   Options.PrintCoverage = Flags.print_coverage;
-  Options.DumpCoverage = Flags.dump_coverage;
-  Options.UseClangCoverage = Flags.use_clang_coverage;
   Options.UseFeatureFrequency = Flags.use_feature_frequency;
   if (Flags.exit_on_src_pos)
     Options.ExitOnSrcPos = Flags.exit_on_src_pos;
   if (Flags.exit_on_item)
     Options.ExitOnItem = Flags.exit_on_item;
+  if (Flags.focus_function)
+    Options.FocusFunction = Flags.focus_function;
 
   unsigned Seed = Flags.seed;
   // Initialize Seed.
@@ -665,6 +665,7 @@ int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
   if (Flags.cleanse_crash)
     return CleanseCrashInput(Args, Options);
 
+#if 0  // deprecated, to be removed.
   if (auto Name = Flags.run_equivalence_server) {
     SMR.Destroy(Name);
     if (!SMR.Create(Name)) {
@@ -690,6 +691,7 @@ int FuzzerDriver(int *argc, char ***argv, UserCallback Callback) {
     }
     Printf("INFO: EQUIVALENCE CLIENT UP\n");
   }
+#endif
 
   if (DoPlainRun) {
     Options.SaveArtifacts = false;

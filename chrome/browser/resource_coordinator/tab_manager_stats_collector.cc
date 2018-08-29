@@ -18,7 +18,7 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/resource_coordinator/resource_coordinator_web_contents_observer.h"
+#include "chrome/browser/resource_coordinator/tab_helper.h"
 #include "chrome/browser/resource_coordinator/tab_manager_web_contents_data.h"
 #include "chrome/browser/resource_coordinator/time.h"
 #include "chrome/browser/sessions/session_restore.h"
@@ -58,8 +58,9 @@ bool ShouldReportExpectedTaskQueueingDurationToUKM(
 }
 
 ukm::SourceId GetUkmSourceId(content::WebContents* contents) {
-  ResourceCoordinatorWebContentsObserver* observer =
-      ResourceCoordinatorWebContentsObserver::FromWebContents(contents);
+  resource_coordinator::ResourceCoordinatorTabHelper* observer =
+      resource_coordinator::ResourceCoordinatorTabHelper::FromWebContents(
+          contents);
   if (!observer)
     return ukm::kInvalidSourceId;
 
@@ -170,19 +171,19 @@ void TabManagerStatsCollector::RecordSwitchToTab(
   if (is_session_restore_loading_tabs_) {
     UMA_HISTOGRAM_ENUMERATION(kHistogramSessionRestoreSwitchToTab,
                               new_data->tab_loading_state(),
-                              TAB_LOADING_STATE_MAX);
+                              TabLoadTracker::LOADING_STATE_MAX);
   }
   if (is_in_background_tab_opening_session_) {
     UMA_HISTOGRAM_ENUMERATION(kHistogramBackgroundTabOpeningSwitchToTab,
                               new_data->tab_loading_state(),
-                              TAB_LOADING_STATE_MAX);
+                              TabLoadTracker::LOADING_STATE_MAX);
   }
 
   if (old_contents)
     foreground_contents_switched_to_times_.erase(old_contents);
   DCHECK(
       !base::ContainsKey(foreground_contents_switched_to_times_, new_contents));
-  if (new_data->tab_loading_state() != TAB_IS_LOADED) {
+  if (new_data->tab_loading_state() != TabLoadTracker::LOADED) {
     foreground_contents_switched_to_times_.insert(
         std::make_pair(new_contents, NowTicks()));
   }

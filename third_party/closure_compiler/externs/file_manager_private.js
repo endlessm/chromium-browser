@@ -30,6 +30,8 @@ var IconSet;
  *   thumbnailUrl: (string|undefined),
  *   croppedThumbnailUrl: (string|undefined),
  *   externalFileUrl: (string|undefined),
+ *   alternateUrl: (string|undefined),
+ *   shareUrl: (string|undefined),
  *   imageWidth: (number|undefined),
  *   imageHeight: (number|undefined),
  *   imageRotation: (number|undefined),
@@ -726,6 +728,20 @@ chrome.fileManagerPrivate.getRecentFiles = function(restriction, callback) {};
  */
 chrome.fileManagerPrivate.executeCustomAction = function(
     entries, actionId, callback) {};
+
+/**
+ * Returns true if crostini is enabled.
+ * @param {function(boolean)} callback
+ */
+chrome.fileManagerPrivate.isCrostiniEnabled = function(callback) {};
+
+/**
+ * Starts and mounts crostini container.
+ * @param {function()} callback Callback called after the crostini container
+ *     is started and mounted.
+ *     chrome.runtime.lastError will be set if there was an error.
+ */
+chrome.fileManagerPrivate.mountCrostiniContainer = function(callback) {};
 
 /** @type {!ChromeEvent} */
 chrome.fileManagerPrivate.onMountCompleted;

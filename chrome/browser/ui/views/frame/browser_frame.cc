@@ -61,13 +61,6 @@ BrowserFrame::BrowserFrame(BrowserView* browser_view)
 BrowserFrame::~BrowserFrame() {
 }
 
-// static
-const gfx::FontList& BrowserFrame::GetTitleFontList() {
-  static const gfx::FontList* title_font_list = new gfx::FontList();
-  ANNOTATE_LEAKING_OBJECT_PTR(title_font_list);
-  return *title_font_list;
-}
-
 void BrowserFrame::InitBrowserFrame() {
   native_browser_frame_ =
       NativeBrowserFrameFactory::CreateNativeBrowserFrame(this, browser_view_);
@@ -180,7 +173,7 @@ const ui::ThemeProvider* BrowserFrame::GetThemeProvider() const {
 }
 
 const ui::NativeTheme* BrowserFrame::GetNativeTheme() const {
-#if defined(OS_WIN) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
   if (browser_view_->browser()->profile()->GetProfileType() ==
           Profile::INCOGNITO_PROFILE &&
       ThemeServiceFactory::GetForProfile(browser_view_->browser()->profile())

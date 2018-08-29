@@ -67,6 +67,7 @@
 #include "components/sync/user_events/user_event_service.h"
 #include "components/sync_preferences/pref_service_syncable.h"
 #include "components/sync_sessions/favicon_cache.h"
+#include "components/sync_sessions/session_sync_bridge.h"
 #include "components/sync_sessions/sync_sessions_client.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/api/storage/backend_task_runner.h"
@@ -74,9 +75,9 @@
 #include "ui/base/device_form_factor.h"
 
 #if BUILDFLAG(ENABLE_APP_LIST)
+#include "ash/public/cpp/app_list/app_list_switches.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
-#include "ui/app_list/app_list_switches.h"
 #endif  // BUILDFLAG(ENABLE_APP_LIST)
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -87,10 +88,6 @@
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
-#include "chrome/browser/supervised_user/legacy/supervised_user_shared_settings_service.h"
-#include "chrome/browser/supervised_user/legacy/supervised_user_shared_settings_service_factory.h"
-#include "chrome/browser/supervised_user/legacy/supervised_user_sync_service.h"
-#include "chrome/browser/supervised_user/legacy/supervised_user_sync_service_factory.h"
 #include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
 #include "chrome/browser/supervised_user/supervised_user_settings_service.h"
@@ -403,14 +400,6 @@ ChromeSyncClient::GetSyncableServiceForType(syncer::ModelType type) {
     case syncer::SUPERVISED_USER_SETTINGS:
       return SupervisedUserSettingsServiceFactory::GetForProfile(profile_)->
           AsWeakPtr();
-#if !defined(OS_ANDROID)
-    case syncer::SUPERVISED_USERS:
-      return SupervisedUserSyncServiceFactory::GetForProfile(profile_)->
-          AsWeakPtr();
-    case syncer::SUPERVISED_USER_SHARED_SETTINGS:
-      return SupervisedUserSharedSettingsServiceFactory::GetForBrowserContext(
-          profile_)->AsWeakPtr();
-#endif  // !defined(OS_ANDROID)
     case syncer::SUPERVISED_USER_WHITELISTS: {
       // Unlike other types here, ProfileSyncServiceFactory does not declare a
       // DependsOn the SupervisedUserServiceFactory (in order to avoid circular
@@ -456,26 +445,28 @@ ChromeSyncClient::GetSyncableServiceForType(syncer::ModelType type) {
   }
 }
 
-base::WeakPtr<syncer::ModelTypeSyncBridge>
-ChromeSyncClient::GetSyncBridgeForModelType(syncer::ModelType type) {
+base::WeakPtr<syncer::ModelTypeControllerDelegate>
+ChromeSyncClient::GetControllerDelegateForModelType(syncer::ModelType type) {
   switch (type) {
     case syncer::DEVICE_INFO:
       return ProfileSyncServiceFactory::GetForProfile(profile_)
-          ->GetDeviceInfoSyncBridge()
-          ->AsWeakPtr();
+          ->GetDeviceInfoSyncControllerDelegateOnUIThread();
     case syncer::READING_LIST:
       // Reading List is only supported on iOS at the moment.
       NOTREACHED();
-      return base::WeakPtr<syncer::ModelTypeSyncBridge>();
+      return base::WeakPtr<syncer::ModelTypeControllerDelegate>();
     case syncer::AUTOFILL:
       return autofill::AutocompleteSyncBridge::FromWebDataService(
-          web_data_service_.get());
+                 web_data_service_.get())
+          ->change_processor()
+          ->GetControllerDelegateOnUIThread();
 #if defined(OS_CHROMEOS)
     case syncer::PRINTERS:
       return chromeos::SyncedPrintersManagerFactory::GetForBrowserContext(
                  profile_)
           ->GetSyncBridge()
-          ->AsWeakPtr();
+          ->change_processor()
+          ->GetControllerDelegateOnUIThread();
 #endif  // defined(OS_CHROMEOS)
     case syncer::TYPED_URLS: {
       // We request history service with explicit access here because this
@@ -485,16 +476,23 @@ ChromeSyncClient::GetSyncBridgeForModelType(syncer::ModelType type) {
       history::HistoryService* history = HistoryServiceFactory::GetForProfile(
           profile_, ServiceAccessType::EXPLICIT_ACCESS);
       if (!history)
-        return base::WeakPtr<syncer::ModelTypeSyncBridge>();
-      return history->GetTypedURLSyncBridge()->AsWeakPtr();
+        return base::WeakPtr<syncer::ModelTypeControllerDelegate>();
+      return history->GetTypedURLSyncBridge()
+          ->change_processor()
+          ->GetControllerDelegateOnUIThread();
     }
     case syncer::USER_EVENTS:
       return browser_sync::UserEventServiceFactory::GetForProfile(profile_)
           ->GetSyncBridge()
-          ->AsWeakPtr();
+          ->change_processor()
+          ->GetControllerDelegateOnUIThread();
+    case syncer::SESSIONS: {
+      return ProfileSyncServiceFactory::GetForProfile(profile_)
+          ->GetSessionSyncControllerDelegateOnUIThread();
+    }
     default:
       NOTREACHED();
-      return base::WeakPtr<syncer::ModelTypeSyncBridge>();
+      return base::WeakPtr<syncer::ModelTypeControllerDelegate>();
   }
 }
 
@@ -653,13 +651,6 @@ void ChromeSyncClient::RegisterDesktopDataTypes(
   sync_service->RegisterDataTypeController(
       std::make_unique<SupervisedUserSyncDataTypeController>(
           syncer::SUPERVISED_USER_WHITELISTS, error_callback, this, profile_));
-  sync_service->RegisterDataTypeController(
-      std::make_unique<SupervisedUserSyncDataTypeController>(
-          syncer::SUPERVISED_USERS, error_callback, this, profile_));
-  sync_service->RegisterDataTypeController(
-      std::make_unique<SupervisedUserSyncDataTypeController>(
-          syncer::SUPERVISED_USER_SHARED_SETTINGS, error_callback, this,
-          profile_));
 #endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
 
 #if defined(OS_CHROMEOS)

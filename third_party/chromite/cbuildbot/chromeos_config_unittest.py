@@ -15,7 +15,6 @@ import cPickle
 
 from chromite.cbuildbot import builders
 from chromite.cbuildbot import chromeos_config
-from chromite.lib.const import waterfall
 from chromite.lib import config_lib
 from chromite.lib import config_lib_unittest
 from chromite.lib import constants
@@ -359,6 +358,13 @@ class CBuildBotTest(ChromeosConfigTestBase):
                     'Invalid display_label "%s" on "%s"' %
                     (config.display_label, build_name))
 
+  def testConfigsHaveValidLuciBuilder(self):
+    """Configs must have names set."""
+    for build_name, config in self.site_config.iteritems():
+      self.assertIn(config.luci_builder, config_lib.ALL_LUCI_BUILDER,
+                    'Invalid luci_builder "%s" on "%s"' %
+                    (config.luci_builder, build_name))
+
   def testMasterSlaveConfigsExist(self):
     """Configs listing slave configs, must list valid configs."""
     for config in self.site_config.itervalues():
@@ -375,8 +381,6 @@ class CBuildBotTest(ChromeosConfigTestBase):
           self.assertTrue(
               self.site_config[slave_name].active_waterfall,
               '"%s" is not in an active waterfall' % slave_name)
-          self.assertNotEqual(self.site_config[slave_name].active_waterfall,
-                              waterfall.WATERFALL_TRYBOT)
       else:
         self.assertIsNone(config.slave_configs)
 
@@ -1109,30 +1113,6 @@ class CBuildBotTest(ChromeosConfigTestBase):
           config.build_timeout, 24 * 60 * 60,
           '%s timeout %s is greater than 24h'
           % (build_name, config.build_timeout))
-
-class OverrideForTrybotTest(ChromeosConfigTestBase):
-  """Test config override functionality."""
-
-  def testVmTestOverride(self):
-    """Verify that vm_tests override for trybots pay heed to original config."""
-    mock_options = mock.Mock()
-    old = self.site_config['betty-paladin']
-    new = config_lib.OverrideConfigForTrybot(old, mock_options)
-    self.assertEquals(new['vm_tests'], [
-        config_lib.VMTestConfig(constants.VM_SUITE_TEST_TYPE,
-                                test_suite='smoke', retry=True),
-        config_lib.VMTestConfig(constants.SIMPLE_AU_TEST_TYPE),
-        config_lib.VMTestConfig(constants.CROS_VM_TEST_TYPE)])
-
-    # Don't override vm tests for arm boards.
-    old = self.site_config['daisy-paladin']
-    new = config_lib.OverrideConfigForTrybot(old, mock_options)
-    self.assertEquals(new['vm_tests'], old['vm_tests'])
-
-    # Don't override vm tests for brillo boards.
-    old = self.site_config['whirlwind-paladin']
-    new = config_lib.OverrideConfigForTrybot(old, mock_options)
-    self.assertEquals(new['vm_tests'], old['vm_tests'])
 
   def testWaterfallManualConfigIsValid(self):
     """Verify the correctness of the manual waterfall configuration."""

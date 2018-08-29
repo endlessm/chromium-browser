@@ -136,9 +136,9 @@ TEST_F(LockScreenSanityTest, PasswordSubmitCallsLoginScreenClient) {
   // Password submit runs mojo.
   std::unique_ptr<MockLoginScreenClient> client = BindMockLoginScreenClient();
   client->set_authenticate_user_callback_result(false);
-  EXPECT_CALL(*client,
-              AuthenticateUser_(users()[0]->basic_user_info->account_id, _, _,
-                                false, _));
+  EXPECT_CALL(
+      *client,
+      AuthenticateUser_(users()[0]->basic_user_info->account_id, _, false, _));
   ui::test::EventGenerator& generator = GetEventGenerator();
   generator.PressKey(ui::KeyboardCode::VKEY_A, 0);
   generator.PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
@@ -164,7 +164,7 @@ TEST_F(LockScreenSanityTest,
     // Capture the authentication callback.
     client->set_authenticate_user_callback_storage(&callback);
     EXPECT_CALL(*client, AuthenticateUser_(testing::_, testing::_, testing::_,
-                                           testing::_, testing::_));
+                                           testing::_));
 
     // Submit password with content 'a'. This creates a browser-process
     // authentication request stored in |callback|.
@@ -416,8 +416,7 @@ TEST_F(LockScreenSanityTest, RemoveUser) {
   // dropdown does not result in an interactive/focusable view.
   focus_and_submit(secondary().dropdown());
   EXPECT_TRUE(secondary().menu());
-  EXPECT_FALSE(
-      HasFocusInAnyChildView(secondary().menu()->bubble_view_for_test()));
+  EXPECT_FALSE(HasFocusInAnyChildView(secondary().menu()->bubble_view()));
   // TODO(jdufault): Run submit() and then EXPECT_FALSE(secondary().menu()); to
   // verify that double-enter closes the bubble.
 
@@ -427,7 +426,7 @@ TEST_F(LockScreenSanityTest, RemoveUser) {
   // well as removes the user from the UI.
   focus_and_submit(primary().dropdown());
   EXPECT_TRUE(primary().menu());
-  EXPECT_TRUE(HasFocusInAnyChildView(primary().menu()->bubble_view_for_test()));
+  EXPECT_TRUE(HasFocusInAnyChildView(primary().menu()->bubble_view()));
   EXPECT_CALL(*client, OnRemoveUserWarningShown()).Times(1);
   submit();
   EXPECT_CALL(*client, RemoveUser(users()[0]->basic_user_info->account_id))

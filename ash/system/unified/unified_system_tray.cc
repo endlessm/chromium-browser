@@ -4,11 +4,23 @@
 
 #include "ash/system/unified/unified_system_tray.h"
 
+#include "ash/shell.h"
+#include "ash/strings/grit/ash_strings.h"
+#include "ash/system/date/date_view.h"
+#include "ash/system/message_center/ash_popup_alignment_delegate.h"
+#include "ash/system/model/clock_model.h"
+#include "ash/system/model/system_tray_model.h"
+#include "ash/system/network/network_tray_view.h"
+#include "ash/system/network/tray_network_state_observer.h"
+#include "ash/system/power/tray_power.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/system/tray/system_tray.h"
+#include "ash/system/tray/tray_container.h"
+#include "ash/system/unified/notification_counter_view.h"
 #include "ash/system/unified/unified_system_tray_bubble.h"
 #include "ash/system/unified/unified_system_tray_model.h"
-#include "ash/system/web_notification/ash_popup_alignment_delegate.h"
+#include "chromeos/network/network_handler.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/message_center/message_center.h"
@@ -20,7 +32,7 @@ namespace ash {
 
 class UnifiedSystemTray::UiDelegate : public message_center::UiDelegate {
  public:
-  explicit UiDelegate(UnifiedSystemTray* owner);
+  UiDelegate(UnifiedSystemTray* owner);
   ~UiDelegate() override;
 
   // message_center::UiDelegate:
@@ -62,7 +74,7 @@ UnifiedSystemTray::UiDelegate::UiDelegate(UnifiedSystemTray* owner)
 UnifiedSystemTray::UiDelegate::~UiDelegate() = default;
 
 void UnifiedSystemTray::UiDelegate::OnMessageCenterContentsChanged() {
-  // TODO(tetsui): Implement.
+  owner_->UpdateNotificationInternal();
 }
 
 bool UnifiedSystemTray::UiDelegate::ShowPopups() {
@@ -80,7 +92,7 @@ bool UnifiedSystemTray::UiDelegate::ShowMessageCenter(bool show_by_click) {
   if (owner_->IsBubbleShown())
     return false;
 
-  owner_->ShowBubbleInternal();
+  owner_->ShowBubbleInternal(show_by_click);
   return true;
 }
 
@@ -92,21 +104,73 @@ bool UnifiedSystemTray::UiDelegate::ShowNotifierSettings() {
   return false;
 }
 
+class UnifiedSystemTray::NetworkStateDelegate
+    : public TrayNetworkStateObserver::Delegate {
+ public:
+  explicit NetworkStateDelegate(tray::NetworkTrayView* tray_view);
+  ~NetworkStateDelegate() override;
+
+  // TrayNetworkStateObserver::Delegate
+  void NetworkStateChanged(bool notify_a11y) override;
+
+ private:
+  tray::NetworkTrayView* const tray_view_;
+  const std::unique_ptr<TrayNetworkStateObserver> network_state_observer_;
+
+  DISALLOW_COPY_AND_ASSIGN(NetworkStateDelegate);
+};
+
+UnifiedSystemTray::NetworkStateDelegate::NetworkStateDelegate(
+    tray::NetworkTrayView* tray_view)
+    : tray_view_(tray_view),
+      network_state_observer_(
+          std::make_unique<TrayNetworkStateObserver>(this)) {}
+
+UnifiedSystemTray::NetworkStateDelegate::~NetworkStateDelegate() = default;
+
+void UnifiedSystemTray::NetworkStateDelegate::NetworkStateChanged(
+    bool notify_a11y) {
+  tray_view_->UpdateNetworkStateHandlerIcon();
+  tray_view_->UpdateConnectionStatus(tray::GetConnectedNetwork(), notify_a11y);
+}
+
 UnifiedSystemTray::UnifiedSystemTray(Shelf* shelf)
     : TrayBackgroundView(shelf),
       ui_delegate_(std::make_unique<UiDelegate>(this)),
-      model_(std::make_unique<UnifiedSystemTrayModel>()) {
-  // On the first step, features in the status area button are still provided by
-  // TrayViews in SystemTray.
-  // TODO(tetsui): Remove SystemTray from StatusAreaWidget and provide these
-  // features from UnifiedSystemTray.
-  SetVisible(false);
+      model_(std::make_unique<UnifiedSystemTrayModel>()),
+      notification_counter_item_(new NotificationCounterView()),
+      quiet_mode_view_(new QuietModeView()) {
+  tray_container()->AddChildView(notification_counter_item_);
+  tray_container()->AddChildView(quiet_mode_view_);
+
+  // It is possible in unit tests that it's missing.
+  if (chromeos::NetworkHandler::IsInitialized()) {
+    tray::NetworkTrayView* network_item = new tray::NetworkTrayView(nullptr);
+    network_state_delegate_ =
+        std::make_unique<NetworkStateDelegate>(network_item);
+    tray_container()->AddChildView(network_item);
+  }
+
+  tray_container()->AddChildView(new tray::PowerTrayView(nullptr));
+
+  TrayItemView* time_item = new TrayItemView(nullptr);
+  time_item->AddChildView(
+      new tray::TimeView(tray::TimeView::ClockLayout::HORIZONTAL_CLOCK,
+                         Shell::Get()->system_tray_model()->clock()));
+  tray_container()->AddChildView(time_item);
+
+  SetInkDropMode(InkDropMode::ON);
+  SetVisible(true);
 }
 
 UnifiedSystemTray::~UnifiedSystemTray() = default;
 
 bool UnifiedSystemTray::IsBubbleShown() const {
   return !!bubble_;
+}
+
+gfx::Rect UnifiedSystemTray::GetBubbleBoundsInScreen() const {
+  return bubble_ ? bubble_->GetBoundsInScreen() : gfx::Rect();
 }
 
 bool UnifiedSystemTray::PerformAction(const ui::Event& event) {
@@ -129,25 +193,35 @@ void UnifiedSystemTray::CloseBubble() {
 }
 
 base::string16 UnifiedSystemTray::GetAccessibleNameForTray() {
-  // TODO(tetsui): Implement.
-  return base::string16();
+  base::string16 time = base::TimeFormatTimeOfDayWithHourClockType(
+      base::Time::Now(),
+      Shell::Get()->system_tray_model()->clock()->hour_clock_type(),
+      base::kKeepAmPm);
+  base::string16 battery = PowerStatus::Get()->GetAccessibleNameString(false);
+  return l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_ACCESSIBLE_DESCRIPTION,
+                                    time, battery);
 }
 
 void UnifiedSystemTray::HideBubbleWithView(
     const views::TrayBubbleView* bubble_view) {}
 
-void UnifiedSystemTray::ClickedOutsideBubble() {}
+void UnifiedSystemTray::ClickedOutsideBubble() {
+  CloseBubble();
+}
 
-void UnifiedSystemTray::ShowBubbleInternal() {
-  bubble_ = std::make_unique<UnifiedSystemTrayBubble>(this);
-  // TODO(tetsui): Call its own SetIsActive. See the comment in the ctor.
-  shelf()->GetStatusAreaWidget()->system_tray()->SetIsActive(true);
+void UnifiedSystemTray::ShowBubbleInternal(bool show_by_click) {
+  bubble_ = std::make_unique<UnifiedSystemTrayBubble>(this, show_by_click);
+  SetIsActive(true);
 }
 
 void UnifiedSystemTray::HideBubbleInternal() {
   bubble_.reset();
-  // TODO(tetsui): Call its own SetIsActive. See the comment in the ctor.
-  shelf()->GetStatusAreaWidget()->system_tray()->SetIsActive(false);
+  SetIsActive(false);
+}
+
+void UnifiedSystemTray::UpdateNotificationInternal() {
+  notification_counter_item_->Update();
+  quiet_mode_view_->Update();
 }
 
 }  // namespace ash

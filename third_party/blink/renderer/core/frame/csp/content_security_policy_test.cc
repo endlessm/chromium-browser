@@ -30,7 +30,7 @@ class ContentSecurityPolicyTest : public testing::Test {
         secure_origin(SecurityOrigin::Create(secure_url)) {}
 
  protected:
-  virtual void SetUp() { execution_context = CreateExecutionContext(); }
+  void SetUp() override { execution_context = CreateExecutionContext(); }
 
   NullExecutionContext* CreateExecutionContext() {
     NullExecutionContext* context = new NullExecutionContext();
@@ -1003,6 +1003,7 @@ TEST_F(ContentSecurityPolicyTest, DirectiveType) {
       {ContentSecurityPolicy::DirectiveType::kImgSrc, "img-src"},
       {ContentSecurityPolicy::DirectiveType::kManifestSrc, "manifest-src"},
       {ContentSecurityPolicy::DirectiveType::kMediaSrc, "media-src"},
+      {ContentSecurityPolicy::DirectiveType::kNavigateTo, "navigate-to"},
       {ContentSecurityPolicy::DirectiveType::kObjectSrc, "object-src"},
       {ContentSecurityPolicy::DirectiveType::kPluginTypes, "plugin-types"},
       {ContentSecurityPolicy::DirectiveType::kReportURI, "report-uri"},
@@ -1347,6 +1348,34 @@ TEST_F(ContentSecurityPolicyTest, IsValidCSPAttrTest) {
       "report-to relative-path/reporting;"
       "base-uri http://example.com 'self'",
       ""));
+
+  // CRLF should not be allowed
+  EXPECT_FALSE(ContentSecurityPolicy::IsValidCSPAttr(
+      "base-uri\nhttp://example.com", ""));
+  EXPECT_FALSE(ContentSecurityPolicy::IsValidCSPAttr(
+      "base-uri http://example.com\nhttp://example2.com", ""));
+  EXPECT_FALSE(ContentSecurityPolicy::IsValidCSPAttr(
+      "base\n-uri http://example.com", ""));
+  EXPECT_FALSE(ContentSecurityPolicy::IsValidCSPAttr(
+      "\nbase-uri http://example.com", ""));
+
+  EXPECT_FALSE(ContentSecurityPolicy::IsValidCSPAttr(
+      "base-uri\r\nhttp://example.com", ""));
+  EXPECT_FALSE(ContentSecurityPolicy::IsValidCSPAttr(
+      "base-uri http://example.com\r\nhttp://example2.com", ""));
+  EXPECT_FALSE(ContentSecurityPolicy::IsValidCSPAttr(
+      "base\r\n-uri http://example.com", ""));
+  EXPECT_FALSE(ContentSecurityPolicy::IsValidCSPAttr(
+      "\r\nbase-uri http://example.com", ""));
+
+  EXPECT_FALSE(ContentSecurityPolicy::IsValidCSPAttr(
+      "base-uri\rhttp://example.com", ""));
+  EXPECT_FALSE(ContentSecurityPolicy::IsValidCSPAttr(
+      "base-uri http://example.com\rhttp://example2.com", ""));
+  EXPECT_FALSE(ContentSecurityPolicy::IsValidCSPAttr(
+      "base\r-uri http://example.com", ""));
+  EXPECT_FALSE(ContentSecurityPolicy::IsValidCSPAttr(
+      "\rbase-uri http://example.com", ""));
 }
 
 }  // namespace blink

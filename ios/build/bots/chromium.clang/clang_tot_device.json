@@ -34,6 +34,7 @@
   },
   "configuration": "Release",
   "sdk": "iphoneos11.2",
+  "device check": false,
   "tests": [
     {
       "app": "base_unittests",
@@ -120,5 +121,6 @@
       "device type": "iPhone 6s",
       "os": "10.2"
     }
-  ]
+  ],
+  "expiration_time": 10800
 }

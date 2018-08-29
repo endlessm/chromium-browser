@@ -14,6 +14,7 @@
 #include "Unix.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Config/config.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Mutex.h"
 #include "llvm/Support/MutexGuard.h"
@@ -170,15 +171,6 @@ Optional<std::string> Process::GetEnv(StringRef Name) {
   if (!Val)
     return None;
   return std::string(Val);
-}
-
-std::error_code
-Process::GetArgumentVector(SmallVectorImpl<const char *> &ArgsOut,
-                           ArrayRef<const char *> ArgsIn,
-                           SpecificBumpPtrAllocator<char> &) {
-  ArgsOut.append(ArgsIn.begin(), ArgsIn.end());
-
-  return std::error_code();
 }
 
 namespace {

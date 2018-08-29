@@ -4021,7 +4021,7 @@ INTERCEPTOR(void, _exit, int status) {
 #define INIT__EXIT
 #endif
 
-#if SANITIZER_INTERCEPT_PHTREAD_MUTEX
+#if SANITIZER_INTERCEPT_PTHREAD_MUTEX
 INTERCEPTOR(int, pthread_mutex_lock, void *m) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, pthread_mutex_lock, m);
@@ -4054,13 +4054,42 @@ INTERCEPTOR(int, pthread_mutex_unlock, void *m) {
 #define INIT_PTHREAD_MUTEX_UNLOCK
 #endif
 
-#if SANITIZER_NETBSD
-INTERCEPTOR(int, __libc_mutex_lock, void *m) \
-  ALIAS(WRAPPER_NAME(pthread_mutex_lock));
-INTERCEPTOR(int, __libc_mutex_unlock, void *m) \
-  ALIAS(WRAPPER_NAME(pthread_mutex_unlock));
-INTERCEPTOR(int, __libc_thr_setcancelstate, int state, int *oldstate) \
-  ALIAS(WRAPPER_NAME(pthread_setcancelstate));
+#if SANITIZER_INTERCEPT___PTHREAD_MUTEX
+INTERCEPTOR(int, __pthread_mutex_lock, void *m) {
+  return WRAP(pthread_mutex_lock)(m);
+}
+
+INTERCEPTOR(int, __pthread_mutex_unlock, void *m) {
+  return WRAP(pthread_mutex_unlock)(m);
+}
+
+#define INIT___PTHREAD_MUTEX_LOCK \
+  COMMON_INTERCEPT_FUNCTION(__pthread_mutex_lock)
+#define INIT___PTHREAD_MUTEX_UNLOCK \
+  COMMON_INTERCEPT_FUNCTION(__pthread_mutex_unlock)
+#else
+#define INIT___PTHREAD_MUTEX_LOCK
+#define INIT___PTHREAD_MUTEX_UNLOCK
+#endif
+
+#if SANITIZER_INTERCEPT___LIBC_MUTEX
+INTERCEPTOR(int, __libc_mutex_lock, void *m)
+ALIAS(WRAPPER_NAME(pthread_mutex_lock));
+
+INTERCEPTOR(int, __libc_mutex_unlock, void *m)
+ALIAS(WRAPPER_NAME(pthread_mutex_unlock));
+
+INTERCEPTOR(int, __libc_thr_setcancelstate, int state, int *oldstate)
+ALIAS(WRAPPER_NAME(pthread_setcancelstate));
+
+#define INIT___LIBC_MUTEX_LOCK COMMON_INTERCEPT_FUNCTION(__libc_mutex_lock)
+#define INIT___LIBC_MUTEX_UNLOCK COMMON_INTERCEPT_FUNCTION(__libc_mutex_unlock)
+#define INIT___LIBC_THR_SETCANCELSTATE \
+  COMMON_INTERCEPT_FUNCTION(__libc_thr_setcancelstate)
+#else
+#define INIT___LIBC_MUTEX_LOCK
+#define INIT___LIBC_MUTEX_UNLOCK
+#define INIT___LIBC_THR_SETCANCELSTATE
 #endif
 
 #if SANITIZER_INTERCEPT_GETMNTENT || SANITIZER_INTERCEPT_GETMNTENT_R
@@ -6537,6 +6566,7 @@ INTERCEPTOR(wchar_t *, wcsncat, wchar_t *dst, const wchar_t *src, SIZE_T n) {
 #define INIT_WCSCAT
 #endif
 
+#if SANITIZER_INTERCEPT_STRXFRM
 static SIZE_T RealStrLen(const char *str) { return REAL(strlen)(str); }
 
 static SIZE_T RealStrLen(const wchar_t *str) { return REAL(wcslen)(str); }
@@ -6553,7 +6583,6 @@ static SIZE_T RealStrLen(const wchar_t *str) { return REAL(wcslen)(str); }
     return res;                                                            \
   }
 
-#if SANITIZER_INTERCEPT_STRXFRM
 INTERCEPTOR(SIZE_T, strxfrm, char *dest, const char *src, SIZE_T len) {
   STRXFRM_INTERCEPTOR_IMPL(strxfrm, dest, src, len);
 }
@@ -7291,6 +7320,11 @@ static void InitializeCommonInterceptors() {
   INIT__EXIT;
   INIT_PTHREAD_MUTEX_LOCK;
   INIT_PTHREAD_MUTEX_UNLOCK;
+  INIT___PTHREAD_MUTEX_LOCK;
+  INIT___PTHREAD_MUTEX_UNLOCK;
+  INIT___LIBC_MUTEX_LOCK;
+  INIT___LIBC_MUTEX_UNLOCK;
+  INIT___LIBC_THR_SETCANCELSTATE;
   INIT_GETMNTENT;
   INIT_GETMNTENT_R;
   INIT_STATFS;
@@ -7402,12 +7436,6 @@ static void InitializeCommonInterceptors() {
   INIT_TTYENT;
   INIT_PROTOENT;
   INIT_NETENT;
-
-#if SANITIZER_NETBSD
-  COMMON_INTERCEPT_FUNCTION(__libc_mutex_lock);
-  COMMON_INTERCEPT_FUNCTION(__libc_mutex_unlock);
-  COMMON_INTERCEPT_FUNCTION(__libc_thr_setcancelstate);
-#endif
 
   INIT___PRINTF_CHK;
 }

@@ -24,7 +24,7 @@
 namespace mca {
 
 class Backend;
-class DispatchUnit;
+class DispatchStage;
 
 /// Used to notify the internal state of a processor resource.
 ///
@@ -46,7 +46,7 @@ enum ResourceStateEvent {
   RS_RESERVED
 };
 
-/// \brief A descriptor for processor resources.
+/// A descriptor for processor resources.
 ///
 /// Each object of class ResourceState is associated to a specific processor
 /// resource. There is an instance of this class for every processor resource
@@ -250,7 +250,7 @@ public:
 #endif
 };
 
-/// \brief A resource unit identifier.
+/// A resource unit identifier.
 ///
 /// This is used to identify a specific processor resource unit using a pair
 /// of indices where the 'first' index is a processor resource mask, and the
@@ -362,7 +362,7 @@ public:
   bool canBeIssued(const InstrDesc &Desc) const;
 
   void issueInstruction(
-      unsigned Index, const InstrDesc &Desc,
+      const InstrDesc &Desc,
       llvm::SmallVectorImpl<std::pair<ResourceRef, double>> &Pipes);
 
   void cycleEvent(llvm::SmallVectorImpl<ResourceRef> &ResourcesFreed);
@@ -411,7 +411,7 @@ class Scheduler {
   Backend *const Owner;
 
   // The dispatch unit gets notified when instructions are executed.
-  DispatchUnit *DU;
+  DispatchStage *DS;
 
   using QueueEntryTy = std::pair<unsigned, Instruction *>;
   std::map<unsigned, Instruction *> WaitQueue;
@@ -419,10 +419,10 @@ class Scheduler {
   std::map<unsigned, Instruction *> IssuedQueue;
 
   void
-  notifyInstructionIssued(unsigned Index,
+  notifyInstructionIssued(const InstRef &IR,
                           llvm::ArrayRef<std::pair<ResourceRef, double>> Used);
-  void notifyInstructionExecuted(unsigned Index);
-  void notifyInstructionReady(unsigned Index);
+  void notifyInstructionExecuted(const InstRef &IR);
+  void notifyInstructionReady(const InstRef &IR);
   void notifyResourceAvailable(const ResourceRef &RR);
 
   // Notify the Backend that buffered resources were consumed.
@@ -430,14 +430,21 @@ class Scheduler {
   // Notify the Backend that buffered resources were freed.
   void notifyReleasedBuffers(llvm::ArrayRef<uint64_t> Buffers);
 
-  /// Issue instructions from the ready queue by giving priority to older
-  /// instructions.
-  void issue();
+  /// Select the next instruction to issue from the ReadyQueue.
+  /// This method gives priority to older instructions.
+  InstRef select();
+
+  /// Move instructions from the WaitQueue to the ReadyQueue if input operands
+  /// are all available.
+  void promoteToReadyQueue(llvm::SmallVectorImpl<InstRef> &Ready);
 
   /// Issue an instruction without updating the ready queue.
-  void issueInstruction(Instruction &IS, unsigned InstrIndex);
-  void updatePendingQueue();
-  void updateIssuedQueue();
+  void issueInstructionImpl(
+      InstRef &IR,
+      llvm::SmallVectorImpl<std::pair<ResourceRef, double>> &Pipes);
+
+  void updatePendingQueue(llvm::SmallVectorImpl<InstRef> &Ready);
+  void updateIssuedQueue(llvm::SmallVectorImpl<InstRef> &Executed);
 
 public:
   Scheduler(Backend *B, const llvm::MCSchedModel &Model, unsigned LoadQueueSize,
@@ -447,47 +454,32 @@ public:
                                       AssumeNoAlias)),
         Owner(B) {}
 
-  void setDispatchUnit(DispatchUnit *DispUnit) { DU = DispUnit; }
+  void setDispatchStage(DispatchStage *DispStage) { DS = DispStage; }
 
-  /// Scheduling events.
+  /// Check if the instruction in 'IR' can be dispatched.
   ///
-  /// The DispatchUnit is responsible for querying the Scheduler before
+  /// The DispatchStage is responsible for querying the Scheduler before
   /// dispatching new instructions. Queries are performed through method
-  /// `Scheduler::CanBeDispatched`, which returns an instance of this enum to
-  /// tell if the dispatch would fail or not.  If scheduling resources are
-  /// available, and the instruction can be dispatched, then the query returns
-  /// HWS_AVAILABLE.  A values different than HWS_AVAILABLE means that the
-  /// instruction cannot be dispatched during this cycle.
-  ///
-  /// Each event name starts with prefix "HWS_", and it is followed by
-  /// a substring which describes the reason why the Scheduler was unavailable
-  /// (or "AVAILABLE" if the instruction is allowed to be dispatched).
-  ///
-  /// HWS_QUEUE_UNAVAILABLE is returned if there are not enough available slots
-  /// in the  scheduler's queue. That means, one (or more) buffered resources
-  /// consumed by the instruction were full.
-  ///
-  /// HWS_LD_QUEUE_UNAVAILABLE is returned when an instruction 'mayLoad', and
-  /// the load queue in the load/store unit (implemented by class LSUnit) is
-  /// full.  Similarly, HWS_ST_QUEUE_UNAVAILABLE is returned when the store
-  /// queue is full, and the instruction to be dispatched 'mayStore'.
-  ///
-  /// HWS_DISPATCH_GROUP_RESTRICTION is only returned in special cases where the
-  /// instruction consumes an in-order issue/dispatch resource (i.e. a resource
-  /// with `BufferSize=0`), and the pipeline resource is not immediately
-  /// available.
-  enum Event {
-    HWS_AVAILABLE,
-    HWS_QUEUE_UNAVAILABLE,
-    HWS_DISPATCH_GROUP_RESTRICTION,
-    HWS_LD_QUEUE_UNAVAILABLE,
-    HWS_ST_QUEUE_UNAVAILABLE
-  };
+  /// `Scheduler::canBeDispatched`. If scheduling resources are available,
+  /// and the instruction can be dispatched, then this method returns true.
+  /// Otherwise, a generic HWStallEvent is notified to the listeners.
+  bool canBeDispatched(const InstRef &IR) const;
+  void scheduleInstruction(InstRef &IR);
 
-  Event canBeDispatched(const InstrDesc &Desc) const;
-  void scheduleInstruction(unsigned Idx, Instruction &MCIS);
+  /// Issue an instruction.
+  void issueInstruction(InstRef &IR);
 
-  void cycleEvent(unsigned Cycle);
+  /// Reserve one entry in each buffered resource.
+  void reserveBuffers(llvm::ArrayRef<uint64_t> Buffers) {
+    Resources->reserveBuffers(Buffers);
+  }
+
+  /// Release buffer entries previously allocated by method reserveBuffers.
+  void releaseBuffers(llvm::ArrayRef<uint64_t> Buffers) {
+    Resources->releaseBuffers(Buffers);
+  }
+
+  void cycleEvent();
 
 #ifndef NDEBUG
   void dump() const;

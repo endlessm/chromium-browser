@@ -8,10 +8,19 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "chrome/browser/net/proxy_config_monitor.h"
 #include "services/network/public/mojom/network_service.mojom.h"
+#include "services/network/public/mojom/ssl_config.mojom.h"
 
-class ProxyConfigMonitor;
+class SSLConfigServiceManager;
+
+namespace network {
+namespace mojom {
+class URLLoaderFactory;
+}
+class SharedURLLoaderFactory;
+}  // namespace network
 
 // Responsible for creating and managing access to the system NetworkContext.
 // Lives on the UI thread. The NetworkContext this owns is intended for requests
@@ -59,20 +68,46 @@ class SystemNetworkContextManager {
   // this method to get a URLLoaderFactory that can be used on other threads.
   network::mojom::URLLoaderFactory* GetURLLoaderFactory();
 
+  // Returns a SharedURLLoaderFactory owned by the SystemNetworkContextManager
+  // that is backed by the SystemNetworkContext.
+  scoped_refptr<network::SharedURLLoaderFactory> GetSharedURLLoaderFactory();
+
   // Permanently disables QUIC, both for NetworkContexts using the IOThread's
   // NetworkService, and for those using the network service (if enabled).
   void DisableQuic();
 
+  // Returns an SSLConfigClientRequest that can be passed as a
+  // NetorkContextParam.
+  network::mojom::SSLConfigClientRequest GetSSLConfigClientRequest();
+
+  // Populates |initial_ssl_config| and |ssl_config_client_request| members of
+  // |network_context_params|. As long as the SystemNetworkContextManager
+  // exists, any NetworkContext created with the params will continue to get
+  // SSL configuration updates.
+  void AddSSLConfigToNetworkContextParams(
+      network::mojom::NetworkContextParams* network_context_params);
+
+  // Flushes all pending SSL configuration changes.
+  void FlushSSLConfigManagerForTesting();
+
   // Flushes all pending proxy configuration changes.
   void FlushProxyConfigMonitorForTesting();
+
   // Call |FlushForTesting()| on Network Service related interfaces. For test
   // use only.
   void FlushNetworkInterfaceForTesting();
 
  private:
+  class URLLoaderFactoryForSystem;
+
   // Creates parameters for the NetworkContext. May only be called once, since
   // it initializes some class members.
   network::mojom::NetworkContextParamsPtr CreateNetworkContextParams();
+
+  // This is an instance of the default SSLConfigServiceManager for the current
+  // platform and it gets SSL preferences from the BrowserProcess's local_state
+  // object. It's shared with other NetworkContexts.
+  std::unique_ptr<SSLConfigServiceManager> ssl_config_service_manager_;
 
   ProxyConfigMonitor proxy_config_monitor_;
 
@@ -87,6 +122,7 @@ class SystemNetworkContextManager {
 
   // URLLoaderFactory backed by the NetworkContext returned by GetContext(), so
   // consumers don't all need to create their own factory.
+  scoped_refptr<URLLoaderFactoryForSystem> shared_url_loader_factory_;
   network::mojom::URLLoaderFactoryPtr url_loader_factory_;
 
   bool is_quic_allowed_ = true;

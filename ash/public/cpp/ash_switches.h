@@ -53,21 +53,18 @@ ASH_PUBLIC_EXPORT extern const char kAshSidebarDisabled[];
 ASH_PUBLIC_EXPORT extern const char kAshSidebarEnabled[];
 ASH_PUBLIC_EXPORT extern const char kAshTouchHud[];
 ASH_PUBLIC_EXPORT extern const char kAuraLegacyPowerButton[];
-ASH_PUBLIC_EXPORT extern const char kForceClamshellPowerButton[];
 ASH_PUBLIC_EXPORT extern const char kHasInternalStylus[];
+ASH_PUBLIC_EXPORT extern const char kKeyboardShortcutViewerApp[];
 ASH_PUBLIC_EXPORT extern const char kShowTaps[];
-ASH_PUBLIC_EXPORT extern const char kShowViewsLogin[];
 ASH_PUBLIC_EXPORT extern const char kShowWebUiLock[];
 ASH_PUBLIC_EXPORT extern const char kShowWebUiLogin[];
 ASH_PUBLIC_EXPORT extern const char kSuppressMessageCenterPopups[];
 ASH_PUBLIC_EXPORT extern const char kTouchscreenUsableWhileScreenOff[];
-ASH_PUBLIC_EXPORT extern const char kUseIMEService[];
 
 ASH_PUBLIC_EXPORT bool IsDisplayMoveWindowAccelsEnabled();
 ASH_PUBLIC_EXPORT bool IsNightLightEnabled();
 ASH_PUBLIC_EXPORT bool IsSidebarEnabled();
 ASH_PUBLIC_EXPORT bool IsTrilinearFilteringEnabled();
-ASH_PUBLIC_EXPORT bool IsUsingViewsLogin();
 ASH_PUBLIC_EXPORT bool IsUsingViewsLock();
 
 }  // namespace switches

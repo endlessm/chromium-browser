@@ -5,18 +5,18 @@
 package org.chromium.content.browser.input;
 
 import android.content.Context;
-import android.view.View;
 
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.content.browser.PopupController;
 import org.chromium.content.browser.PopupController.HideablePopup;
-import org.chromium.content.browser.WindowAndroidChangedObserver;
 import org.chromium.content.browser.WindowEventObserver;
+import org.chromium.content.browser.WindowEventObserverManager;
 import org.chromium.content.browser.webcontents.WebContentsImpl;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContents.UserDataFactory;
+import org.chromium.ui.base.ViewAndroidDelegate;
 import org.chromium.ui.base.WindowAndroid;
 
 /**
@@ -25,13 +25,12 @@ import org.chromium.ui.base.WindowAndroid;
  * the commands in that menu (by calling back to the C++ class).
  */
 @JNINamespace("content")
-public class TextSuggestionHost
-        implements WindowEventObserver, WindowAndroidChangedObserver, HideablePopup {
+public class TextSuggestionHost implements WindowEventObserver, HideablePopup {
     private long mNativeTextSuggestionHost;
     private final WebContentsImpl mWebContents;
 
     private Context mContext;
-    private View mContainerView;
+    private ViewAndroidDelegate mViewDelegate;
     private boolean mIsAttachedToWindow;
     private WindowAndroid mWindowAndroid;
 
@@ -49,15 +48,14 @@ public class TextSuggestionHost
      * @param context Context for action mode.
      * @param webContents WebContents instance.
      * @param windowAndroid The current WindowAndroid instance.
-     * @param view Container view.
      */
     public static TextSuggestionHost create(
-            Context context, WebContents webContents, WindowAndroid windowAndroid, View view) {
+            Context context, WebContents webContents, WindowAndroid windowAndroid) {
         TextSuggestionHost host = webContents.getOrSetUserData(
                 TextSuggestionHost.class, UserDataFactoryLazyHolder.INSTANCE);
         assert host != null;
         assert !host.initialized();
-        host.init(context, windowAndroid, view);
+        host.init(context, windowAndroid);
         return host;
     }
 
@@ -80,12 +78,14 @@ public class TextSuggestionHost
         mWebContents = (WebContentsImpl) webContents;
     }
 
-    private void init(Context context, WindowAndroid windowAndroid, View view) {
+    private void init(Context context, WindowAndroid windowAndroid) {
         mContext = context;
         mWindowAndroid = windowAndroid;
-        mContainerView = view;
+        mViewDelegate = mWebContents.getViewAndroidDelegate();
+        assert mViewDelegate != null;
         mNativeTextSuggestionHost = nativeInit(mWebContents);
         PopupController.register(mWebContents, this);
+        WindowEventObserverManager.from(mWebContents).addObserver(this);
         mInitialized = true;
     }
 
@@ -97,11 +97,7 @@ public class TextSuggestionHost
         return mWebContents.getRenderCoordinates().getContentOffsetYPix();
     }
 
-    public void setContainerView(View containerView) {
-        mContainerView = containerView;
-    }
-
-    // WindowAndroidChangedObserver
+    // WindowEventObserver
 
     @Override
     public void onWindowAndroidChanged(WindowAndroid newWindowAndroid) {
@@ -114,8 +110,6 @@ public class TextSuggestionHost
         }
     }
 
-    // WindowEventObserver
-
     @Override
     public void onAttachedToWindow() {
         mIsAttachedToWindow = true;
@@ -124,6 +118,11 @@ public class TextSuggestionHost
     @Override
     public void onDetachedFromWindow() {
         mIsAttachedToWindow = false;
+    }
+
+    @Override
+    public void onRotationChanged(int rotation) {
+        hidePopups();
     }
 
     // HieablePopup
@@ -143,8 +142,8 @@ public class TextSuggestionHost
         }
 
         hidePopups();
-        mSpellCheckPopupWindow =
-                new SpellCheckPopupWindow(mContext, this, mWindowAndroid, mContainerView);
+        mSpellCheckPopupWindow = new SpellCheckPopupWindow(
+                mContext, this, mWindowAndroid, mViewDelegate.getContainerView());
 
         mSpellCheckPopupWindow.show(
                 caretXPx, caretYPx + getContentOffsetYPix(), markedText, suggestions);
@@ -161,8 +160,8 @@ public class TextSuggestionHost
         }
 
         hidePopups();
-        mTextSuggestionsPopupWindow =
-                new TextSuggestionsPopupWindow(mContext, this, mWindowAndroid, mContainerView);
+        mTextSuggestionsPopupWindow = new TextSuggestionsPopupWindow(
+                mContext, this, mWindowAndroid, mViewDelegate.getContainerView());
 
         mTextSuggestionsPopupWindow.show(
                 caretXPx, caretYPx + getContentOffsetYPix(), markedText, suggestions);

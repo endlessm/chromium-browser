@@ -29,7 +29,6 @@
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/resource_context.h"
 #include "extensions/buildflags/buildflags.h"
-#include "net/cookies/cookie_store.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_network_session.h"
 #include "net/net_buildflags.h"
@@ -52,10 +51,6 @@ class CertificateProvider;
 
 namespace chrome_browser_net {
 class LoadingPredictorObserver;
-}
-
-namespace certificate_transparency {
-class TreeStateTracker;
 }
 
 namespace content_settings {
@@ -81,8 +76,6 @@ class ChannelIDService;
 class ClientCertStore;
 class CookieStore;
 class HttpTransactionFactory;
-class ReportSender;
-class SSLConfigService;
 class URLRequestContextBuilder;
 class URLRequestJobFactoryImpl;
 
@@ -351,7 +344,6 @@ class ProfileIOData {
 
     scoped_refptr<content_settings::CookieSettings> cookie_settings;
     scoped_refptr<HostContentSettingsMap> host_content_settings_map;
-    scoped_refptr<net::SSLConfigService> ssl_config_service;
 #if BUILDFLAG(ENABLE_EXTENSIONS)
     scoped_refptr<extensions::InfoMap> extension_info_map;
 #endif
@@ -622,11 +614,6 @@ class ProfileIOData {
   mutable network::URLRequestContextOwner main_request_context_owner_;
   mutable net::URLRequestContext* main_request_context_;
 
-  // Pointed to by the TransportSecurityState (owned by
-  // URLRequestContextStorage), and must be disconnected from it before it's
-  // destroyed.
-  mutable std::unique_ptr<net::ReportSender> certificate_report_sender_;
-
   mutable std::unique_ptr<net::URLRequestContext> extensions_request_context_;
   // One URLRequestContext per isolated app for main and media requests.
   mutable URLRequestContextMap app_request_context_map_;
@@ -646,10 +633,6 @@ class ProfileIOData {
   mutable std::unique_ptr<extensions::ExtensionThrottleManager>
       extension_throttle_manager_;
 #endif
-
-  mutable std::unique_ptr<certificate_transparency::TreeStateTracker>
-      ct_tree_tracker_;
-  mutable base::Closure ct_tree_tracker_unregistration_;
 
   // Owned by the ChromeNetworkDelegate, which is owned (possibly with one or
   // more layers of LayeredNetworkDelegate) by the URLRequestContext, which is

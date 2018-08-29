@@ -11,6 +11,7 @@
 #include "ash/accessibility/test_accessibility_controller_client.h"
 #include "ash/app_list/test/app_list_test_helper.h"
 #include "ash/frame/custom_frame_view_ash.h"
+#include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/app_types.h"
 #include "ash/public/cpp/config.h"
 #include "ash/public/cpp/shell_window_ids.h"
@@ -40,7 +41,6 @@
 #include "ash/wm/workspace_controller_test_api.h"
 #include "base/run_loop.h"
 #include "chromeos/audio/chromeos_sounds.h"
-#include "ui/app_list/app_list_features.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/client/window_parenting_client.h"
@@ -1547,7 +1547,13 @@ TEST_F(WorkspaceLayoutManagerBackdropTest,
   GetAppListTestHelper()->Dismiss();
 }
 
-TEST_F(WorkspaceLayoutManagerBackdropTest, OpenAppListInOverviewMode) {
+// TODO(crbug.com/803286): The npot texture check failed on asan tests bot.
+#if defined(ADDRESS_SANITIZER)
+#define MAYBE_OpenAppListInOverviewMode DISABLED_OpenAppListInOverviewMode
+#else
+#define MAYBE_OpenAppListInOverviewMode OpenAppListInOverviewMode
+#endif
+TEST_F(WorkspaceLayoutManagerBackdropTest, MAYBE_OpenAppListInOverviewMode) {
   WorkspaceController* wc = ShellTestApi(Shell::Get()).workspace_controller();
   WorkspaceControllerTestApi test_helper(wc);
 
@@ -1561,6 +1567,7 @@ TEST_F(WorkspaceLayoutManagerBackdropTest, OpenAppListInOverviewMode) {
 
   // Toggle overview button to enter overview mode.
   Shell::Get()->window_selector_controller()->ToggleOverview();
+  RunAllPendingInMessageLoop();
   EXPECT_FALSE(test_helper.GetBackdropWindow());
 
   ui::ScopedAnimationDurationScaleMode test_duration_mode(

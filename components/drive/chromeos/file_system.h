@@ -40,8 +40,7 @@ class JobScheduler;
 
 namespace internal {
 class AboutResourceLoader;
-class ChangeListLoader;
-class DirectoryLoader;
+class DriveChangeListLoader;
 class FileCache;
 class LoaderController;
 class ResourceMetadata;
@@ -187,8 +186,8 @@ class FileSystem : public FileSystemInterface,
   void OnInitialLoadComplete() override;
 
   // Used by tests.
-  internal::ChangeListLoader* change_list_loader_for_testing() {
-    return change_list_loader_.get();
+  internal::DriveChangeListLoader* change_list_loader_for_testing() {
+    return default_corpus_change_list_loader_.get();
   }
   internal::SyncClient* sync_client_for_testing() { return sync_client_.get(); }
 
@@ -273,10 +272,9 @@ class FileSystem : public FileSystemInterface,
   // Used to control ChangeListLoader.
   std::unique_ptr<internal::LoaderController> loader_controller_;
 
-  // The loader is used to load the change lists.
-  std::unique_ptr<internal::ChangeListLoader> change_list_loader_;
-
-  std::unique_ptr<internal::DirectoryLoader> directory_loader_;
+  // Used to retrieve changelists from the default corpus.
+  std::unique_ptr<internal::DriveChangeListLoader>
+      default_corpus_change_list_loader_;
 
   std::unique_ptr<internal::SyncClient> sync_client_;
 
@@ -302,7 +300,7 @@ class FileSystem : public FileSystemInterface,
       get_file_for_saving_operation_;
   std::unique_ptr<file_system::SetPropertyOperation> set_property_operation_;
 
-  base::ThreadChecker thread_checker_;
+  THREAD_CHECKER(thread_checker_);
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate the weak pointers before any other members are destroyed.

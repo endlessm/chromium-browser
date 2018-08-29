@@ -4,6 +4,8 @@
 
 #include "components/drive/service/dummy_drive_service.h"
 
+#include <memory>
+
 #include "base/bind.h"
 
 using google_apis::AboutResourceCallback;
@@ -80,6 +82,13 @@ CancelCallback DummyDriveService::GetChangeList(
   return CancelCallback();
 }
 
+CancelCallback DummyDriveService::GetChangeListByToken(
+    const std::string& team_drive_id,
+    const std::string& start_page_token,
+    const ChangeListCallback& callback) {
+  return CancelCallback();
+}
+
 CancelCallback DummyDriveService::GetRemainingChangeList(
     const GURL& next_link,
     const ChangeListCallback& callback) { return CancelCallback(); }
@@ -105,6 +114,12 @@ CancelCallback DummyDriveService::GetShareUrl(
 
 CancelCallback DummyDriveService::GetAboutResource(
     const AboutResourceCallback& callback) { return CancelCallback(); }
+
+CancelCallback DummyDriveService::GetStartPageToken(
+    const std::string& team_drive_id,
+    const google_apis::StartPageTokenCallback& callback) {
+  return CancelCallback();
+}
 
 CancelCallback DummyDriveService::GetAppList(
     const AppListCallback& callback) { return CancelCallback(); }

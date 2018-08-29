@@ -28,6 +28,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "components/account_id/account_id.h"
 #include "components/component_updater/component_updater_paths.h"
 #include "components/component_updater/component_updater_service.h"
 #include "components/crx_file/id_util.h"
@@ -208,24 +209,24 @@ class SupervisedUserWhitelistInstallerTest : public testing::Test {
 
     profile_attributes_storage()->AddProfile(
         GetProfilePath(kClientId), base::ASCIIToUTF16("A Profile"),
-        std::string(), base::string16(), 0, std::string());
+        std::string(), base::string16(), 0, std::string(), EmptyAccountId());
     profile_attributes_storage()->AddProfile(
         GetProfilePath(kOtherClientId), base::ASCIIToUTF16("Another Profile"),
-        std::string(), base::string16(), 0, std::string());
+        std::string(), base::string16(), 0, std::string(), EmptyAccountId());
 
     installer_ = SupervisedUserWhitelistInstaller::Create(
         &component_update_service_,
         profile_attributes_storage(),
         &local_state_);
 
-    ASSERT_TRUE(PathService::Get(DIR_SUPERVISED_USER_WHITELISTS,
-                                 &whitelist_base_directory_));
+    ASSERT_TRUE(base::PathService::Get(DIR_SUPERVISED_USER_WHITELISTS,
+                                       &whitelist_base_directory_));
     whitelist_directory_ = whitelist_base_directory_.AppendASCII(kCrxId);
     whitelist_version_directory_ = whitelist_directory_.AppendASCII(kVersion);
 
     ASSERT_TRUE(
-        PathService::Get(chrome::DIR_SUPERVISED_USER_INSTALLED_WHITELISTS,
-                         &installed_whitelist_directory_));
+        base::PathService::Get(chrome::DIR_SUPERVISED_USER_INSTALLED_WHITELISTS,
+                               &installed_whitelist_directory_));
     std::string crx_id(kCrxId);
     whitelist_path_ =
         installed_whitelist_directory_.AppendASCII(crx_id + ".json");

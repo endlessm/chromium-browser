@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <utility>
 
 #include "base/logging.h"
 #include "chrome/browser/media_galleries/chromeos/mtp_device_object_enumerator.h"
@@ -13,8 +14,8 @@
 #include "chrome/browser/media_galleries/chromeos/snapshot_file_details.h"
 #include "components/storage_monitor/storage_monitor.h"
 #include "content/public/browser/browser_thread.h"
-#include "device/media_transfer_protocol/media_transfer_protocol_manager.h"
 #include "net/base/io_buffer.h"
+#include "services/device/public/mojom/mtp_manager.mojom.h"
 #include "storage/browser/fileapi/async_file_util.h"
 #include "storage/common/fileapi/file_system_util.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
@@ -23,20 +24,31 @@ using storage_monitor::StorageMonitor;
 
 namespace {
 
-device::MediaTransferProtocolManager* GetMediaTransferProtocolManager() {
+// When reading directory entries, this is the number of entries for
+// GetFileInfo() to read in one operation. If set too low, efficiency goes down
+// slightly due to the overhead of D-Bus calls. If set too high, then slow
+// devices may trigger a D-Bus timeout.
+// The value below is a good initial estimate.
+const size_t kFileInfoToFetchChunkSize = 25;
+
+// When calling GetFileInfo() with only a single file ID, the offset into the
+// file IDs vector should be 0.
+constexpr size_t kSingleFileIdOffset = 0;
+
+device::mojom::MtpManager* GetMediaTransferProtocolManager() {
   return StorageMonitor::GetInstance()->media_transfer_protocol_manager();
 }
 
 base::File::Info FileInfoFromMTPFileEntry(
-    const device::mojom::MtpFileEntry& file_entry) {
+    device::mojom::MtpFileEntryPtr file_entry) {
   base::File::Info file_entry_info;
-  file_entry_info.size = file_entry.file_size;
+  file_entry_info.size = file_entry->file_size;
   file_entry_info.is_directory =
-      file_entry.file_type ==
+      file_entry->file_type ==
       device::mojom::MtpFileEntry::FileType::FILE_TYPE_FOLDER;
   file_entry_info.is_symbolic_link = false;
   file_entry_info.last_modified =
-      base::Time::FromTimeT(file_entry.modification_time);
+      base::Time::FromTimeT(file_entry->modification_time);
   file_entry_info.last_accessed = file_entry_info.last_modified;
   file_entry_info.creation_time = base::Time();
   return file_entry_info;
@@ -80,11 +92,11 @@ void MTPDeviceTaskHelper::GetFileInfo(
   if (device_handle_.empty())
     return HandleDeviceError(error_callback, base::File::FILE_ERROR_FAILED);
 
+  const std::vector<uint32_t> file_ids = {file_id};
   GetMediaTransferProtocolManager()->GetFileInfo(
-      device_handle_, file_id,
+      device_handle_, file_ids, kSingleFileIdOffset, file_ids.size(),
       base::Bind(&MTPDeviceTaskHelper::OnGetFileInfo,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 success_callback,
+                 weak_ptr_factory_.GetWeakPtr(), success_callback,
                  error_callback));
 }
 
@@ -113,11 +125,12 @@ void MTPDeviceTaskHelper::ReadDirectory(
   if (device_handle_.empty())
     return HandleDeviceError(error_callback, base::File::FILE_ERROR_FAILED);
 
-  GetMediaTransferProtocolManager()->ReadDirectory(
-      device_handle_, directory_id, max_size,
-      base::Bind(&MTPDeviceTaskHelper::OnDidReadDirectory,
-                 weak_ptr_factory_.GetWeakPtr(), success_callback,
-                 error_callback));
+  GetMediaTransferProtocolManager()->ReadDirectoryEntryIds(
+      device_handle_, directory_id,
+      base::BindOnce(
+          &MTPDeviceTaskHelper::OnReadDirectoryEntryIdsToReadDirectory,
+          weak_ptr_factory_.GetWeakPtr(), success_callback, error_callback,
+          max_size));
 }
 
 void MTPDeviceTaskHelper::WriteDataIntoSnapshotFile(
@@ -143,10 +156,11 @@ void MTPDeviceTaskHelper::ReadBytes(
                              base::File::FILE_ERROR_FAILED);
   }
 
+  const std::vector<uint32_t> file_ids = {request.file_id};
   GetMediaTransferProtocolManager()->GetFileInfo(
-      device_handle_, request.file_id,
-      base::Bind(&MTPDeviceTaskHelper::OnGetFileInfoToReadBytes,
-                 weak_ptr_factory_.GetWeakPtr(), request));
+      device_handle_, file_ids, kSingleFileIdOffset, file_ids.size(),
+      base::BindOnce(&MTPDeviceTaskHelper::OnGetFileInfoToReadBytes,
+                     weak_ptr_factory_.GetWeakPtr(), request));
 }
 
 void MTPDeviceTaskHelper::RenameObject(
@@ -217,18 +231,18 @@ void MTPDeviceTaskHelper::OnDidOpenStorage(
 void MTPDeviceTaskHelper::OnGetFileInfo(
     const GetFileInfoSuccessCallback& success_callback,
     const ErrorCallback& error_callback,
-    const device::mojom::MtpFileEntry& file_entry,
+    std::vector<device::mojom::MtpFileEntryPtr> entries,
     bool error) const {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (error) {
+  if (error || entries.size() != 1) {
     return HandleDeviceError(error_callback,
                              base::File::FILE_ERROR_NOT_FOUND);
   }
 
   content::BrowserThread::PostTask(
-      content::BrowserThread::IO,
-      FROM_HERE,
-      base::Bind(success_callback, FileInfoFromMTPFileEntry(file_entry)));
+      content::BrowserThread::IO, FROM_HERE,
+      base::BindOnce(success_callback,
+                     FileInfoFromMTPFileEntry(std::move(entries[0]))));
 }
 
 void MTPDeviceTaskHelper::OnCreateDirectory(
@@ -247,19 +261,70 @@ void MTPDeviceTaskHelper::OnCreateDirectory(
                                    success_callback);
 }
 
-void MTPDeviceTaskHelper::OnDidReadDirectory(
+void MTPDeviceTaskHelper::OnReadDirectoryEntryIdsToReadDirectory(
     const ReadDirectorySuccessCallback& success_callback,
     const ErrorCallback& error_callback,
-    const std::vector<device::mojom::MtpFileEntry>& file_entries,
-    bool has_more,
-    bool error) const {
+    size_t max_size,
+    const std::vector<uint32_t>& file_ids,
+    bool error) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   if (error)
     return HandleDeviceError(error_callback, base::File::FILE_ERROR_FAILED);
 
+  if (file_ids.empty()) {
+    content::BrowserThread::PostTask(
+        content::BrowserThread::IO, FROM_HERE,
+        base::BindOnce(success_callback, MTPEntries(), /*has_more=*/false));
+    return;
+  }
+
+  std::vector<uint32_t> sorted_file_ids = file_ids;
+  std::sort(sorted_file_ids.begin(), sorted_file_ids.end());
+  const size_t chunk_size = max_size == 0
+                                ? kFileInfoToFetchChunkSize
+                                : std::min(max_size, kFileInfoToFetchChunkSize);
+
+  // This is the first GetFileInfo() call for a read directory operation. Start
+  // at offset 0.
+  static constexpr size_t kInitialOffset = 0;
+
+  GetMediaTransferProtocolManager()->GetFileInfo(
+      device_handle_, file_ids, kInitialOffset, chunk_size,
+      base::BindOnce(&MTPDeviceTaskHelper::OnGotDirectoryEntries,
+                     weak_ptr_factory_.GetWeakPtr(), success_callback,
+                     error_callback, file_ids, kInitialOffset, max_size,
+                     sorted_file_ids));
+}
+
+void MTPDeviceTaskHelper::OnGotDirectoryEntries(
+    const ReadDirectorySuccessCallback& success_callback,
+    const ErrorCallback& error_callback,
+    const std::vector<uint32_t>& file_ids,
+    size_t offset,
+    size_t max_size,
+    const std::vector<uint32_t>& sorted_file_ids,
+    std::vector<device::mojom::MtpFileEntryPtr> file_entries,
+    bool error) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  DCHECK_EQ(file_ids.size(), sorted_file_ids.size());
+
+  if (error)
+    return HandleDeviceError(error_callback, base::File::FILE_ERROR_FAILED);
+
+  // Use |sorted_file_ids| to sanity check and make sure the results are a
+  // subset of the requested file ids.
+  for (const auto& entry : file_entries) {
+    std::vector<uint32_t>::const_iterator it = std::lower_bound(
+        sorted_file_ids.begin(), sorted_file_ids.end(), entry->item_id);
+    if (it == sorted_file_ids.end()) {
+      return HandleDeviceError(error_callback, base::File::FILE_ERROR_FAILED);
+    }
+  }
+
   MTPEntries entries;
   base::FilePath current;
-  MTPDeviceObjectEnumerator file_enum(file_entries);
+  MTPDeviceObjectEnumerator file_enum(std::move(file_entries));
   while (!(current = file_enum.Next()).empty()) {
     MTPEntry entry;
     entry.name = storage::VirtualPath::BaseName(current).value();
@@ -270,35 +335,56 @@ void MTPDeviceTaskHelper::OnDidReadDirectory(
     entry.file_info.last_modified = file_enum.LastModifiedTime();
     entries.push_back(entry);
   }
+
+  const size_t directory_size =
+      max_size == 0 ? file_ids.size() : std::min(file_ids.size(), max_size);
+  size_t next_offset = directory_size;
+  if (offset < SIZE_MAX - kFileInfoToFetchChunkSize)
+    next_offset = std::min(next_offset, offset + kFileInfoToFetchChunkSize);
+  bool has_more = next_offset < directory_size;
+
   content::BrowserThread::PostTask(
-      content::BrowserThread::IO,
-      FROM_HERE,
-      base::Bind(success_callback, entries, has_more));
+      content::BrowserThread::IO, FROM_HERE,
+      base::BindOnce(success_callback, entries, has_more));
+
+  if (!has_more)
+    return;
+
+  const size_t chunk_size =
+      std::min(directory_size - next_offset, kFileInfoToFetchChunkSize);
+  GetMediaTransferProtocolManager()->GetFileInfo(
+      device_handle_, file_ids, next_offset, chunk_size,
+      base::BindOnce(&MTPDeviceTaskHelper::OnGotDirectoryEntries,
+                     weak_ptr_factory_.GetWeakPtr(), success_callback,
+                     error_callback, file_ids, next_offset, max_size,
+                     sorted_file_ids));
 }
 
 void MTPDeviceTaskHelper::OnGetFileInfoToReadBytes(
     const MTPDeviceAsyncDelegate::ReadBytesRequest& request,
-    const device::mojom::MtpFileEntry& file_entry,
+    std::vector<device::mojom::MtpFileEntryPtr> entries,
     bool error) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(request.buf.get());
   DCHECK_GE(request.buf_len, 0);
   DCHECK_GE(request.offset, 0);
-  if (error) {
+  if (error || entries.size() != 1) {
     return HandleDeviceError(request.error_callback,
                              base::File::FILE_ERROR_FAILED);
   }
 
-  base::File::Info file_info = FileInfoFromMTPFileEntry(file_entry);
+  base::File::Info file_info = FileInfoFromMTPFileEntry(std::move(entries[0]));
   if (file_info.is_directory) {
     return HandleDeviceError(request.error_callback,
                              base::File::FILE_ERROR_NOT_A_FILE);
-  } else if (file_info.size < 0 ||
-             file_info.size > std::numeric_limits<uint32_t>::max() ||
-             request.offset > file_info.size) {
+  }
+  if (file_info.size < 0 ||
+      file_info.size > std::numeric_limits<uint32_t>::max() ||
+      request.offset > file_info.size) {
     return HandleDeviceError(request.error_callback,
                              base::File::FILE_ERROR_FAILED);
-  } else if (request.offset == file_info.size) {
+  }
+  if (request.offset == file_info.size) {
     content::BrowserThread::PostTask(content::BrowserThread::IO,
                                      FROM_HERE,
                                      base::Bind(request.success_callback,

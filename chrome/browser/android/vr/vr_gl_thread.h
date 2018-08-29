@@ -17,9 +17,11 @@
 #include "chrome/browser/vr/content_input_delegate.h"
 #include "chrome/browser/vr/model/omnibox_suggestions.h"
 #include "chrome/browser/vr/model/sound_id.h"
+#include "chrome/browser/vr/platform_input_handler.h"
 #include "chrome/browser/vr/text_input_delegate.h"
 #include "chrome/browser/vr/ui.h"
 #include "chrome/browser/vr/ui_browser_interface.h"
+#include "chrome/browser/vr/ui_test_input.h"
 #include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr_types.h"
 
 namespace base {
@@ -34,7 +36,7 @@ class VrShell;
 class VrShellGl;
 
 class VrGLThread : public base::android::JavaHandlerThread,
-                   public ContentInputForwarder,
+                   public PlatformInputHandler,
                    public GlBrowserInterface,
                    public UiBrowserInterface,
                    public BrowserUiInterface {
@@ -46,7 +48,8 @@ class VrGLThread : public base::android::JavaHandlerThread,
       const UiInitialState& ui_initial_state,
       bool reprojected_rendering,
       bool daydream_support,
-      bool pause_content);
+      bool pause_content,
+      bool low_density);
 
   ~VrGLThread() override;
   base::WeakPtr<VrShellGl> GetVrShellGl();
@@ -65,13 +68,13 @@ class VrGLThread : public base::android::JavaHandlerThread,
                             gl::SurfaceTexture* texture) override;
   void UpdateGamepadData(device::GvrGamepadData) override;
   void ForceExitVr() override;
-  void OnContentPaused(bool enabled) override;
   void ToggleCardboardGamepad(bool enabled) override;
 
-  // ContentInputForwarder
-  void ForwardEvent(std::unique_ptr<blink::WebInputEvent> event,
-                    int content_id) override;
-  void ForwardDialogEvent(std::unique_ptr<blink::WebInputEvent> event) override;
+  // PlatformInputHandler
+  void ForwardEventToPlatformUi(
+      std::unique_ptr<blink::WebInputEvent> event) override;
+  void ForwardEventToContent(std::unique_ptr<blink::WebInputEvent> event,
+                             int content_id) override;
   void ClearFocusedElement() override;
   void OnWebInputEdited(const TextEdits& edits) override;
   void SubmitWebInput() override;
@@ -85,7 +88,17 @@ class VrGLThread : public base::android::JavaHandlerThread,
   void NavigateForward() override;
   void ReloadTab() override;
   void OpenNewTab(bool incognito) override;
+  void SelectTab(int id, bool incognito) override;
+  void OpenBookmarks() override;
+  void OpenRecentTabs() override;
+  void OpenHistory() override;
+  void OpenDownloads() override;
+  void OpenShare() override;
+  void OpenSettings() override;
+  void CloseTab(int id, bool incognito) override;
+  void CloseAllTabs() override;
   void CloseAllIncognitoTabs() override;
+  void OpenFeedback() override;
   void ExitCct() override;
   void CloseHostedDialog() override;
   void OnUnsupportedMode(UiUnsupportedMode mode) override;
@@ -117,13 +130,21 @@ class VrGLThread : public base::android::JavaHandlerThread,
                       std::unique_ptr<Assets> assets,
                       const base::Version& component_version) override;
   void OnAssetsUnavailable() override;
-  void SetIncognitoTabsOpen(bool open) override;
+  void WaitForAssets() override;
   void SetOverlayTextureEmpty(bool empty) override;
   void ShowSoftInput(bool show) override;
   void UpdateWebInputIndices(int selection_start,
                              int selection_end,
                              int composition_start,
                              int composition_end) override;
+  void AddOrUpdateTab(int id,
+                      bool incognito,
+                      const base::string16& title) override;
+  void RemoveTab(int id, bool incognito) override;
+  void RemoveAllTabs() override;
+
+  void ReportUiActivityResultForTesting(
+      const VrUiTestActivityResult& result) override;
 
  protected:
   void Init() override;
@@ -154,6 +175,7 @@ class VrGLThread : public base::android::JavaHandlerThread,
   bool reprojected_rendering_;
   bool daydream_support_;
   bool pause_content_;
+  bool low_density_;
 
   DISALLOW_COPY_AND_ASSIGN(VrGLThread);
 };

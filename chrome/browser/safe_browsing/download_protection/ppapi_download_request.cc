@@ -6,12 +6,15 @@
 
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/policy/chrome_browser_policy_connector.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/safe_browsing/download_protection/download_protection_service.h"
 #include "chrome/browser/safe_browsing/download_protection/download_protection_util.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/common/safe_browsing/file_type_policies.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
+#include "components/safe_browsing/common/utils.h"
 #include "components/safe_browsing/db/database_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
@@ -166,6 +169,9 @@ void PPAPIDownloadRequest::SendRequest() {
                         ? ChromeUserPopulation::EXTENDED_REPORTING
                         : ChromeUserPopulation::SAFE_BROWSING;
   request.mutable_population()->set_user_population(population);
+  request.mutable_population()->set_profile_management_status(
+      GetProfileManagementStatus(
+          g_browser_process->browser_policy_connector()));
   request.set_download_type(ClientDownloadRequest::PPAPI_SAVE_REQUEST);
   ClientDownloadRequest::Resource* resource = request.add_resources();
   resource->set_type(ClientDownloadRequest::PPAPI_DOCUMENT);

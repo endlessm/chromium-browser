@@ -4,6 +4,7 @@
 
 #include "base/bind_helpers.h"
 #include "base/run_loop.h"
+#include "build/build_config.h"
 #include "services/video_capture/test/fake_device_descriptor_test.h"
 #include "services/video_capture/test/mock_receiver.h"
 
@@ -20,6 +21,27 @@ class MockCreateDeviceProxyCallback {
 // This alias ensures test output is easily attributed to this service's tests.
 // TODO(rockot/chfremer): Consider just renaming the type.
 using FakeVideoCaptureDeviceDescriptorTest = FakeDeviceDescriptorTest;
+
+// Tests that when a client calls CreateDevice() but releases the message pipe
+// passed in as |device_request| before the corresponding callback arrives,
+// nothing bad happens and the callback still does arrive at some point after.
+TEST_F(FakeVideoCaptureDeviceDescriptorTest,
+       ClientReleasesDeviceHandleBeforeCreateCallbackHasArrived) {
+  mojom::DevicePtr device_proxy;
+  MockCreateDeviceProxyCallback create_device_proxy_callback;
+  factory_->CreateDevice(
+      fake_device_info_.descriptor.device_id, mojo::MakeRequest(&device_proxy),
+      base::BindOnce(&MockCreateDeviceProxyCallback::Run,
+                     base::Unretained(&create_device_proxy_callback)));
+
+  base::RunLoop wait_loop;
+  EXPECT_CALL(create_device_proxy_callback,
+              Run(mojom::DeviceAccessResultCode::SUCCESS))
+      .WillOnce(InvokeWithoutArgs([&wait_loop]() { wait_loop.Quit(); }));
+
+  device_proxy.reset();
+  wait_loop.Run();
+}
 
 // Tests that when requesting a second proxy for a device without closing the
 // first one, the service revokes access to the first one by closing the
@@ -66,8 +88,15 @@ TEST_F(FakeVideoCaptureDeviceDescriptorTest, AccessIsRevokedOnSecondAccess) {
   ASSERT_FALSE(device_access_2_revoked);
 }
 
+// Flaky. crbug.com/845661
+#if defined(OS_LINUX)
+#define MAYBE_CanUseSecondRequestedProxy DISABLED_CanUseSecondRequestedProxy
+#else
+#define MAYBE_CanUseSecondRequestedProxy CanUseSecondRequestedProxy
+#endif
+
 // Tests that a second proxy requested for a device can be used successfully.
-TEST_F(FakeVideoCaptureDeviceDescriptorTest, CanUseSecondRequestedProxy) {
+TEST_F(FakeVideoCaptureDeviceDescriptorTest, MAYBE_CanUseSecondRequestedProxy) {
   mojom::DevicePtr device_proxy_1;
   factory_->CreateDevice(fake_device_info_.descriptor.device_id,
                          mojo::MakeRequest(&device_proxy_1), base::DoNothing());
@@ -94,7 +123,7 @@ TEST_F(FakeVideoCaptureDeviceDescriptorTest, CanUseSecondRequestedProxy) {
   base::RunLoop wait_loop_2;
   mojom::ReceiverPtr receiver_proxy;
   MockReceiver receiver(mojo::MakeRequest(&receiver_proxy));
-  EXPECT_CALL(receiver, DoOnNewBufferHandle(_, _));
+  EXPECT_CALL(receiver, DoOnNewBuffer(_, _));
   EXPECT_CALL(receiver, DoOnFrameReadyInBuffer(_, _, _, _))
       .WillRepeatedly(
           InvokeWithoutArgs([&wait_loop_2]() { wait_loop_2.Quit(); }));

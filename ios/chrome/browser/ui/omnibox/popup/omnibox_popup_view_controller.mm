@@ -11,6 +11,7 @@
 #import "ios/chrome/browser/ui/omnibox/image_retriever.h"
 #include "ios/chrome/browser/ui/omnibox/omnibox_util.h"
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_row.h"
+#import "ios/chrome/browser/ui/omnibox/popup/self_sizing_table_view.h"
 #import "ios/chrome/browser/ui/omnibox/truncating_attributed_label.h"
 #include "ios/chrome/browser/ui/rtl_geometry.h"
 #include "ios/chrome/browser/ui/ui_util.h"
@@ -62,6 +63,8 @@ UIColor* BackgroundColorIncognito() {
 // tapping and holding on them or by using arrow keys on a hardware keyboard.
 @property(nonatomic, strong) NSIndexPath* highlightedIndexPath;
 
+@property(nonatomic, strong) UITableView* tableView;
+
 @end
 
 @implementation OmniboxPopupViewController
@@ -96,8 +99,9 @@ UIColor* BackgroundColorIncognito() {
 }
 
 - (void)loadView {
-  self.tableView = [[UITableView alloc] initWithFrame:CGRectZero
-                                                style:UITableViewStylePlain];
+  self.tableView =
+      [[SelfSizingTableView alloc] initWithFrame:CGRectZero
+                                           style:UITableViewStylePlain];
   self.tableView.delegate = self;
   self.tableView.dataSource = self;
   self.view = self.tableView;
@@ -309,8 +313,8 @@ UIColor* BackgroundColorIncognito() {
     [row updateLeadingImage:match.imageID];
   }
 
-  // Show append button for search history/search suggestions/Physical Web as
-  // the right control element (aka an accessory element of a table view cell).
+  // Show append button for search history/search suggestions as the right
+  // control element (aka an accessory element of a table view cell).
   row.appendButton.hidden = !match.isAppendable;
   [row.appendButton cancelTrackingWithEvent:nil];
 

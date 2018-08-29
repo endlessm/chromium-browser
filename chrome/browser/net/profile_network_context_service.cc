@@ -202,6 +202,8 @@ ProfileNetworkContextService::CreateNetworkContextParams(
       network_context_params->restore_old_session_cookies = false;
       network_context_params->persist_session_cookies = false;
     }
+
+    network_context_params->transport_security_persister_path = path;
   }
 
   // NOTE(mmenke): Keep these protocol handlers and
@@ -215,6 +217,8 @@ ProfileNetworkContextService::CreateNetworkContextParams(
 #endif  // !BUILDFLAG(DISABLE_FTP_SUPPORT)
 
   proxy_config_monitor_.AddToNetworkContextParams(network_context_params.get());
+
+  network_context_params->enable_certificate_reporting = true;
 
 #if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_CHROMEOS)
   if (prefs->FindPreference(prefs::kGSSAPILibraryName)) {

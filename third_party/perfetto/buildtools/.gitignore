@@ -1,9 +1,11 @@
 android_sdk/
+aosp-*/
 benchmark/
 clang/
 clang_format/
-emulator_images/
+emulator/
 googletest/
+libbacktrace/
 libcxx/
 libcxxabi/
 libunwind/
@@ -11,4 +13,6 @@ linux/
 linux64/
 mac/
 ndk/
+nodejs/
 protobuf/
+sqlite/

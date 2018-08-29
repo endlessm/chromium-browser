@@ -223,6 +223,10 @@ TEST_F(WiredDisplayMediaRouteProviderTest, GetDisplaysAsSinks) {
             EXPECT_EQ(sinks[0].sink().id(), primary_id);
             EXPECT_EQ(sinks[1].sink().id(), secondary_id1);
             EXPECT_EQ(sinks[2].sink().id(), secondary_id2);
+
+            EXPECT_EQ(sinks[0].sink().provider_id(),
+                      MediaRouteProviderId::WIRED_DISPLAY);
+            EXPECT_EQ(sinks[0].sink().icon_type(), SinkIconType::WIRED_DISPLAY);
           })));
   provider_pointer_->StartObservingMediaSinks(kPresentationSource);
   base::RunLoop().RunUntilIdle();
@@ -335,6 +339,10 @@ TEST_F(WiredDisplayMediaRouteProviderTest, CreateAndTerminateRoute) {
   EXPECT_CALL(callback, TerminateRoute(base::Optional<std::string>(),
                                        RouteRequestResult::OK));
   EXPECT_CALL(*receiver_creator_.receiver(), TerminateInternal());
+  EXPECT_CALL(router_,
+              OnPresentationConnectionStateChanged(
+                  presentation_id,
+                  mojom::MediaRouter::PresentationConnectionState::TERMINATED));
   provider_pointer_->TerminateRoute(
       presentation_id, base::BindOnce(&MockCallback::TerminateRoute,
                                       base::Unretained(&callback)));

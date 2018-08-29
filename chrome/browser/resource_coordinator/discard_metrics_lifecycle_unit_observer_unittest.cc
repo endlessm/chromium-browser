@@ -10,7 +10,7 @@
 #include "base/test/histogram_tester.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/time/time.h"
-#include "chrome/browser/resource_coordinator/lifecycle_unit_base.h"
+#include "chrome/browser/resource_coordinator/test_lifecycle_unit.h"
 #include "chrome/browser/resource_coordinator/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -29,42 +29,6 @@ constexpr char kInactiveToReloadTimeHistogram[] =
 constexpr char kReloadToCloseTimeHistogram[] =
     "TabManager.Discarding.ReloadToCloseTime";
 
-class DummyLifecycleUnit : public LifecycleUnitBase {
- public:
-  using LifecycleUnitBase::SetState;
-
-  DummyLifecycleUnit() = default;
-  ~DummyLifecycleUnit() override { OnLifecycleUnitDestroyed(); }
-
-  void SetLastFocusedTime(base::TimeTicks last_focused_time) {
-    last_focused_time_ = last_focused_time;
-  }
-
-  // LifecycleUnit:
-  TabLifecycleUnitExternal* AsTabLifecycleUnitExternal() override {
-    return nullptr;
-  }
-  base::string16 GetTitle() const override { return base::string16(); }
-  std::string GetIconURL() const override { return std::string(); }
-  base::ProcessHandle GetProcessHandle() const override {
-    return base::ProcessHandle();
-  }
-  SortKey GetSortKey() const override { return SortKey(last_focused_time_); }
-  content::Visibility GetVisibility() const override {
-    return content::Visibility::VISIBLE;
-  }
-  bool Freeze() override { return false; }
-  int GetEstimatedMemoryFreedOnDiscardKB() const override { return 0; }
-  bool CanPurge() const override { return false; }
-  bool CanDiscard(DiscardReason reason) const override { return false; }
-  bool Discard(DiscardReason discard_reason) override { return false; }
-
- private:
-  base::TimeTicks last_focused_time_;
-
-  DISALLOW_COPY_AND_ASSIGN(DummyLifecycleUnit);
-};
-
 class DiscardMetricsLifecycleUnitObserverTest : public testing::Test {
  protected:
   DiscardMetricsLifecycleUnitObserverTest()
@@ -77,8 +41,8 @@ class DiscardMetricsLifecycleUnitObserverTest : public testing::Test {
   DiscardMetricsLifecycleUnitObserver* observer_ =
       new DiscardMetricsLifecycleUnitObserver();
 
-  std::unique_ptr<DummyLifecycleUnit> lifecycle_unit_ =
-      std::make_unique<DummyLifecycleUnit>();
+  std::unique_ptr<TestLifecycleUnit> lifecycle_unit_ =
+      std::make_unique<TestLifecycleUnit>();
 
   base::HistogramTester histograms_;
   base::SimpleTestTickClock test_clock_;
@@ -94,19 +58,19 @@ TEST_F(DiscardMetricsLifecycleUnitObserverTest, DiscardReloadCount) {
   histograms_.ExpectTotalCount(kDiscardCountHistogram, 0);
   histograms_.ExpectTotalCount(kReloadCountHistogram, 0);
 
-  lifecycle_unit_->SetState(LifecycleUnit::State::DISCARDED);
+  lifecycle_unit_->SetState(LifecycleState::DISCARDED);
   histograms_.ExpectTotalCount(kDiscardCountHistogram, 1);
   histograms_.ExpectTotalCount(kReloadCountHistogram, 0);
 
-  lifecycle_unit_->SetState(LifecycleUnit::State::LOADED);
+  lifecycle_unit_->SetState(LifecycleState::ACTIVE);
   histograms_.ExpectTotalCount(kDiscardCountHistogram, 1);
   histograms_.ExpectTotalCount(kReloadCountHistogram, 1);
 
-  lifecycle_unit_->SetState(LifecycleUnit::State::DISCARDED);
+  lifecycle_unit_->SetState(LifecycleState::DISCARDED);
   histograms_.ExpectTotalCount(kDiscardCountHistogram, 2);
   histograms_.ExpectTotalCount(kReloadCountHistogram, 1);
 
-  lifecycle_unit_->SetState(LifecycleUnit::State::LOADED);
+  lifecycle_unit_->SetState(LifecycleState::ACTIVE);
   histograms_.ExpectTotalCount(kDiscardCountHistogram, 2);
   histograms_.ExpectTotalCount(kReloadCountHistogram, 2);
 }
@@ -114,11 +78,11 @@ TEST_F(DiscardMetricsLifecycleUnitObserverTest, DiscardReloadCount) {
 TEST_F(DiscardMetricsLifecycleUnitObserverTest, DiscardToReloadTime) {
   histograms_.ExpectTotalCount(kDiscardToReloadTimeHistogram, 0);
 
-  lifecycle_unit_->SetState(LifecycleUnit::State::DISCARDED);
+  lifecycle_unit_->SetState(LifecycleState::DISCARDED);
   test_clock_.Advance(kShortDelay);
   histograms_.ExpectTotalCount(kDiscardToReloadTimeHistogram, 0);
 
-  lifecycle_unit_->SetState(LifecycleUnit::State::LOADED);
+  lifecycle_unit_->SetState(LifecycleState::ACTIVE);
   histograms_.ExpectTimeBucketCount(kDiscardToReloadTimeHistogram, kShortDelay,
                                     1);
 }
@@ -129,11 +93,11 @@ TEST_F(DiscardMetricsLifecycleUnitObserverTest, InactiveToReloadTime) {
   const base::TimeTicks last_focused_time = NowTicks();
   lifecycle_unit_->SetLastFocusedTime(last_focused_time);
   test_clock_.Advance(kShortDelay);
-  lifecycle_unit_->SetState(LifecycleUnit::State::DISCARDED);
+  lifecycle_unit_->SetState(LifecycleState::DISCARDED);
   test_clock_.Advance(kShortDelay);
   histograms_.ExpectTotalCount(kInactiveToReloadTimeHistogram, 0);
 
-  lifecycle_unit_->SetState(LifecycleUnit::State::LOADED);
+  lifecycle_unit_->SetState(LifecycleState::ACTIVE);
   histograms_.ExpectTimeBucketCount(kInactiveToReloadTimeHistogram,
                                     2 * kShortDelay, 1);
 }
@@ -149,7 +113,7 @@ TEST_F(DiscardMetricsLifecycleUnitObserverTest,
        ReloadToCloseTimeDiscardedButNotReloaded) {
   histograms_.ExpectTotalCount(kReloadToCloseTimeHistogram, 0);
 
-  lifecycle_unit_->SetState(LifecycleUnit::State::DISCARDED);
+  lifecycle_unit_->SetState(LifecycleState::DISCARDED);
   histograms_.ExpectTotalCount(kReloadToCloseTimeHistogram, 0);
 
   lifecycle_unit_.reset();
@@ -160,11 +124,11 @@ TEST_F(DiscardMetricsLifecycleUnitObserverTest, ReloadToCloseTime) {
   histograms_.ExpectTotalCount(kReloadToCloseTimeHistogram, 0);
 
   test_clock_.Advance(kShortDelay * 1);
-  lifecycle_unit_->SetState(LifecycleUnit::State::DISCARDED);
+  lifecycle_unit_->SetState(LifecycleState::DISCARDED);
   histograms_.ExpectTotalCount(kReloadToCloseTimeHistogram, 0);
 
   test_clock_.Advance(kShortDelay * 2);
-  lifecycle_unit_->SetState(LifecycleUnit::State::LOADED);
+  lifecycle_unit_->SetState(LifecycleState::ACTIVE);
   histograms_.ExpectTotalCount(kReloadToCloseTimeHistogram, 0);
 
   test_clock_.Advance(kShortDelay * 4);

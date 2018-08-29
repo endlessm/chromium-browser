@@ -18,6 +18,7 @@
 #include "components/cdm/renderer/external_clear_key_key_system_properties.h"
 #include "components/cdm/renderer/widevine_key_system_properties.h"
 #include "content/public/renderer/render_thread.h"
+#include "media/base/decrypt_config.h"
 #include "media/base/eme_constants.h"
 #include "media/base/key_system_properties.h"
 #include "media/media_buildflags.h"
@@ -81,9 +82,10 @@ static void AddExternalClearKey(
 
   std::vector<media::VideoCodec> supported_video_codecs;
   bool supports_persistent_license;
-  if (!content::IsKeySystemSupported(kExternalClearKeyKeySystem,
-                                     &supported_video_codecs,
-                                     &supports_persistent_license)) {
+  std::vector<media::EncryptionMode> supported_encryption_schemes;
+  if (!content::IsKeySystemSupported(
+          kExternalClearKeyKeySystem, &supported_video_codecs,
+          &supports_persistent_license, &supported_encryption_schemes)) {
     return;
   }
 
@@ -194,9 +196,10 @@ static void AddWidevine(
 
   std::vector<media::VideoCodec> supported_video_codecs;
   bool supports_persistent_license = false;
-  if (!content::IsKeySystemSupported(kWidevineKeySystem,
-                                     &supported_video_codecs,
-                                     &supports_persistent_license)) {
+  std::vector<media::EncryptionMode> supported_encryption_schemes;
+  if (!content::IsKeySystemSupported(
+          kWidevineKeySystem, &supported_video_codecs,
+          &supports_persistent_license, &supported_encryption_schemes)) {
     DVLOG(1) << "Widevine CDM is not currently available.";
     return;
   }
@@ -208,6 +211,7 @@ static void AddWidevine(
   // as those may offer a higher level of protection.
   supported_codecs |= media::EME_CODEC_WEBM_OPUS;
   supported_codecs |= media::EME_CODEC_WEBM_VORBIS;
+  supported_codecs |= media::EME_CODEC_MP4_FLAC;
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
   supported_codecs |= media::EME_CODEC_MP4_AAC;
 #endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
@@ -239,7 +243,7 @@ static void AddWidevine(
   using Robustness = cdm::WidevineKeySystemProperties::Robustness;
 
   concrete_key_systems->emplace_back(new cdm::WidevineKeySystemProperties(
-      supported_codecs,
+      supported_encryption_schemes, supported_codecs,
 #if defined(OS_CHROMEOS)
       Robustness::HW_SECURE_ALL,             // Maximum audio robustness.
       Robustness::HW_SECURE_ALL,             // Maximum video robustness.

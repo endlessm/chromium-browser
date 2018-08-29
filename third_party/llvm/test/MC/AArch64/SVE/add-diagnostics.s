@@ -8,13 +8,13 @@ add z22.h, z10.h, z32.h
 
 // Invalid element kind.
 add z20.h, z2.h, z31.x
-// CHECK: [[@LINE-1]]:{{[0-9]+}}: error: invalid sve vector kind qualifier
+// CHECK: [[@LINE-1]]:{{[0-9]+}}: error: invalid vector kind qualifier
 // CHECK-NEXT: add z20.h, z2.h, z31.x
 // CHECK-NOT: [[@LINE-1]]:{{[0-9]+}}:
 
 // Element size specifiers should match.
 add z27.h, z11.h, z27.b
-// CHECK: [[@LINE-1]]:{{[0-9]+}}: error: invalid operand
+// CHECK: [[@LINE-1]]:{{[0-9]+}}: error: invalid element width
 // CHECK-NEXT: add z27.h, z11.h, z27.b
 // CHECK-NOT: [[@LINE-1]]:{{[0-9]+}}:
 

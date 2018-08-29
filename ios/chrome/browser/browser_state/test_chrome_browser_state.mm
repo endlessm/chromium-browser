@@ -10,7 +10,6 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -89,7 +88,7 @@ base::FilePath CreateTempBrowserStateDir(base::ScopedTempDir* temp_dir) {
     // Fallback logic in case we fail to create unique temporary directory.
     LOG(ERROR) << "Failed to create unique temporary directory.";
     base::FilePath system_tmp_dir;
-    bool success = PathService::Get(base::DIR_TEMP, &system_tmp_dir);
+    bool success = base::PathService::Get(base::DIR_TEMP, &system_tmp_dir);
 
     // We're severely screwed if we can't get the system temporary
     // directory. Die now to avoid writing to the filesystem root
@@ -251,10 +250,6 @@ TestChromeBrowserState::GetOffTheRecordChromeBrowserState() {
 }
 
 PrefProxyConfigTracker* TestChromeBrowserState::GetProxyConfigTracker() {
-  return nullptr;
-}
-
-net::SSLConfigService* TestChromeBrowserState::GetSSLConfigService() {
   return nullptr;
 }
 

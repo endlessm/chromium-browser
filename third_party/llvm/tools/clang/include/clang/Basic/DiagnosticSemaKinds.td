@@ -602,6 +602,7 @@ def warn_redecl_library_builtin : Warning<
   "incompatible redeclaration of library function %0">,
   InGroup<DiagGroup<"incompatible-library-redeclaration">>;
 def err_builtin_definition : Error<"definition of builtin function %0">;
+def err_builtin_redeclare : Error<"cannot redeclare builtin function %0">;
 def err_arm_invalid_specialreg : Error<"invalid special register for builtin">;
 def err_invalid_cpu_supports : Error<"invalid cpu feature string for builtin">;
 def err_invalid_cpu_is : Error<"invalid cpu name for builtin">;
@@ -612,6 +613,13 @@ def err_function_needs_feature
             "'%2'">;
 def warn_builtin_unknown : Warning<"use of unknown builtin %0">,
   InGroup<ImplicitFunctionDeclare>, DefaultError;
+def warn_cstruct_memaccess : Warning<
+  "%select{destination for|source of|first operand of|second operand of}0 this "
+  "%1 call is a pointer to record %2 that is not trivial to "
+  "%select{primitive-default-initialize|primitive-copy}3">,
+  InGroup<DiagGroup<"nontrivial-memaccess">>;
+def note_nontrivial_field : Note<
+  "field is non-trivial to %select{copy|default-initialize}0">;
 def warn_dyn_class_memaccess : Warning<
   "%select{destination for|source of|first operand of|second operand of}0 this "
   "%1 call is a pointer to %select{|class containing a }2dynamic class %3; "
@@ -751,7 +759,7 @@ def note_pragma_pack_pop_instead_reset : Note<
   "did you intend to use '#pragma pack (pop)' instead of '#pragma pack()'?">;
 // Follow the Microsoft implementation.
 def warn_pragma_pack_show : Warning<"value of #pragma pack(show) == %0">;
-def warn_pragma_pack_pop_identifer_and_alignment : Warning<
+def warn_pragma_pack_pop_identifier_and_alignment : Warning<
   "specifying both a name and alignment to 'pop' is undefined">;
 def warn_pragma_pop_failed : Warning<"#pragma %0(pop, ...) failed: %1">,
   InGroup<IgnoredPragmas>;
@@ -1031,7 +1039,7 @@ def warn_objc_pointer_masking : Warning<
 def warn_objc_pointer_masking_performSelector : Warning<warn_objc_pointer_masking.Text>,
   InGroup<ObjCPointerIntrospectPerformSelector>;
 def warn_objc_property_default_assign_on_object : Warning<
-  "default property attribute 'assign' not appropriate for non-GC object">,
+  "default property attribute 'assign' not appropriate for object">,
   InGroup<ObjCPropertyNoAttribute>;
 def warn_property_attr_mismatch : Warning<
   "property attribute in class extension does not match the primary class">,
@@ -1614,13 +1622,16 @@ def warn_call_to_pure_virtual_member_function_from_ctor_dtor : Warning<
   "overrides of %0 in subclasses are not available in the "
   "%select{constructor|destructor}1 of %2">;
 
+def select_special_member_kind : TextSubstitution<
+  "%select{default constructor|copy constructor|move constructor|"
+  "copy assignment operator|move assignment operator|destructor}0">;
+
 def note_member_declared_at : Note<"member is declared here">;
 def note_ivar_decl : Note<"instance variable is declared here">;
 def note_bitfield_decl : Note<"bit-field is declared here">;
 def note_implicit_param_decl : Note<"%0 is an implicit parameter">;
 def note_member_synthesized_at : Note<
-  "in implicit %select{default constructor|copy constructor|move constructor|"
-  "copy assignment operator|move assignment operator|destructor}0 for %1 "
+  "in implicit %sub{select_special_member_kind}0 for %1 "
   "first required here">;
 def err_missing_default_ctor : Error<
   "%select{constructor for %1 must explicitly initialize the|"
@@ -1633,12 +1644,10 @@ def note_due_to_dllexported_class : Note<
 
 def err_illegal_union_or_anon_struct_member : Error<
   "%select{anonymous struct|union}0 member %1 has a non-trivial "
-  "%select{constructor|copy constructor|move constructor|copy assignment "
-  "operator|move assignment operator|destructor}2">;
+  "%sub{select_special_member_kind}2">;
 def warn_cxx98_compat_nontrivial_union_or_anon_struct_member : Warning<
   "%select{anonymous struct|union}0 member %1 with a non-trivial "
-  "%select{constructor|copy constructor|move constructor|copy assignment "
-  "operator|move assignment operator|destructor}2 is incompatible with C++98">,
+  "%sub{select_special_member_kind}2 is incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
 
 def note_nontrivial_virtual_dtor : Note<
@@ -1657,8 +1666,7 @@ def note_nontrivial_no_copy : Note<
   "%select{base class|field|an object}0 of type %3">;
 def note_nontrivial_user_provided : Note<
   "because %select{base class of |field of |}0type %1 has a user-provided "
-  "%select{default constructor|copy constructor|move constructor|"
-  "copy assignment operator|move assignment operator|destructor}2">;
+  "%sub{select_special_member_kind}2">;
 def note_nontrivial_in_class_init : Note<
   "because field %0 has an initializer">;
 def note_nontrivial_param_type : Note<
@@ -1725,9 +1733,7 @@ def err_covariant_return_type_class_type_more_qualified : Error<
 
 // C++ implicit special member functions
 def note_in_declaration_of_implicit_special_member : Note<
-  "while declaring the implicit "
-  "%select{default constructor|copy constructor|move constructor|"
-  "copy assignment operator|move assignment operator|destructor}1"
+  "while declaring the implicit %sub{select_special_member_kind}1"
   " for %0">;
 
 // C++ constructors
@@ -2373,6 +2379,8 @@ def note_non_literal_user_provided_dtor : Note<
   "%0 is not literal because it has a user-provided destructor">;
 def note_non_literal_nontrivial_dtor : Note<
   "%0 is not literal because it has a non-trivial destructor">;
+def note_non_literal_lambda : Note<
+  "lambda closure types are non-literal types before C++17">;
 def warn_private_extern : Warning<
   "use of __private_extern__ on a declaration may not produce external symbol "
   "private to the linkage unit and is deprecated">, InGroup<PrivateExtern>;
@@ -2413,6 +2421,9 @@ def err_template_different_associated_constraints : Error<
 def warn_cxx98_compat_unicode_type : Warning<
   "'%0' type specifier is incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
+def warn_cxx17_compat_unicode_type : Warning<
+  "'char8_t' type specifier is incompatible with C++ standards before C++20">,
+  InGroup<CXXPre2aCompat>, DefaultIgnore;
 
 // __make_integer_seq
 def err_integer_sequence_negative_length : Error<
@@ -2834,8 +2845,7 @@ def warn_attribute_wrong_decl_type : Warning<
   "|types and namespaces"
   "|variables, functions and classes"
   "|kernel functions"
-  "|non-K&R-style functions"
-  "|variables, functions, methods, types, enumerations, enumerators, labels, and non-static data members}1">,
+  "|non-K&R-style functions}1">,
   InGroup<IgnoredAttributes>;
 def err_attribute_wrong_decl_type : Error<warn_attribute_wrong_decl_type.Text>;
 def warn_type_attribute_wrong_type : Warning<
@@ -2911,6 +2921,10 @@ def warn_mismatched_availability_override_unavail : Warning<
   "%select{|overriding }1method cannot be unavailable on %0 when "
   "%select{the protocol method it implements|its overridden method}1 is "
   "available">,
+  InGroup<Availability>;
+def warn_availability_on_static_initializer : Warning<
+  "ignoring availability attribute %select{on '+load' method|"
+  "with constructor attribute|with destructor attribute}0">,
   InGroup<Availability>;
 def note_overridden_method : Note<
   "overridden method is here">;
@@ -3126,13 +3140,18 @@ def warn_impcast_bitfield_precision_constant : Warning<
 def warn_impcast_literal_float_to_integer : Warning<
   "implicit conversion from %0 to %1 changes value from %2 to %3">,
   InGroup<LiteralConversion>;
+def warn_impcast_literal_float_to_integer_out_of_range : Warning<
+  "implicit conversion of out of range value from %0 to %1 is undefined">,
+  InGroup<LiteralConversion>;
 def warn_impcast_float_integer : Warning<
   "implicit conversion turns floating-point number into integer: %0 to %1">,
   InGroup<FloatConversion>, DefaultIgnore;
 
 def warn_impcast_float_to_integer : Warning<
-  "implicit conversion of out of range value from %0 to %1 changes value "
-  "from %2 to %3">,
+  "implicit conversion from %0 to %1 changes value from %2 to %3">,
+  InGroup<FloatOverflowConversion>, DefaultIgnore;
+def warn_impcast_float_to_integer_out_of_range : Warning<
+  "implicit conversion of out of range value from %0 to %1 is undefined">,
   InGroup<FloatOverflowConversion>, DefaultIgnore;
 def warn_impcast_float_to_integer_zero : Warning<
   "implicit conversion from %0 to %1 changes non-zero value from %2 to %3">,
@@ -3322,6 +3341,9 @@ def err_attribute_not_supported_in_lang : Error<
   "%0 attribute is not supported in %select{C|C++|Objective-C}1">;
 def err_attribute_not_supported_on_arch
     : Error<"%0 attribute is not supported on '%1'">;
+def warn_gcc_ignores_type_attr : Warning<
+  "GCC does not allow the %0 attribute to be written on a type">,
+  InGroup<GccCompat>;
 
 // Clang-Specific Attributes
 def warn_attribute_iboutlet : Warning<
@@ -3813,13 +3835,7 @@ def note_ovl_candidate_bad_target : Note<
     "%select{__device__|__global__|__host__|__host__ __device__|invalid}1 function from"
     " %select{__device__|__global__|__host__|__host__ __device__|invalid}2 function">;
 def note_implicit_member_target_infer_collision : Note<
-    "implicit %select{"
-    "default constructor|"
-    "copy constructor|"
-    "move constructor|"
-    "copy assignment operator|"
-    "move assignment operator|"
-    "destructor}0 inferred target collision: call to both "
+    "implicit %sub{select_special_member_kind}0 inferred target collision: call to both "
     "%select{__device__|__global__|__host__|__host__ __device__}1 and "
     "%select{__device__|__global__|__host__|__host__ __device__}2 members">;
 
@@ -3861,9 +3877,7 @@ def err_ovl_deleted_oper : Error<
   "overload resolution selected %select{unavailable|deleted}0 operator '%1'%2">;
 def err_ovl_deleted_special_oper : Error<
   "object of type %0 cannot be %select{constructed|copied|moved|assigned|"
-  "assigned|destroyed}1 because its %select{default constructor|"
-  "copy constructor|move constructor|copy assignment operator|"
-  "move assignment operator|destructor}1 is implicitly deleted">;
+  "assigned|destroyed}1 because its %sub{select_special_member_kind}1 is implicitly deleted">;
 def err_ovl_no_viable_subscript :
     Error<"no viable overloaded operator[] for type %0">;
 def err_ovl_no_oper :
@@ -3980,8 +3994,6 @@ def err_template_member_noparams : Error<
   "extraneous 'template<>' in declaration of member %0">;
 def err_template_tag_noparams : Error<
   "extraneous 'template<>' in declaration of %0 %1">;
-def err_template_decl_ref : Error<
-  "cannot refer to %select{class|variable}0 template %1 without a template argument list">;
 
 // C++ Template Argument Lists
 def err_template_missing_args : Error<
@@ -4485,6 +4497,8 @@ def note_using_value_decl_missing_typename : Note<
 
 def err_template_kw_refers_to_non_template : Error<
   "%0 following the 'template' keyword does not refer to a template">;
+def note_template_kw_refers_to_non_template : Note<
+  "declared as a non-template here">;
 def err_template_kw_refers_to_class_template : Error<
   "'%0%1' instantiated to a class template, not a function template">;
 def note_referenced_class_template : Note<
@@ -5411,8 +5425,6 @@ def warn_block_capture_autoreleasing : Warning<
   "block captures an autoreleasing out-parameter, which may result in "
   "use-after-free bugs">,
   InGroup<BlockCaptureAutoReleasing>;
-def note_declare_parameter_autoreleasing : Note<
-  "declare the parameter __autoreleasing explicitly to suppress this warning">;
 def note_declare_parameter_strong : Note<
   "declare the parameter __strong or capture a __block __strong variable to "
   "keep values alive across autorelease pools">;
@@ -5601,9 +5613,12 @@ def warn_addition_in_bitshift : Warning<
   "operator '%0' has lower precedence than '%1'; "
   "'%1' will be evaluated first">, InGroup<ShiftOpParentheses>;
 
-def warn_self_assignment : Warning<
+def warn_self_assignment_builtin : Warning<
   "explicitly assigning value of variable of type %0 to itself">,
   InGroup<SelfAssignment>, DefaultIgnore;
+def warn_self_assignment_overloaded : Warning<
+  "explicitly assigning value of variable of type %0 to itself">,
+  InGroup<SelfAssignmentOverloaded>, DefaultIgnore;
 def warn_self_move : Warning<
   "explicitly moving variable of type %0 to itself">,
   InGroup<SelfMove>, DefaultIgnore;
@@ -5618,6 +5633,19 @@ def warn_pessimizing_move_on_initialization : Warning<
   "moving a temporary object prevents copy elision">,
   InGroup<PessimizingMove>, DefaultIgnore;
 def note_remove_move : Note<"remove std::move call here">;
+
+def warn_return_std_move : Warning<
+  "local variable %0 will be copied despite being %select{returned|thrown}1 by name">,
+  InGroup<ReturnStdMove>, DefaultIgnore;
+def note_add_std_move : Note<
+  "call 'std::move' explicitly to avoid copying">;
+def warn_return_std_move_in_cxx11 : Warning<
+  "prior to the resolution of a defect report against ISO C++11, "
+  "local variable %0 would have been copied despite being returned by name, "
+  "due to its not matching the function return type%diff{ ($ vs $)|}1,2">,
+  InGroup<ReturnStdMoveInCXX11>, DefaultIgnore;
+def note_add_std_move_in_cxx11 : Note<
+  "call 'std::move' explicitly to avoid copying on older compilers">;
 
 def warn_string_plus_int : Warning<
   "adding %0 to a string does not append to the string">,
@@ -5797,6 +5825,13 @@ def err_array_init_wide_string_into_char : Error<
   "initializing char array with wide string literal">;
 def err_array_init_incompat_wide_string_into_wchar : Error<
   "initializing wide char array with incompatible wide string literal">;
+def err_array_init_plain_string_into_char8_t : Error<
+  "initializing 'char8_t' array with plain string literal">;
+def note_array_init_plain_string_into_char8_t : Note<
+  "add 'u8' prefix to form a 'char8_t' string literal">;
+def err_array_init_utf8_string_into_char : Error<
+  "initialization of char array with UTF-8 string literal is not permitted "
+  "by '-fchar8_t'">;
 def err_array_init_different_type : Error<
   "cannot initialize array %diff{of type $ with array of type $|"
   "with different type of array}0,1">;
@@ -5894,7 +5929,8 @@ def ext_typecheck_ordered_comparison_of_pointer_and_zero : Extension<
 def err_typecheck_ordered_comparison_of_pointer_and_zero : Error<
   "ordered comparison between pointer and zero (%0 and %1)">;
 def ext_typecheck_ordered_comparison_of_function_pointers : ExtWarn<
-  "ordered comparison of function pointers (%0 and %1)">;
+  "ordered comparison of function pointers (%0 and %1)">,
+  InGroup<DiagGroup<"ordered-compare-function-pointers">>;
 def ext_typecheck_comparison_of_fptr_to_void : Extension<
   "equality comparison between function pointer and void pointer (%0 and %1)">;
 def err_typecheck_comparison_of_fptr_to_void : Error<
@@ -7055,6 +7091,8 @@ def err_atomic_builtin_must_be_pointer : Error<
 def err_atomic_builtin_must_be_pointer_intptr : Error<
   "address argument to atomic builtin must be a pointer to integer or pointer"
   " (%0 invalid)">;
+def err_atomic_builtin_cannot_be_const : Error<
+  "address argument to atomic builtin cannot be const-qualified (%0 invalid)">;
 def err_atomic_builtin_must_be_pointer_intfltptr : Error<
   "address argument to atomic builtin must be a pointer to integer,"
   " floating-point or pointer (%0 invalid)">;
@@ -7079,6 +7117,8 @@ def err_atomic_op_needs_trivial_copy : Error<
 def err_atomic_op_needs_atomic_int_or_ptr : Error<
   "address argument to atomic operation must be a pointer to %select{|atomic }0"
   "integer or pointer (%1 invalid)">;
+def err_atomic_op_needs_int32_or_ptr : Error<
+  "address argument to atomic operation must be a pointer to signed or unsigned 32-bit integer">;
 def err_atomic_op_bitwise_needs_atomic_int : Error<
   "address argument to bitwise atomic operation must be a pointer to "
   "%select{|atomic }0integer (%1 invalid)">;
@@ -7087,6 +7127,9 @@ def warn_atomic_op_has_invalid_memory_order : Warning<
   InGroup<DiagGroup<"atomic-memory-ordering">>;
 def err_atomic_op_has_invalid_synch_scope : Error<
   "synchronization scope argument to atomic operation is invalid">;
+def warn_atomic_op_misaligned : Warning<
+  "misaligned or large atomic operation may incur significant performance penalty">,
+  InGroup<DiagGroup<"atomic-alignment">>;
 
 def err_overflow_builtin_must_be_int : Error<
   "operand argument to overflow builtin must be an integer (%0 invalid)">;
@@ -7714,9 +7757,8 @@ def err_defaulted_special_member_quals : Error<
   "an explicitly-defaulted %select{copy|move}0 assignment operator may not "
   "have 'const'%select{, 'constexpr'|}1 or 'volatile' qualifiers">;
 def err_defaulted_special_member_volatile_param : Error<
-  "the parameter for an explicitly-defaulted %select{<<ERROR>>|"
-  "copy constructor|move constructor|copy assignment operator|"
-  "move assignment operator|<<ERROR>>}0 may not be volatile">;
+  "the parameter for an explicitly-defaulted %sub{select_special_member_kind}0 "
+  "may not be volatile">;
 def err_defaulted_special_member_move_const_param : Error<
   "the parameter for an explicitly-defaulted move "
   "%select{constructor|assignment operator}0 may not be const">;
@@ -7728,17 +7770,13 @@ def err_defaulted_copy_assign_not_ref : Error<
   "the parameter for an explicitly-defaulted copy assignment operator must be an "
   "lvalue reference type">;
 def err_incorrect_defaulted_exception_spec : Error<
-  "exception specification of explicitly defaulted %select{default constructor|"
-  "copy constructor|move constructor|copy assignment operator|move assignment "
-  "operator|destructor}0 does not match the "
-  "calculated one">;
+  "exception specification of explicitly defaulted "
+  "%sub{select_special_member_kind}0 does not match the calculated one">;
 def err_incorrect_defaulted_constexpr : Error<
-  "defaulted definition of %select{default constructor|copy constructor|"
-  "move constructor|copy assignment operator|move assignment operator}0 "
+  "defaulted definition of %sub{select_special_member_kind}0 "
   "is not constexpr">;
 def err_out_of_line_default_deletes : Error<
-  "defaulting this %select{default constructor|copy constructor|move "
-  "constructor|copy assignment operator|move assignment operator|destructor}0 "
+  "defaulting this %sub{select_special_member_kind}0 "
   "would delete it after its first declaration">;
 def warn_vbase_moved_multiple_times : Warning<
   "defaulted move assignment operator of %0 will move assign virtual base "
@@ -7967,7 +8005,7 @@ def err_generic_sel_multi_match : Error<
 
 // Blocks
 def err_blocks_disable : Error<"blocks support disabled - compile with -fblocks"
-  " or %select{pick a deployment target that supports them|for OpenCL 2.0 or above}0">;
+  " or %select{pick a deployment target that supports them|for OpenCL 2.0}0">;
 def err_block_returning_array_function : Error<
   "block cannot return %select{array|function}0 type %1">;
 
@@ -8223,6 +8261,8 @@ def err_systemz_invalid_tabort_code : Error<
   "invalid transaction abort code">;
 def err_64_bit_builtin_32_bit_tgt : Error<
   "this builtin is only available on 64-bit targets">;
+def err_32_bit_builtin_64_bit_tgt : Error<
+  "this builtin is only available on 32-bit targets">;
 def err_builtin_x64_aarch64_only : Error<
   "this builtin is only available on x86-64 and aarch64 targets">;
 def err_ppc_builtin_only_on_pwr7 : Error<
@@ -8558,7 +8598,8 @@ def note_opencl_typedef_access_qualifier : Note<
 
 // OpenCL Section 6.8.g
 def err_opencl_unknown_type_specifier : Error<
-  "OpenCL version %0 does not support the '%1' %select{type qualifier|storage class specifier}2">;
+  "OpenCL %select{C|C++}0 version %1 does not support the '%2' "
+  "%select{type qualifier|storage class specifier}3">;
 
 // OpenCL v2.0 s6.12.5 Blocks restrictions
 def err_opencl_block_storage_type : Error<
@@ -9372,4 +9413,18 @@ def err_multiversion_not_allowed_on_main : Error<
 def err_multiversion_not_supported : Error<
  "function multiversioning is not supported on the current target">;
 
+// three-way comparison operator diagnostics
+def err_implied_comparison_category_type_not_found : Error<
+  "cannot deduce return type of 'operator<=>' because type '%0' was not found; "
+  "include <compare>">;
+def err_spaceship_argument_narrowing : Error<
+  "argument to 'operator<=>' "
+  "%select{cannot be narrowed from type %1 to %2|"
+  "evaluates to %1, which cannot be narrowed to type %2}0">;
+def err_std_compare_type_not_supported : Error<
+  "standard library implementation of %0 is not supported; "
+   "%select{member '%2' does not have expected form|"
+   "member '%2' is missing|"
+   "the type is not trivially copyable|"
+   "the type does not have the expected form}1">;
 } // end of sema component.

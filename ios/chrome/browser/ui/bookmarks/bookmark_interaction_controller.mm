@@ -7,7 +7,6 @@
 #include <stdint.h>
 
 #include "base/logging.h"
-#include "base/mac/bind_objc_block.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/sys_string_conversions.h"
@@ -17,6 +16,7 @@
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/experimental_flags.h"
 #import "ios/chrome/browser/metrics/new_tab_page_uma.h"
 #import "ios/chrome/browser/tabs/tab.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_edit_view_controller.h"
@@ -24,13 +24,16 @@
 #import "ios/chrome/browser/ui/bookmarks/bookmark_mediator.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_navigation_controller.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_path_cache.h"
+#import "ios/chrome/browser/ui/bookmarks/bookmark_transitioning_delegate.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_utils_ios.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
+#import "ios/chrome/browser/ui/table_view/table_view_navigation_controller.h"
 #include "ios/chrome/browser/ui/uikit_ui_util.h"
 #include "ios/chrome/browser/ui/url_loader.h"
 #import "ios/chrome/browser/ui/util/form_sheet_navigation_controller.h"
 #include "ios/chrome/grit/ios_strings.h"
 #import "ios/third_party/material_components_ios/src/components/Snackbar/src/MaterialSnackbar.h"
+#import "ios/web/public/navigation_manager.h"
 #include "ios/web/public/referrer.h"
 #import "ios/web/public/web_state/web_state.h"
 
@@ -71,6 +74,9 @@ using bookmarks::BookmarkNode;
 
 @property(nonatomic, readonly, weak) id<ApplicationCommands> dispatcher;
 
+@property(nonatomic, strong)
+    BookmarkTransitioningDelegate* bookmarkTransitioningDelegate;
+
 // Builds a controller and brings it on screen.
 - (void)presentBookmarkForBookmarkedTab:(Tab*)tab;
 
@@ -90,6 +96,7 @@ using bookmarks::BookmarkNode;
 @synthesize bookmarkBrowser = _bookmarkBrowser;
 @synthesize bookmarkEditor = _bookmarkEditor;
 @synthesize bookmarkModel = _bookmarkModel;
+@synthesize bookmarkTransitioningDelegate = _bookmarkTransitioningDelegate;
 @synthesize mediator = _mediator;
 @synthesize dispatcher = _dispatcher;
 
@@ -156,7 +163,7 @@ using bookmarks::BookmarkNode;
   } else {
     __weak BookmarkInteractionController* weakSelf = self;
     __weak Tab* weakTab = tab;
-    void (^editAction)() = ^() {
+    void (^editAction)() = ^{
       BookmarkInteractionController* strongSelf = weakSelf;
       if (!strongSelf || !weakTab || !weakTab.webState)
         return;
@@ -176,28 +183,44 @@ using bookmarks::BookmarkNode;
                                               dispatcher:self.dispatcher];
   self.bookmarkBrowser.homeDelegate = self;
 
-  [self.bookmarkBrowser setRootNode:self.bookmarkModel->root_node()];
-  int64_t unusedFolderId;
-  double unusedScrollPosition;
-  // If cache is present then reconstruct the last visited bookmark from
-  // cache.  If bookmarkModel is not loaded yet, the following checking will
-  // be done again at bookmarkModelLoaded in BookmarkHomeViewController to
-  // prevent http://crbug.com/765503.
-  if ([BookmarkPathCache
-          getBookmarkUIPositionCacheWithPrefService:_currentBrowserState
-                                                        ->GetPrefs()
-                                              model:self.bookmarkModel
-                                           folderId:&unusedFolderId
-                                     scrollPosition:&unusedScrollPosition]) {
-    self.bookmarkBrowser.isReconstructingFromCache = YES;
+  NSArray<BookmarkHomeViewController*>* replacementViewControllers = nil;
+  if (self.bookmarkModel->loaded()) {
+    // Set the root node if the model has been loaded. If the model has not been
+    // loaded yet, the root node will be set in BookmarkHomeViewController after
+    // the model is finished loading.
+    [self.bookmarkBrowser setRootNode:self.bookmarkModel->root_node()];
+    replacementViewControllers =
+        [self.bookmarkBrowser cachedViewControllerStack];
   }
-  FormSheetNavigationController* navController =
-      [[FormSheetNavigationController alloc]
-          initWithRootViewController:self.bookmarkBrowser];
-  [navController setModalPresentationStyle:UIModalPresentationFormSheet];
-  [_parentController presentViewController:navController
-                                  animated:YES
-                                completion:nil];
+
+  if (experimental_flags::IsBookmarksUIRebootEnabled()) {
+    TableViewNavigationController* navController =
+        [[TableViewNavigationController alloc]
+            initWithTable:self.bookmarkBrowser];
+    if (replacementViewControllers) {
+      [navController setViewControllers:replacementViewControllers];
+    }
+
+    navController.toolbarHidden = YES;
+    self.bookmarkTransitioningDelegate =
+        [[BookmarkTransitioningDelegate alloc] init];
+    navController.transitioningDelegate = self.bookmarkTransitioningDelegate;
+    [navController setModalPresentationStyle:UIModalPresentationCustom];
+    [_parentController presentViewController:navController
+                                    animated:YES
+                                  completion:nil];
+  } else {
+    FormSheetNavigationController* navController =
+        [[FormSheetNavigationController alloc]
+            initWithRootViewController:self.bookmarkBrowser];
+    if (replacementViewControllers) {
+      [navController setViewControllers:replacementViewControllers];
+    }
+    [navController setModalPresentationStyle:UIModalPresentationFormSheet];
+    [_parentController presentViewController:navController
+                                    animated:YES
+                                  completion:nil];
+  }
 }
 
 - (void)dismissBookmarkBrowserAnimated:(BOOL)animated
@@ -229,6 +252,7 @@ using bookmarks::BookmarkNode;
                          completion:^{
                            self.bookmarkBrowser.homeDelegate = nil;
                            self.bookmarkBrowser = nil;
+                           self.bookmarkTransitioningDelegate = nil;
 
                            if (!openUrlsAfterDismissal) {
                              return;
@@ -349,10 +373,9 @@ bookmarkHomeViewControllerWantsDismissal:(BookmarkHomeViewController*)controller
     [_loader loadJavaScriptFromLocationBar:jsToEval];
     return;
   }
-  [_loader loadURL:url
-               referrer:web::Referrer()
-             transition:ui::PAGE_TRANSITION_AUTO_BOOKMARK
-      rendererInitiated:NO];
+  web::NavigationManager::WebLoadParams params(url);
+  params.transition_type = ui::PAGE_TRANSITION_AUTO_BOOKMARK;
+  [_loader loadURLWithParams:params];
 }
 
 - (void)openURLInNewTab:(const GURL&)url

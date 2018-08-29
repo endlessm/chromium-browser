@@ -80,7 +80,7 @@ base::string16 GetRegistryPathForTestProfile() {
   }
 
   base::FilePath profile_dir;
-  EXPECT_TRUE(PathService::Get(chrome::DIR_USER_DATA, &profile_dir));
+  EXPECT_TRUE(base::PathService::Get(chrome::DIR_USER_DATA, &profile_dir));
 
   // Use a location under the real PreferenceMACs path so that the backup
   // cleanup logic in ChromeTestLauncherDelegate::PreSharding() for interrupted
@@ -182,7 +182,7 @@ bool SupportsRegistryValidation() {
 // Based on top of ExtensionBrowserTest to allow easy interaction with the
 // ExtensionService.
 class PrefHashBrowserTestBase
-    : public ExtensionBrowserTest,
+    : public extensions::ExtensionBrowserTest,
       public testing::WithParamInterface<std::string> {
  public:
   // List of potential protection levels for this test in strict increasing
@@ -203,7 +203,7 @@ class PrefHashBrowserTestBase
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    ExtensionBrowserTest::SetUpCommandLine(command_line);
+    extensions::ExtensionBrowserTest::SetUpCommandLine(command_line);
     EXPECT_FALSE(command_line->HasSwitch(switches::kForceFieldTrials));
     command_line->AppendSwitchASCII(
         switches::kForceFieldTrials,
@@ -219,7 +219,7 @@ class PrefHashBrowserTestBase
     // Do the normal setup in the PRE test and attack preferences in the main
     // test.
     if (content::IsPreTest())
-      return ExtensionBrowserTest::SetUpUserDataDirectory();
+      return extensions::ExtensionBrowserTest::SetUpUserDataDirectory();
 
 #if defined(OS_CHROMEOS)
     // For some reason, the Preferences file does not exist in the location
@@ -234,7 +234,7 @@ class PrefHashBrowserTestBase
 #endif
 
     base::FilePath profile_dir;
-    EXPECT_TRUE(PathService::Get(chrome::DIR_USER_DATA, &profile_dir));
+    EXPECT_TRUE(base::PathService::Get(chrome::DIR_USER_DATA, &profile_dir));
     profile_dir = profile_dir.AppendASCII(TestingProfile::kTestUserProfileDir);
 
     // Sanity check that old protected pref file is never present in modern
@@ -284,7 +284,7 @@ class PrefHashBrowserTestBase
   }
 
   void SetUpInProcessBrowserTestFixture() override {
-    ExtensionBrowserTest::SetUpInProcessBrowserTestFixture();
+    extensions::ExtensionBrowserTest::SetUpInProcessBrowserTestFixture();
 
     // Bots are on a domain, turn off the domain check for settings hardening in
     // order to be able to test all SettingsEnforcement groups.
@@ -324,14 +324,14 @@ class PrefHashBrowserTestBase
       }
     }
 #endif
-    ExtensionBrowserTest::TearDown();
+    extensions::ExtensionBrowserTest::TearDown();
   }
 
   // In the PRE_ test, find the number of tracked preferences that were
   // initialized and save it to a file to be read back in the main test and used
   // as the total number of tracked preferences.
   void SetUpOnMainThread() override {
-    ExtensionBrowserTest::SetUpOnMainThread();
+    extensions::ExtensionBrowserTest::SetUpOnMainThread();
 
     // File in which the PRE_ test will save the number of tracked preferences
     // on this platform.
@@ -339,7 +339,7 @@ class PrefHashBrowserTestBase
 
     base::FilePath num_tracked_prefs_file;
     ASSERT_TRUE(
-        PathService::Get(chrome::DIR_USER_DATA, &num_tracked_prefs_file));
+        base::PathService::Get(chrome::DIR_USER_DATA, &num_tracked_prefs_file));
     num_tracked_prefs_file =
         num_tracked_prefs_file.AppendASCII(kNumTrackedPrefFilename);
 

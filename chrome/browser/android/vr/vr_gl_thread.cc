@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/message_loop/message_loop.h"
 #include "base/strings/string16.h"
 #include "base/version.h"
 #include "chrome/browser/android/vr/vr_input_connection.h"
@@ -19,6 +18,7 @@
 #include "chrome/browser/vr/model/toolbar_state.h"
 #include "chrome/browser/vr/sounds_manager_audio_delegate.h"
 #include "chrome/browser/vr/ui.h"
+#include "chrome/browser/vr/ui_test_input.h"
 #include "chrome/common/chrome_features.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
@@ -31,7 +31,8 @@ VrGLThread::VrGLThread(
     const UiInitialState& ui_initial_state,
     bool reprojected_rendering,
     bool daydream_support,
-    bool pause_content)
+    bool pause_content,
+    bool low_density)
     : base::android::JavaHandlerThread("VrShellGL"),
       weak_vr_shell_(weak_vr_shell),
       main_thread_task_runner_(std::move(main_thread_task_runner)),
@@ -39,7 +40,8 @@ VrGLThread::VrGLThread(
       ui_initial_state_(ui_initial_state),
       reprojected_rendering_(reprojected_rendering),
       daydream_support_(daydream_support),
-      pause_content_(pause_content) {}
+      pause_content_(pause_content),
+      low_density_(low_density) {}
 
 VrGLThread::~VrGLThread() {
   Stop();
@@ -56,7 +58,6 @@ void VrGLThread::SetInputConnection(VrInputConnection* input_connection) {
 
 void VrGLThread::Init() {
   bool keyboard_enabled =
-      base::FeatureList::IsEnabled(features::kVrBrowserKeyboard) &&
       !ui_initial_state_.web_vr_autopresentation_expected;
   if (keyboard_enabled) {
     keyboard_delegate_ = GvrKeyboardDelegate::Create();
@@ -87,7 +88,7 @@ void VrGLThread::Init() {
 
   vr_shell_gl_ = std::make_unique<VrShellGl>(
       this, std::move(ui), gvr_api_, reprojected_rendering_, daydream_support_,
-      ui_initial_state_.in_web_vr, pause_content_);
+      ui_initial_state_.in_web_vr, pause_content_, low_density_);
 
   weak_browser_ui_ = vr_shell_gl_->GetBrowserUiWeakPtr();
 
@@ -148,8 +149,9 @@ void VrGLThread::UpdateGamepadData(device::GvrGamepadData pad) {
       base::BindOnce(&VrShell::UpdateGamepadData, weak_vr_shell_, pad));
 }
 
-void VrGLThread::ForwardEvent(std::unique_ptr<blink::WebInputEvent> event,
-                              int content_id) {
+void VrGLThread::ForwardEventToContent(
+    std::unique_ptr<blink::WebInputEvent> event,
+    int content_id) {
   DCHECK(OnGlThread());
   main_thread_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&VrShell::ProcessContentGesture, weak_vr_shell_,
@@ -180,7 +182,7 @@ void VrGLThread::RequestWebInputText(TextStateUpdateCallback callback) {
   input_connection_->RequestTextState(std::move(callback));
 }
 
-void VrGLThread::ForwardDialogEvent(
+void VrGLThread::ForwardEventToPlatformUi(
     std::unique_ptr<blink::WebInputEvent> event) {
   DCHECK(OnGlThread());
   main_thread_task_runner_->PostTask(
@@ -207,13 +209,6 @@ void VrGLThread::ExitFullscreen() {
   DCHECK(OnGlThread());
   main_thread_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&VrShell::ExitFullscreen, weak_vr_shell_));
-}
-
-void VrGLThread::OnContentPaused(bool enabled) {
-  DCHECK(OnGlThread());
-  main_thread_task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&VrShell::OnContentPaused, weak_vr_shell_, enabled));
 }
 
 void VrGLThread::Navigate(GURL gurl, NavigationMethod method) {
@@ -248,11 +243,73 @@ void VrGLThread::OpenNewTab(bool incognito) {
       base::BindOnce(&VrShell::OpenNewTab, weak_vr_shell_, incognito));
 }
 
+void VrGLThread::SelectTab(int id, bool incognito) {
+  DCHECK(OnGlThread());
+  main_thread_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&VrShell::SelectTab, weak_vr_shell_, id, incognito));
+}
+
+void VrGLThread::OpenBookmarks() {
+  DCHECK(OnGlThread());
+  main_thread_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&VrShell::OpenBookmarks, weak_vr_shell_));
+}
+
+void VrGLThread::OpenRecentTabs() {
+  DCHECK(OnGlThread());
+  main_thread_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&VrShell::OpenRecentTabs, weak_vr_shell_));
+}
+
+void VrGLThread::OpenHistory() {
+  DCHECK(OnGlThread());
+  main_thread_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&VrShell::OpenHistory, weak_vr_shell_));
+}
+
+void VrGLThread::OpenDownloads() {
+  DCHECK(OnGlThread());
+  main_thread_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&VrShell::OpenDownloads, weak_vr_shell_));
+}
+
+void VrGLThread::OpenShare() {
+  DCHECK(OnGlThread());
+  main_thread_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&VrShell::OpenShare, weak_vr_shell_));
+}
+
+void VrGLThread::OpenSettings() {
+  DCHECK(OnGlThread());
+  main_thread_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&VrShell::OpenSettings, weak_vr_shell_));
+}
+
+void VrGLThread::CloseTab(int id, bool incognito) {
+  DCHECK(OnGlThread());
+  main_thread_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&VrShell::CloseTab, weak_vr_shell_, id, incognito));
+}
+
+void VrGLThread::CloseAllTabs() {
+  DCHECK(OnGlThread());
+  main_thread_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&VrShell::CloseAllTabs, weak_vr_shell_));
+}
+
 void VrGLThread::CloseAllIncognitoTabs() {
   DCHECK(OnGlThread());
   main_thread_task_runner_->PostTask(
       FROM_HERE,
       base::BindOnce(&VrShell::CloseAllIncognitoTabs, weak_vr_shell_));
+}
+
+void VrGLThread::OpenFeedback() {
+  DCHECK(OnGlThread());
+  main_thread_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&VrShell::OpenFeedback, weak_vr_shell_));
 }
 
 void VrGLThread::ExitCct() {
@@ -442,11 +499,11 @@ void VrGLThread::OnAssetsUnavailable() {
                                 weak_browser_ui_));
 }
 
-void VrGLThread::SetIncognitoTabsOpen(bool open) {
+void VrGLThread::WaitForAssets() {
   DCHECK(OnMainThread());
   task_runner()->PostTask(
-      FROM_HERE, base::BindOnce(&BrowserUiInterface::SetIncognitoTabsOpen,
-                                weak_browser_ui_, open));
+      FROM_HERE,
+      base::BindOnce(&BrowserUiInterface::WaitForAssets, weak_browser_ui_));
 }
 
 void VrGLThread::SetOverlayTextureEmpty(bool empty) {
@@ -472,6 +529,37 @@ void VrGLThread::UpdateWebInputIndices(int selection_start,
       base::BindRepeating(&BrowserUiInterface::UpdateWebInputIndices,
                           weak_browser_ui_, selection_start, selection_end,
                           composition_start, composition_end));
+}
+
+void VrGLThread::AddOrUpdateTab(int id,
+                                bool incognito,
+                                const base::string16& title) {
+  DCHECK(OnMainThread());
+  task_runner()->PostTask(
+      FROM_HERE, base::BindOnce(&BrowserUiInterface::AddOrUpdateTab,
+                                weak_browser_ui_, id, incognito, title));
+}
+
+void VrGLThread::RemoveTab(int id, bool incognito) {
+  DCHECK(OnMainThread());
+  task_runner()->PostTask(FROM_HERE,
+                          base::BindOnce(&BrowserUiInterface::RemoveTab,
+                                         weak_browser_ui_, id, incognito));
+}
+
+void VrGLThread::RemoveAllTabs() {
+  DCHECK(OnMainThread());
+  task_runner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&BrowserUiInterface::RemoveAllTabs, weak_browser_ui_));
+}
+
+void VrGLThread::ReportUiActivityResultForTesting(
+    const VrUiTestActivityResult& result) {
+  DCHECK(OnGlThread());
+  main_thread_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&VrShell::ReportUiActivityResultForTesting,
+                                weak_vr_shell_, result));
 }
 
 bool VrGLThread::OnMainThread() const {

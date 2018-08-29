@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 //
 /// \file
-/// \brief Interface definition for SIRegisterInfo
+/// Interface definition for SIRegisterInfo
 //
 //===----------------------------------------------------------------------===//
 
@@ -125,7 +125,7 @@ public:
     return getEncodingValue(Reg) & 0xff;
   }
 
-  /// \brief Return the 'base' register class for this register.
+  /// Return the 'base' register class for this register.
   /// e.g. SGPR0 => SReg_32, VGPR => VGPR_32 SGPR0_SGPR1 -> SReg_32, etc.
   const TargetRegisterClass *getPhysRegClass(unsigned Reg) const;
 
@@ -227,6 +227,9 @@ public:
     // Not a callee saved register.
     return AMDGPU::SGPR30_SGPR31;
   }
+  const TargetRegisterClass *
+  getConstrainedRegClassForOperand(const MachineOperand &MO,
+                                 const MachineRegisterInfo &MRI) const override;
 
 private:
   void buildSpillLoadStore(MachineBasicBlock::iterator MI,

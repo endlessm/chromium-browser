@@ -4,7 +4,7 @@
 
 #include "chrome/browser/ui/omnibox/chrome_omnibox_navigation_observer.h"
 
-#include <map>
+#include <unordered_map>
 #include <vector>
 
 #include "base/macros.h"
@@ -25,7 +25,6 @@
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/web_contents_tester.h"
 #include "net/http/http_response_headers.h"
@@ -167,10 +166,6 @@ class ChromeOmniboxNavigationObserverTest : public testing::Test {
   // testing::Test:
   void SetUp() override;
 
-  // TODO(lukasza): https://crbug.com/832100: Move the factory into
-  // TestingProfile, so individual tests don't need to worry about it.
-  content::ScopedMockRenderProcessHostFactory test_process_factory_;
-
   content::TestBrowserThreadBundle test_browser_thread_bundle_;
   TestingProfile profile_;
   std::unique_ptr<content::WebContents> web_contents_;
@@ -179,8 +174,8 @@ class ChromeOmniboxNavigationObserverTest : public testing::Test {
 };
 
 void ChromeOmniboxNavigationObserverTest::SetUp() {
-  web_contents_.reset(content::WebContentsTester::CreateTestWebContents(
-      profile(), content::SiteInstance::Create(profile())));
+  web_contents_ = content::WebContentsTester::CreateTestWebContents(
+      profile(), content::SiteInstance::Create(profile()));
 
   InfoBarService::CreateForWebContents(web_contents_.get());
 
@@ -224,7 +219,8 @@ TEST_F(ChromeOmniboxNavigationObserverTest, LoadStateAfterPendingNavigation) {
   std::unique_ptr<content::NavigationEntry> entry =
       content::NavigationController::CreateNavigationEntry(
           GURL(), content::Referrer(), ui::PAGE_TRANSITION_FROM_ADDRESS_BAR,
-          false, std::string(), profile());
+          false, std::string(), profile(),
+          nullptr /* blob_url_loader_factory */);
 
   content::NotificationService::current()->Notify(
       content::NOTIFICATION_NAV_ENTRY_PENDING,
@@ -266,7 +262,8 @@ TEST_F(ChromeOmniboxNavigationObserverTest, DeleteBrokenCustomSearchEngines) {
     auto navigation_entry =
         content::NavigationController::CreateNavigationEntry(
             GURL(), content::Referrer(), ui::PAGE_TRANSITION_FROM_ADDRESS_BAR,
-            false, std::string(), profile());
+            false, std::string(), profile(),
+            nullptr /* blob_url_loader_factory */);
     content::LoadCommittedDetails details;
     details.http_status_code = cases[i].status_code;
     details.entry = navigation_entry.get();
@@ -284,7 +281,7 @@ TEST_F(ChromeOmniboxNavigationObserverTest, DeleteBrokenCustomSearchEngines) {
           AutocompleteMatch());
   auto navigation_entry = content::NavigationController::CreateNavigationEntry(
       GURL(), content::Referrer(), ui::PAGE_TRANSITION_FROM_ADDRESS_BAR, false,
-      std::string(), profile());
+      std::string(), profile(), nullptr /* blob_url_loader_factory */);
   content::LoadCommittedDetails details;
   details.http_status_code = 404;
   details.entry = navigation_entry.get();
@@ -396,7 +393,8 @@ TEST_F(ChromeOmniboxNavigationObserverTest, AlternateNavInfoBar) {
     auto navigation_entry =
         content::NavigationController::CreateNavigationEntry(
             GURL(), content::Referrer(), ui::PAGE_TRANSITION_FROM_ADDRESS_BAR,
-            false, std::string(), profile());
+            false, std::string(), profile(),
+            nullptr /* blob_url_loader_factory */);
     content::NotificationService::current()->Notify(
         content::NOTIFICATION_NAV_ENTRY_PENDING,
         content::Source<content::NavigationController>(navigation_controller()),

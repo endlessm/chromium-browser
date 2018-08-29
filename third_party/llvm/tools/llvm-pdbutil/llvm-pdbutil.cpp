@@ -16,6 +16,7 @@
 #include "Analyze.h"
 #include "BytesOutputStyle.h"
 #include "DumpOutputStyle.h"
+#include "ExplainOutputStyle.h"
 #include "InputFile.h"
 #include "LinePrinter.h"
 #include "OutputStyle.h"
@@ -49,6 +50,7 @@
 #include "llvm/DebugInfo/PDB/IPDBSession.h"
 #include "llvm/DebugInfo/PDB/Native/DbiModuleDescriptorBuilder.h"
 #include "llvm/DebugInfo/PDB/Native/DbiStreamBuilder.h"
+#include "llvm/DebugInfo/PDB/Native/InfoStream.h"
 #include "llvm/DebugInfo/PDB/Native/InfoStreamBuilder.h"
 #include "llvm/DebugInfo/PDB/Native/NativeSession.h"
 #include "llvm/DebugInfo/PDB/Native/PDBFile.h"
@@ -71,6 +73,7 @@
 #include "llvm/Support/FileOutputBuffer.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Format.h"
+#include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/LineIterator.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -81,7 +84,6 @@
 #include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/raw_ostream.h"
-
 
 using namespace llvm;
 using namespace llvm::codeview;
@@ -110,6 +112,12 @@ cl::SubCommand
 
 cl::SubCommand MergeSubcommand("merge",
                                "Merge multiple PDBs into a single PDB");
+
+cl::SubCommand ExplainSubcommand("explain",
+                                 "Explain the meaning of a file offset");
+
+cl::SubCommand ExportSubcommand("export",
+                                "Write binary data from a stream to a file");
 
 cl::OptionCategory TypeCategory("Symbol Type Options");
 cl::OptionCategory FilterCategory("Filtering and Sorting Options");
@@ -605,6 +613,47 @@ cl::opt<std::string>
     PdbOutputFile("pdb", cl::desc("the name of the PDB file to write"),
                   cl::sub(MergeSubcommand));
 }
+
+namespace explain {
+cl::list<std::string> InputFilename(cl::Positional,
+                                    cl::desc("<input PDB file>"), cl::Required,
+                                    cl::sub(ExplainSubcommand));
+
+cl::list<uint64_t> Offsets("offset", cl::desc("The file offset to explain"),
+                           cl::sub(ExplainSubcommand), cl::OneOrMore);
+
+cl::opt<InputFileType> InputType(
+    "input-type", cl::desc("Specify how to interpret the input file"),
+    cl::init(InputFileType::PDBFile), cl::Optional, cl::sub(ExplainSubcommand),
+    cl::values(clEnumValN(InputFileType::PDBFile, "pdb-file",
+                          "Treat input as a PDB file (default)"),
+               clEnumValN(InputFileType::PDBStream, "pdb-stream",
+                          "Treat input as raw contents of PDB stream"),
+               clEnumValN(InputFileType::DBIStream, "dbi-stream",
+                          "Treat input as raw contents of DBI stream"),
+               clEnumValN(InputFileType::Names, "names-stream",
+                          "Treat input as raw contents of /names named stream"),
+               clEnumValN(InputFileType::ModuleStream, "mod-stream",
+                          "Treat input as raw contents of a module stream")));
+} // namespace explain
+
+namespace exportstream {
+cl::list<std::string> InputFilename(cl::Positional,
+                                    cl::desc("<input PDB file>"), cl::Required,
+                                    cl::sub(ExportSubcommand));
+cl::opt<std::string> OutputFile("out",
+                                cl::desc("The file to write the stream to"),
+                                cl::Required, cl::sub(ExportSubcommand));
+cl::opt<std::string>
+    Stream("stream", cl::Required,
+           cl::desc("The index or name of the stream whose contents to export"),
+           cl::sub(ExportSubcommand));
+cl::opt<bool> ForceName("name",
+                        cl::desc("Force the interpretation of -stream as a "
+                                 "string, even if it is a valid integer"),
+                        cl::sub(ExportSubcommand), cl::Optional,
+                        cl::init(false));
+} // namespace exportstream
 }
 
 static ExitOnError ExitOnErr;
@@ -737,7 +786,6 @@ static void pdb2Yaml(StringRef Path) {
 }
 
 static void dumpRaw(StringRef Path) {
-
   InputFile IF = ExitOnErr(InputFile::open(Path));
 
   auto O = llvm::make_unique<DumpOutputStyle>(IF);
@@ -964,8 +1012,8 @@ static void dumpPretty(StringRef Path) {
           std::vector<std::unique_ptr<PDBSymbolFunc>> Funcs;
           while (auto Func = Functions->getNext())
             Funcs.push_back(std::move(Func));
-          std::sort(Funcs.begin(), Funcs.end(),
-                    opts::pretty::compareFunctionSymbols);
+          llvm::sort(Funcs.begin(), Funcs.end(),
+                     opts::pretty::compareFunctionSymbols);
           for (const auto &Func : Funcs) {
             Printer.NewLine();
             Dumper.start(*Func, FunctionDumper::PointerType::None);
@@ -983,8 +1031,8 @@ static void dumpPretty(StringRef Path) {
           std::vector<std::unique_ptr<PDBSymbolData>> Datas;
           while (auto Var = Vars->getNext())
             Datas.push_back(std::move(Var));
-          std::sort(Datas.begin(), Datas.end(),
-                    opts::pretty::compareDataSymbols);
+          llvm::sort(Datas.begin(), Datas.end(),
+                     opts::pretty::compareDataSymbols);
           for (const auto &Var : Datas)
             Dumper.start(*Var);
         }
@@ -1074,6 +1122,58 @@ static void mergePdbs() {
   ExitOnErr(Builder.commit(OutFile));
 }
 
+static void explain() {
+  std::unique_ptr<IPDBSession> Session;
+  InputFile IF =
+      ExitOnErr(InputFile::open(opts::explain::InputFilename.front(), true));
+
+  for (uint64_t Off : opts::explain::Offsets) {
+    auto O = llvm::make_unique<ExplainOutputStyle>(IF, Off);
+
+    ExitOnErr(O->dump());
+  }
+}
+
+static void exportStream() {
+  std::unique_ptr<IPDBSession> Session;
+  PDBFile &File = loadPDB(opts::exportstream::InputFilename.front(), Session);
+
+  std::unique_ptr<MappedBlockStream> SourceStream;
+  uint32_t Index = 0;
+  bool Success = false;
+  std::string OutFileName = opts::exportstream::OutputFile;
+
+  if (!opts::exportstream::ForceName) {
+    // First try to parse it as an integer, if it fails fall back to treating it
+    // as a named stream.
+    if (to_integer(opts::exportstream::Stream, Index)) {
+      if (Index >= File.getNumStreams()) {
+        errs() << "Error: " << Index << " is not a valid stream index.\n";
+        exit(1);
+      }
+      Success = true;
+      outs() << "Dumping contents of stream index " << Index << " to file "
+             << OutFileName << ".\n";
+    }
+  }
+
+  if (!Success) {
+    InfoStream &IS = cantFail(File.getPDBInfoStream());
+    Index = ExitOnErr(IS.getNamedStreamIndex(opts::exportstream::Stream));
+    outs() << "Dumping contents of stream '" << opts::exportstream::Stream
+           << "' (index " << Index << ") to file " << OutFileName << ".\n";
+  }
+
+  SourceStream = MappedBlockStream::createIndexedStream(
+      File.getMsfLayout(), File.getMsfBuffer(), Index, File.getAllocator());
+  auto OutFile = ExitOnErr(
+      FileOutputBuffer::create(OutFileName, SourceStream->getLength()));
+  FileBufferByteStream DestStream(std::move(OutFile), llvm::support::little);
+  BinaryStreamWriter Writer(DestStream);
+  ExitOnErr(Writer.writeStreamRef(*SourceStream));
+  ExitOnErr(DestStream.commit());
+}
+
 static bool parseRange(StringRef Str,
                        Optional<opts::bytes::NumberRange> &Parsed) {
   if (Str.empty())
@@ -1105,21 +1205,11 @@ static void simplifyChunkList(llvm::cl::list<opts::ModuleSubsection> &Chunks) {
   Chunks.push_back(opts::ModuleSubsection::All);
 }
 
-int main(int argc_, const char *argv_[]) {
-  // Print a stack trace if we signal out.
-  sys::PrintStackTraceOnErrorSignal(argv_[0]);
-  PrettyStackTraceProgram X(argc_, argv_);
-
+int main(int Argc, const char **Argv) {
+  InitLLVM X(Argc, Argv);
   ExitOnErr.setBanner("llvm-pdbutil: ");
 
-  SmallVector<const char *, 256> argv;
-  SpecificBumpPtrAllocator<char> ArgAllocator;
-  ExitOnErr(errorCodeToError(sys::Process::GetArgumentVector(
-      argv, makeArrayRef(argv_, argc_), ArgAllocator)));
-
-  llvm_shutdown_obj Y; // Call llvm_shutdown() on exit.
-
-  cl::ParseCommandLineOptions(argv.size(), argv.data(), "LLVM PDB Dumper\n");
+  cl::ParseCommandLineOptions(Argc, Argv, "LLVM PDB Dumper\n");
 
   if (opts::BytesSubcommand) {
     if (!parseRange(opts::bytes::DumpBlockRangeOpt,
@@ -1248,6 +1338,10 @@ int main(int argc_, const char *argv_[]) {
       exit(1);
     }
     mergePdbs();
+  } else if (opts::ExplainSubcommand) {
+    explain();
+  } else if (opts::ExportSubcommand) {
+    exportStream();
   }
 
   outs().flush();

@@ -107,6 +107,16 @@ if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
     endif()
   endif()
 
+  # Avoid checking whether the compiler is working.
+  set(LLVM_COMPILER_CHECKED ON)
+  # Enable warnings, otherwise -w gets added to the cflags by HandleLLVMOptions
+  # resulting in unjustified successes by check_cxx_compiler_flag.
+  set(LLVM_ENABLE_WARNINGS ON)
+
+  # Handle common options used by all runtimes.
+  include(AddLLVM)
+  include(HandleLLVMOptions)
+
   set(CMAKE_REQUIRED_FLAGS ${SAFE_CMAKE_REQUIRED_FLAGS})
   set(CMAKE_REQUIRED_LIBRARIES ${SAFE_CMAKE_REQUIRED_LIBRARIES})
 
@@ -342,6 +352,11 @@ else() # if this is included from LLVM's CMake
         list(APPEND test_targets check-${runtime_name})
       endif()
     endforeach()
+    foreach(component ${LLVM_RUNTIME_DISTRIBUTION_COMPONENTS})
+      if(NOT ${component} IN_LIST SUB_COMPONENTS)
+        list(APPEND extra_targets ${component} install-${component} install-${component}-stripped)
+      endif()
+    endforeach()
 
     if(LLVM_INCLUDE_TESTS)
       list(APPEND test_targets runtimes-test-depends check-runtimes)
@@ -395,6 +410,14 @@ else() # if this is included from LLVM's CMake
 
     foreach(target_name IN LISTS SUB_COMPONENTS SUB_INSTALL_TARGETS)
       list(APPEND ${name}_extra_targets "${target_name}:${target_name}-${name}")
+    endforeach()
+
+    foreach(component ${LLVM_RUNTIME_DISTRIBUTION_COMPONENTS})
+      if(NOT "${target_name}:${target_name}-${component}" IN_LIST extra_targets)
+        list(APPEND ${name}_extra_targets
+          "${target_name}:${target_name}-${component}"
+          "${target_name}:${target_name}-install-${component}")
+      endif()
     endforeach()
 
     if(LLVM_INCLUDE_TESTS)
@@ -467,6 +490,12 @@ else() # if this is included from LLVM's CMake
           add_custom_target(check-runtimes)
           add_custom_target(runtimes-test-depends)
           set(test_targets "")
+        endif()
+        if(LLVM_RUNTIME_DISTRIBUTION_COMPONENTS)
+          foreach(component ${LLVM_RUNTIME_DISTRIBUTION_COMPONENTS})
+            add_custom_target(${component})
+            add_custom_target(install-${component})
+          endforeach()
         endif()
       endif()
 

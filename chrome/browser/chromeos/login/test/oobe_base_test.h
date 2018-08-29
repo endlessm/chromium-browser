@@ -34,13 +34,14 @@ namespace chromeos {
 class NetworkPortalDetectorTestImpl;
 
 // Base class for OOBE, login, SAML and Kiosk tests.
-class OobeBaseTest : public ExtensionApiTest {
+class OobeBaseTest : public extensions::ExtensionApiTest {
  public:
   // Default fake user email and password, may be used by tests.
 
   static const char kFakeUserEmail[];
   static const char kFakeUserPassword[];
   static const char kFakeUserGaiaId[];
+  static const char kEmptyUserServices[];
 
   // FakeGaia is configured to return these cookies for kFakeUserEmail.
   static const char kFakeSIDCookie[];

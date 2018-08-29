@@ -326,7 +326,8 @@ FileTasks.UMA_INDEX_KNOWN_EXTENSIONS = Object.freeze([
   '.htm',      '.jar',         '.ps',
   '.torrent',  '.txt',         '.zip',
   'directory', 'no extension', 'unknown extension',
-  '.mhtml'
+  '.mhtml',    '.gdoc',        '.gsheet',
+  '.gslides'
 ]);
 
 /**
@@ -526,7 +527,6 @@ FileTasks.annotateTasks_ = function(tasks, entries) {
  *
  * @param {function(boolean, Array<!Entry>)=} opt_callback Called when the
  *     default task is executed, or the error is occurred.
- * @private
  */
 FileTasks.prototype.executeDefault = function(opt_callback) {
   FileTasks.recordViewingFileTypeUMA_(this.entries_);
@@ -662,7 +662,6 @@ FileTasks.prototype.executeDefaultInternal_ = function(opt_callback) {
  * Executes a single task.
  *
  * @param {string} taskId Task identifier.
- * @private
  */
 FileTasks.prototype.execute = function(taskId) {
   FileTasks.recordViewingFileTypeUMA_(this.entries_);

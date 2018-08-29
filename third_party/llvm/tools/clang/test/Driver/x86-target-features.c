@@ -60,6 +60,11 @@
 // CLWB: "-target-feature" "+clwb"
 // NO-CLWB: "-target-feature" "-clwb"
 
+// RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mwbnoinvd %s -### -o %t.o 2>&1 | FileCheck -check-prefix=WBNOINVD %s
+// RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mno-wbnoinvd %s -### -o %t.o 2>&1 | FileCheck -check-prefix=NO-WBNOINVD %s
+// WBNOINVD: "-target-feature" "+wbnoinvd"
+// NO-WBNOINVD: "-target-feature" "-wbnoinvd"
+
 // RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mmovbe %s -### -o %t.o 2>&1 | FileCheck -check-prefix=MOVBE %s
 // RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mno-movbe %s -### -o %t.o 2>&1 | FileCheck -check-prefix=NO-MOVBE %s
 // MOVBE: "-target-feature" "+movbe"
@@ -74,11 +79,6 @@
 // RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mno-shstk %s -### -o %t.o 2>&1 | FileCheck -check-prefix=NO-CETSS %s
 // CETSS: "-target-feature" "+shstk"
 // NO-CETSS: "-target-feature" "-shstk"
-
-// RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mibt %s -### -o %t.o 2>&1 | FileCheck -check-prefix=CETIBT %s
-// RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mno-ibt %s -### -o %t.o 2>&1 | FileCheck -check-prefix=NO-CETIBT %s
-// CETIBT: "-target-feature" "+ibt"
-// NO-CETIBT: "-target-feature" "-ibt"
 
 // RUN: %clang -target i386-unknown-linux-gnu -march=i386 -msgx %s -### -o %t.o 2>&1 | FileCheck -check-prefix=SGX %s
 // RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mno-sgx %s -### -o %t.o 2>&1 | FileCheck -check-prefix=NO-SGX %s
@@ -139,3 +139,28 @@
 // RUN: %clang -target i386-linux-gnu -mretpoline -mno-retpoline-external-thunk %s -### -o %t.o 2>&1 | FileCheck -check-prefix=NO-RETPOLINE-EXTERNAL-THUNK %s
 // RETPOLINE-EXTERNAL-THUNK: "-target-feature" "+retpoline-external-thunk"
 // NO-RETPOLINE-EXTERNAL-THUNK: "-target-feature" "-retpoline-external-thunk"
+
+// RUN: %clang -target i386-linux-gnu -mwaitpkg %s -### -o %t.o 2>&1 | FileCheck -check-prefix=WAITPKG %s
+// RUN: %clang -target i386-linux-gnu -mno-waitpkg %s -### -o %t.o 2>&1 | FileCheck -check-prefix=NO-WAITPKG %s
+// WAITPKG: "-target-feature" "+waitpkg"
+// NO-WAITPKG: "-target-feature" "-waitpkg"
+
+// RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mmovdiri %s -### -o %t.o 2>&1 | FileCheck -check-prefix=MOVDIRI %s
+// RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mno-movdiri %s -### -o %t.o 2>&1 | FileCheck -check-prefix=NO-MOVDIRI %s
+// MOVDIRI: "-target-feature" "+movdiri"
+// NO-MOVDIRI: "-target-feature" "-movdiri"
+
+// RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mmovdir64b %s -### -o %t.o 2>&1 | FileCheck -check-prefix=MOVDIR64B %s
+// RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mno-movdir64b %s -### -o %t.o 2>&1 | FileCheck -check-prefix=NO-MOVDIR64B %s
+// MOVDIR64B: "-target-feature" "+movdir64b"
+// NO-MOVDIR64B: "-target-feature" "-movdir64b"
+
+// RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mpconfig %s -### -o %t.o 2>&1 | FileCheck -check-prefix=PCONFIG %s
+// RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mno-pconfig %s -### -o %t.o 2>&1 | FileCheck -check-prefix=NO-PCONFIG %s
+// PCONFIG: "-target-feature" "+pconfig"
+// NO-PCONFIG: "-target-feature" "-pconfig"
+
+// RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mptwrite %s -### -o %t.o 2>&1 | FileCheck -check-prefix=PTWRITE %s
+// RUN: %clang -target i386-unknown-linux-gnu -march=i386 -mno-ptwrite %s -### -o %t.o 2>&1 | FileCheck -check-prefix=NO-PTWRITE %s
+// PTWRITE: "-target-feature" "+ptwrite"
+// NO-PTWRITE: "-target-feature" "-ptwrite"

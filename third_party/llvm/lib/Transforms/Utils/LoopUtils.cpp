@@ -555,47 +555,48 @@ bool RecurrenceDescriptor::isReductionPHI(PHINode *Phi, Loop *TheLoop,
 
   if (AddReductionVar(Phi, RK_IntegerAdd, TheLoop, HasFunNoNaNAttr, RedDes, DB,
                       AC, DT)) {
-    DEBUG(dbgs() << "Found an ADD reduction PHI." << *Phi << "\n");
+    LLVM_DEBUG(dbgs() << "Found an ADD reduction PHI." << *Phi << "\n");
     return true;
   }
   if (AddReductionVar(Phi, RK_IntegerMult, TheLoop, HasFunNoNaNAttr, RedDes, DB,
                       AC, DT)) {
-    DEBUG(dbgs() << "Found a MUL reduction PHI." << *Phi << "\n");
+    LLVM_DEBUG(dbgs() << "Found a MUL reduction PHI." << *Phi << "\n");
     return true;
   }
   if (AddReductionVar(Phi, RK_IntegerOr, TheLoop, HasFunNoNaNAttr, RedDes, DB,
                       AC, DT)) {
-    DEBUG(dbgs() << "Found an OR reduction PHI." << *Phi << "\n");
+    LLVM_DEBUG(dbgs() << "Found an OR reduction PHI." << *Phi << "\n");
     return true;
   }
   if (AddReductionVar(Phi, RK_IntegerAnd, TheLoop, HasFunNoNaNAttr, RedDes, DB,
                       AC, DT)) {
-    DEBUG(dbgs() << "Found an AND reduction PHI." << *Phi << "\n");
+    LLVM_DEBUG(dbgs() << "Found an AND reduction PHI." << *Phi << "\n");
     return true;
   }
   if (AddReductionVar(Phi, RK_IntegerXor, TheLoop, HasFunNoNaNAttr, RedDes, DB,
                       AC, DT)) {
-    DEBUG(dbgs() << "Found a XOR reduction PHI." << *Phi << "\n");
+    LLVM_DEBUG(dbgs() << "Found a XOR reduction PHI." << *Phi << "\n");
     return true;
   }
   if (AddReductionVar(Phi, RK_IntegerMinMax, TheLoop, HasFunNoNaNAttr, RedDes,
                       DB, AC, DT)) {
-    DEBUG(dbgs() << "Found a MINMAX reduction PHI." << *Phi << "\n");
+    LLVM_DEBUG(dbgs() << "Found a MINMAX reduction PHI." << *Phi << "\n");
     return true;
   }
   if (AddReductionVar(Phi, RK_FloatMult, TheLoop, HasFunNoNaNAttr, RedDes, DB,
                       AC, DT)) {
-    DEBUG(dbgs() << "Found an FMult reduction PHI." << *Phi << "\n");
+    LLVM_DEBUG(dbgs() << "Found an FMult reduction PHI." << *Phi << "\n");
     return true;
   }
   if (AddReductionVar(Phi, RK_FloatAdd, TheLoop, HasFunNoNaNAttr, RedDes, DB,
                       AC, DT)) {
-    DEBUG(dbgs() << "Found an FAdd reduction PHI." << *Phi << "\n");
+    LLVM_DEBUG(dbgs() << "Found an FAdd reduction PHI." << *Phi << "\n");
     return true;
   }
   if (AddReductionVar(Phi, RK_FloatMinMax, TheLoop, HasFunNoNaNAttr, RedDes, DB,
                       AC, DT)) {
-    DEBUG(dbgs() << "Found an float MINMAX reduction PHI." << *Phi << "\n");
+    LLVM_DEBUG(dbgs() << "Found an float MINMAX reduction PHI." << *Phi
+                      << "\n");
     return true;
   }
   // Not a reduction of known type.
@@ -923,13 +924,13 @@ bool InductionDescriptor::isFPInductionPHI(PHINode *Phi, const Loop *TheLoop,
 }
 
 /// This function is called when we suspect that the update-chain of a phi node
-/// (whose symbolic SCEV expression sin \p PhiScev) contains redundant casts, 
-/// that can be ignored. (This can happen when the PSCEV rewriter adds a runtime 
-/// predicate P under which the SCEV expression for the phi can be the 
-/// AddRecurrence \p AR; See createAddRecFromPHIWithCast). We want to find the 
-/// cast instructions that are involved in the update-chain of this induction. 
-/// A caller that adds the required runtime predicate can be free to drop these 
-/// cast instructions, and compute the phi using \p AR (instead of some scev 
+/// (whose symbolic SCEV expression sin \p PhiScev) contains redundant casts,
+/// that can be ignored. (This can happen when the PSCEV rewriter adds a runtime
+/// predicate P under which the SCEV expression for the phi can be the
+/// AddRecurrence \p AR; See createAddRecFromPHIWithCast). We want to find the
+/// cast instructions that are involved in the update-chain of this induction.
+/// A caller that adds the required runtime predicate can be free to drop these
+/// cast instructions, and compute the phi using \p AR (instead of some scev
 /// expression with casts).
 ///
 /// For example, without a predicate the scev expression can take the following
@@ -964,7 +965,7 @@ static bool getCastsForInductionPHI(PredicatedScalarEvolution &PSE,
   assert(PSE.getSCEV(PN) == AR && "Unexpected phi node SCEV expression");
   const Loop *L = AR->getLoop();
 
-  // Find any cast instructions that participate in the def-use chain of 
+  // Find any cast instructions that participate in the def-use chain of
   // PhiScev in the loop.
   // FORNOW/TODO: We currently expect the def-use chain to include only
   // two-operand instructions, where one of the operands is an invariant.
@@ -1052,7 +1053,7 @@ bool InductionDescriptor::isInductionPHI(PHINode *Phi, const Loop *TheLoop,
     AR = PSE.getAsAddRec(Phi);
 
   if (!AR) {
-    DEBUG(dbgs() << "LV: PHI is not a poly recurrence.\n");
+    LLVM_DEBUG(dbgs() << "LV: PHI is not a poly recurrence.\n");
     return false;
   }
 
@@ -1086,14 +1087,15 @@ bool InductionDescriptor::isInductionPHI(
   const SCEVAddRecExpr *AR = dyn_cast<SCEVAddRecExpr>(PhiScev);
 
   if (!AR) {
-    DEBUG(dbgs() << "LV: PHI is not a poly recurrence.\n");
+    LLVM_DEBUG(dbgs() << "LV: PHI is not a poly recurrence.\n");
     return false;
   }
 
   if (AR->getLoop() != TheLoop) {
     // FIXME: We should treat this as a uniform. Unfortunately, we
     // don't currently know how to handled uniform PHIs.
-    DEBUG(dbgs() << "LV: PHI is a recurrence with respect to an outer loop.\n");
+    LLVM_DEBUG(
+        dbgs() << "LV: PHI is a recurrence with respect to an outer loop.\n");
     return false;
   }
 
@@ -1174,11 +1176,12 @@ bool llvm::formDedicatedExitBlocks(Loop *L, DominatorTree *DT, LoopInfo *LI,
         BB, InLoopPredecessors, ".loopexit", DT, LI, PreserveLCSSA);
 
     if (!NewExitBB)
-      DEBUG(dbgs() << "WARNING: Can't create a dedicated exit block for loop: "
-                   << *L << "\n");
+      LLVM_DEBUG(
+          dbgs() << "WARNING: Can't create a dedicated exit block for loop: "
+                 << *L << "\n");
     else
-      DEBUG(dbgs() << "LoopSimplify: Creating dedicated exit block "
-                   << NewExitBB->getName() << "\n");
+      LLVM_DEBUG(dbgs() << "LoopSimplify: Creating dedicated exit block "
+                        << NewExitBB->getName() << "\n");
     return true;
   };
 
@@ -1201,7 +1204,7 @@ bool llvm::formDedicatedExitBlocks(Loop *L, DominatorTree *DT, LoopInfo *LI,
   return Changed;
 }
 
-/// \brief Returns the instructions that use values defined in the loop.
+/// Returns the instructions that use values defined in the loop.
 SmallVector<Instruction *, 8> llvm::findDefsUsedOutsideOfLoop(Loop *L) {
   SmallVector<Instruction *, 8> UsedOutside;
 
@@ -1278,7 +1281,7 @@ void llvm::initializeLoopPassPass(PassRegistry &Registry) {
   INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
 }
 
-/// \brief Find string metadata for loop
+/// Find string metadata for loop
 ///
 /// If it has a value (e.g. {"llvm.distribute", 1} return the value as an
 /// operand or null otherwise.  If the string metadata is not found return
@@ -1516,7 +1519,7 @@ Optional<unsigned> llvm::getLoopEstimatedTripCount(Loop *L) {
     return (FalseVal + (TrueVal / 2)) / TrueVal;
 }
 
-/// \brief Adds a 'fast' flag to floating point operations.
+/// Adds a 'fast' flag to floating point operations.
 static Value *addFastMathFlag(Value *V) {
   if (isa<FPMathOperator>(V)) {
     FastMathFlags Flags;
@@ -1524,6 +1527,38 @@ static Value *addFastMathFlag(Value *V) {
     cast<Instruction>(V)->setFastMathFlags(Flags);
   }
   return V;
+}
+
+// Helper to generate an ordered reduction.
+Value *
+llvm::getOrderedReduction(IRBuilder<> &Builder, Value *Acc, Value *Src,
+                          unsigned Op,
+                          RecurrenceDescriptor::MinMaxRecurrenceKind MinMaxKind,
+                          ArrayRef<Value *> RedOps) {
+  unsigned VF = Src->getType()->getVectorNumElements();
+
+  // Extract and apply reduction ops in ascending order:
+  // e.g. ((((Acc + Scl[0]) + Scl[1]) + Scl[2]) + ) ... + Scl[VF-1]
+  Value *Result = Acc;
+  for (unsigned ExtractIdx = 0; ExtractIdx != VF; ++ExtractIdx) {
+    Value *Ext =
+        Builder.CreateExtractElement(Src, Builder.getInt32(ExtractIdx));
+
+    if (Op != Instruction::ICmp && Op != Instruction::FCmp) {
+      Result = Builder.CreateBinOp((Instruction::BinaryOps)Op, Result, Ext,
+                                   "bin.rdx");
+    } else {
+      assert(MinMaxKind != RecurrenceDescriptor::MRK_Invalid &&
+             "Invalid min/max");
+      Result = RecurrenceDescriptor::createMinMaxOp(Builder, MinMaxKind, Result,
+                                                    Ext);
+    }
+
+    if (!RedOps.empty())
+      propagateIRFlags(Result, RedOps);
+  }
+
+  return Result;
 }
 
 // Helper to generate a log2 shuffle reduction.

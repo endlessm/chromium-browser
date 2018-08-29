@@ -10,14 +10,20 @@
 #include "base/feature_list.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/net/chrome_mojo_proxy_resolver_factory.h"
+#include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/pref_names.h"
+#include "components/certificate_transparency/ct_known_logs.h"
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/policy_constants.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "components/version_info/version_info.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
@@ -59,6 +65,32 @@ network::mojom::NetworkContextParamsPtr CreateDefaultNetworkContextParams() {
     }
   }
 
+  PrefService* local_state = g_browser_process->local_state();
+  network_context_params->pac_quick_check_enabled =
+      local_state->GetBoolean(prefs::kQuickCheckEnabled);
+  network_context_params->dangerously_allow_pac_access_to_secure_urls =
+      !local_state->GetBoolean(prefs::kPacHttpsUrlStrippingEnabled);
+
+  // Use the SystemNetworkContextManager to populate and update SSL
+  // configuration. The SystemNetworkContextManager is owned by the
+  // BrowserProcess itself, so will only be destroyed on shutdown, at which
+  // point, all NetworkContexts will be destroyed as well.
+  g_browser_process->system_network_context_manager()
+      ->AddSSLConfigToNetworkContextParams(network_context_params.get());
+
+#if !defined(OS_ANDROID)
+  // CT is only enabled on Desktop platforms for now.
+  network_context_params->enforce_chrome_ct_policy = true;
+  for (const auto& ct_log : certificate_transparency::GetKnownLogs()) {
+    // TODO(rsleevi): https://crbug.com/702062 - Remove this duplication.
+    network::mojom::CTLogInfoPtr log_info = network::mojom::CTLogInfo::New();
+    log_info->public_key = std::string(ct_log.log_key, ct_log.log_key_length);
+    log_info->name = ct_log.log_name;
+    log_info->dns_api_endpoint = ct_log.log_dns_domain;
+    network_context_params->ct_logs.push_back(std::move(log_info));
+  }
+#endif
+
   bool http_09_on_non_default_ports_enabled = false;
   const base::Value* value =
       g_browser_process->policy_service()
@@ -71,4 +103,9 @@ network::mojom::NetworkContextParamsPtr CreateDefaultNetworkContextParams() {
       http_09_on_non_default_ports_enabled;
 
   return network_context_params;
+}
+
+void RegisterNetworkContextCreationPrefs(PrefRegistrySimple* registry) {
+  registry->RegisterBooleanPref(prefs::kQuickCheckEnabled, true);
+  registry->RegisterBooleanPref(prefs::kPacHttpsUrlStrippingEnabled, true);
 }

@@ -31,23 +31,8 @@
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
 #endif
-#if HAVE_DIRENT_H
-# include <dirent.h>
-# define NAMLEN(dirent) strlen((dirent)->d_name)
-#else
-# define dirent direct
-# define NAMLEN(dirent) (dirent)->d_namlen
-# if HAVE_SYS_NDIR_H
-#  include <sys/ndir.h>
-# endif
-# if HAVE_SYS_DIR_H
-#  include <sys/dir.h>
-# endif
-# if HAVE_NDIR_H
-#  include <ndir.h>
-# endif
-#endif
 
+#include <dirent.h>
 #include <pwd.h>
 
 #ifdef __APPLE__
@@ -380,6 +365,9 @@ static bool is_local_impl(struct STATVFS &Vfs) {
 #elif defined(__CYGWIN__)
   // Cygwin doesn't expose this information; would need to use Win32 API.
   return false;
+#elif defined(__Fuchsia__)
+  // Fuchsia doesn't yet support remote filesystem mounts.
+  return true;
 #elif defined(__sun)
   // statvfs::f_basetype contains a null-terminated FSType name of the mounted target
   StringRef fstype(Vfs.f_basetype);
@@ -704,7 +692,7 @@ std::error_code detail::directory_iterator_increment(detail::DirIterState &it) {
   if (cur_dir == nullptr && errno != 0) {
     return std::error_code(errno, std::generic_category());
   } else if (cur_dir != nullptr) {
-    StringRef name(cur_dir->d_name, NAMLEN(cur_dir));
+    StringRef name(cur_dir->d_name);
     if ((name.size() == 1 && name[0] == '.') ||
         (name.size() == 2 && name[0] == '.' && name[1] == '.'))
       return directory_iterator_increment(it);

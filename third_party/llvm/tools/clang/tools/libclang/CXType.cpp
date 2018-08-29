@@ -119,6 +119,10 @@ CXType cxtype::MakeCXType(QualType T, CXTranslationUnit TU) {
     if (auto *ATT = T->getAs<AttributedType>()) {
       return MakeCXType(ATT->getModifiedType(), TU);
     }
+    // Handle paren types as the original type
+    if (auto *PTT = T->getAs<ParenType>()) {
+      return MakeCXType(PTT->getInnerType(), TU);
+    }
 
     ASTContext &Ctx = cxtu::getASTUnit(TU)->getASTContext();
     if (Ctx.getLangOpts().ObjC1) {
@@ -689,13 +693,41 @@ CXType clang_getCursorResultType(CXCursor C) {
   return MakeCXType(QualType(), cxcursor::getCursorTU(C));
 }
 
+// FIXME: We should expose the canThrow(...) result instead of the EST.
+static CXCursor_ExceptionSpecificationKind
+getExternalExceptionSpecificationKind(ExceptionSpecificationType EST) {
+  switch (EST) {
+  case EST_None:
+    return CXCursor_ExceptionSpecificationKind_None;
+  case EST_DynamicNone:
+    return CXCursor_ExceptionSpecificationKind_DynamicNone;
+  case EST_Dynamic:
+    return CXCursor_ExceptionSpecificationKind_Dynamic;
+  case EST_MSAny:
+    return CXCursor_ExceptionSpecificationKind_MSAny;
+  case EST_BasicNoexcept:
+    return CXCursor_ExceptionSpecificationKind_BasicNoexcept;
+  case EST_NoexceptFalse:
+  case EST_NoexceptTrue:
+  case EST_DependentNoexcept:
+    return CXCursor_ExceptionSpecificationKind_ComputedNoexcept;
+  case EST_Unevaluated:
+    return CXCursor_ExceptionSpecificationKind_Unevaluated;
+  case EST_Uninstantiated:
+    return CXCursor_ExceptionSpecificationKind_Uninstantiated;
+  case EST_Unparsed:
+    return CXCursor_ExceptionSpecificationKind_Unparsed;
+  }
+  llvm_unreachable("invalid EST value");
+}
+
 int clang_getExceptionSpecificationType(CXType X) {
   QualType T = GetQualType(X);
   if (T.isNull())
     return -1;
 
   if (const auto *FD = T->getAs<FunctionProtoType>())
-    return static_cast<int>(FD->getExceptionSpecType());
+    return getExternalExceptionSpecificationKind(FD->getExceptionSpecType());
 
   return -1;
 }

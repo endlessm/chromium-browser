@@ -18,8 +18,8 @@
 #include "chromeos/dbus/session_manager_client.h"
 #include "chromeos/login_event_recorder.h"
 #include "chromeos/settings/cros_settings_names.h"
+#include "components/account_id/account_id.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user_names.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "net/cookies/cookie_monster.h"
@@ -182,7 +182,10 @@ void LoginPerformer::LoginAsSupervisedUser(const UserContext& user_context) {
       gaia::ExtractDomainName(user_context.GetAccountId().GetUserEmail()));
 
   user_context_ = user_context;
-  user_context_.SetUserType(user_manager::USER_TYPE_SUPERVISED);
+  if (user_context_.GetUserType() != user_manager::USER_TYPE_SUPERVISED) {
+    LOG(FATAL) << "Incorrect supervised user type "
+               << user_context_.GetUserType();
+  }
 
   if (RunTrustedCheck(base::Bind(&LoginPerformer::TrustedLoginAsSupervisedUser,
                                  weak_factory_.GetWeakPtr(),

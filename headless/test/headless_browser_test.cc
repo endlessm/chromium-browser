@@ -9,12 +9,13 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/url_constants.h"
+#include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "headless/lib/browser/headless_browser_impl.h"
 #include "headless/lib/browser/headless_web_contents_impl.h"
@@ -130,9 +131,9 @@ HeadlessBrowserTest::HeadlessBrowserTest() {
   // On Mac the source root is not set properly. We override it by assuming
   // that is two directories up from the execution test file.
   base::FilePath dir_exe_path;
-  CHECK(PathService::Get(base::DIR_EXE, &dir_exe_path));
+  CHECK(base::PathService::Get(base::DIR_EXE, &dir_exe_path));
   dir_exe_path = dir_exe_path.Append("../../");
-  CHECK(PathService::Override(base::DIR_SOURCE_ROOT, dir_exe_path));
+  CHECK(base::PathService::Override(base::DIR_SOURCE_ROOT, dir_exe_path));
 #endif  // defined(OS_MACOSX)
   base::FilePath headless_test_data(FILE_PATH_LITERAL("headless/test/data"));
   CreateTestServer(headless_test_data);
@@ -188,6 +189,20 @@ bool HeadlessBrowserTest::WaitForLoad(HeadlessWebContents* web_contents) {
   return observer.last_navigation_succeeded();
 }
 
+void HeadlessBrowserTest::WaitForLoadAndGainFocus(
+    HeadlessWebContents* web_contents) {
+  content::WebContents* content =
+      HeadlessWebContentsImpl::From(web_contents)->web_contents();
+
+  // To finish loading and to gain focus are two independent events. Which one
+  // is issued first is undefined. The following code is waiting on both, in any
+  // order.
+  content::TestNavigationObserver load_observer(content, 1);
+  content::FrameFocusedObserver focus_observer(content->GetMainFrame());
+  load_observer.Wait();
+  focus_observer.Wait();
+}
+
 std::unique_ptr<runtime::EvaluateResult> HeadlessBrowserTest::EvaluateScript(
     HeadlessWebContents* web_contents,
     const std::string& script) {
@@ -197,8 +212,7 @@ std::unique_ptr<runtime::EvaluateResult> HeadlessBrowserTest::EvaluateScript(
 }
 
 void HeadlessBrowserTest::RunAsynchronousTest() {
-  base::MessageLoop::ScopedNestableTaskAllower nestable_allower(
-      base::MessageLoop::current());
+  base::MessageLoopCurrent::ScopedNestableTaskAllower nestable_allower;
   EXPECT_FALSE(run_loop_);
   run_loop_ = std::make_unique<base::RunLoop>();
   PreRunAsynchronousTest();
@@ -242,10 +256,6 @@ void HeadlessAsyncDevTooledBrowserTest::RunTest() {
   HeadlessBrowserContext::Builder builder =
       browser()->CreateBrowserContextBuilder();
   builder.SetProtocolHandlers(GetProtocolHandlers());
-  if (GetAllowTabSockets()) {
-    builder.EnableUnsafeNetworkAccessWithMojoBindings(true);
-    builder.AddTabSocketMojoBindings();
-  }
   CustomizeHeadlessBrowserContext(builder);
   browser_context_ = builder.Build();
 
@@ -254,7 +264,6 @@ void HeadlessAsyncDevTooledBrowserTest::RunTest() {
 
   HeadlessWebContents::Builder web_contents_builder =
       browser_context_->CreateWebContentsBuilder();
-  web_contents_builder.SetAllowTabSockets(GetAllowTabSockets());
   web_contents_builder.SetEnableBeginFrameControl(GetEnableBeginFrameControl());
   CustomizeHeadlessWebContents(web_contents_builder);
   web_contents_ = web_contents_builder.Build();
@@ -275,10 +284,6 @@ void HeadlessAsyncDevTooledBrowserTest::RunTest() {
 
 ProtocolHandlerMap HeadlessAsyncDevTooledBrowserTest::GetProtocolHandlers() {
   return ProtocolHandlerMap();
-}
-
-bool HeadlessAsyncDevTooledBrowserTest::GetAllowTabSockets() {
-  return false;
 }
 
 bool HeadlessAsyncDevTooledBrowserTest::GetEnableBeginFrameControl() {

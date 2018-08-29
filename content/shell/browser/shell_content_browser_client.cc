@@ -209,7 +209,8 @@ void ShellContentBrowserClient::BindInterfaceRequestFromFrame(
 }
 
 void ShellContentBrowserClient::RegisterInProcessServices(
-    StaticServiceMap* services) {
+    StaticServiceMap* services,
+    content::ServiceManagerConnection* connection) {
 #if BUILDFLAG(ENABLE_MOJO_MEDIA_IN_BROWSER_PROCESS)
   {
     service_manager::EmbeddedServiceInfo info;
@@ -355,8 +356,7 @@ scoped_refptr<LoginDelegate> ShellContentBrowserClient::CreateLoginDelegate(
     bool is_main_frame,
     const GURL& url,
     bool first_auth_attempt,
-    const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
-        auth_required_callback) {
+    LoginAuthRequiredCallback auth_required_callback) {
   if (!login_request_callback_.is_null()) {
     std::move(login_request_callback_).Run();
     return nullptr;
@@ -366,8 +366,8 @@ scoped_refptr<LoginDelegate> ShellContentBrowserClient::CreateLoginDelegate(
   // TODO: implement ShellLoginDialog for other platforms, drop this #if
   return nullptr;
 #else
-  return base::MakeRefCounted<ShellLoginDialog>(auth_info,
-                                                auth_required_callback);
+  return base::MakeRefCounted<ShellLoginDialog>(
+      auth_info, std::move(auth_required_callback));
 #endif
 }
 
@@ -387,7 +387,7 @@ void ShellContentBrowserClient::GetAdditionalMappedFilesForChildProcess(
 #else
   int crash_signal_fd = GetCrashSignalFD(command_line);
   if (crash_signal_fd >= 0) {
-    mappings->Share(kCrashDumpSignal, crash_signal_fd);
+    mappings->Share(service_manager::kCrashDumpSignal, crash_signal_fd);
   }
 #endif  // !defined(OS_ANDROID)
 }

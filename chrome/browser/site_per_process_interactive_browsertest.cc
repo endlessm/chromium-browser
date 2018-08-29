@@ -224,7 +224,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessInteractiveBrowserTest,
   // take time to propagate to the renderer's main thread.
   content::DOMMessageQueue msg_queue;
   std::string reply;
-  SimulateKeyPress(web_contents, ui::DomKey::FromCharacter('f'),
+  SimulateKeyPress(web_contents, ui::DomKey::FromCharacter('F'),
                    ui::DomCode::US_F, ui::VKEY_F, false, false, false, false);
   EXPECT_TRUE(msg_queue.WaitForMessage(&reply));
   EXPECT_EQ("\"F\"", reply);
@@ -1163,15 +1163,6 @@ class SitePerProcessAutofillTest : public SitePerProcessInteractiveBrowserTest {
   SitePerProcessAutofillTest() : SitePerProcessInteractiveBrowserTest() {}
   ~SitePerProcessAutofillTest() override {}
 
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    SitePerProcessInteractiveBrowserTest::SetUpCommandLine(command_line);
-    // We need to set the feature state before the render process is created,
-    // in order for it to inherit the feature state from the browser process.
-    // SetUp() runs too early, and SetUpOnMainThread() runs too late.
-    scoped_feature_list_.InitAndEnableFeature(
-        security_state::kHttpFormWarningFeature);
-  }
-
  protected:
   class TestAutofillClient : public autofill::TestAutofillClient {
    public:
@@ -1212,21 +1203,25 @@ class SitePerProcessAutofillTest : public SitePerProcessInteractiveBrowserTest {
   void SetupMainTab() {
     // Add a fresh new WebContents for which we add our own version of the
     // ChromePasswordManagerClient that uses a custom TestAutofillClient.
-    content::WebContents* new_contents = content::WebContents::Create(
-        content::WebContents::CreateParams(browser()
-                                               ->tab_strip_model()
-                                               ->GetActiveWebContents()
-                                               ->GetBrowserContext()));
+    std::unique_ptr<content::WebContents> new_contents =
+        content::WebContents::Create(
+            content::WebContents::CreateParams(browser()
+                                                   ->tab_strip_model()
+                                                   ->GetActiveWebContents()
+                                                   ->GetBrowserContext()));
     ASSERT_TRUE(new_contents);
-    ASSERT_FALSE(ChromePasswordManagerClient::FromWebContents(new_contents));
+    ASSERT_FALSE(
+        ChromePasswordManagerClient::FromWebContents(new_contents.get()));
 
     // Create ChromePasswordManagerClient and verify it exists for the new
     // WebContents.
     ChromePasswordManagerClient::CreateForWebContentsWithAutofillClient(
-        new_contents, &test_autofill_client_);
-    ASSERT_TRUE(ChromePasswordManagerClient::FromWebContents(new_contents));
+        new_contents.get(), &test_autofill_client_);
+    ASSERT_TRUE(
+        ChromePasswordManagerClient::FromWebContents(new_contents.get()));
 
-    browser()->tab_strip_model()->AppendWebContents(new_contents, true);
+    browser()->tab_strip_model()->AppendWebContents(std::move(new_contents),
+                                                    true);
   }
 
   TestAutofillClient& autofill_client() { return test_autofill_client_; }
@@ -1302,81 +1297,6 @@ void WaitForFramePositionUpdated(content::RenderFrameHost* render_frame_host,
         FROM_HERE, run_loop.QuitClosure(), TestTimeouts::tiny_timeout());
     run_loop.Run();
   }
-}
-// This test verifies that displacements (margin, etc) in the position of an
-// OOPIF is considered when showing an AutofillClient warning pop-up for
-// unsecure web sites.
-IN_PROC_BROWSER_TEST_F(SitePerProcessAutofillTest,
-                       PasswordAutofillPopupPositionInsideOOPIF) {
-  SetupMainTab();
-  ASSERT_TRUE(
-      base::FeatureList::IsEnabled(security_state::kHttpFormWarningFeature));
-
-  GURL main_url(embedded_test_server()->GetURL("a.com", "/iframe.html"));
-  ui_test_utils::NavigateToURL(browser(), main_url);
-  content::WebContents* active_web_contents =
-      browser()->tab_strip_model()->GetActiveWebContents();
-
-  // Add some displacement for <iframe>.
-  ASSERT_TRUE(content::ExecuteScript(
-      active_web_contents,
-      base::StringPrintf("var iframe = document.querySelector('iframe');"
-                         "iframe.style.position = 'fixed';"
-                         "iframe.style.border = 'none';"
-                         "iframe.style.top = '%dpx';"
-                         "iframe.style.left = '%dpx';",
-                         kIframeTopDisplacement, kIframeLeftDisplacement)));
-
-  // Navigate the <iframe> to a simple page.
-  GURL frame_url = embedded_test_server()->GetURL("b.com", "/title1.html");
-  EXPECT_TRUE(NavigateIframeToURL(active_web_contents, "test", frame_url));
-  content::RenderFrameHost* child_frame = content::FrameMatchingPredicate(
-      active_web_contents, base::Bind(&content::FrameIsChildOfMainFrame));
-
-  WaitForFramePositionUpdated(
-      child_frame, gfx::Point(),
-      gfx::Point(kIframeLeftDisplacement, kIframeTopDisplacement), 1.4143f);
-
-  // We will need to listen to focus changes to find out about the container
-  // bounds of any focused <input> elements on the page.
-  FocusedEditableNodeChangedObserver focus_observer;
-
-  // Focus the child frame, add an <input> with type "password", and focus it.
-  ASSERT_TRUE(ExecuteScript(child_frame,
-                            "window.focus();"
-                            "var input = document.createElement('input');"
-                            "input.type = 'password';"
-                            "document.body.appendChild(input);"
-                            "input.focus();"));
-  focus_observer.WaitForFocusChangeInPage();
-
-  // The user gesture (input) should lead to a security warning.
-  content::SimulateKeyPress(active_web_contents, ui::DomKey::FromCharacter('A'),
-                            ui::DomCode::US_A, ui::VKEY_A, false, false, false,
-                            false);
-  autofill_client().WaitForNextPopup();
-
-  gfx::Point bounds_origin(
-      static_cast<int>(autofill_client().last_element_bounds().origin().x()),
-      static_cast<int>(autofill_client().last_element_bounds().origin().y()));
-
-  // Convert the bounds to screen coordinates (to then compare against the ones
-  // reported by focus change observer).
-  bounds_origin += active_web_contents->GetRenderWidgetHostView()
-                       ->GetViewBounds()
-                       .OffsetFromOrigin();
-
-  gfx::Vector2d error =
-      bounds_origin - focus_observer.focused_node_bounds_in_screen();
-
-  // Ideally, the length of the error vector should be 0.0f. But due to
-  // potential rounding errors, we assume a larger limit (which is slightly
-  // larger than square root of 2).
-  EXPECT_LT(error.Length(), 1.4143f)
-      << "Origin of bounds from focused node changed event is '"
-      << focus_observer.focused_node_bounds_in_screen().ToString()
-      << "' but AutofillClient is reporting '" << bounds_origin.ToString()
-      << "'";
 }
 
 // This test verifies that when clicking outside the bounds of a date picker

@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 //
 /// \file
-/// \brief Implementation of the TargetInstrInfo class that is common to all
+/// Implementation of the TargetInstrInfo class that is common to all
 /// AMD GPUs.
 //
 //===----------------------------------------------------------------------===//
@@ -24,6 +24,16 @@ using namespace llvm;
 
 #define GET_INSTRINFO_CTOR_DTOR
 #include "AMDGPUGenInstrInfo.inc"
+
+namespace llvm {
+namespace AMDGPU {
+#define GET_RSRCINTRINSIC_IMPL
+#include "AMDGPUGenSearchableTables.inc"
+
+#define GET_D16IMAGEDIMINTRINSIC_IMPL
+#include "AMDGPUGenSearchableTables.inc"
+}
+}
 
 // Pin the vtable to this file.
 void AMDGPUInstrInfo::anchor() {}

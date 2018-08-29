@@ -63,7 +63,8 @@ struct DepCollectorPPCallbacks : public PPCallbacks {
                           StringRef FileName, bool IsAngled,
                           CharSourceRange FilenameRange, const FileEntry *File,
                           StringRef SearchPath, StringRef RelativePath,
-                          const Module *Imported) override {
+                          const Module *Imported,
+                          SrcMgr::CharacteristicKind FileType) override {
     if (!File)
       DepCollector.maybeAddDependency(FileName, /*FromModule*/false,
                                      /*IsSystem*/false, /*IsModuleFile*/false,
@@ -185,11 +186,16 @@ public:
   void FileChanged(SourceLocation Loc, FileChangeReason Reason,
                    SrcMgr::CharacteristicKind FileType,
                    FileID PrevFID) override;
+
+  void FileSkipped(const FileEntry &SkippedFile, const Token &FilenameTok,
+                   SrcMgr::CharacteristicKind FileType) override;
+
   void InclusionDirective(SourceLocation HashLoc, const Token &IncludeTok,
                           StringRef FileName, bool IsAngled,
                           CharSourceRange FilenameRange, const FileEntry *File,
                           StringRef SearchPath, StringRef RelativePath,
-                          const Module *Imported) override;
+                          const Module *Imported,
+                          SrcMgr::CharacteristicKind FileType) override;
 
   void EndOfMainFile() override {
     OutputDependencyFile();
@@ -291,6 +297,16 @@ void DFGImpl::FileChanged(SourceLocation Loc,
   AddFilename(llvm::sys::path::remove_leading_dotslash(Filename));
 }
 
+void DFGImpl::FileSkipped(const FileEntry &SkippedFile,
+                          const Token &FilenameTok,
+                          SrcMgr::CharacteristicKind FileType) {
+  StringRef Filename = SkippedFile.getName();
+  if (!FileMatchesDepCriteria(Filename.data(), FileType))
+    return;
+
+  AddFilename(llvm::sys::path::remove_leading_dotslash(Filename));
+}
+
 void DFGImpl::InclusionDirective(SourceLocation HashLoc,
                                  const Token &IncludeTok,
                                  StringRef FileName,
@@ -299,7 +315,8 @@ void DFGImpl::InclusionDirective(SourceLocation HashLoc,
                                  const FileEntry *File,
                                  StringRef SearchPath,
                                  StringRef RelativePath,
-                                 const Module *Imported) {
+                                 const Module *Imported, 
+                                 SrcMgr::CharacteristicKind FileType) {
   if (!File) {
     if (AddMissingHeaderDeps)
       AddFilename(FileName);

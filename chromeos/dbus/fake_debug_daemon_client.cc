@@ -60,17 +60,17 @@ std::string FakeDebugDaemonClient::GetTraceEventLabel() {
 
 void FakeDebugDaemonClient::StartAgentTracing(
     const base::trace_event::TraceConfig& trace_config,
-    const StartAgentTracingCallback& callback) {
+    StartAgentTracingCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::BindOnce(callback, GetTracingAgentName(), true /* success */));
+      FROM_HERE, base::BindOnce(std::move(callback), GetTracingAgentName(),
+                                true /* success */));
 }
 
 void FakeDebugDaemonClient::StopAgentTracing(
-    const StopAgentTracingCallback& callback) {
+    StopAgentTracingCallback callback) {
   std::string no_data;
-  callback.Run(GetTracingAgentName(), GetTraceEventLabel(),
-               base::RefCountedString::TakeString(&no_data));
+  std::move(callback).Run(GetTracingAgentName(), GetTraceEventLabel(),
+                          base::RefCountedString::TakeString(&no_data));
 }
 
 void FakeDebugDaemonClient::SetStopAgentTracingTaskRunner(
@@ -258,12 +258,12 @@ void FakeDebugDaemonClient::CupsRemovePrinter(
       FROM_HERE, base::BindOnce(callback, has_printer));
 }
 
-void FakeDebugDaemonClient::StartVmConcierge(VmConciergeCallback callback) {
+void FakeDebugDaemonClient::StartConcierge(ConciergeCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), true));
 }
 
-void FakeDebugDaemonClient::StopVmConcierge(VmConciergeCallback callback) {
+void FakeDebugDaemonClient::StopConcierge(ConciergeCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), true));
 }

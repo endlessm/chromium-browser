@@ -51,7 +51,6 @@ public class SurfaceTextureHelper {
    * thread and handler is created for handling the SurfaceTexture. May return null if EGL fails to
    * initialize a pixel buffer surface and make it current.
    */
-  @CalledByNative
   public static SurfaceTextureHelper create(
       final String threadName, final EglBase.Context sharedContext) {
     final HandlerThread thread = new HandlerThread(threadName);
@@ -80,7 +79,7 @@ public class SurfaceTextureHelper {
   private final EglBase eglBase;
   private final SurfaceTexture surfaceTexture;
   private final int oesTextureId;
-  private YuvConverter yuvConverter;
+  private final YuvConverter yuvConverter = new YuvConverter();
 
   // These variables are only accessed from the |handler| thread.
   @Nullable private OnTextureFrameAvailableListener listener;
@@ -195,7 +194,6 @@ public class SurfaceTextureHelper {
    * onTextureFrameAvailable(). Only one texture frame can be in flight at once, so you must call
    * this function in order to receive a new frame.
    */
-  @CalledByNative
   public void returnTextureFrame() {
     handler.post(new Runnable() {
       @Override
@@ -219,7 +217,6 @@ public class SurfaceTextureHelper {
    * stopped when the texture frame has been returned by a call to returnTextureFrame(). You are
    * guaranteed to not receive any more onTextureFrameAvailable() after this function returns.
    */
-  @CalledByNative
   public void dispose() {
     Logging.d(TAG, "dispose()");
     ThreadUtils.invokeAtFrontUninterruptibly(handler, new Runnable() {
@@ -233,39 +230,12 @@ public class SurfaceTextureHelper {
     });
   }
 
-  /** Deprecated, use textureToYuv. */
-  @Deprecated
-  @SuppressWarnings("deprecation") // yuvConverter.convert is deprecated
-  @CalledByNative
-  void textureToYUV(final ByteBuffer buf, final int width, final int height, final int stride,
-      final int textureId, final float[] transformMatrix) {
-    if (textureId != oesTextureId) {
-      throw new IllegalStateException("textureToByteBuffer called with unexpected textureId");
-    }
-
-    ThreadUtils.invokeAtFrontUninterruptibly(handler, new Runnable() {
-      @Override
-      public void run() {
-        if (yuvConverter == null) {
-          yuvConverter = new YuvConverter();
-        }
-        yuvConverter.convert(buf, width, height, stride, textureId, transformMatrix);
-      }
-    });
-  }
-
   /**
    * Posts to the correct thread to convert |textureBuffer| to I420.
    */
   public VideoFrame.I420Buffer textureToYuv(final TextureBuffer textureBuffer) {
-    final VideoFrame.I420Buffer[] result = new VideoFrame.I420Buffer[1];
-    ThreadUtils.invokeAtFrontUninterruptibly(handler, () -> {
-      if (yuvConverter == null) {
-        yuvConverter = new YuvConverter();
-      }
-      result[0] = yuvConverter.convert(textureBuffer);
-    });
-    return result[0];
+    return ThreadUtils.invokeAtFrontUninterruptibly(
+        handler, () -> yuvConverter.convert(textureBuffer));
   }
 
   private void updateTexImage() {
@@ -302,9 +272,7 @@ public class SurfaceTextureHelper {
     if (isTextureInUse || !isQuitting) {
       throw new IllegalStateException("Unexpected release.");
     }
-    if (yuvConverter != null) {
-      yuvConverter.release();
-    }
+    yuvConverter.release();
     GLES20.glDeleteTextures(1, new int[] {oesTextureId}, 0);
     surfaceTexture.release();
     eglBase.release();
@@ -320,12 +288,7 @@ public class SurfaceTextureHelper {
    * buffer calls returnTextureFrame() when it is released.
    */
   public TextureBuffer createTextureBuffer(int width, int height, Matrix transformMatrix) {
-    return new TextureBufferImpl(
-        width, height, TextureBuffer.Type.OES, oesTextureId, transformMatrix, this, new Runnable() {
-          @Override
-          public void run() {
-            returnTextureFrame();
-          }
-        });
+    return new TextureBufferImpl(width, height, TextureBuffer.Type.OES, oesTextureId,
+        transformMatrix, handler, yuvConverter, this ::returnTextureFrame);
   }
 }

@@ -25,8 +25,9 @@ static constexpr float kContentVerticalOffsetDMM = -0.1f;
 static constexpr float kContentVerticalOffset =
     kContentVerticalOffsetDMM * kContentDistance;
 static constexpr float kContentCornerRadius = 0.005f * kContentWidth;
-static constexpr float kContentShadowOffset = 0.09f;
-static constexpr float kContentShadowIntesity = 0.4f;
+static constexpr float kLoadingIndicatorHeightDMM = 0.016f;
+static constexpr float kLoadingIndicatorHeight = 0.016f * kContentDistance;
+static constexpr float kLoadingIndicatorYOffset = -0.002f;
 static constexpr float kBackplaneSize = 1000.0f;
 static constexpr float kBackgroundDistanceMultiplier = 1.414f;
 
@@ -105,15 +106,9 @@ static constexpr float kCloseButtonFullscreenVerticalOffset =
 static constexpr float kCloseButtonFullscreenDiameter =
     kButtonDiameterDMM * kCloseButtonFullscreenDistance;
 
-static constexpr float kLoadingIndicatorWidthDMM = 0.24f;
-static constexpr float kLoadingIndicatorHeightDMM = 0.008f;
-static constexpr float kLoadingIndicatorVerticalOffsetDMM =
-    (-kUrlBarVerticalOffsetDMM + kContentVerticalOffsetDMM -
-     kContentHeightDMM / 2 - kUrlBarHeightDMM / 2) /
-    2;
-
 static constexpr float kSceneSize = 25.0f;
 static constexpr float kSceneHeight = 4.0f;
+static constexpr float kFloorHeight = -kSceneHeight / 2.0f;
 static constexpr int kFloorGridlineCount = 40;
 
 static constexpr float kVoiceSearchCloseButtonDiameterDMM = 0.096f;
@@ -140,7 +135,6 @@ static constexpr float kTimeoutMessageLayoutGapDMM = 0.024f;
 static constexpr float kTimeoutMessageIconWidthDMM = 0.056f;
 static constexpr float kTimeoutMessageIconHeightDMM = 0.056f;
 static constexpr float kTimeoutMessageTextFontHeightDMM = 0.022f;
-static constexpr float kTimeoutMessageTextHeightDMM = 0.056f;
 static constexpr float kTimeoutMessageTextWidthDMM = 0.4f;
 
 static constexpr float kTimeoutButtonDepthOffset = -0.1f;
@@ -148,7 +142,6 @@ static constexpr float kTimeoutButtonRotationRad = kUrlBarRotationRad;
 static constexpr float kWebVrTimeoutMessageButtonDiameterDMM = 0.096f;
 
 static constexpr float kTimeoutButtonTextWidthDMM = 0.058f;
-static constexpr float kTimeoutButtonTextHeightDMM = 0.024f;
 static constexpr float kTimeoutButtonTextVerticalOffsetDMM = 0.024f;
 
 static constexpr float kHostedUiHeightRatio = 0.6f;
@@ -176,8 +169,6 @@ static constexpr float kOmniboxCloseButtonDiameterDMM = kButtonDiameterDMM;
 static constexpr float kOmniboxCloseButtonVerticalOffsetDMM = -0.75f;
 static constexpr float kOmniboxCornerRadiusDMM = 0.006f;
 static constexpr float kOmniboxCloseButtonDepthOffset = -0.35f;
-static constexpr float kOmniboxShadowOffset = 0.07f;
-static constexpr float kOmniboxShadowIntensity = 0.4f;
 static constexpr int kOmniboxTransitionMs = 300;
 
 static constexpr float kOmniboxTextFieldIconButtonSizeDMM = 0.064f;
@@ -201,7 +192,7 @@ static constexpr int kControllerFadeInMs = 200;
 static constexpr int kControllerFadeOutMs = 550;
 
 static constexpr float kSpeechRecognitionResultTextYOffset = 0.5f;
-static constexpr int kSpeechRecognitionResultTimeoutSeconds = 2;
+static constexpr int kSpeechRecognitionResultTimeoutMs = 2000;
 static constexpr int kSpeechRecognitionOpacityAnimationDurationMs = 200;
 
 static constexpr float kModalPromptFadeOpacity = 0.5f;
@@ -209,15 +200,6 @@ static constexpr float kModalPromptFadeOpacity = 0.5f;
 static constexpr float kKeyboardDistance = 2.2f;
 static constexpr float kKeyboardVerticalOffsetDMM = -0.45f;
 static constexpr float kKeyboardWebInputOffset = 1.2f;
-
-static constexpr float kSnackbarDistance = 1.5f;
-static constexpr float kSnackbarAngle = -gfx::DegToRad(34.0f);
-static constexpr float kSnackbarPaddingDMM = 0.032f;
-static constexpr float kSnackbarIconWidthDMM = 0.034f;
-static constexpr float kSnackbarFontHeightDMM = 0.024f;
-static constexpr float kSnackbarHeightDMM = 0.08f;
-static constexpr float kSnackbarMoveInAngle = -base::kPiFloat / 10;
-static constexpr int kSnackbarTransitionDurationMs = 300;
 
 static constexpr float kControllerLabelSpacerSize = 0.025f;
 static constexpr float kControllerLabelLayoutMargin = -0.005f;
@@ -262,11 +244,19 @@ static constexpr float kWebVrPermissionOffsetFinal = 0.0f;
 static constexpr int kWebVrPermissionOffsetMs = 250;
 static constexpr int kWebVrPermissionAnimationDurationMs = 750;
 
-static constexpr float kPromptWidthDMM = 0.63f;
-static constexpr float kPromptHeightDMM = 0.218f;
 static constexpr float kPromptVerticalOffsetDMM = -0.1f;
 static constexpr float kPromptShadowOffsetDMM = 0.1f;
 static constexpr float kPromptDistance = 2.4f;
+static constexpr float kPromptPadding = 0.028f;
+static constexpr float kPromptCornerRadius = 0.006f;
+static constexpr float kPromptTextWidth = 0.522f;
+static constexpr float kPromptFontSize = 0.028f;
+static constexpr float kPromptIconSize = 0.042f;
+static constexpr float kPromptButtonCornerRadius = 0.0035f;
+static constexpr float kPromptIconTextGap = 0.010f;
+static constexpr float kPromptMessageButtonGap = 0.056f;
+static constexpr float kPromptButtonTextSize = 0.024f;
+static constexpr float kPromptButtonGap = 0.014f;
 
 static constexpr float kRepositionCursorBackgroundSize = 1.85f;
 static constexpr float kRepositionCursorSize = 1.5f;
@@ -282,10 +272,36 @@ static constexpr float kRepositionFrameTransitionDurationMs = 300;
 static constexpr float kOverflowMenuOffset = 0.016f;
 static constexpr float kOverflowMenuMinimumWidth = 0.312f;
 static constexpr float kOverflowButtonRegionHeight = 0.088f;
-static constexpr float kOverflowButtonXOffset = 0.016f;
+static constexpr float kOverflowButtonRegionOpacity = 0.97f;
+static constexpr float kOverflowButtonXPadding = 0.016f;
+static constexpr float kOverflowButtonYPadding = 0.012f;
 static constexpr float kOverflowMenuYPadding = 0.012f;
 static constexpr float kOverflowMenuItemHeight = 0.080f;
 static constexpr float kOverflowMenuItemXPadding = 0.024f;
+static constexpr float kOverflowMenuMaxSpan = 0.384f - kOverflowMenuYPadding;
+
+static constexpr float kTabsViewDistance = 2.4f;
+static constexpr float kTabsViewRootMarginDMM = 0.1f;
+static constexpr size_t kTabsViewRowCount = 2ul;
+static constexpr size_t kTabsViewColumnCount = 3ul;
+static constexpr float kTabsViewGridMarginDMM = 0.05f;
+static constexpr float kTabItemWidthDMM = 0.2f;
+static constexpr float kTabItemHeightDMM = 0.15f;
+static constexpr float kTabItemCornerRadiusDMM = 0.01f;
+static constexpr float kTabItemTextSizeDMM = 0.07f;
+static constexpr float kTabsViewActivePageOpacity = 1.0f;
+static constexpr float kTabsViewInactivePageOpacity = 0.2f;
+static constexpr float kTabsViewHiddenPageOpacity = 0.0f;
+static constexpr float kTabsViewCloseButtonVerticalOffsetDMM = -0.5f;
+static constexpr float kTabsViewCloseButtonDepthOffset = -0.35f;
+static constexpr float kTabsViewVerticalOffsetDMM = -0.1f;
+static constexpr float kTabsViewModeButtonWidthDMM = 0.25f;
+static constexpr float kTabsViewModeButtonHeightDMM = 0.075f;
+static constexpr float kTabsViewModeButtonTextSizeDMM = 0.03f;
+static constexpr float kTabsViewRemoveButtonShadowIntensity = 0.4f;
+static constexpr float kTabsViewRemoveButtonDepthOffsetDMM = 0.02f;
+static constexpr float kTabsViewRemoveButtonSizeDMM = 0.05f;
+static constexpr float kTabsViewRemoveButtonHoverOffsetDMM = 0.015f;
 
 }  // namespace vr
 

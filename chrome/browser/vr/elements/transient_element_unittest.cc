@@ -19,7 +19,8 @@ namespace {
 
 bool DoBeginFrame(UiElement* element, int time_milliseconds) {
   element->set_last_frame_time(MsToTicks(time_milliseconds));
-  return element->DoBeginFrame(kStartHeadPose);
+  const bool force_animations_to_completion = false;
+  return element->DoBeginFrame(kStartHeadPose, force_animations_to_completion);
 }
 
 }  // namespace
@@ -56,7 +57,7 @@ TEST(SimpleTransientElementTest, Visibility) {
   EXPECT_FALSE(DoBeginFrame(&element, 4030));
   element.SetTransitionedProperties({OPACITY});
   element.SetVisible(true);
-  EXPECT_FALSE(DoBeginFrame(&element, 4030));
+  EXPECT_TRUE(DoBeginFrame(&element, 4030));
   EXPECT_NE(element.opacity_when_visible(), element.opacity());
   element.SetVisibleImmediately(true);
   EXPECT_FALSE(DoBeginFrame(&element, 4030));

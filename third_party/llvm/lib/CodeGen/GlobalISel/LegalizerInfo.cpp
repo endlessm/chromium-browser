@@ -42,36 +42,44 @@ cl::opt<bool> llvm::DisableGISelLegalityCheck(
     cl::Hidden);
 
 raw_ostream &LegalityQuery::print(raw_ostream &OS) const {
-  OS << Opcode << ", {";
+  OS << Opcode << ", Tys={";
   for (const auto &Type : Types) {
     OS << Type << ", ";
   }
+  OS << "}, Opcode=";
+
+  OS << Opcode << ", MMOs={";
+  for (const auto &MMODescr : MMODescrs) {
+    OS << MMODescr.Size << ", ";
+  }
   OS << "}";
+
   return OS;
 }
 
 LegalizeActionStep LegalizeRuleSet::apply(const LegalityQuery &Query) const {
-  DEBUG(dbgs() << "Applying legalizer ruleset to: "; Query.print(dbgs());
-        dbgs() << "\n");
+  LLVM_DEBUG(dbgs() << "Applying legalizer ruleset to: "; Query.print(dbgs());
+             dbgs() << "\n");
   if (Rules.empty()) {
-    DEBUG(dbgs() << ".. fallback to legacy rules (no rules defined)\n");
+    LLVM_DEBUG(dbgs() << ".. fallback to legacy rules (no rules defined)\n");
     return {LegalizeAction::UseLegacyRules, 0, LLT{}};
   }
   for (const auto &Rule : Rules) {
     if (Rule.match(Query)) {
-      DEBUG(dbgs() << ".. match\n");
+      LLVM_DEBUG(dbgs() << ".. match\n");
       std::pair<unsigned, LLT> Mutation = Rule.determineMutation(Query);
-      DEBUG(dbgs() << ".. .. " << (unsigned)Rule.getAction() << ", "
-                   << Mutation.first << ", " << Mutation.second << "\n");
+      LLVM_DEBUG(dbgs() << ".. .. " << (unsigned)Rule.getAction() << ", "
+                        << Mutation.first << ", " << Mutation.second << "\n");
       assert((Query.Types[Mutation.first] != Mutation.second ||
+              Rule.getAction() == Lower ||
               Rule.getAction() == MoreElements ||
               Rule.getAction() == FewerElements) &&
              "Simple loop detected");
       return {Rule.getAction(), Mutation.first, Mutation.second};
     } else
-      DEBUG(dbgs() << ".. no match\n");
+      LLVM_DEBUG(dbgs() << ".. no match\n");
   }
-  DEBUG(dbgs() << ".. unsupported\n");
+  LLVM_DEBUG(dbgs() << ".. unsupported\n");
   return {LegalizeAction::Unsupported, 0, LLT{}};
 }
 
@@ -148,15 +156,16 @@ void LegalizerInfo::computeTables() {
         if (TypeIdx < ScalarSizeChangeStrategies[OpcodeIdx].size() &&
             ScalarSizeChangeStrategies[OpcodeIdx][TypeIdx] != nullptr)
           S = ScalarSizeChangeStrategies[OpcodeIdx][TypeIdx];
-        std::sort(ScalarSpecifiedActions.begin(), ScalarSpecifiedActions.end());
+        llvm::sort(ScalarSpecifiedActions.begin(),
+                   ScalarSpecifiedActions.end());
         checkPartialSizeAndActionsVector(ScalarSpecifiedActions);
         setScalarAction(Opcode, TypeIdx, S(ScalarSpecifiedActions));
       }
 
       // 2. Handle pointer types
       for (auto PointerSpecifiedActions : AddressSpace2SpecifiedActions) {
-        std::sort(PointerSpecifiedActions.second.begin(),
-                  PointerSpecifiedActions.second.end());
+        llvm::sort(PointerSpecifiedActions.second.begin(),
+                   PointerSpecifiedActions.second.end());
         checkPartialSizeAndActionsVector(PointerSpecifiedActions.second);
         // For pointer types, we assume that there isn't a meaningfull way
         // to change the number of bits used in the pointer.
@@ -168,8 +177,8 @@ void LegalizerInfo::computeTables() {
       // 3. Handle vector types
       SizeAndActionsVec ElementSizesSeen;
       for (auto VectorSpecifiedActions : ElemSize2SpecifiedActions) {
-        std::sort(VectorSpecifiedActions.second.begin(),
-                  VectorSpecifiedActions.second.end());
+        llvm::sort(VectorSpecifiedActions.second.begin(),
+                   VectorSpecifiedActions.second.end());
         const uint16_t ElementSize = VectorSpecifiedActions.first;
         ElementSizesSeen.push_back({ElementSize, Legal});
         checkPartialSizeAndActionsVector(VectorSpecifiedActions.second);
@@ -187,7 +196,7 @@ void LegalizerInfo::computeTables() {
             Opcode, TypeIdx, ElementSize,
             moreToWiderTypesAndLessToWidest(NumElementsActions));
       }
-      std::sort(ElementSizesSeen.begin(), ElementSizesSeen.end());
+      llvm::sort(ElementSizesSeen.begin(), ElementSizesSeen.end());
       SizeChangeStrategy VectorElementSizeChangeStrategy =
           &unsupportedForDifferentSizes;
       if (TypeIdx < VectorElementSizeChangeStrategies[OpcodeIdx].size() &&
@@ -238,11 +247,11 @@ unsigned LegalizerInfo::getOpcodeIdxForOpcode(unsigned Opcode) const {
 unsigned LegalizerInfo::getActionDefinitionsIdx(unsigned Opcode) const {
   unsigned OpcodeIdx = getOpcodeIdxForOpcode(Opcode);
   if (unsigned Alias = RulesForOpcode[OpcodeIdx].getAlias()) {
-    DEBUG(dbgs() << ".. opcode " << Opcode << " is aliased to " << Alias
-                 << "\n");
+    LLVM_DEBUG(dbgs() << ".. opcode " << Opcode << " is aliased to " << Alias
+                      << "\n");
     OpcodeIdx = getOpcodeIdxForOpcode(Alias);
-    DEBUG(dbgs() << ".. opcode " << Alias << " is aliased to "
-                 << RulesForOpcode[OpcodeIdx].getAlias() << "\n");
+    LLVM_DEBUG(dbgs() << ".. opcode " << Alias << " is aliased to "
+                      << RulesForOpcode[OpcodeIdx].getAlias() << "\n");
     assert(RulesForOpcode[OpcodeIdx].getAlias() == 0 && "Cannot chain aliases");
   }
 
@@ -296,13 +305,14 @@ LegalizerInfo::getAction(const LegalityQuery &Query) const {
   for (unsigned i = 0; i < Query.Types.size(); ++i) {
     auto Action = getAspectAction({Query.Opcode, i, Query.Types[i]});
     if (Action.first != Legal) {
-      DEBUG(dbgs() << ".. (legacy) Type " << i << " Action="
-                   << (unsigned)Action.first << ", " << Action.second << "\n");
+      LLVM_DEBUG(dbgs() << ".. (legacy) Type " << i
+                        << " Action=" << (unsigned)Action.first << ", "
+                        << Action.second << "\n");
       return {Action.first, i, Action.second};
     } else
-      DEBUG(dbgs() << ".. (legacy) Type " << i << " Legal\n");
+      LLVM_DEBUG(dbgs() << ".. (legacy) Type " << i << " Legal\n");
   }
-  DEBUG(dbgs() << ".. (legacy) Legal\n");
+  LLVM_DEBUG(dbgs() << ".. (legacy) Legal\n");
   return {Legal, 0, LLT{}};
 }
 
@@ -328,7 +338,12 @@ LegalizerInfo::getAction(const MachineInstr &MI,
     LLT Ty = getTypeFromTypeIdx(MI, MRI, i, TypeIdx);
     Types.push_back(Ty);
   }
-  return getAction({MI.getOpcode(), Types});
+
+  SmallVector<LegalityQuery::MemDesc, 2> MemDescrs;
+  for (const auto &MMO : MI.memoperands())
+    MemDescrs.push_back({MMO->getSize() /* in bytes */ * 8});
+
+  return getAction({MI.getOpcode(), Types, MemDescrs});
 }
 
 bool LegalizerInfo::isLegal(const MachineInstr &MI,

@@ -36,7 +36,7 @@
 <translation id="152234381334907219">פריטים שאף פעם לא נשמרו</translation>
 <translation id="1532451416480227577">‏הצגת כתובות וכרטיסי אשראי מ-Google Pay</translation>
 <translation id="1540800554400757039">כתובת, שורה 1</translation>
-<translation id="1545749641540134597">‏סרוק קוד QR</translation>
+<translation id="1545749641540134597">‏סריקת קוד QR</translation>
 <translation id="1580783302095112590">הדואר נשלח.</translation>
 <translation id="1582732959743469162">הפעולה תפסיק את ההורדה הנוכחית.</translation>
 <translation id="1612730193129642006">הצג רשת כרטיסיות</translation>
@@ -81,6 +81,7 @@
 <translation id="2381405137052800939">הגדרות בסיסיות</translation>
 <translation id="2386793615875593361">נבחרה תמונה אחת</translation>
 <translation id="2435457462613246316">הצג סיסמה</translation>
+<translation id="2481538920734869610">הוספת חשבון</translation>
 <translation id="2523363575747517183">האתר הזה מנסה שוב ושוב לפתוח אפליקציה אחרת.</translation>
 <translation id="2529021024822217800">פתח הכול</translation>
 <translation id="2572712655377361602">הגישה לתמונות שלך נחסמה עקב מדיניות שהוגדרה למכשיר</translation>
@@ -112,6 +113,7 @@
 <translation id="2909437209446960244">כרטיסיות אחרונות</translation>
 <translation id="291754862089661335">‏מקם את קוד ה-QR או הברקוד במסגרת זו</translation>
 <translation id="2921219216347069551">לא ניתן לשתף את הדף</translation>
+<translation id="2923448633003185837">‏Paste and Go (הדבק והתחל)</translation>
 <translation id="292639812446257861">סמן כ'לא נקרא'</translation>
 <translation id="2933759065870693102">פנס</translation>
 <translation id="2969979262385602596">הכניסה נכשלה. נסה שוב מאוחר יותר.</translation>
@@ -131,6 +133,7 @@
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> מתוך <ph name="NUM_SUGGESTIONS" /></translation>
 <translation id="3268451620468152448">כרטיסיות פתוחות</translation>
 <translation id="3277021493514034324">כתובת האתר הועתקה</translation>
+<translation id="3290875554372353449">בחירת חשבון</translation>
 <translation id="3324193307694657476">כתובת, שורה 2</translation>
 <translation id="3329904751041170572">לא ניתן להתחבר לשרת.</translation>
 <translation id="3335947283844343239">פתח מחדש כרטיסייה שנסגרה</translation>
@@ -151,6 +154,7 @@
 <translation id="3588820906588687999">פתח את התמונה בכרטיסייה חדשה</translation>
 <translation id="3603009562372709545">העתק כתובת אתר של קישור</translation>
 <translation id="3607167657931203000">נתוני מילוי אוטומטי</translation>
+<translation id="3609785682760573515">מסנכרן ...</translation>
 <translation id="3628119975092896051">אפשר לגשת לרשימת הקריאה במצב לא מקוון. כדי להוסיף דף לרשימת הקריאה, הקש על <ph name="SHARE_OPENING_ICON" />.</translation>
 <translation id="3638472932233958418">טעינה מראש של דפי אינטרנט</translation>
 <translation id="3691593122358196899">התווסף לסימניות ב-<ph name="FOLDER_TITLE" /></translation>
@@ -171,6 +175,7 @@
 <translation id="4049507953662678203">ודא שאתה מחובר לרשת ונסה שוב.</translation>
 <translation id="4084682180776658562">סימניה</translation>
 <translation id="411254640334432676">ההורדה נכשלה.</translation>
+<translation id="4112644173421521737">חיפוש</translation>
 <translation id="4121993058175073134">כדי לשלוח נתוני ייצוא ברשת, הגדר את חשבון האימייל שלך ביישום 'הגדרות'.</translation>
 <translation id="4124987746317609294">טווח זמן</translation>
 <translation id="4172051516777682613">הצג תמיד</translation>
@@ -338,10 +343,12 @@
 <translation id="7159472599653637159">בקש אתר שמותאם לנייד</translation>
 <translation id="7167621057293532233">סוגי נתונים</translation>
 <translation id="7175593937868963913">כתיבת אימייל</translation>
+<translation id="7180611975245234373">רענן</translation>
 <translation id="7189598951263744875">שיתוף...</translation>
 <translation id="7203585745079012652">משוב לתשובות על-ידי דיבור</translation>
 <translation id="722055596168483966">‏התאמה אישית של שירותי Google</translation>
 <translation id="7272437679830969316">לא ניתן לאמת את הזהות שלך. הסיסמה לא הועתקה.</translation>
+<translation id="7285236536143823449">כן, אני רוצה</translation>
 <translation id="7291368939935408496">מכין סיסמאות...</translation>
 <translation id="7336264872878993241">הושלמה הורדה של <ph name="PERCENT" /> אחוז</translation>
 <translation id="7346909386216857016">בסדר, הבנתי</translation>
@@ -356,6 +363,7 @@
 <translation id="750493650310597496">0 נבחרו</translation>
 <translation id="7514365320538308">הורד</translation>
 <translation id="7537586195939242955">‏מצטערים, לא ניתן להתקין את ה-Pass שלך ב-Passbook בשלב הזה.</translation>
+<translation id="7554791636758816595">כרטיסייה חדשה</translation>
 <translation id="7561196759112975576">תמיד</translation>
 <translation id="7603852183842204213">חלונות קופצים שנחסמו (<ph name="NUMBER_OF_BLOCKED_POPUPS" />)</translation>
 <translation id="7605594153474022051">הסנכרון לא עובד</translation>

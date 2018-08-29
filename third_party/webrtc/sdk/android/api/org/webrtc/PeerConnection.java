@@ -21,7 +21,6 @@ import javax.annotation.Nullable;
  * JS APIs: http://dev.w3.org/2011/webrtc/editor/webrtc.html and
  * http://www.w3.org/TR/mediacapture-streams/
  */
-@JNINamespace("webrtc::jni")
 public class PeerConnection {
   /** Tracks PeerConnectionInterface::IceGatheringState */
   public enum IceGatheringState {
@@ -109,6 +108,13 @@ public class PeerConnection {
      * setRemoteDescription.
      */
     @CalledByNative("Observer") void onAddTrack(RtpReceiver receiver, MediaStream[] mediaStreams);
+
+    /**
+     * Triggered when the signaling from SetRemoteDescription indicates that a transceiver
+     * will be receiving media from a remote endpoint. This is only called if UNIFIED_PLAN
+     * semantics are specified. The transceiver will be disposed automatically.
+     */
+    @CalledByNative("Observer") default void onTrack(RtpTransceiver transceiver){};
   }
 
   /** Java version of PeerConnectionInterface.IceServer. */

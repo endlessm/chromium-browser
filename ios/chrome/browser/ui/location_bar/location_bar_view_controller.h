@@ -7,10 +7,13 @@
 
 #import <UIKit/UIKit.h>
 
+#import "ios/chrome/browser/ui/fullscreen/fullscreen_ui_element.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_consumer.h"
 
-@class LocationBarEditView;
 @class OmniboxTextFieldIOS;
+@protocol ActivityServiceCommands;
+@protocol BrowserCommands;
+@protocol ApplicationCommands;
 
 @protocol LocationBarViewControllerDelegate<NSObject>
 
@@ -23,18 +26,23 @@
 // the omnibox - the editing and the non-editing states. In the editing state,
 // the omnibox textfield is displayed; in the non-editing state, the current
 // location is displayed.
-@interface LocationBarViewController : UIViewController
+@interface LocationBarViewController : UIViewController<FullscreenUIElement>
 
 - (instancetype)initWithFrame:(CGRect)frame
                          font:(UIFont*)font
                     textColor:(UIColor*)textColor
                     tintColor:(UIColor*)tintColor;
 
+// Sets the edit view to use in the editing state. This must be set before the
+// view of this view controller is initialized. This must only be called once.
+- (void)setEditView:(UIView*)editView;
+
 @property(nonatomic, assign) BOOL incognito;
 
-// The omnibox textfield displayed in the editing mode. Exposed for being passed
-// to the OmniboxCoordinator.
-@property(nonatomic, strong, readonly) OmniboxTextFieldIOS* textField;
+// The dispatcher for the share button action.
+@property(nonatomic, weak)
+    id<ActivityServiceCommands, BrowserCommands, ApplicationCommands>
+        dispatcher;
 
 // Delegate for this location bar view controller.
 @property(nonatomic, weak) id<LocationBarViewControllerDelegate> delegate;
@@ -48,6 +56,10 @@
 - (void)updateLocationIcon:(UIImage*)icon;
 // Updates the location text in the non-editing mode.
 - (void)updateLocationText:(NSString*)text;
+
+// Displays the voice search button instead of the share button in steady state,
+// and adds the voice search button to the empty textfield.
+@property(nonatomic, assign) BOOL voiceSearchEnabled;
 
 @end
 

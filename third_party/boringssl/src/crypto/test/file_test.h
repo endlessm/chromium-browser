@@ -154,6 +154,9 @@ class FileTest {
   // missing. It should only be used after a |HasAttribute| call.
   const std::string &GetAttributeOrDie(const std::string &key);
 
+  // IgnoreAttribute marks the attribute with key |key| as used.
+  void IgnoreAttribute(const std::string &key) { HasAttribute(key); }
+
   // GetBytes looks up the attribute with key |key| and decodes it as a byte
   // string. On success, it writes the result to |*out| and returns
   // true. Otherwise it returns false with an error to |stderr|. The value may
@@ -173,11 +176,18 @@ class FileTest {
   // HasInstruction returns true if the current test has an instruction.
   bool HasInstruction(const std::string &key);
 
+  // IgnoreInstruction marks the instruction with key |key| as used.
+  void IgnoreInstruction(const std::string &key) { HasInstruction(key); }
+
   // GetInstruction looks up the instruction with key |key|. It sets
   // |*out_value| to the value (empty string if the instruction has no value)
   // and returns true if it exists and returns false with an error to |stderr|
   // otherwise.
   bool GetInstruction(std::string *out_value, const std::string &key);
+
+  // GetInstructionBytes behaves like GetBytes, but looks up the corresponding
+  // instruction.
+  bool GetInstructionBytes(std::vector<uint8_t> *out, const std::string &key);
 
   // CurrentTestToString returns the file content parsed for the current test.
   // If the current test was preceded by an instruction block, the return test
@@ -197,6 +207,7 @@ class FileTest {
   void ClearInstructions();
   void OnKeyUsed(const std::string &key);
   void OnInstructionUsed(const std::string &key);
+  bool ConvertToBytes(std::vector<uint8_t> *out, const std::string &value);
 
   std::unique_ptr<LineReader> reader_;
   // line_ is the number of lines read.

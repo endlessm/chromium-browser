@@ -116,16 +116,6 @@ HexagonTargetLowering::initializeHVXLowering() {
   }
 
   for (MVT T : LegalV) {
-    MVT BoolV = MVT::getVectorVT(MVT::i1, T.getVectorNumElements());
-    setOperationAction(ISD::BUILD_VECTOR,       BoolV, Custom);
-    setOperationAction(ISD::CONCAT_VECTORS,     BoolV, Custom);
-    setOperationAction(ISD::INSERT_SUBVECTOR,   BoolV, Custom);
-    setOperationAction(ISD::INSERT_VECTOR_ELT,  BoolV, Custom);
-    setOperationAction(ISD::EXTRACT_SUBVECTOR,  BoolV, Custom);
-    setOperationAction(ISD::EXTRACT_VECTOR_ELT, BoolV, Custom);
-  }
-
-  for (MVT T : LegalV) {
     if (T == ByteV)
       continue;
     // Promote all shuffles to operate on vectors of bytes.
@@ -174,9 +164,35 @@ HexagonTargetLowering::initializeHVXLowering() {
       // Promote all shuffles to operate on vectors of bytes.
       setPromoteTo(ISD::VECTOR_SHUFFLE, T, ByteW);
     }
+  }
 
+  // Boolean vectors.
+
+  for (MVT T : LegalW) {
+    // Boolean types for vector pairs will overlap with the boolean
+    // types for single vectors, e.g.
+    //   v64i8  -> v64i1 (single)
+    //   v64i16 -> v64i1 (pair)
+    // Set these actions first, and allow the single actions to overwrite
+    // any duplicates.
+    MVT BoolW = MVT::getVectorVT(MVT::i1, T.getVectorNumElements());
+    setOperationAction(ISD::SETCC,              BoolW, Custom);
+    setOperationAction(ISD::AND,                BoolW, Custom);
+    setOperationAction(ISD::OR,                 BoolW, Custom);
+    setOperationAction(ISD::XOR,                BoolW, Custom);
+  }
+
+  for (MVT T : LegalV) {
     MVT BoolV = MVT::getVectorVT(MVT::i1, T.getVectorNumElements());
-    setOperationAction(ISD::SETCC, BoolV, Custom);
+    setOperationAction(ISD::BUILD_VECTOR,       BoolV, Custom);
+    setOperationAction(ISD::CONCAT_VECTORS,     BoolV, Custom);
+    setOperationAction(ISD::INSERT_SUBVECTOR,   BoolV, Custom);
+    setOperationAction(ISD::INSERT_VECTOR_ELT,  BoolV, Custom);
+    setOperationAction(ISD::EXTRACT_SUBVECTOR,  BoolV, Custom);
+    setOperationAction(ISD::EXTRACT_VECTOR_ELT, BoolV, Custom);
+    setOperationAction(ISD::AND,                BoolV, Legal);
+    setOperationAction(ISD::OR,                 BoolV, Legal);
+    setOperationAction(ISD::XOR,                BoolV, Legal);
   }
 }
 
@@ -367,9 +383,7 @@ HexagonTargetLowering::buildHvxVectorReg(ArrayRef<SDValue> Values,
     auto *IdxN = dyn_cast<ConstantSDNode>(SplatV.getNode());
     if (IdxN && IdxN->isNullValue())
       return getZero(dl, VecTy, DAG);
-    MVT WordTy = MVT::getVectorVT(MVT::i32, HwLen/4);
-    SDValue SV = DAG.getNode(HexagonISD::VSPLAT, dl, WordTy, SplatV);
-    return DAG.getBitcast(VecTy, SV);
+    return DAG.getNode(HexagonISD::VSPLATW, dl, VecTy, SplatV);
   }
 
   // Delay recognizing constant vectors until here, so that we can generate
@@ -971,6 +985,32 @@ HexagonTargetLowering::LowerHvxConcatVectors(SDValue Op, SelectionDAG &DAG)
     SmallVector<SDValue,8> Elems;
     for (SDValue V : Op.getNode()->ops())
       DAG.ExtractVectorElements(V, Elems);
+    // A vector of i16 will be broken up into a build_vector of i16's.
+    // This is a problem, since at the time of operation legalization,
+    // all operations are expected to be type-legalized, and i16 is not
+    // a legal type. If any of the extracted elements is not of a valid
+    // type, sign-extend it to a valid one.
+    for (unsigned i = 0, e = Elems.size(); i != e; ++i) {
+      SDValue V = Elems[i];
+      MVT Ty = ty(V);
+      if (!isTypeLegal(Ty)) {
+        EVT NTy = getTypeToTransformTo(*DAG.getContext(), Ty);
+        if (V.getOpcode() == ISD::EXTRACT_VECTOR_ELT) {
+          Elems[i] = DAG.getNode(ISD::SIGN_EXTEND_INREG, dl, NTy,
+                                 DAG.getNode(ISD::EXTRACT_VECTOR_ELT, dl, NTy,
+                                             V.getOperand(0), V.getOperand(1)),
+                                 DAG.getValueType(Ty));
+          continue;
+        }
+        // A few less complicated cases.
+        if (V.getOpcode() == ISD::Constant)
+          Elems[i] = DAG.getSExtOrTrunc(V, dl, NTy);
+        else if (V.isUndef())
+          Elems[i] = DAG.getUNDEF(NTy);
+        else
+          llvm_unreachable("Unexpected vector element");
+      }
+    }
     return DAG.getBuildVector(VecTy, dl, Elems);
   }
 

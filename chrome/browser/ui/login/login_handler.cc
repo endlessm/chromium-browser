@@ -93,14 +93,13 @@ LoginHandler::LoginModelData::LoginModelData(
 LoginHandler::LoginHandler(
     net::AuthChallengeInfo* auth_info,
     content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
-    const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
-        auth_required_callback)
+    LoginAuthRequiredCallback auth_required_callback)
     : handled_auth_(false),
       auth_info_(auth_info),
       password_manager_(NULL),
       web_contents_getter_(web_contents_getter),
       login_model_(NULL),
-      auth_required_callback_(auth_required_callback),
+      auth_required_callback_(std::move(auth_required_callback)),
       has_shown_login_handler_(false),
       release_soon_has_been_called_(false) {
   // This constructor is called on the I/O thread, so we cannot load the nib
@@ -598,7 +597,7 @@ void LoginHandler::ShowLoginPrompt(const GURL& request_url,
 void LoginHandler::LoginDialogCallback(const GURL& request_url,
                                        net::AuthChallengeInfo* auth_info,
                                        LoginHandler* handler,
-                                       bool is_main_frame) {
+                                       bool is_request_for_main_frame) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   WebContents* parent_contents = handler->GetWebContentsForLogin();
   if (!parent_contents || handler->WasAuthHandled()) {
@@ -638,7 +637,7 @@ void LoginHandler::LoginDialogCallback(const GURL& request_url,
   const bool is_cross_origin_request =
       parent_contents->GetLastCommittedURL().GetOrigin() !=
       request_url.GetOrigin();
-  if (is_main_frame &&
+  if (is_request_for_main_frame &&
       (is_cross_origin_request || parent_contents->ShowingInterstitialPage() ||
        auth_info->is_proxy) &&
       parent_contents->GetDelegate()->GetDisplayMode(parent_contents) !=
@@ -659,7 +658,7 @@ void LoginHandler::LoginDialogCallback(const GURL& request_url,
             ->GetWeakPtr());
 
   } else {
-    if (is_main_frame) {
+    if (is_request_for_main_frame) {
       RecordHttpAuthPromptType(AUTH_PROMPT_TYPE_MAIN_FRAME);
     } else {
       RecordHttpAuthPromptType(is_cross_origin_request
@@ -675,16 +674,15 @@ void LoginHandler::LoginDialogCallback(const GURL& request_url,
 scoped_refptr<LoginHandler> CreateLoginPrompt(
     net::AuthChallengeInfo* auth_info,
     content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
-    bool is_main_frame,
+    bool is_request_for_main_frame,
     const GURL& url,
-    const base::Callback<void(const base::Optional<net::AuthCredentials>&)>&
-        auth_required_callback) {
+    LoginAuthRequiredCallback auth_required_callback) {
   scoped_refptr<LoginHandler> handler = LoginHandler::Create(
-      auth_info, web_contents_getter, auth_required_callback);
+      auth_info, web_contents_getter, std::move(auth_required_callback));
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       base::BindOnce(&LoginHandler::LoginDialogCallback, url,
                      base::RetainedRef(auth_info), base::RetainedRef(handler),
-                     is_main_frame));
+                     is_request_for_main_frame));
   return handler;
 }

@@ -14,7 +14,7 @@
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_tpm_key_manager.h"
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_tpm_key_manager_factory.h"
 #include "chromeos/components/proximity_auth/logging/logging.h"
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 
 namespace chromeos {
 
@@ -85,7 +85,7 @@ void EasyUnlockKeyManager::RefreshKeysWithTpmKeyPresent(
       tpm_key_manager->GetPublicTpmKey(user_context.GetAccountId());
 
   EasyUnlockDeviceKeyDataList devices;
-  if (!RemoteDeviceListToDeviceDataList(*remote_devices, &devices))
+  if (!RemoteDeviceRefListToDeviceDataList(*remote_devices, &devices))
     devices.clear();
 
   write_operation_queue_.push_back(
@@ -182,7 +182,7 @@ void EasyUnlockKeyManager::DeviceDataListToRemoteDeviceList(
 }
 
 // static
-bool EasyUnlockKeyManager::RemoteDeviceListToDeviceDataList(
+bool EasyUnlockKeyManager::RemoteDeviceRefListToDeviceDataList(
     const base::ListValue& device_list,
     EasyUnlockDeviceKeyDataList* data_list) {
   EasyUnlockDeviceKeyDataList parsed_devices;

@@ -13,6 +13,7 @@
 #include "chrome/browser/chromeos/login/ui/user_adding_screen.h"
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
+#include "chrome/browser/ui/webui/chromeos/login/l10n_util.h"
 #include "components/user_manager/remove_user_delegate.h"
 #include "content/public/common/service_manager_connection.h"
 #include "services/service_manager/public/cpp/connector.h"
@@ -24,7 +25,8 @@ LoginScreenClient* g_login_screen_client_instance = nullptr;
 LoginScreenClient::Delegate::Delegate() = default;
 LoginScreenClient::Delegate::~Delegate() = default;
 
-LoginScreenClient::LoginScreenClient() : binding_(this) {
+LoginScreenClient::LoginScreenClient()
+    : binding_(this), weak_ptr_factory_(this) {
   content::ServiceManagerConnection::GetForProcess()
       ->GetConnector()
       ->BindInterface(ash::mojom::kServiceName, &login_screen_);
@@ -61,16 +63,13 @@ ash::mojom::LoginScreenPtr& LoginScreenClient::login_screen() {
   return login_screen_;
 }
 
-void LoginScreenClient::AuthenticateUser(
-    const AccountId& account_id,
-    const std::string& hashed_password,
-    const password_manager::SyncPasswordData& sync_password_data,
-    bool authenticated_by_pin,
-    AuthenticateUserCallback callback) {
+void LoginScreenClient::AuthenticateUser(const AccountId& account_id,
+                                         const std::string& password,
+                                         bool authenticated_by_pin,
+                                         AuthenticateUserCallback callback) {
   if (delegate_) {
-    delegate_->HandleAuthenticateUser(account_id, hashed_password,
-                                      sync_password_data, authenticated_by_pin,
-                                      std::move(callback));
+    delegate_->HandleAuthenticateUser(
+        account_id, password, authenticated_by_pin, std::move(callback));
   } else {
     LOG(ERROR) << "Returning failed authentication attempt; no delegate";
     std::move(callback).Run(false);
@@ -110,10 +109,11 @@ void LoginScreenClient::FocusLockScreenApps(bool reverse) {
     login_screen_->HandleFocusLeavingLockScreenApps(reverse);
 }
 
-void LoginScreenClient::ShowGaiaSignin() {
+void LoginScreenClient::ShowGaiaSignin(
+    const base::Optional<AccountId>& account_id) {
   if (chromeos::LoginDisplayHost::default_host()) {
     chromeos::LoginDisplayHost::default_host()->UpdateGaiaDialogVisibility(
-        true /*visible*/);
+        true /*visible*/, account_id);
   }
 }
 
@@ -134,6 +134,15 @@ void LoginScreenClient::LaunchPublicSession(const AccountId& account_id,
                                             const std::string& input_method) {
   if (delegate_)
     delegate_->HandleLaunchPublicSession(account_id, locale, input_method);
+}
+
+void LoginScreenClient::RequestPublicSessionKeyboardLayouts(
+    const AccountId& account_id,
+    const std::string& locale) {
+  chromeos::GetKeyboardLayoutsForLocale(
+      base::BindRepeating(&LoginScreenClient::SetPublicSessionKeyboardLayout,
+                          weak_ptr_factory_.GetWeakPtr(), account_id, locale),
+      locale);
 }
 
 void LoginScreenClient::LoadWallpaper(const AccountId& account_id) {
@@ -157,4 +166,34 @@ void LoginScreenClient::OnMaxIncorrectPasswordAttempted(
     const AccountId& account_id) {
   RecordReauthReason(account_id,
                      chromeos::ReauthReason::INCORRECT_PASSWORD_ENTERED);
+}
+
+void LoginScreenClient::SetPublicSessionKeyboardLayout(
+    const AccountId& account_id,
+    const std::string& locale,
+    std::unique_ptr<base::ListValue> keyboard_layouts) {
+  std::vector<ash::mojom::InputMethodItemPtr> result;
+
+  for (const auto& i : *keyboard_layouts) {
+    const base::DictionaryValue* dictionary;
+    if (!i.GetAsDictionary(&dictionary))
+      continue;
+
+    ash::mojom::InputMethodItemPtr input_method_item =
+        ash::mojom::InputMethodItem::New();
+    std::string ime_id;
+    dictionary->GetString("value", &ime_id);
+    input_method_item->ime_id = ime_id;
+
+    std::string title;
+    dictionary->GetString("title", &title);
+    input_method_item->title = title;
+
+    bool selected;
+    dictionary->GetBoolean("selected", &selected);
+    input_method_item->selected = selected;
+    result.push_back(std::move(input_method_item));
+  }
+  login_screen_->SetPublicSessionKeyboardLayouts(account_id, locale,
+                                                 std::move(result));
 }

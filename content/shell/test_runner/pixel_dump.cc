@@ -11,43 +11,72 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/logging.h"
+#include "base/memory/ref_counted.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/paint/paint_flags.h"
 #include "cc/paint/skia_paint_canvas.h"
 #include "content/shell/test_runner/layout_test_runtime_flags.h"
+#include "mojo/public/cpp/system/data_pipe_drainer.h"
+#include "services/service_manager/public/cpp/connector.h"
 // FIXME: Including platform_canvas.h here is a layering violation.
 #include "skia/ext/platform_canvas.h"
+#include "third_party/blink/public/mojom/clipboard/clipboard.mojom.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_composite_and_readback_async_callback.h"
 #include "third_party/blink/public/platform/web_image.h"
-#include "third_party/blink/public/platform/web_mock_clipboard.h"
 #include "third_party/blink/public/platform/web_point.h"
 #include "third_party/blink/public/web/web_frame.h"
 #include "third_party/blink/public/web/web_frame_widget.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_page_popup.h"
 #include "third_party/blink/public/web/web_print_params.h"
+#include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/geometry/point.h"
 
 namespace test_runner {
 
 namespace {
 
-class CaptureCallback : public blink::WebCompositeAndReadbackAsyncCallback {
+class BitmapDataPipeDrainer : public mojo::DataPipeDrainer::Client {
+ public:
+  BitmapDataPipeDrainer(mojo::ScopedDataPipeConsumerHandle handle,
+                        base::OnceCallback<void(const SkBitmap&)> callback)
+      : callback_(std::move(callback)), drainer_(this, std::move(handle)) {}
+
+  void OnDataAvailable(const void* data, size_t num_bytes) override {
+    const unsigned char* ptr = static_cast<const unsigned char*>(data);
+    data_.insert(data_.end(), ptr, ptr + num_bytes);
+  }
+
+  void OnDataComplete() override {
+    SkBitmap bitmap;
+    if (!gfx::PNGCodec::Decode(data_.data(), data_.size(), &bitmap))
+      bitmap.reset();
+    std::move(callback_).Run(bitmap);
+    delete this;
+  }
+
+ private:
+  base::OnceCallback<void(const SkBitmap&)> callback_;
+  mojo::DataPipeDrainer drainer_;
+  std::vector<unsigned char> data_;
+};
+
+class CaptureCallback : public base::RefCountedThreadSafe<CaptureCallback> {
  public:
   explicit CaptureCallback(base::OnceCallback<void(const SkBitmap&)> callback);
-  virtual ~CaptureCallback();
 
   void set_wait_for_popup(bool wait) { wait_for_popup_ = wait; }
   void set_popup_position(const gfx::Point& position) {
     popup_position_ = position;
   }
 
-  // WebCompositeAndReadbackAsyncCallback implementation.
-  void DidCompositeAndReadback(const SkBitmap& bitmap) override;
+  void DidCompositeAndReadback(const SkBitmap& bitmap);
 
  private:
+  friend class base::RefCountedThreadSafe<CaptureCallback>;
+  ~CaptureCallback();
+
   base::OnceCallback<void(const SkBitmap&)> callback_;
   SkBitmap main_bitmap_;
   bool wait_for_popup_;
@@ -112,7 +141,6 @@ void CaptureCallback::DidCompositeAndReadback(const SkBitmap& bitmap) {
                bitmap.info().width(), "y", bitmap.info().height());
   if (!wait_for_popup_) {
     std::move(callback_).Run(bitmap);
-    delete this;
     return;
   }
   if (main_bitmap_.isNull()) {
@@ -125,7 +153,6 @@ void CaptureCallback::DidCompositeAndReadback(const SkBitmap& bitmap) {
   SkCanvas canvas(main_bitmap_);
   canvas.drawBitmap(bitmap, popup_position_.x(), popup_position_.y());
   std::move(callback_).Run(main_bitmap_);
-  delete this;
 }
 
 }  // namespace
@@ -138,15 +165,18 @@ void DumpPixelsAsync(blink::WebLocalFrame* web_frame,
   DCHECK(!callback.is_null());
 
   blink::WebWidget* web_widget = web_frame->FrameWidget();
-  CaptureCallback* capture_callback = new CaptureCallback(std::move(callback));
-  web_widget->CompositeAndReadbackAsync(capture_callback);
+  auto capture_callback =
+      base::MakeRefCounted<CaptureCallback>(std::move(callback));
+  auto did_readback = base::BindRepeating(
+      &CaptureCallback::DidCompositeAndReadback, capture_callback);
+  web_widget->CompositeAndReadbackAsync(did_readback);
   if (blink::WebPagePopup* popup = web_widget->GetPagePopup()) {
     capture_callback->set_wait_for_popup(true);
     blink::WebPoint position = popup->PositionRelativeToOwner();
     position.x *= device_scale_factor_for_test;
     position.y *= device_scale_factor_for_test;
     capture_callback->set_popup_position(position);
-    popup->CompositeAndReadbackAsync(capture_callback);
+    popup->CompositeAndReadbackAsync(did_readback);
   }
 }
 
@@ -180,24 +210,30 @@ void CopyImageAtAndCapturePixels(
     int x,
     int y,
     base::OnceCallback<void(const SkBitmap&)> callback) {
-  DCHECK(!callback.is_null());
-  uint64_t sequence_number =
-      blink::Platform::Current()->Clipboard()->SequenceNumber(
-          blink::mojom::ClipboardBuffer::kStandard);
+  blink::mojom::ClipboardHostPtr clipboard;
+  blink::Platform::Current()->GetConnector()->BindInterface(
+      blink::Platform::Current()->GetBrowserServiceName(), &clipboard);
+
+  uint64_t sequence_number_before;
+  clipboard->GetSequenceNumber(ui::CLIPBOARD_TYPE_COPY_PASTE,
+                               &sequence_number_before);
   web_frame->CopyImageAt(blink::WebPoint(x, y));
-  if (sequence_number ==
-      blink::Platform::Current()->Clipboard()->SequenceNumber(
-          blink::mojom::ClipboardBuffer::kStandard)) {
-    SkBitmap emptyBitmap;
-    std::move(callback).Run(emptyBitmap);
+  uint64_t sequence_number_after;
+  clipboard->GetSequenceNumber(ui::CLIPBOARD_TYPE_COPY_PASTE,
+                               &sequence_number_after);
+  if (sequence_number_before == sequence_number_after) {
+    std::move(callback).Run(SkBitmap());
     return;
   }
 
-  blink::WebImage image =
-      static_cast<blink::WebMockClipboard*>(
-          blink::Platform::Current()->Clipboard())
-          ->ReadRawImage(blink::mojom::ClipboardBuffer::kStandard);
-  std::move(callback).Run(image.GetSkBitmap());
+  blink::mojom::SerializedBlobPtr serialized_blob;
+  clipboard->ReadImage(ui::CLIPBOARD_TYPE_COPY_PASTE, &serialized_blob);
+  blink::mojom::BlobPtr blob(std::move(serialized_blob->blob));
+  mojo::DataPipe pipe;
+  blob->ReadAll(std::move(pipe.producer_handle), nullptr);
+  // Self-destructs after draining the pipe.
+  new BitmapDataPipeDrainer(std::move(pipe.consumer_handle),
+                            std::move(callback));
 }
 
 }  // namespace test_runner

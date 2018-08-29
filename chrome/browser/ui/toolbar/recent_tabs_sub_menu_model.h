@@ -41,7 +41,6 @@ class OpenTabsUIDelegate;
 
 namespace syncer {
 class SyncService;
-class SyncServiceBase;
 }  // namespace syncer
 
 namespace ui {
@@ -65,8 +64,6 @@ class RecentTabsSubMenuModel : public ui::SimpleMenuModel,
   // recently closed window items list.
   static int GetFirstRecentTabsCommandId();
 
-  // If |open_tabs_delegate| is NULL, the default delegate for |browser|'s
-  // profile will be used.
   RecentTabsSubMenuModel(ui::AcceleratorProvider* accelerator_provider,
                          Browser* browser);
   ~RecentTabsSubMenuModel() override;
@@ -138,11 +135,8 @@ class RecentTabsSubMenuModel : public ui::SimpleMenuModel,
   // TabNavigationItems in |tab_items|.
   int CommandIdToTabVectorIndex(int command_id, TabNavigationItems** tab_items);
 
-  // Used to access (and lazily initialize) open_tabs_delegate_.
-  // TODO(tim): This lazy-init for member variables is error prone because you
-  // can always skip going through the function and access the field directly.
-  // Consider instead having code just deal with potentially NULL open_tabs_
-  // and have it initialized by an event / callback.
+  // Convenience function to access OpenTabsUIDelegate provided by SyncService.
+  // Can return null if session sync is not running.
   sync_sessions::OpenTabsUIDelegate* GetOpenTabsUIDelegate();
 
   // Overridden from TabRestoreServiceObserver:
@@ -156,7 +150,7 @@ class RecentTabsSubMenuModel : public ui::SimpleMenuModel,
 
   Browser* const browser_;  // Weak.
 
-  sync_sessions::OpenTabsUIDelegate* open_tabs_delegate_;  // Weak.
+  syncer::SyncService* const sync_service_;  // Weak.
 
   // Accelerator for reopening last closed tab.
   ui::Accelerator reopen_closed_tab_accelerator_;
@@ -198,8 +192,7 @@ class RecentTabsSubMenuModel : public ui::SimpleMenuModel,
   ScopedObserver<sessions::TabRestoreService, RecentTabsSubMenuModel>
       tab_restore_service_observer_;
 
-  ScopedObserver<syncer::SyncServiceBase, RecentTabsSubMenuModel>
-      sync_observer_;
+  ScopedObserver<syncer::SyncService, RecentTabsSubMenuModel> sync_observer_;
 #endif
 
   base::WeakPtrFactory<RecentTabsSubMenuModel> weak_ptr_factory_;

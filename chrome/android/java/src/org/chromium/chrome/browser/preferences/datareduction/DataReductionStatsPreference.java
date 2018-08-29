@@ -26,6 +26,7 @@ import android.widget.TextView;
 
 import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
+import org.chromium.base.Log;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.net.spdyproxy.DataReductionProxySettings;
 import org.chromium.chrome.browser.util.FileSizeUtil;
@@ -40,6 +41,8 @@ import java.util.TimeZone;
  * Preference used to display statistics on data reduction.
  */
 public class DataReductionStatsPreference extends Preference {
+    private static final String TAG = "DataSaverStats";
+
     /**
      * Key used to save the date on which the site breakdown should be shown. If the user has
      * historical data saver stats, the site breakdown cannot be shown for DAYS_IN_CHART.
@@ -152,9 +155,14 @@ public class DataReductionStatsPreference extends Preference {
     }
 
     private void setDetailText() {
+        final Context context = getContext();
         updateDetailData();
         mStartDateTextView.setText(mStartDatePhrase);
+        mStartDateTextView.setContentDescription(context.getString(
+                R.string.data_reduction_start_date_content_description, mStartDatePhrase));
         mEndDateTextView.setText(mEndDatePhrase);
+        mEndDateTextView.setContentDescription(context.getString(
+                R.string.data_reduction_end_date_content_description, mEndDatePhrase));
         if (mDataUsageTextView != null) mDataUsageTextView.setText(mReceivedTotalPhrase);
         if (mDataSavingsTextView != null) mDataSavingsTextView.setText(mSavingsTotalPhrase);
     }
@@ -198,12 +206,9 @@ public class DataReductionStatsPreference extends Preference {
                 mCurrentTime - DateUtils.DAY_IN_MILLIS * DAYS_IN_CHART,
                 mCurrentTime + DateUtils.HOUR_IN_MILLIS, mLeftPosition, mRightPosition);
 
-        View dataReductionProxyUnreachableWarning =
-                view.findViewById(R.id.data_reduction_proxy_unreachable);
         if (DataReductionProxySettings.getInstance().isDataReductionProxyUnreachable()) {
-            dataReductionProxyUnreachableWarning.setVisibility(View.VISIBLE);
-        } else {
-            dataReductionProxyUnreachableWarning.setVisibility(View.GONE);
+            // Leave breadcrumb in log for user feedback report.
+            Log.w(TAG, "Data Saver proxy unreachable when user viewed Data Saver stats");
         }
 
         mResetStatisticsButton = (Button) view.findViewById(R.id.data_reduction_reset_statistics);
@@ -234,7 +239,9 @@ public class DataReductionStatsPreference extends Preference {
                                                 now)
                                         .apply();
                             }
-                            DataReductionProxySettings.getInstance().clearDataSavingStatistics();
+                            DataReductionProxySettings.getInstance().clearDataSavingStatistics(
+                                    DataReductionProxySavingsClearedReason
+                                            .USER_ACTION_SETTINGS_MENU);
                             updateReductionStatistics();
                             setDetailText();
                             notifyChanged();

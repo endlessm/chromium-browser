@@ -11,7 +11,6 @@
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
-#include "base/feature_list.h"
 #include "base/files/scoped_file.h"
 #include "base/i18n/rtl.h"
 #include "base/json/json_reader.h"
@@ -35,7 +34,10 @@
 #include "chromecast/browser/devtools/cast_devtools_manager_delegate.h"
 #include "chromecast/browser/grit/cast_browser_resources.h"
 #include "chromecast/browser/media/media_caps_impl.h"
+#include "chromecast/browser/renderer_config.h"
 #include "chromecast/browser/service/cast_service_simple.h"
+#include "chromecast/browser/tts/tts_controller.h"
+#include "chromecast/browser/tts/tts_message_filter.h"
 #include "chromecast/browser/url_request_context_factory.h"
 #include "chromecast/common/global_descriptors.h"
 #include "chromecast/media/audio/cast_audio_manager.h"
@@ -62,6 +64,7 @@
 #include "media/mojo/buildflags.h"
 #include "net/ssl/ssl_cert_request_info.h"
 #include "net/url_request/url_request_context_getter.h"
+#include "services/service_manager/embedder/descriptors.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -98,6 +101,7 @@
 #endif  // defined(USE_ALSA)
 
 #if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
+#include "chromecast/browser/cast_extension_message_filter.h"  // nogncheck
 #include "extensions/browser/extension_message_filter.h"  // nogncheck
 #include "extensions/browser/extension_registry.h"        // nogncheck
 #include "extensions/browser/extension_system.h"          // nogncheck
@@ -159,7 +163,8 @@ GetRequestContextGetterFromBrowserContext() {
 
 CastContentBrowserClient::CastContentBrowserClient()
     : cast_browser_main_parts_(nullptr),
-      url_request_context_factory_(new URLRequestContextFactory()) {}
+      url_request_context_factory_(new URLRequestContextFactory()),
+      renderer_config_manager_(std::make_unique<RendererConfigManager>()) {}
 
 CastContentBrowserClient::~CastContentBrowserClient() {
   content::BrowserThread::DeleteSoon(content::BrowserThread::IO, FROM_HERE,
@@ -232,6 +237,11 @@ CastContentBrowserClient::CreateAudioManager(
           media_pipeline_backend_manager()),
       GetMediaTaskRunner(), use_mixer);
 #endif  // defined(USE_ALSA)
+}
+
+bool CastContentBrowserClient::OverridesAudioManager() {
+  // See CreateAudioManager().
+  return true;
 }
 
 std::unique_ptr<::media::CdmFactory>
@@ -315,6 +325,9 @@ void CastContentBrowserClient::RenderProcessWillLaunch(
       render_process_id, browser_context));
   host->AddFilter(new extensions::ExtensionsGuestViewMessageFilter(
       render_process_id, browser_context));
+  host->AddFilter(new TtsMessageFilter(host->GetBrowserContext()));
+  host->AddFilter(
+      new CastExtensionMessageFilter(render_process_id, browser_context));
 #endif
 }
 
@@ -407,8 +420,11 @@ void CastContentBrowserClient::AppendExtraCommandLineSwitches(
   if (process_type == switches::kRendererProcess) {
     // Any browser command-line switches that should be propagated to
     // the renderer go here.
-    if (browser_command_line->HasSwitch(switches::kAllowHiddenMediaPlayback))
-      command_line->AppendSwitch(switches::kAllowHiddenMediaPlayback);
+    static const char* const kForwardSwitches[] = {
+        switches::kForceMediaResolutionHeight,
+        switches::kForceMediaResolutionWidth};
+    command_line->CopySwitchesFrom(*browser_command_line, kForwardSwitches,
+                                   arraysize(kForwardSwitches));
   } else if (process_type == switches::kUtilityProcess) {
     if (browser_command_line->HasSwitch(switches::kAudioOutputChannels)) {
       command_line->AppendSwitchASCII(switches::kAudioOutputChannels,
@@ -447,12 +463,18 @@ void CastContentBrowserClient::AppendExtraCommandLineSwitches(
                                       base::IntToString(res.height()));
     }
 
-    if (base::FeatureList::IsEnabled(kSingleBuffer)) {
+    if (chromecast::IsFeatureEnabled(kSingleBuffer)) {
       command_line->AppendSwitchASCII(switches::kGraphicsBufferCount, "1");
-    } else if (base::FeatureList::IsEnabled(chromecast::kTripleBuffer720)) {
+    } else if (chromecast::IsFeatureEnabled(chromecast::kTripleBuffer720)) {
       command_line->AppendSwitchASCII(switches::kGraphicsBufferCount, "3");
     }
 #endif  // defined(USE_AURA)
+  }
+
+  auto renderer_config =
+      renderer_config_manager_->GetRendererConfig(child_process_id);
+  if (renderer_config) {
+    renderer_config->AppendSwitchesTo(command_line);
   }
 }
 
@@ -645,7 +667,8 @@ void CastContentBrowserClient::ExposeInterfacesToMediaService(
 }
 
 void CastContentBrowserClient::RegisterInProcessServices(
-    StaticServiceMap* services) {
+    StaticServiceMap* services,
+    content::ServiceManagerConnection* connection) {
 #if BUILDFLAG(ENABLE_MOJO_MEDIA_IN_BROWSER_PROCESS)
   service_manager::EmbeddedServiceInfo info;
   info.factory = base::Bind(&CreateMediaService, base::Unretained(this));
@@ -659,12 +682,15 @@ CastContentBrowserClient::GetServiceManifestOverlay(
     base::StringPiece service_name) {
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
   int id = -1;
-  if (service_name == content::mojom::kBrowserServiceName)
+  if (service_name == content::mojom::kBrowserServiceName) {
     id = IDR_CAST_CONTENT_BROWSER_MANIFEST_OVERLAY;
-  else if (service_name == content::mojom::kPackagedServicesServiceName)
+  } else if (service_name == content::mojom::kPackagedServicesServiceName) {
     id = IDR_CAST_CONTENT_PACKAGED_SERVICES_MANIFEST_OVERLAY;
-  else
+  } else if (service_name == content::mojom::kRendererServiceName) {
+    id = IDR_CAST_CONTENT_RENDERER_MANIFEST_OVERLAY;
+  } else {
     return nullptr;
+  }
   base::StringPiece manifest_contents =
       rb.GetRawDataResourceForScale(id, ui::ScaleFactor::SCALE_FACTOR_NONE);
   return base::JSONReader::Read(manifest_contents);
@@ -685,7 +711,7 @@ void CastContentBrowserClient::GetAdditionalMappedFilesForChildProcess(
   // TODO(crbug.com/753619): Enable crash reporting on Fuchsia.
   int crash_signal_fd = GetCrashSignalFD(command_line);
   if (crash_signal_fd >= 0) {
-    mappings->Share(kCrashDumpSignal, crash_signal_fd);
+    mappings->Share(service_manager::kCrashDumpSignal, crash_signal_fd);
   }
 #endif  // !defined(OS_FUCHSIA)
 }
@@ -748,7 +774,7 @@ CastContentBrowserClient::CreateCrashHandlerHost(
   // Let cast shell dump to /tmp. Internal minidump generator code can move it
   // to /data/minidumps later, since /data/minidumps is file lock-controlled.
   base::FilePath dumps_path;
-  PathService::Get(base::DIR_TEMP, &dumps_path);
+  base::PathService::Get(base::DIR_TEMP, &dumps_path);
 
   // Alway set "upload" to false to use our own uploader.
   breakpad::CrashHandlerHostLinux* crash_handler =

@@ -292,6 +292,7 @@ bool InputMethodEngineBase::DeleteSurroundingText(int context_id,
 
 void InputMethodEngineBase::SetCompositionBounds(
     const std::vector<gfx::Rect>& bounds) {
+  composition_bounds_ = bounds;
   observer_->OnCompositionBoundsChanged(bounds);
 }
 
@@ -306,8 +307,8 @@ void InputMethodEngineBase::FocusIn(
   ++next_context_id_;
 
   observer_->OnFocus(ui::IMEEngineHandlerInterface::InputContext(
-      context_id_, input_context.type, input_context.mode,
-      input_context.flags));
+      context_id_, input_context.type, input_context.mode, input_context.flags,
+      input_context.focus_reason, input_context.should_do_learning));
 }
 
 void InputMethodEngineBase::FocusOut() {

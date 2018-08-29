@@ -16,8 +16,10 @@
 #include "ios/chrome/browser/chrome_url_constants.h"
 #import "ios/chrome/browser/ui/authentication/signin_earlgrey_utils.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view.h"
+#import "ios/chrome/browser/ui/history/history_ui_constants.h"
 #import "ios/chrome/browser/ui/history/legacy_history_entry_item.h"
 #import "ios/chrome/browser/ui/settings/settings_collection_view_controller.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_url_item.h"
 #include "ios/chrome/browser/ui/tools_menu/public/tools_menu_constants.h"
 #import "ios/chrome/browser/ui/tools_menu/tools_popup_controller.h"
 #include "ios/chrome/browser/ui/ui_util.h"
@@ -60,26 +62,48 @@ char kResponse3[] = "Test Page 3 content";
 
 // Matcher for entry in history for URL and title.
 id<GREYMatcher> HistoryEntry(const GURL& url, const std::string& title) {
-  NSString* url_spec_text = base::SysUTF8ToNSString(url.spec());
+  NSString* url_spec_text = nil;
   NSString* title_text = base::SysUTF8ToNSString(title);
 
-  MatchesBlock matches = ^BOOL(LegacyHistoryEntryCell* cell) {
-    return [cell.textLabel.text isEqual:title_text] &&
-           [cell.detailTextLabel.text isEqual:url_spec_text];
-  };
+  if (IsUIRefreshPhase1Enabled()) {
+    url_spec_text = base::SysUTF8ToNSString(url.GetOrigin().spec());
 
-  DescribeToBlock describe = ^(id<GREYDescription> description) {
-    [description appendText:@"view containing URL text: "];
-    [description appendText:url_spec_text];
-    [description appendText:@" title text: "];
-    [description appendText:title_text];
-  };
+    MatchesBlock matches = ^BOOL(TableViewURLCell* cell) {
+      return [cell.titleLabel.text isEqual:title_text] &&
+             [cell.URLLabel.text isEqual:url_spec_text];
+    };
 
-  return grey_allOf(
-      grey_kindOfClass([LegacyHistoryEntryCell class]),
-      [[GREYElementMatcherBlock alloc] initWithMatchesBlock:matches
-                                           descriptionBlock:describe],
-      grey_sufficientlyVisible(), nil);
+    DescribeToBlock describe = ^(id<GREYDescription> description) {
+      [description appendText:@"view containing URL text: "];
+      [description appendText:url_spec_text];
+      [description appendText:@" title text: "];
+      [description appendText:title_text];
+    };
+    return grey_allOf(
+        grey_kindOfClass([TableViewURLCell class]),
+        [[GREYElementMatcherBlock alloc] initWithMatchesBlock:matches
+                                             descriptionBlock:describe],
+        grey_sufficientlyVisible(), nil);
+  } else {
+    url_spec_text = base::SysUTF8ToNSString(url.spec());
+
+    MatchesBlock matches = ^BOOL(LegacyHistoryEntryCell* cell) {
+      return [cell.textLabel.text isEqual:title_text] &&
+             [cell.detailTextLabel.text isEqual:url_spec_text];
+    };
+
+    DescribeToBlock describe = ^(id<GREYDescription> description) {
+      [description appendText:@"view containing URL text: "];
+      [description appendText:url_spec_text];
+      [description appendText:@" title text: "];
+      [description appendText:title_text];
+    };
+    return grey_allOf(
+        grey_kindOfClass([LegacyHistoryEntryCell class]),
+        [[GREYElementMatcherBlock alloc] initWithMatchesBlock:matches
+                                             descriptionBlock:describe],
+        grey_sufficientlyVisible(), nil);
+  }
 }
 // Matcher for the history button in the tools menu.
 id<GREYMatcher> HistoryButton() {
@@ -87,28 +111,28 @@ id<GREYMatcher> HistoryButton() {
 }
 // Matcher for the edit button in the navigation bar.
 id<GREYMatcher> NavigationEditButton() {
-  return ButtonWithAccessibilityLabelId(IDS_HISTORY_START_EDITING_BUTTON);
+  return grey_accessibilityID(kHistoryToolbarEditButtonIdentifier);
 }
 // Matcher for the delete button.
 id<GREYMatcher> DeleteHistoryEntriesButton() {
-  // Include class restriction to exclude MDCCollectionViewInfoBar, which is
-  // hidden.
-  return grey_allOf(ButtonWithAccessibilityLabelId(
-                        IDS_HISTORY_DELETE_SELECTED_ENTRIES_BUTTON),
-                    grey_kindOfClass([UIButton class]), nil);
+  return grey_accessibilityID(kHistoryToolbarDeleteButtonIdentifier);
 }
 // Matcher for the search button.
 id<GREYMatcher> SearchIconButton() {
-  return ButtonWithAccessibilityLabelId(IDS_IOS_ICON_SEARCH);
+  if (IsUIRefreshPhase1Enabled()) {
+    return grey_accessibilityID(
+        l10n_util::GetNSStringWithFixup(IDS_IOS_ICON_SEARCH));
+  } else {
+    return ButtonWithAccessibilityLabelId(IDS_IOS_ICON_SEARCH);
+  }
 }
 // Matcher for the cancel button.
 id<GREYMatcher> CancelButton() {
-  return ButtonWithAccessibilityLabelId(IDS_HISTORY_CANCEL_EDITING_BUTTON);
+  return grey_accessibilityID(kHistoryToolbarCancelButtonIdentifier);
 }
 // Matcher for the button to open the clear browsing data panel.
 id<GREYMatcher> OpenClearBrowsingDataButton() {
-  return ButtonWithAccessibilityLabelId(
-      IDS_HISTORY_OPEN_CLEAR_BROWSING_DATA_DIALOG);
+  return grey_accessibilityID(kHistoryToolbarClearBrowsingButtonIdentifier);
 }
 // Matcher for the Open in New Incognito Tab option in the context menu.
 id<GREYMatcher> OpenInNewIncognitoTabButton() {
@@ -404,8 +428,14 @@ id<GREYMatcher> ConfirmClearBrowsingDataButton() {
   [self openHistoryPanel];
   chrome_test_util::VerifyAccessibilityForCurrentScreen();
   // Close history.
-  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
-      performAction:grey_tap()];
+  if (IsUIRefreshPhase1Enabled()) {
+    id<GREYMatcher> exitMatcher =
+        grey_accessibilityID(kHistoryNavigationControllerDoneButtonIdentifier);
+    [[EarlGrey selectElementWithMatcher:exitMatcher] performAction:grey_tap()];
+  } else {
+    [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
+        performAction:grey_tap()];
+  }
 }
 
 #pragma mark Helper Methods

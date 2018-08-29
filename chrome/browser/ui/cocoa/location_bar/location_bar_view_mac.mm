@@ -84,6 +84,11 @@ const int kMinURLWidth = 120;
 // SkColorSetARGB(0xCC, 0xFF, 0xFF 0xFF);
 const SkColor kMaterialDarkVectorIconColor = SK_ColorWHITE;
 
+void NotReached(const gfx::Image& image) {
+  // Mac Cocoa version should not receive asynchronously delivered favicons.
+  NOTREACHED();
+}
+
 }  // namespace
 
 // TODO(shess): This code is mostly copied from the gtk
@@ -235,11 +240,6 @@ void LocationBarViewMac::SaveStateToContents(WebContents* contents) {
 
 void LocationBarViewMac::Revert() {
   omnibox_view_->RevertAll();
-}
-
-bool LocationBarViewMac::ShowPageInfoDialog(WebContents* contents) {
-  // Cocoa doesn't show page info on the location bar.
-  return ::ShowPageInfoDialog(contents);
 }
 
 const OmniboxView* LocationBarViewMac::GetOmniboxView() const {
@@ -459,15 +459,17 @@ void LocationBarViewMac::UpdateWithoutTabRestore() {
 
 void LocationBarViewMac::UpdateLocationIcon() {
   SkColor vector_icon_color = GetLocationBarIconColor();
-  const gfx::VectorIcon& vector_icon_id =
-      GetPageInfoVerboseType() == PageInfoVerboseType::kEVCert
-          ? toolbar::kHttpsValidIcon
-          : omnibox_view_->GetVectorIcon();
+  gfx::ImageSkia image_skia;
+  if (GetPageInfoVerboseType() == PageInfoVerboseType::kEVCert) {
+    image_skia = gfx::CreateVectorIcon(toolbar::kHttpsValidIcon,
+                                       kDefaultIconSize, vector_icon_color);
+  } else {
+    image_skia = omnibox_view_->GetIcon(kDefaultIconSize, vector_icon_color,
+                                        base::BindOnce(&NotReached));
+  }
 
   NSImage* image = NSImageFromImageSkiaWithColorSpace(
-      gfx::CreateVectorIcon(vector_icon_id, kDefaultIconSize,
-                            vector_icon_color),
-      base::mac::GetSRGBColorSpace());
+      image_skia, base::mac::GetSRGBColorSpace());
   page_info_decoration_->SetImage(image);
   page_info_decoration_->SetLabelColor(vector_icon_color);
 
@@ -511,6 +513,13 @@ const ToolbarModel* LocationBarViewMac::GetToolbarModel() const {
 
 WebContents* LocationBarViewMac::GetWebContents() {
   return browser_->tab_strip_model()->GetActiveWebContents();
+}
+
+void LocationBarViewMac::UpdatePageActionIcon(PageActionIconType) {
+  // TODO(https://crbug.com/788051): Return page action icons for updating here
+  // as update methods are migrated out of LocationBar to the
+  // PageActionIconContainer interface.
+  NOTIMPLEMENTED();
 }
 
 PageInfoVerboseType LocationBarViewMac::GetPageInfoVerboseType() const {

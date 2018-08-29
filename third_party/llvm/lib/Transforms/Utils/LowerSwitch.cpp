@@ -29,7 +29,7 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Utils.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include <algorithm>
 #include <cassert>
@@ -155,11 +155,8 @@ bool LowerSwitch::runOnFunction(Function &F) {
 }
 
 /// Used for debugging purposes.
-static raw_ostream& operator<<(raw_ostream &O,
-                               const LowerSwitch::CaseVector &C)
-    LLVM_ATTRIBUTE_USED;
-
-static raw_ostream& operator<<(raw_ostream &O,
+LLVM_ATTRIBUTE_USED
+static raw_ostream &operator<<(raw_ostream &O,
                                const LowerSwitch::CaseVector &C) {
   O << "[";
 
@@ -172,7 +169,7 @@ static raw_ostream& operator<<(raw_ostream &O,
   return O << "]";
 }
 
-/// \brief Update the first occurrence of the "switch statement" BB in the PHI
+/// Update the first occurrence of the "switch statement" BB in the PHI
 /// node with the "new" BB. The other occurrences will:
 ///
 /// 1) Be updated by subsequent calls to this function.  Switch statements may
@@ -245,14 +242,13 @@ LowerSwitch::switchConvert(CaseItr Begin, CaseItr End, ConstantInt *LowerBound,
 
   unsigned Mid = Size / 2;
   std::vector<CaseRange> LHS(Begin, Begin + Mid);
-  DEBUG(dbgs() << "LHS: " << LHS << "\n");
+  LLVM_DEBUG(dbgs() << "LHS: " << LHS << "\n");
   std::vector<CaseRange> RHS(Begin + Mid, End);
-  DEBUG(dbgs() << "RHS: " << RHS << "\n");
+  LLVM_DEBUG(dbgs() << "RHS: " << RHS << "\n");
 
   CaseRange &Pivot = *(Begin + Mid);
-  DEBUG(dbgs() << "Pivot ==> "
-               << Pivot.Low->getValue()
-               << " -" << Pivot.High->getValue() << "\n");
+  LLVM_DEBUG(dbgs() << "Pivot ==> " << Pivot.Low->getValue() << " -"
+                    << Pivot.High->getValue() << "\n");
 
   // NewLowerBound here should never be the integer minimal value.
   // This is because it is computed from a case range that is never
@@ -274,20 +270,14 @@ LowerSwitch::switchConvert(CaseItr Begin, CaseItr End, ConstantInt *LowerBound,
       NewUpperBound = LHS.back().High;
   }
 
-  DEBUG(dbgs() << "LHS Bounds ==> ";
-        if (LowerBound) {
-          dbgs() << LowerBound->getSExtValue();
-        } else {
-          dbgs() << "NONE";
-        }
-        dbgs() << " - " << NewUpperBound->getSExtValue() << "\n";
-        dbgs() << "RHS Bounds ==> ";
-        dbgs() << NewLowerBound->getSExtValue() << " - ";
-        if (UpperBound) {
-          dbgs() << UpperBound->getSExtValue() << "\n";
-        } else {
-          dbgs() << "NONE\n";
-        });
+  LLVM_DEBUG(dbgs() << "LHS Bounds ==> "; if (LowerBound) {
+    dbgs() << LowerBound->getSExtValue();
+  } else { dbgs() << "NONE"; } dbgs() << " - "
+                                      << NewUpperBound->getSExtValue() << "\n";
+             dbgs() << "RHS Bounds ==> ";
+             dbgs() << NewLowerBound->getSExtValue() << " - "; if (UpperBound) {
+               dbgs() << UpperBound->getSExtValue() << "\n";
+             } else { dbgs() << "NONE\n"; });
 
   // Create a new node that checks if the value is < pivot. Go to the
   // left branch if it is and right branch if not.
@@ -382,7 +372,7 @@ unsigned LowerSwitch::Clusterify(CaseVector& Cases, SwitchInst *SI) {
     Cases.push_back(CaseRange(Case.getCaseValue(), Case.getCaseValue(),
                               Case.getCaseSuccessor()));
 
-  std::sort(Cases.begin(), Cases.end(), CaseCmp());
+  llvm::sort(Cases.begin(), Cases.end(), CaseCmp());
 
   // Merge case into clusters
   if (Cases.size() >= 2) {
@@ -443,9 +433,9 @@ void LowerSwitch::processSwitchInst(SwitchInst *SI,
   // Prepare cases vector.
   CaseVector Cases;
   unsigned numCmps = Clusterify(Cases, SI);
-  DEBUG(dbgs() << "Clusterify finished. Total clusters: " << Cases.size()
-               << ". Total compares: " << numCmps << "\n");
-  DEBUG(dbgs() << "Cases: " << Cases << "\n");
+  LLVM_DEBUG(dbgs() << "Clusterify finished. Total clusters: " << Cases.size()
+                    << ". Total compares: " << numCmps << "\n");
+  LLVM_DEBUG(dbgs() << "Cases: " << Cases << "\n");
   (void)numCmps;
 
   ConstantInt *LowerBound = nullptr;

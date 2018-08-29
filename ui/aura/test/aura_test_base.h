@@ -17,12 +17,6 @@
 #include "ui/aura/mus/window_tree_client_delegate.h"
 #include "ui/aura/test/aura_test_helper.h"
 
-namespace base {
-namespace test {
-class ScopedFeatureList;
-}
-}  // namespace base
-
 namespace ui {
 namespace mojom {
 class WindowTreeClient;
@@ -43,7 +37,9 @@ namespace test {
 
 class AuraTestContextFactory;
 
-enum class BackendType { CLASSIC, MUS, MASH };
+// TODO(sky): remove MUS. https://crbug.com/842365.
+// MUS2 targets ws2. See WindowTreeClient::Config::kMus2 for details.
+enum class BackendType { CLASSIC, MUS, MUS2 };
 
 // A base class for aura unit tests.
 // TODO(beng): Instances of this test will create and own a RootWindow.
@@ -115,6 +111,7 @@ class AuraTestBase : public testing::Test,
   void OnEmbedRootDestroyed(WindowTreeHostMus* window_tree_host) override;
   void OnLostConnection(WindowTreeClient* client) override;
   void OnPointerEventObserved(const ui::PointerEvent& event,
+                              int64_t display_id,
                               Window* target) override;
 
   // WindowManagerDelegate:
@@ -149,8 +146,7 @@ class AuraTestBase : public testing::Test,
   ui::mojom::EventResult OnAccelerator(
       uint32_t id,
       const ui::Event& event,
-      std::unordered_map<std::string, std::vector<uint8_t>>* properties)
-      override;
+      base::flat_map<std::string, std::vector<uint8_t>>* properties) override;
   void OnCursorTouchVisibleChanged(bool enabled) override;
   void OnWmPerformMoveLoop(Window* window,
                            ui::mojom::MoveLoopSource source,
@@ -168,13 +164,11 @@ class AuraTestBase : public testing::Test,
  private:
   base::test::ScopedTaskEnvironment scoped_task_environment_;
 
-  std::unique_ptr<base::test::ScopedFeatureList> feature_list_;
-
   // Only used for mus. Both are are initialized to this, but may be reset.
   WindowManagerDelegate* window_manager_delegate_;
   WindowTreeClientDelegate* window_tree_client_delegate_;
 
-  bool use_mus_ = false;
+  BackendType backend_type_ = BackendType::CLASSIC;
   bool setup_called_ = false;
   bool teardown_called_ = false;
   PropertyConverter property_converter_;

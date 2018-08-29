@@ -6,12 +6,12 @@
 
 #include <string>
 
-#include "ash/ash_constants.h"
-#include "ash/ash_layout_constants.h"
 #include "ash/frame/caption_buttons/frame_caption_button.h"
 #include "ash/frame/caption_buttons/frame_caption_button_container_view.h"
 #include "ash/frame/default_frame_header.h"
 #include "ash/frame/frame_header.h"
+#include "ash/public/cpp/ash_constants.h"
+#include "ash/public/cpp/ash_layout_constants.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/immersive/immersive_fullscreen_controller_test_api.h"
 #include "ash/public/cpp/vector_icons/vector_icons.h"
@@ -22,6 +22,7 @@
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/scoped_observer.h"
+#include "base/strings/string_util.h"
 #include "base/test/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
@@ -58,9 +59,9 @@
 #include "chrome/common/web_application_info.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/account_id/account_id.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "services/ui/public/interfaces/window_manager_constants.mojom.h"
@@ -72,7 +73,9 @@
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
+#include "ui/events/test/event_generator.h"
 #include "ui/gfx/color_palette.h"
+#include "ui/gfx/vector_icon_types.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/window_util.h"
 
@@ -121,30 +124,29 @@ BrowserNonClientFrameViewAsh* GetFrameViewAsh(BrowserView* browser_view) {
 }
 
 // Generates the test names suffixes based on the value of the test param.
-std::string TouchOptimizedUiStatusToString(
-    const ::testing::TestParamInfo<bool>& info) {
-  return info.param ? "TouchOptimizedUiEnabled" : "TouchOptimizedUiDisabled";
+std::string TopChromeMdParamToString(
+    const ::testing::TestParamInfo<const char*>& info) {
+  std::string result;
+  base::ReplaceChars(info.param, "-", "_", &result);
+  return result;
 }
 
 // Template to be used as a base class for touch-optimized UI parameterized test
 // fixtures.
 template <class BaseTest>
-class TouchOptimizedUiParamTest : public BaseTest,
-                                  public ::testing::WithParamInterface<bool> {
+class TopChromeMdParamTest : public BaseTest,
+                             public ::testing::WithParamInterface<const char*> {
  public:
-  TouchOptimizedUiParamTest() = default;
-  ~TouchOptimizedUiParamTest() override = default;
+  TopChromeMdParamTest() = default;
+  ~TopChromeMdParamTest() override = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitchASCII(
-        switches::kTopChromeMD,
-        GetParam() ? switches::kTopChromeMDMaterialTouchOptimized
-                   : switches::kTopChromeMDMaterial);
+    command_line->AppendSwitchASCII(switches::kTopChromeMD, GetParam());
     BaseTest::SetUpCommandLine(command_line);
   }
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(TouchOptimizedUiParamTest);
+  DISALLOW_COPY_AND_ASSIGN(TopChromeMdParamTest);
 };
 
 }  // namespace
@@ -152,7 +154,7 @@ class TouchOptimizedUiParamTest : public BaseTest,
 using views::Widget;
 
 using BrowserNonClientFrameViewAshTest =
-    TouchOptimizedUiParamTest<InProcessBrowserTest>;
+    TopChromeMdParamTest<InProcessBrowserTest>;
 
 IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest, NonClientHitTest) {
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
@@ -305,9 +307,11 @@ IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest,
   manager->ShowWindowForUser(window, account_id2);
   EXPECT_TRUE(MultiUserWindowManager::ShouldShowAvatar(window));
 
-  // An icon should show on the top left corner of the teleported browser
-  // window.
-  EXPECT_TRUE(frame_view->profile_indicator_icon());
+  if (GetParam() != switches::kTopChromeMDMaterialRefresh) {
+    // An icon should show on the top left corner of the teleported browser
+    // window.
+    EXPECT_TRUE(frame_view->profile_indicator_icon());
+  }
 
   // Teleport the window back to owner desktop.
   manager->ShowWindowForUser(window, account_id1);
@@ -325,7 +329,9 @@ IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest,
                            profiles::kAvatarIconHeight / 2);
   // The increased header height in the touch-optimized UI affects the expected
   // result.
-  int expected_value = GetParam() ? HTCAPTION : HTCLIENT;
+  int expected_value =
+      GetParam() == switches::kTopChromeMDMaterialTouchOptimized ? HTCAPTION
+                                                                 : HTCLIENT;
   EXPECT_EQ(expected_value, frame_view->NonClientHitTest(avatar_center));
   EXPECT_FALSE(frame_view->profile_indicator_icon());
 
@@ -338,10 +344,12 @@ IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest,
   const AccountId account_id2(AccountId::FromUserEmail("user2"));
   manager->ShowWindowForUser(browser()->window()->GetNativeWindow(),
                              account_id2);
-  // Clicking on the avatar icon should have same behaviour like clicking on
-  // the caption area, i.e., allow the user to drag the browser window around.
-  EXPECT_EQ(HTCAPTION, frame_view->NonClientHitTest(avatar_center));
-  EXPECT_TRUE(frame_view->profile_indicator_icon());
+  if (GetParam() != switches::kTopChromeMDMaterialRefresh) {
+    // Clicking on the avatar icon should have same behaviour like clicking on
+    // the caption area, i.e., allow the user to drag the browser window around.
+    EXPECT_EQ(HTCAPTION, frame_view->NonClientHitTest(avatar_center));
+    EXPECT_TRUE(frame_view->profile_indicator_icon());
+  }
 }
 
 // Tests that for an incognito browser, there is an avatar icon view, unless in
@@ -352,7 +360,7 @@ IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest, IncognitoAvatar) {
       BrowserView::GetBrowserViewForBrowser(incognito_browser);
   BrowserNonClientFrameViewAsh* frame_view = GetFrameViewAsh(browser_view);
 
-  const bool should_have_avatar = !GetParam();
+  const bool should_have_avatar = GetParam() == switches::kTopChromeMDMaterial;
   const bool has_avatar = !!frame_view->profile_indicator_icon();
   EXPECT_EQ(should_have_avatar, has_avatar);
 }
@@ -420,25 +428,43 @@ IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest,
   ash::FrameCaptionButtonContainerView::TestApi test(
       frame_view->caption_button_container_);
   widget->Maximize();
-  // Restore icon for size button in maximized window state.
-  EXPECT_EQ(&ash::kWindowControlRestoreIcon,
-            test.size_button()->icon_definition_for_test());
+
+  // Restore icon for size button in maximized window state. Compare by name
+  // because the address may not be the same for different build targets in the
+  // component build.
+  EXPECT_EQ(*ash::kWindowControlRestoreIcon.name,
+            *test.size_button()->icon_definition_for_test()->name);
   widget->Minimize();
+
   // When entering tablet mode in minimized window state, size button should not
   // get updated.
   TabletModeClient::Get()->OnTabletModeToggled(true);
-  EXPECT_EQ(&ash::kWindowControlRestoreIcon,
-            test.size_button()->icon_definition_for_test());
+  EXPECT_EQ(*ash::kWindowControlRestoreIcon.name,
+            *test.size_button()->icon_definition_for_test()->name);
   // When leaving tablet mode in minimized window state, size button should not
   // get updated.
   TabletModeClient::Get()->OnTabletModeToggled(false);
-  EXPECT_EQ(&ash::kWindowControlRestoreIcon,
-            test.size_button()->icon_definition_for_test());
+  EXPECT_EQ(*ash::kWindowControlRestoreIcon.name,
+            *test.size_button()->icon_definition_for_test()->name);
+
   // When unminimizing in non-tablet mode, size button should match with
   // maximized window state, which is restore icon.
   ::wm::Unminimize(widget->GetNativeWindow());
-  EXPECT_EQ(&ash::kWindowControlRestoreIcon,
-            test.size_button()->icon_definition_for_test());
+  EXPECT_EQ(*ash::kWindowControlRestoreIcon.name,
+            *test.size_button()->icon_definition_for_test()->name);
+}
+
+// Regression test for https://crbug.com/839955
+IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest,
+                       ActiveStateOfButtonMatchesWidget) {
+  BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
+
+  ash::FrameCaptionButtonContainerView::TestApi test(
+      GetFrameViewAsh(browser_view)->caption_button_container_);
+  EXPECT_TRUE(test.size_button()->paint_as_active());
+
+  browser_view->GetWidget()->Deactivate();
+  EXPECT_FALSE(test.size_button()->paint_as_active());
 }
 
 // This is a regression test that session restore minimized browser should
@@ -486,7 +512,7 @@ IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest,
 namespace {
 
 class ImmersiveModeBrowserViewTest
-    : public TouchOptimizedUiParamTest<InProcessBrowserTest>,
+    : public TopChromeMdParamTest<InProcessBrowserTest>,
       public ImmersiveModeController::Observer {
  public:
   ImmersiveModeBrowserViewTest() = default;
@@ -499,15 +525,16 @@ class ImmersiveModeBrowserViewTest
   void PreRunTestOnMainThread() override {
     InProcessBrowserTest::PreRunTestOnMainThread();
     aura::test::EnvTestHelper().SetAlwaysUseLastMouseLocation(true);
-    auto* immersive_mode_controller =
-        browser_view()->immersive_mode_controller();
-    scoped_observer_.Add(immersive_mode_controller);
-
     ash::ImmersiveFullscreenControllerTestApi(
-        static_cast<ImmersiveModeControllerAsh*>(immersive_mode_controller)
+        static_cast<ImmersiveModeControllerAsh*>(
+            browser_view()->immersive_mode_controller())
             ->controller())
         .SetupForTest();
     BrowserView::SetDisableRevealerDelayForTesting(true);
+  }
+
+  void InitializeObserver() {
+    scoped_observer_.Add(browser_view()->immersive_mode_controller());
   }
 
   void RunTest(int command, int expected_index) {
@@ -555,6 +582,7 @@ class ImmersiveModeBrowserViewTest
 // IDC_SELECT_LAST_TAB when the browser is in immersive fullscreen mode.
 IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTest,
                        TabNavigationAcceleratorsFullscreenBrowser) {
+  InitializeObserver();
   // Make sure that the focus is on the webcontents rather than on the omnibox,
   // because if the focus is on the omnibox, the tab strip will remain revealed
   // in the immerisve fullscreen mode and will interfere with this test waiting
@@ -591,10 +619,103 @@ IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTest,
     RunTest(datum.command, datum.expected_index);
 }
 
+IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTest,
+                       TestCaptionButtonsReceiveEventsInBrowserImmersiveMode) {
+  // Make sure that the focus is on the webcontents rather than on the omnibox,
+  // because if the focus is on the omnibox, the tab strip will remain revealed
+  // in the immerisve fullscreen mode and will interfere with this test waiting
+  // for the revealer to be dismissed.
+  browser()->tab_strip_model()->GetActiveWebContents()->Focus();
+
+  // Toggle fullscreen mode.
+  chrome::ToggleFullscreenMode(browser());
+  EXPECT_TRUE(browser_view()->immersive_mode_controller()->IsEnabled());
+
+  EXPECT_TRUE(browser()->window()->IsFullscreen());
+  EXPECT_FALSE(browser()->window()->IsMaximized());
+  EXPECT_FALSE(browser_view()->immersive_mode_controller()->IsRevealed());
+
+  std::unique_ptr<ImmersiveRevealedLock> revealed_lock(
+      browser_view()->immersive_mode_controller()->GetRevealedLock(
+          ImmersiveModeController::ANIMATE_REVEAL_NO));
+  EXPECT_TRUE(browser_view()->immersive_mode_controller()->IsRevealed());
+
+  // Clicking the "restore" caption button should exit the immersive mode.
+  aura::Window* window = browser()->window()->GetNativeWindow();
+  aura::Window* root = window->GetRootWindow();
+  ui::test::EventGenerator event_generator(root, window);
+  gfx::Size button_size =
+      ash::GetAshLayoutSize(ash::AshLayoutSize::kBrowserCaptionMaximized);
+  gfx::Point point_in_restore_button(
+      window->GetBoundsInRootWindow().top_right());
+  point_in_restore_button.Offset(-2 * button_size.width(),
+                                 button_size.height() / 2);
+
+  event_generator.MoveMouseTo(point_in_restore_button);
+  EXPECT_TRUE(browser_view()->immersive_mode_controller()->IsRevealed());
+  event_generator.ClickLeftButton();
+
+  EXPECT_FALSE(browser_view()->immersive_mode_controller()->IsEnabled());
+  EXPECT_FALSE(browser()->window()->IsFullscreen());
+}
+
+IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTest,
+                       TestCaptionButtonsReceiveEventsInAppImmersiveMode) {
+  browser()->window()->Close();
+
+  // Open a new app window.
+  Browser::CreateParams params = Browser::CreateParams::CreateForApp(
+      "test_browser_app", true /* trusted_source */, gfx::Rect(0, 0, 300, 300),
+      browser()->profile(), true);
+  params.initial_show_state = ui::SHOW_STATE_DEFAULT;
+  Browser* browser = new Browser(params);
+  AddBlankTabAndShow(browser);
+  ASSERT_TRUE(browser->is_app());
+  BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser);
+
+  ash::ImmersiveFullscreenControllerTestApi(
+      static_cast<ImmersiveModeControllerAsh*>(
+          browser_view->immersive_mode_controller())
+          ->controller())
+      .SetupForTest();
+
+  // Toggle fullscreen mode.
+  chrome::ToggleFullscreenMode(browser);
+  EXPECT_TRUE(browser_view->immersive_mode_controller()->IsEnabled());
+  EXPECT_FALSE(browser_view->IsTabStripVisible());
+
+  EXPECT_TRUE(browser->window()->IsFullscreen());
+  EXPECT_FALSE(browser->window()->IsMaximized());
+  EXPECT_FALSE(browser_view->immersive_mode_controller()->IsRevealed());
+
+  std::unique_ptr<ImmersiveRevealedLock> revealed_lock(
+      browser_view->immersive_mode_controller()->GetRevealedLock(
+          ImmersiveModeController::ANIMATE_REVEAL_NO));
+  EXPECT_TRUE(browser_view->immersive_mode_controller()->IsRevealed());
+
+  // Clicking the "restore" caption button should exit the immersive mode.
+  aura::Window* window = browser->window()->GetNativeWindow();
+  aura::Window* root = window->GetRootWindow();
+  ui::test::EventGenerator event_generator(root, window);
+  gfx::Size button_size =
+      ash::GetAshLayoutSize(ash::AshLayoutSize::kBrowserCaptionMaximized);
+  gfx::Point point_in_restore_button(
+      window->GetBoundsInRootWindow().top_right());
+  point_in_restore_button.Offset(-2 * button_size.width(),
+                                 button_size.height() / 2);
+
+  event_generator.MoveMouseTo(point_in_restore_button);
+  EXPECT_TRUE(browser_view->immersive_mode_controller()->IsRevealed());
+  event_generator.ClickLeftButton();
+
+  EXPECT_FALSE(browser_view->immersive_mode_controller()->IsEnabled());
+  EXPECT_FALSE(browser->window()->IsFullscreen());
+}
+
 namespace {
 
 class HostedAppNonClientFrameViewAshTest
-    : public TouchOptimizedUiParamTest<BrowserActionsBarBrowserTest> {
+    : public TopChromeMdParamTest<BrowserActionsBarBrowserTest> {
  public:
   HostedAppNonClientFrameViewAshTest() = default;
   ~HostedAppNonClientFrameViewAshTest() override = default;
@@ -610,8 +731,7 @@ class HostedAppNonClientFrameViewAshTest
   views::MenuButton* app_menu_button_ = nullptr;
 
   void SetUpOnMainThread() override {
-    TouchOptimizedUiParamTest<
-        BrowserActionsBarBrowserTest>::SetUpOnMainThread();
+    TopChromeMdParamTest<BrowserActionsBarBrowserTest>::SetUpOnMainThread();
 
     scoped_feature_list_.InitAndEnableFeature(features::kDesktopPWAWindowing);
     HostedAppButtonContainer::DisableAnimationForTesting();
@@ -689,8 +809,8 @@ class HostedAppNonClientFrameViewAshTest
 
 // Tests that a web app's theme color is set.
 IN_PROC_BROWSER_TEST_P(HostedAppNonClientFrameViewAshTest, ThemeColor) {
-  EXPECT_EQ(GetThemeColor(), frame_header_->GetActiveFrameColor());
-  EXPECT_EQ(GetThemeColor(), frame_header_->GetInactiveFrameColor());
+  EXPECT_EQ(GetThemeColor(), frame_header_->active_frame_color_for_testing());
+  EXPECT_EQ(GetThemeColor(), frame_header_->inactive_frame_color_for_testing());
   EXPECT_EQ(SK_ColorWHITE, GetActiveIconColor(hosted_app_button_container_));
 }
 
@@ -698,7 +818,7 @@ IN_PROC_BROWSER_TEST_P(HostedAppNonClientFrameViewAshTest, ThemeColor) {
 // contents don't exceed the height of the caption buttons.
 IN_PROC_BROWSER_TEST_P(HostedAppNonClientFrameViewAshTest, FrameSize) {
   EXPECT_EQ(frame_header_->GetHeaderHeight(),
-            GetAshLayoutSize(AshLayoutSize::kNonBrowserCaption).height());
+            GetAshLayoutSize(ash::AshLayoutSize::kNonBrowserCaption).height());
   EXPECT_LE(app_menu_button_->size().height(),
             frame_header_->GetHeaderHeight());
   EXPECT_LE(hosted_app_button_container_->size().height(),
@@ -810,7 +930,7 @@ IN_PROC_BROWSER_TEST_P(HostedAppNonClientFrameViewAshTest, BrowserActions) {
 namespace {
 
 class BrowserNonClientFrameViewAshBackButtonTest
-    : public TouchOptimizedUiParamTest<InProcessBrowserTest> {
+    : public TopChromeMdParamTest<InProcessBrowserTest> {
  public:
   BrowserNonClientFrameViewAshBackButtonTest() = default;
   ~BrowserNonClientFrameViewAshBackButtonTest() override = default;
@@ -1048,9 +1168,13 @@ IN_PROC_BROWSER_TEST_P(BrowserNonClientFrameViewAshTest,
   EXPECT_EQ(inset_normal, inset_in_overview_mode);
 }
 
-#define INSTANTIATE_TEST_CASE(name)                               \
-  INSTANTIATE_TEST_CASE_P(, name, ::testing::Values(true, false), \
-                          &TouchOptimizedUiStatusToString)
+#define INSTANTIATE_TEST_CASE(name)                                   \
+  INSTANTIATE_TEST_CASE_P(                                            \
+      , name,                                                         \
+      ::testing::Values(switches::kTopChromeMDMaterial,               \
+                        switches::kTopChromeMDMaterialTouchOptimized, \
+                        switches::kTopChromeMDMaterialRefresh),       \
+      &TopChromeMdParamToString)
 
 INSTANTIATE_TEST_CASE(BrowserNonClientFrameViewAshTest);
 INSTANTIATE_TEST_CASE(ImmersiveModeBrowserViewTest);

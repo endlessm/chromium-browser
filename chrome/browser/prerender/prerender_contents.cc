@@ -256,7 +256,7 @@ void PrerenderContents::StartPrerendering(
 
   prerendering_has_started_ = true;
 
-  prerender_contents_.reset(CreateWebContents(session_storage_namespace));
+  prerender_contents_ = CreateWebContents(session_storage_namespace);
   TabHelpers::AttachTabHelpers(prerender_contents_.get());
   content::WebContentsObserver::Observe(prerender_contents_.get());
 
@@ -399,7 +399,7 @@ void PrerenderContents::Observe(int type,
         // thread of the browser process.  When the RenderView receives its
         // size, is also sets itself to be visible, which would then break the
         // visibility API.
-        new_render_view_host->GetWidget()->WasResized();
+        new_render_view_host->GetWidget()->SynchronizeVisualProperties();
         prerender_contents_->WasHidden();
       }
       break;
@@ -415,7 +415,7 @@ void PrerenderContents::OnRenderViewHostCreated(
     RenderViewHost* new_render_view_host) {
 }
 
-WebContents* PrerenderContents::CreateWebContents(
+std::unique_ptr<WebContents> PrerenderContents::CreateWebContents(
     SessionStorageNamespace* session_storage_namespace) {
   // TODO(ajwong): Remove the temporary map once prerendering is aware of
   // multiple session storage namespaces per tab.
@@ -643,11 +643,11 @@ void PrerenderContents::DestroyWhenUsingTooManyResources() {
     if (!rph)
       return;
 
-    base::ProcessHandle handle = rph->GetHandle();
+    base::ProcessHandle handle = rph->GetProcess().Handle();
     if (handle == base::kNullProcessHandle)
       return;
 
-    process_pid_ = base::GetProcId(handle);
+    process_pid_ = rph->GetProcess().Pid();
   }
 
   if (process_pid_ == base::kNullProcessId)

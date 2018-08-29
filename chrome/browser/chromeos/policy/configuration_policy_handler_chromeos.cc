@@ -7,7 +7,6 @@
 #include <stdint.h>
 
 #include <memory>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -492,6 +491,24 @@ void ScreenLockDelayPolicyHandler::ApplyPolicySettings(
   if (value)
     prefs->SetValue(ash::prefs::kPowerBatteryScreenLockDelayMs,
                     std::move(value));
+}
+
+ArcServicePolicyHandler::ArcServicePolicyHandler(const char* policy,
+                                                 const char* pref)
+    : IntRangePolicyHandlerBase(
+          policy,
+          static_cast<int>(ArcServicePolicyValue::kDisabled),
+          static_cast<int>(ArcServicePolicyValue::kUnderUserControl),
+          false /* clamp */),
+      pref_(pref) {}
+
+void ArcServicePolicyHandler::ApplyPolicySettings(const PolicyMap& policies,
+                                                  PrefValueMap* prefs) {
+  const base::Value* const value = policies.GetValue(policy_name());
+  if (value &&
+      value->GetInt() == static_cast<int>(ArcServicePolicyValue::kDisabled)) {
+    prefs->SetBoolean(pref_, false);
+  }
 }
 
 }  // namespace policy

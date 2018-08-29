@@ -18,19 +18,20 @@ DiscardMetricsLifecycleUnitObserver::~DiscardMetricsLifecycleUnitObserver() =
     default;
 
 void DiscardMetricsLifecycleUnitObserver::OnLifecycleUnitStateChanged(
-    LifecycleUnit* lifecycle_unit) {
-  if (lifecycle_unit->GetState() == LifecycleUnit::State::DISCARDED)
+    LifecycleUnit* lifecycle_unit,
+    LifecycleState last_state) {
+  if (lifecycle_unit->GetState() == LifecycleState::DISCARDED)
     OnDiscard(lifecycle_unit);
-  else
+  else if (last_state == LifecycleState::DISCARDED)
     OnReload();
 }
 
 void DiscardMetricsLifecycleUnitObserver::OnLifecycleUnitDestroyed(
     LifecycleUnit* lifecycle_unit) {
-  // If the browser is not shutting down and the tab is in a LOADED state after
+  // If the browser is not shutting down and the tab is loaded after
   // being discarded, record TabManager.Discarding.ReloadToCloseTime.
   if (g_browser_process && !g_browser_process->IsShuttingDown() &&
-      lifecycle_unit->GetState() == LifecycleUnit::State::LOADED &&
+      lifecycle_unit->GetState() != LifecycleState::DISCARDED &&
       !reload_time_.is_null()) {
     auto reload_to_close_time = NowTicks() - reload_time_;
     UMA_HISTOGRAM_CUSTOM_TIMES(
@@ -47,8 +48,7 @@ void DiscardMetricsLifecycleUnitObserver::OnLifecycleUnitDestroyed(
 void DiscardMetricsLifecycleUnitObserver::OnDiscard(
     LifecycleUnit* lifecycle_unit) {
   discard_time_ = NowTicks();
-  last_focused_time_before_discard_ =
-      lifecycle_unit->GetSortKey().last_focused_time;
+  last_focused_time_before_discard_ = lifecycle_unit->GetLastFocusedTime();
 
   static int discard_count = 0;
   UMA_HISTOGRAM_CUSTOM_COUNTS("TabManager.Discarding.DiscardCount",

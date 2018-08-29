@@ -183,7 +183,7 @@ This file contains the strings for ash.
       <message name="IDS_ASH_ADD_USER_BUTTON" desc="Text shown on an add user button on login/locker screen">
         Add Person
       </message>
-      <message name="IDS_ASH_SHOW_WEBUI_LOGIN_BUTTON" desc="Button on login/lock screen which reverts to the previous implementation.">
+      <message name="IDS_ASH_SHOW_WEBUI_LOGIN_BUTTON" desc="Button on login/lock screen which reverts to the previous implementation." translateable="false">
         (TEMP) Show webui login; if used file bug (crbug.com) or feedback (alt+shift+i)
       </message>
 
@@ -207,6 +207,9 @@ This file contains the strings for ash.
       </message>
       <message name="IDS_ASH_STATUS_TRAY_SPOKEN_FEEDBACK_ENABLED" desc="The message shown on a notification when spoken feedback is enabled">
         Press Ctrl + Alt + Z to disable spoken feedback.
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_SPOKEN_FEEDBACK_ENABLED_TABLET" desc="The message shown on a notification when spoken feedback is enabled on a tablet">
+        Press and hold both volume keys for five seconds to disable spoken feedback.
       </message>
       <message name="IDS_ASH_STATUS_TRAY_SPOKEN_FEEDBACK_ENABLED_TITLE" desc="The title message shown on a notification when spoken feedback is enabled">
         ChromeVox enabled
@@ -374,6 +377,9 @@ This file contains the strings for ash.
       <message name="IDS_ASH_STATUS_TRAY_ACCESSIBILITY_SELECT_TO_SPEAK" desc="The label used in the accessibility menu of the system tray to toggle on/off the select-to-speak feature.">
         Select-to-Speak
       </message>
+      <message name="IDS_ASH_STATUS_TRAY_ACCESSIBILITY_DICTATION" desc="The label used in the accessibility menu of the system tray to toggle on/off the speak to type feature.">
+        Dictation
+      </message>
       <message name="IDS_ASH_STATUS_TRAY_ACCESSIBILITY_HIGH_CONTRAST_MODE" desc="The label used in the accessibility menu of the system tray to toggle on/off high contrast feature.">
         High contrast mode
       </message>
@@ -494,7 +500,10 @@ This file contains the strings for ash.
       <message name="IDS_ASH_STYLUS_WARM_WELCOME_BUBBLE_TITLE" desc="The title of the bubble that pops up the first time a user uses a stylus.">
         These are your stylus tools
       </message>
-      <message name="IDS_ASH_STYLUS_WARM_WELCOME_BUBBLE_DESCRIPTION" desc="The description of the bubble that pops up the first time a user uses a stylus. Describes what tools exist in the palette tray.">
+      <message name="IDS_ASH_STYLUS_WARM_WELCOME_BUBBLE_DESCRIPTION" desc="The description of the bubble that pops up the first time a user uses a stylus on a non assistant enabled device. Describes what tools exist in the palette tray.">
+        Tap the stylus button on the shelf to take a note, screenshot, use the laser pointer, or magnifying glass.
+      </message>
+      <message name="IDS_ASH_STYLUS_WARM_WELCOME_BUBBLE_WITH_ASSISTANT_DESCRIPTION" desc="The description of the bubble that pops up the first time a user uses a stylus on a assistant enabled device. Describes what tools exist in the palette tray.">
         Tap the stylus button on the shelf to take a note, screenshot, use the Google Assistant, laser pointer, or magnifying glass.
       </message>
       <message name="IDS_ASH_PALETTE_SETTINGS" desc="The label on the setting button used to open palette setting page.">
@@ -531,6 +540,11 @@ This file contains the strings for ash.
       </message>
       <message name="IDS_ASH_MOD3_KEY" desc="Name of ISOLevel5 (mod3) key name. Shouldn't be translated in many languages actually. This name should be lower case.">
         mod3
+      </message>
+
+      <!-- Dictation -->
+      <message name="IDS_ASH_DICTATION_BUTTON_ACCESSIBLE_NAME" desc="The accessible name for the Dictation button in the system tray.">
+        Toggle dictation
       </message>
 
       <!-- Overview Mode -->
@@ -739,7 +753,7 @@ This file contains the strings for ash.
       </message>
 
       <message name="IDS_AURA_SET_DESKTOP_WALLPAPER" desc="The label used for change wallpaper in context menu">
-        Set wallpaper...
+        Set wallpaper
       </message>
 
       <message name="IDS_ASH_STATUS_TRAY_TRACING" desc="The status tray item indicating that performance tracing is running.">
@@ -1074,6 +1088,10 @@ This file contains the strings for ash.
         IME menu button
       </message>
 
+      <message name="IDS_ASH_SELECT_TO_SPEAK_TRAY_ACCESSIBLE_NAME" desc="The accessible text for the select-to-speak menu icon in the status tray.">
+        Select-to-Speak button
+      </message>
+
       <!-- Deprecated Accelerators Messages -->
       <!-- Shortcut keys MUST be connected with pluses (e.g. Ctrl+Shift+L). -->
       <message name="IDS_SHORTCUT_LOCK_SCREEN_OLD" desc="the old deprecated shortcut to lock the screen.">
@@ -1215,20 +1233,24 @@ This file contains the strings for ash.
       <message name="IDS_ASH_LOGIN_KEYBOARD_SELECTION_SELECT" desc="Label for keyboard selection dropdown">
         Set your keyboard
       </message>
+      <message name="IDS_ASH_LOGIN_FINGERPRINT_UNLOCK_MESSAGE" desc="Text shown in the user pod to remind user that fingerprint unlock is supported">
+        Unlock with fingerprint
+      </message>
+      <message name="IDS_ASH_LOGIN_TAKE_BREAK_MESSAGE" desc="Message shown to user when unlocking the device is not allowed because the time limit of using the device has reached.">
+        Take a break!
+      </message>
+      <message name="IDS_ASH_LOGIN_COME_BACK_MESSAGE" desc="Message shown to user indicating a future time when the user is allowed to use the device again.">
+        Come back at <ph name="COME_BACK_TIME">$1<ex>7:30 AM</ex></ph>.
+      </message>
 
       <!-- Multi-profiles intro dialog -->
       <message name="IDS_ASH_MULTIPROFILES_INTRO_HEADLINE" desc="Describes which feature multi-profiles intro dialog presents.">
         Multiple sign-in
       </message>
       <message name="IDS_ASH_MULTIPROFILES_INTRO_MESSAGE" desc="Content of the multi-profiles intro dialog shown when the user adds another user in multi-profiles mode.">
-        This feature allows you to quickly access any signed-in user without requiring a password.
-
-Only use this feature with accounts you trust.
+        This feature allows you to quickly access any signed-in user without requiring a password. Only use this feature with accounts you trust.
       </message>
       <message name="IDS_ASH_MULTIPROFILES_INTRO_EXPLANATION" desc="Content of the multi-profiles intro dialog shown when the user adds another user in multi-profiles mode.">
-      </message>
-      <message name="IDS_ASH_MULTIPROFILES_INTRO_NOSHOW_AGAIN" desc="In multi-profiles intro dialog, text for no-show-again option.">
-        Got it, don't show me this again.
       </message>
 
       <!-- Strings shown within MultiDevice setup notifications -->
@@ -1253,24 +1275,18 @@ Only use this feature with accounts you trust.
 
       <!-- Window teleportation warning dialog -->
       <message name="IDS_ASH_TELEPORT_WARNING_TITLE" desc="The title of the dialog which warns user about oddities which can be seen when a window gets moved to another user desktop.">
-        Careful, this feature may bite
+        Warning: Experimental feature
       </message>
       <message name="IDS_ASH_TELEPORT_WARNING_MESSAGE" desc="The message on the dialog which warns user about oddities which can be seen when a window gets moved to another user desktop.">
-        Moving windows to another desktop may result in unexpected behaviour.
-
-Subsequent notifications, windows and dialogs may be split between desktops.
-      </message>
-      <message name="IDS_ASH_TELEPORT_WARNING_SHOW_DISMISS" desc="Label for checkbox dismissing show of teleportation warning dialog.">
-        Got it, don't show me again.
+        Moving windows to another desktop may result in unexpected behaviour. Subsequent notifications, windows and dialogs may be split between desktops.
       </message>
 
       <!-- Session aborted dialog -->
       <message name="IDS_ASH_MULTIPROFILES_SESSION_ABORT_HEADLINE" desc="Title for a dialog that describes that the current multi profile session is ending because one user is no longer allowed.">
-        Multiple sign-in has been disallowed for a user in this session
+        Multiple sign-in has been disabled
       </message>
       <message name="IDS_ASH_MULTIPROFILES_SESSION_ABORT_MESSAGE" desc="Body text for a dialog that describes that the current multi profile session is ending because one user is no longer allowed.">
-        An administrator has disallowed multiple sign-in for <ph name="USER_EMAIL">$1<ex>john@google.com</ex></ph>.
-    All users must sign out to continue.
+        An administrator has disallowed multiple sign-in for <ph name="USER_EMAIL">$1<ex>john@google.com</ex></ph>. All users must sign out to continue.
       </message>
       <message name="IDS_ASH_MULTIPROFILES_SESSION_ABORT_BUTTON_LABEL" desc="The label for the one (and only) button on a dialog that describes why the multi profile session is ending.">
         Sign out
@@ -1322,10 +1338,19 @@ Subsequent notifications, windows and dialogs may be split between desktops.
       <message name="IDS_ASH_WINDOW_CONTROL_ACCNAME_BACK" desc="The accessible name for the back button on the window frame.">
         Back button
       </message>
+      <message name="IDS_ASH_DIALOG_DONT_SHOW_AGAIN" desc="Label for checkbox dismissing show of a dialog.">
+        Don't show again
+      </message>
 
       <!-- Power off menu  -->
-      <message name="IDS_ASH_POWER_OFF_MENU_POWER_OFF_BUTTON" desc="Text shown on power off button in power off menu.">
+      <message name="IDS_ASH_POWER_BUTTON_MENU_POWER_OFF_BUTTON" desc="Text shown on power off button in power button menu.">
         Power off
+      </message>
+      <message name="IDS_ASH_POWER_BUTTON_MENU_LOCK_SCREEN_BUTTON" desc="Text shown on lock screen button in power button menu.">
+        Lock screen
+      </message>
+      <message name ="IDS_ASH_POWER_BUTTON_MENU_ACCESSIBLE" desc="The accessible name of the power button menu, may be spoken out loud.">
+        Power
       </message>
 
       <!-- Detachable base notifications -->
@@ -1343,6 +1368,31 @@ Subsequent notifications, windows and dialogs may be split between desktops.
       </message>
       <message name="IDS_ASH_DETACHABLE_BASE_NOTIFICATION_CRITICAL_UPDATE_NEEDED_MESSAGE" desc="Body for the notification shown to the user when the detachable base (keyboard) connected to the device has to be updated. This notification is shown if the keyboard is not usable without the update.">
         To get the update, use the touchscreen to restart your Chromebook with the keyboard attached.
+      </message>
+
+      <!-- Mojo service names (displayed in task manager) -->
+      <message name="IDS_ASH_ASH_SERVICE_NAME" desc="Name of the internal software service that manages windows. Appears in the task manager.">
+        Window manager
+      </message>
+      <message name="IDS_ASH_AUTOCLICK_APP_NAME" desc="Name of the accessibility app that automatically clicks the mouse when it stops moving. Appears in the task manager.">
+        Autoclick
+      </message>
+      <!-- TODO(jamescook): Move next to font service code. -->
+      <message name="IDS_ASH_FONT_SERVICE_NAME" desc="Name of the internal software service that provides fonts. Appears in the task manager.">
+        Font service
+      </message>
+      <message name="IDS_ASH_QUICK_LAUNCH_APP_NAME" desc="Name of the app used to launch other apps by typing an app name. Appears in the task manager.">
+        Quick launch
+      </message>
+      <message name="IDS_ASH_SHORTCUT_VIEWER_APP_NAME" desc="Name of the app that shows the list of keyboard shortcuts. Appears in the task manager.">
+        Shortcut viewer
+      </message>
+      <message name="IDS_ASH_TAP_VISUALIZER_APP_NAME" desc="Name of the app that displays touch tap points on the screen. Appears in the task manager.">
+        Show taps
+      </message>
+      <!-- TODO(jamescook): Remove when mash switches to ws2. -->
+      <message name="IDS_ASH_UI_SERVICE_NAME" desc="Name of the internal software service that manages the user interface (UI). Appears in the task manager.">
+        UI service
       </message>
     </messages>
   </release>

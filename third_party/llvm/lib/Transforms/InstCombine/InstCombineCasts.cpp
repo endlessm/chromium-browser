@@ -257,7 +257,7 @@ Instruction::CastOps InstCombiner::isEliminableCastPair(const CastInst *CI1,
   return Instruction::CastOps(Res);
 }
 
-/// @brief Implement the transforms common to all CastInst visitors.
+/// Implement the transforms common to all CastInst visitors.
 Instruction *InstCombiner::commonCastTransforms(CastInst &CI) {
   Value *Src = CI.getOperand(0);
 
@@ -364,13 +364,12 @@ static bool canEvaluateTruncated(Value *V, Type *Ty, InstCombiner &IC,
     // UDiv and URem can be truncated if all the truncated bits are zero.
     uint32_t OrigBitWidth = OrigTy->getScalarSizeInBits();
     uint32_t BitWidth = Ty->getScalarSizeInBits();
-    if (BitWidth < OrigBitWidth) {
-      APInt Mask = APInt::getHighBitsSet(OrigBitWidth, OrigBitWidth-BitWidth);
-      if (IC.MaskedValueIsZero(I->getOperand(0), Mask, 0, CxtI) &&
-          IC.MaskedValueIsZero(I->getOperand(1), Mask, 0, CxtI)) {
-        return canEvaluateTruncated(I->getOperand(0), Ty, IC, CxtI) &&
-               canEvaluateTruncated(I->getOperand(1), Ty, IC, CxtI);
-      }
+    assert(BitWidth < OrigBitWidth && "Unexpected bitwidths!");
+    APInt Mask = APInt::getBitsSetFrom(OrigBitWidth, BitWidth);
+    if (IC.MaskedValueIsZero(I->getOperand(0), Mask, 0, CxtI) &&
+        IC.MaskedValueIsZero(I->getOperand(1), Mask, 0, CxtI)) {
+      return canEvaluateTruncated(I->getOperand(0), Ty, IC, CxtI) &&
+             canEvaluateTruncated(I->getOperand(1), Ty, IC, CxtI);
     }
     break;
   }
@@ -393,9 +392,9 @@ static bool canEvaluateTruncated(Value *V, Type *Ty, InstCombiner &IC,
     if (match(I->getOperand(1), m_APInt(Amt))) {
       uint32_t OrigBitWidth = OrigTy->getScalarSizeInBits();
       uint32_t BitWidth = Ty->getScalarSizeInBits();
-      if (IC.MaskedValueIsZero(I->getOperand(0),
-            APInt::getHighBitsSet(OrigBitWidth, OrigBitWidth-BitWidth), 0, CxtI) &&
-          Amt->getLimitedValue(BitWidth) < BitWidth) {
+      if (Amt->getLimitedValue(BitWidth) < BitWidth &&
+          IC.MaskedValueIsZero(I->getOperand(0),
+            APInt::getBitsSetFrom(OrigBitWidth, BitWidth), 0, CxtI)) {
         return canEvaluateTruncated(I->getOperand(0), Ty, IC, CxtI);
       }
     }
@@ -698,8 +697,10 @@ Instruction *InstCombiner::visitTrunc(TruncInst &CI) {
 
     // If this cast is a truncate, evaluting in a different type always
     // eliminates the cast, so it is always a win.
-    DEBUG(dbgs() << "ICE: EvaluateInDifferentType converting expression type"
-          " to avoid cast: " << CI << '\n');
+    LLVM_DEBUG(
+        dbgs() << "ICE: EvaluateInDifferentType converting expression type"
+                  " to avoid cast: "
+               << CI << '\n');
     Value *Res = EvaluateInDifferentType(Src, DestTy, false);
     assert(Res->getType() == DestTy);
     return replaceInstUsesWith(CI, Res);
@@ -1071,8 +1072,10 @@ Instruction *InstCombiner::visitZExt(ZExtInst &CI) {
            "Can't clear more bits than in SrcTy");
 
     // Okay, we can transform this!  Insert the new expression now.
-    DEBUG(dbgs() << "ICE: EvaluateInDifferentType converting expression type"
-          " to avoid zero extend: " << CI << '\n');
+    LLVM_DEBUG(
+        dbgs() << "ICE: EvaluateInDifferentType converting expression type"
+                  " to avoid zero extend: "
+               << CI << '\n');
     Value *Res = EvaluateInDifferentType(Src, DestTy, false);
     assert(Res->getType() == DestTy);
 
@@ -1345,8 +1348,10 @@ Instruction *InstCombiner::visitSExt(SExtInst &CI) {
   if ((DestTy->isVectorTy() || shouldChangeType(SrcTy, DestTy)) &&
       canEvaluateSExtd(Src, DestTy)) {
     // Okay, we can transform this!  Insert the new expression now.
-    DEBUG(dbgs() << "ICE: EvaluateInDifferentType converting expression type"
-          " to avoid sign extend: " << CI << '\n');
+    LLVM_DEBUG(
+        dbgs() << "ICE: EvaluateInDifferentType converting expression type"
+                  " to avoid sign extend: "
+               << CI << '\n');
     Value *Res = EvaluateInDifferentType(Src, DestTy, true);
     assert(Res->getType() == DestTy);
 
@@ -1544,9 +1549,7 @@ Instruction *InstCombiner::visitFPTrunc(FPTruncInst &FPT) {
         if (OpWidth >= LHSWidth + RHSWidth && DstWidth >= SrcWidth) {
           Value *LHS = Builder.CreateFPTrunc(OpI->getOperand(0), Ty);
           Value *RHS = Builder.CreateFPTrunc(OpI->getOperand(1), Ty);
-          Instruction *RI = BinaryOperator::CreateFMul(LHS, RHS);
-          RI->copyFastMathFlags(OpI);
-          return RI;
+          return BinaryOperator::CreateFMulFMF(LHS, RHS, OpI);
         }
         break;
       case Instruction::FDiv:
@@ -1559,9 +1562,7 @@ Instruction *InstCombiner::visitFPTrunc(FPTruncInst &FPT) {
         if (OpWidth >= 2*DstWidth && DstWidth >= SrcWidth) {
           Value *LHS = Builder.CreateFPTrunc(OpI->getOperand(0), Ty);
           Value *RHS = Builder.CreateFPTrunc(OpI->getOperand(1), Ty);
-          Instruction *RI = BinaryOperator::CreateFDiv(LHS, RHS);
-          RI->copyFastMathFlags(OpI);
-          return RI;
+          return BinaryOperator::CreateFDivFMF(LHS, RHS, OpI);
         }
         break;
       case Instruction::FRem: {
@@ -1580,9 +1581,7 @@ Instruction *InstCombiner::visitFPTrunc(FPTruncInst &FPT) {
            RHS = Builder.CreateFPTrunc(OpI->getOperand(1), RHSMinType);
         }
 
-        Value *ExactResult = Builder.CreateFRem(LHS, RHS);
-        if (Instruction *RI = dyn_cast<Instruction>(ExactResult))
-          RI->copyFastMathFlags(OpI);
+        Value *ExactResult = Builder.CreateFRemFMF(LHS, RHS, OpI);
         return CastInst::CreateFPCast(ExactResult, Ty);
       }
     }
@@ -1590,9 +1589,7 @@ Instruction *InstCombiner::visitFPTrunc(FPTruncInst &FPT) {
     // (fptrunc (fneg x)) -> (fneg (fptrunc x))
     if (BinaryOperator::isFNeg(OpI)) {
       Value *InnerTrunc = Builder.CreateFPTrunc(OpI->getOperand(1), Ty);
-      Instruction *RI = BinaryOperator::CreateFNeg(InnerTrunc);
-      RI->copyFastMathFlags(OpI);
-      return RI;
+      return BinaryOperator::CreateFNegFMF(InnerTrunc, OpI);
     }
   }
 
@@ -1756,7 +1753,7 @@ Instruction *InstCombiner::visitIntToPtr(IntToPtrInst &CI) {
   return nullptr;
 }
 
-/// @brief Implement the transforms for cast of pointer (bitcast/ptrtoint)
+/// Implement the transforms for cast of pointer (bitcast/ptrtoint)
 Instruction *InstCombiner::commonPointerCastTransforms(CastInst &CI) {
   Value *Src = CI.getOperand(0);
 

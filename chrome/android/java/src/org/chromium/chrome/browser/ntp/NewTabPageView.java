@@ -4,14 +4,12 @@
 
 package org.chromium.chrome.browser.ntp;
 
-import static org.chromium.chrome.browser.util.ViewUtils.dpToPx;
-
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Point;
 import android.graphics.Rect;
-import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.Drawable;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.RecyclerView;
@@ -71,29 +69,10 @@ public class NewTabPageView
     private static final long SNAP_SCROLL_DELAY_MS = 30;
 
     /**
-     * Experiment parameter for the maximum number of tile suggestion rows to show.
+     * Parameter for the simplified NTP ablation experiment arm which removes the additional
+     * suggestions sections without replacing them with shortcut buttons.
      */
-    private static final String PARAM_NTP_MAX_TILE_ROWS = "ntp_max_tile_rows";
-
-    /**
-     * Experiment parameter for the number of tile title lines to show.
-     */
-    private static final String PARAM_NTP_TILE_TITLE_LINES = "ntp_tile_title_lines";
-
-    /**
-     * Experiment parameter for whether to show the logo in the condensed layout.
-     */
-    private static final String PARAM_CONDENSED_LAYOUT_SHOW_LOGO = "condensed_layout_show_logo";
-
-    /**
-     * Experiment parameter for the logo height in dp in the condensed layout.
-     */
-    private static final String PARAM_CONDENSED_LAYOUT_LOGO_HEIGHT = "condensed_layout_logo_height";
-
-    /**
-     * Default experiment parameter value for the logo height in dp in the condensed layout.
-     */
-    private static final int PARAM_DEFAULT_VALUE_CONDENSED_LAYOUT_LOGO_HEIGHT_DP = 100;
+    private static final String PARAM_SIMPLIFIED_NTP_ABLATION = "simplified_ntp_ablation";
 
     private NewTabPageRecyclerView mRecyclerView;
 
@@ -104,6 +83,7 @@ public class NewTabPageView
     private SiteSectionViewHolder mSiteSectionViewHolder;
     private View mTileGridPlaceholder;
     private View mNoSearchLogoSpacer;
+    private ViewGroup mShortcutsView;
 
     private OnSearchBoxScrollListener mSearchBoxScrollListener;
 
@@ -148,10 +128,19 @@ public class NewTabPageView
     private ContextMenuManager mContextMenuManager;
 
     /**
-     * Lateral inset to add to the top and bottom of the search box bounds. May be 0 if no inset
+     * Vertical inset to add to the top and bottom of the search box bounds. May be 0 if no inset
      * should be applied. See {@link Rect#inset(int, int)}.
      */
-    private int mSearchBoxBoundsLateralInset;
+    private int mSearchBoxBoundsVerticalInset;
+
+    /**
+     * @return Whether the simplified NTP ablation experiment arm which removes the additional
+     *         suggestions sections without replacing them with shortcut buttons is enabled.
+     */
+    public static boolean isSimplifiedNtpAblationEnabled() {
+        return ChromeFeatureList.getFieldTrialParamByFeatureAsBoolean(
+                ChromeFeatureList.SIMPLIFIED_NTP, PARAM_SIMPLIFIED_NTP_ABLATION, false);
+    }
 
     /**
      * Manages the view interaction with the rest of the system.
@@ -273,29 +262,18 @@ public class NewTabPageView
         mSiteSectionViewHolder.bindDataSource(mTileGroup, tileRenderer);
 
         mSearchProviderLogoView = mNewTabPageLayout.findViewById(R.id.search_provider_logo);
-        int experimentalLogoHeightDp = ChromeFeatureList.getFieldTrialParamByFeatureAsInt(
-                ChromeFeatureList.NTP_CONDENSED_LAYOUT, PARAM_CONDENSED_LAYOUT_LOGO_HEIGHT,
-                PARAM_DEFAULT_VALUE_CONDENSED_LAYOUT_LOGO_HEIGHT_DP);
-        if (experimentalLogoHeightDp > 0) {
-            ViewGroup.LayoutParams logoParams = mSearchProviderLogoView.getLayoutParams();
-            logoParams.height = dpToPx(getContext(), experimentalLogoHeightDp);
-            mSearchProviderLogoView.setLayoutParams(logoParams);
-        }
         mLogoDelegate = new LogoDelegateImpl(
                 mManager.getNavigationDelegate(), mSearchProviderLogoView, profile);
 
         mSearchBoxView = mNewTabPageLayout.findViewById(R.id.search_box);
         if (SuggestionsConfig.useModernLayout()) {
-            mSearchBoxView.setBackgroundResource(R.drawable.modern_toolbar_background);
+            mSearchBoxView.setBackgroundResource(R.drawable.ntp_search_box);
             mSearchBoxView.getLayoutParams().height =
                     getResources().getDimensionPixelSize(R.dimen.ntp_search_box_height_modern);
 
             if (!DeviceFormFactor.isTablet()) {
-                mSearchBoxBoundsLateralInset = getResources().getDimensionPixelSize(
-                        R.dimen.ntp_search_box_bounds_lateral_inset_modern);
-            } else {
-                GradientDrawable background = (GradientDrawable) mSearchBoxView.getBackground();
-                background.setCornerRadius(mSearchBoxView.getLayoutParams().height / 2.f);
+                mSearchBoxBoundsVerticalInset = getResources().getDimensionPixelSize(
+                        R.dimen.ntp_search_box_bounds_vertical_inset_modern);
             }
         }
         mNoSearchLogoSpacer = mNewTabPageLayout.findViewById(R.id.no_search_logo_spacer);
@@ -303,6 +281,7 @@ public class NewTabPageView
         mSnapScrollRunnable = new SnapScrollRunnable();
         mUpdateSearchBoxOnScrollRunnable = new UpdateSearchBoxOnScrollRunnable();
 
+        initializeShortcuts();
         initializeSearchBoxTextView();
         initializeVoiceSearchButton();
         initializeLayoutChangeListeners();
@@ -361,8 +340,6 @@ public class NewTabPageView
                 NewTabPageView.this.onDestroy();
             }
         });
-
-        initializeShortcuts();
 
         mInitialized = true;
 
@@ -477,7 +454,6 @@ public class NewTabPageView
                 onUrlFocusAnimationChanged();
                 updateSearchBoxOnScroll();
 
-                mRecyclerView.updatePeekingCardAndHeader();
                 // The positioning of elements may have been changed (since the elements expand to
                 // fill the available vertical space), so adjust the scroll.
                 mRecyclerView.snapScroll(mSearchBoxView, getHeight());
@@ -614,7 +590,6 @@ public class NewTabPageView
             mRecyclerView.postDelayed(mSnapScrollRunnable, SNAP_SCROLL_DELAY_MS);
         }
         updateSearchBoxOnScroll();
-        mRecyclerView.updatePeekingCardAndHeader();
     }
 
     /**
@@ -687,6 +662,7 @@ public class NewTabPageView
         int childCount = mNewTabPageLayout.getChildCount();
         for (int i = 0; i < childCount; i++) {
             View child = mNewTabPageLayout.getChildAt(i);
+            if (mShortcutsView != null && child == mShortcutsView) break;
             if (child == mSiteSectionViewHolder.itemView) break;
 
             // Don't change the visibility of a ViewStub as that will automagically inflate it.
@@ -715,13 +691,20 @@ public class NewTabPageView
      * Updates the padding for the tile grid based on what is shown above it.
      */
     private void updateTileGridPadding() {
-        int paddingWithLogoId = SuggestionsConfig.useModernLayout()
-                ? R.dimen.tile_grid_layout_modern_padding_top
-                : R.dimen.tile_grid_layout_padding_top;
-        // Set a bit more top padding on the tile grid if there is no logo.
-        final int paddingTop = getResources().getDimensionPixelSize(shouldShowLogo()
-                        ? paddingWithLogoId
-                        : R.dimen.tile_grid_layout_no_logo_padding_top);
+        int paddingTop;
+        if (mShortcutsView != null) {
+            // If the shortcuts view is visible, padding will be built into that view.
+            paddingTop = 0;
+        } else {
+            int paddingWithLogoId = SuggestionsConfig.useModernLayout()
+                    ? R.dimen.tile_grid_layout_modern_padding_top
+                    : R.dimen.tile_grid_layout_padding_top;
+            // Set a bit more top padding on the tile grid if there is no logo.
+            paddingTop = getResources().getDimensionPixelSize(shouldShowLogo()
+                            ? paddingWithLogoId
+                            : R.dimen.tile_grid_layout_no_logo_padding_top);
+        }
+
         mSiteSectionViewHolder.itemView.setPadding(
                 0, paddingTop, 0, mSiteSectionViewHolder.itemView.getPaddingBottom());
     }
@@ -775,7 +758,7 @@ public class NewTabPageView
                 + mNewTabPageLayout.getPaddingTop();
         int target = Math.max(basePosition,
                 mSearchBoxView.getBottom() - mSearchBoxView.getPaddingBottom()
-                        - mSearchBoxBoundsLateralInset);
+                        - mSearchBoxBoundsVerticalInset);
 
         mNewTabPageLayout.setTranslationY(percent * (basePosition - target));
     }
@@ -799,6 +782,15 @@ public class NewTabPageView
      */
     public void setSearchProviderLogoAlpha(float alpha) {
         mSearchProviderLogoView.setAlpha(alpha);
+    }
+
+    /**
+     * Set the search box background drawable.
+     *
+     * @param drawable The search box background.
+     */
+    public void setSearchBoxBackground(Drawable drawable) {
+        mSearchBoxView.setBackground(drawable);
     }
 
     /**
@@ -835,7 +827,7 @@ public class NewTabPageView
         bounds.offset(translation.x, translation.y);
 
         if (translation.y != Integer.MIN_VALUE) {
-            bounds.inset(0, mSearchBoxBoundsLateralInset);
+            bounds.inset(0, mSearchBoxBoundsVerticalInset);
         }
     }
 
@@ -941,13 +933,7 @@ public class NewTabPageView
     }
 
     private static int getMaxTileRows(boolean searchProviderHasLogo) {
-        int defaultValue = 2;
-        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.NTP_CONDENSED_LAYOUT)
-                && !searchProviderHasLogo) {
-            defaultValue = 3;
-        }
-        return ChromeFeatureList.getFieldTrialParamByFeatureAsInt(
-                ChromeFeatureList.NTP_CONDENSED_LAYOUT, PARAM_NTP_MAX_TILE_ROWS, defaultValue);
+        return 2;
     }
 
     /**
@@ -963,30 +949,74 @@ public class NewTabPageView
     }
 
     private static int getTileTitleLines() {
-        int defaultValue = 2;
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.NTP_CONDENSED_LAYOUT)) {
-            defaultValue = 1;
-        }
-        return ChromeFeatureList.getFieldTrialParamByFeatureAsInt(
-                ChromeFeatureList.NTP_CONDENSED_LAYOUT, PARAM_NTP_TILE_TITLE_LINES, defaultValue);
+        return 1;
     }
 
     private boolean shouldShowLogo() {
-        boolean condensedLayoutEnabled =
-                ChromeFeatureList.isEnabled(ChromeFeatureList.NTP_CONDENSED_LAYOUT);
-        boolean showLogoInCondensedLayout = ChromeFeatureList.getFieldTrialParamByFeatureAsBoolean(
-                ChromeFeatureList.NTP_CONDENSED_LAYOUT, PARAM_CONDENSED_LAYOUT_SHOW_LOGO, true);
-        return mSearchProviderHasLogo && (!condensedLayoutEnabled || showLogoInCondensedLayout);
+        return mSearchProviderHasLogo;
     }
 
-    @Override
-    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        if (mNewTabPageLayout != null) {
-            mNewTabPageLayout.setParentViewportHeight(MeasureSpec.getSize(heightMeasureSpec));
-        }
-        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+    /**
+     * Scrolls to the top of content suggestions header if one exists. If not, scrolls to the top
+     * of the first article suggestion. Uses scrollToPositionWithOffset to position the suggestions
+     * below the toolbar and not below the status bar.
+     */
+    void scrollToSuggestions() {
+        int scrollPosition = getSuggestionsScrollPosition();
+        // Nothing to scroll to; return early.
+        if (scrollPosition == RecyclerView.NO_POSITION) return;
 
-        mRecyclerView.updatePeekingCardAndHeader();
+        mRecyclerView.getLinearLayoutManager().scrollToPositionWithOffset(
+                scrollPosition, getScrollToSuggestionsOffset());
+    }
+
+    /**
+     * Retrieves the position of articles or of their header in the NTP adapter to scroll to.
+     * @return The header's position if a header is present. Otherwise, the first
+     *         suggestion card's position.
+     */
+    private int getSuggestionsScrollPosition() {
+        // Header always exists.
+        if (ChromeFeatureList.isEnabled(
+                    ChromeFeatureList.NTP_ARTICLE_SUGGESTIONS_EXPANDABLE_HEADER)) {
+            return mRecyclerView.getNewTabPageAdapter().getArticleHeaderPosition();
+        }
+
+        // Only articles are visible. Headers are not present.
+        if (ChromeFeatureList.isEnabled(ChromeFeatureList.SIMPLIFIED_NTP)) {
+            return mRecyclerView.getNewTabPageAdapter().getFirstSnippetPosition();
+        }
+
+        // With Simplified NTP not enabled, bookmarks/downloads and their headers are added to the
+        // NTP if they're not empty.
+        int scrollPosition = mRecyclerView.getNewTabPageAdapter().getArticleHeaderPosition();
+        return scrollPosition == RecyclerView.NO_POSITION
+                ? mRecyclerView.getNewTabPageAdapter().getFirstSnippetPosition()
+                : scrollPosition;
+    }
+
+    private int getScrollToSuggestionsOffset() {
+        int offset = getResources().getDimensionPixelSize(R.dimen.toolbar_height_no_shadow);
+
+        if (needsExtraOffset()) {
+            offset += getResources().getDimensionPixelSize(
+                              R.dimen.content_suggestions_card_modern_margin)
+                    / 2;
+        }
+        return offset;
+    }
+
+    /**
+     * Checks if extra offset needs to be added for aesthetic reasons.
+     * @return True if modern is enabled (and space exists between each suggestion card) and no
+     *         header is showing.
+     */
+    private boolean needsExtraOffset() {
+        return SuggestionsConfig.useModernLayout()
+                && !ChromeFeatureList.isEnabled(
+                           ChromeFeatureList.NTP_ARTICLE_SUGGESTIONS_EXPANDABLE_HEADER)
+                && mRecyclerView.getNewTabPageAdapter().getArticleHeaderPosition()
+                == RecyclerView.NO_POSITION;
     }
 
     /**
@@ -1068,16 +1098,19 @@ public class NewTabPageView
     }
 
     private void initializeShortcuts() {
-        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.NTP_SHORTCUTS)) return;
+        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.SIMPLIFIED_NTP)
+                || isSimplifiedNtpAblationEnabled()) {
+            return;
+        }
 
-        ViewGroup shortcuts =
-                (ViewGroup) mRecyclerView.getAboveTheFoldView().findViewById(R.id.shortcuts);
-        shortcuts.setVisibility(View.VISIBLE);
+        ViewStub shortcutsStub =
+                mRecyclerView.getAboveTheFoldView().findViewById(R.id.shortcuts_stub);
+        mShortcutsView = (ViewGroup) shortcutsStub.inflate();
 
-        shortcuts.findViewById(R.id.bookmarks_button)
+        mShortcutsView.findViewById(R.id.bookmarks_button)
                 .setOnClickListener(view -> mManager.getNavigationDelegate().navigateToBookmarks());
 
-        shortcuts.findViewById(R.id.downloads_button)
+        mShortcutsView.findViewById(R.id.downloads_button)
                 .setOnClickListener(
                         view -> mManager.getNavigationDelegate().navigateToDownloadManager());
     }

@@ -19,6 +19,9 @@ FakeSmbProviderClient::~FakeSmbProviderClient() {}
 void FakeSmbProviderClient::Init(dbus::Bus* bus) {}
 
 void FakeSmbProviderClient::Mount(const base::FilePath& share_path,
+                                  const std::string& workgroup,
+                                  const std::string& username,
+                                  base::ScopedFD password_fd,
                                   MountCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), smbprovider::ERROR_OK, 1));
@@ -153,6 +156,12 @@ void FakeSmbProviderClient::GetShares(const base::FilePath& server_url,
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(callback), smbprovider::ERROR_OK, entry_list));
+}
+
+void FakeSmbProviderClient::SetupKerberos(const std::string& account_id,
+                                          SetupKerberosCallback callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), true /* success */));
 }
 
 }  // namespace chromeos

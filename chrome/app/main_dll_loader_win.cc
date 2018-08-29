@@ -44,6 +44,7 @@
 #include "content/public/app/sandbox_helper_win.h"
 #include "content/public/common/content_switches.h"
 #include "sandbox/win/src/sandbox.h"
+#include "services/service_manager/sandbox/switches.h"
 
 namespace {
 // The entry point signature of chrome.dll.
@@ -160,7 +161,8 @@ int MainDllLoader::Launch(HINSTANCE instance,
     }
 
     base::FilePath watcher_data_directory;
-    if (!PathService::Get(chrome::DIR_WATCHER_DATA, &watcher_data_directory))
+    if (!base::PathService::Get(chrome::DIR_WATCHER_DATA,
+                                &watcher_data_directory))
       return chrome::RESULT_CODE_MISSING_DATA;
 
     // Intentionally leaked.
@@ -180,7 +182,8 @@ int MainDllLoader::Launch(HINSTANCE instance,
   // Initialize the sandbox services.
   sandbox::SandboxInterfaceInfo sandbox_info = {0};
   const bool is_browser = process_type_.empty();
-  const bool is_sandboxed = !cmd_line.HasSwitch(switches::kNoSandbox);
+  const bool is_sandboxed =
+      !cmd_line.HasSwitch(service_manager::switches::kNoSandbox);
   if (is_browser || is_sandboxed) {
     // For child processes that are running as --no-sandbox, don't initialize
     // the sandbox info, otherwise they'll be treated as brokers (as if they
@@ -241,7 +244,7 @@ void ChromeDllLoader::OnBeforeLaunch(const base::CommandLine& cmd_line,
 
     // Launch the watcher process.
     base::FilePath exe_path;
-    if (PathService::Get(base::FILE_EXE, &exe_path)) {
+    if (base::PathService::Get(base::FILE_EXE, &exe_path)) {
       chrome_watcher_client_.reset(new ChromeWatcherClient(
           base::Bind(&GenerateChromeWatcherCommandLine, exe_path)));
       chrome_watcher_client_->LaunchWatcher();

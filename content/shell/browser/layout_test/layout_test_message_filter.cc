@@ -86,8 +86,6 @@ bool LayoutTestMessageFilter::OnMessageReceived(const IPC::Message& message) {
                         OnSimulateWebNotificationClick)
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_SimulateWebNotificationClose,
                         OnSimulateWebNotificationClose)
-    IPC_MESSAGE_HANDLER(LayoutTestHostMsg_BlockThirdPartyCookies,
-                        OnBlockThirdPartyCookies)
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_DeleteAllCookies, OnDeleteAllCookies)
     IPC_MESSAGE_HANDLER(LayoutTestHostMsg_DeleteAllCookiesForNetworkService,
                         OnDeleteAllCookiesForNetworkService)
@@ -168,10 +166,6 @@ void LayoutTestMessageFilter::OnSimulateWebNotificationClose(
     manager->SimulateClose(title, by_user);
 }
 
-void LayoutTestMessageFilter::OnBlockThirdPartyCookies(bool block) {
-  ShellNetworkDelegate::SetBlockThirdPartyCookies(block);
-}
-
 void LayoutTestMessageFilter::OnDeleteAllCookies() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   net::URLRequestContext* context =
@@ -216,6 +210,9 @@ void LayoutTestMessageFilter::OnSetPermission(
     type = PermissionType::CLIPBOARD_WRITE;
   } else if (name == "payment-handler") {
     type = PermissionType::PAYMENT_HANDLER;
+  } else if (name == "accelerometer" || name == "gyroscope" ||
+             name == "magnetometer" || name == "ambient-light-sensor") {
+    type = PermissionType::SENSORS;
   } else {
     NOTREACHED();
     type = PermissionType::NOTIFICATIONS;
@@ -252,11 +249,12 @@ void LayoutTestMessageFilter::OnTestFinishedInSecondaryRenderer() {
 }
 
 void LayoutTestMessageFilter::OnInitiateCaptureDump(
-    bool capture_navigation_history) {
+    bool capture_navigation_history,
+    bool capture_pixels) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (BlinkTestController::Get()) {
     BlinkTestController::Get()->OnInitiateCaptureDump(
-        capture_navigation_history);
+        capture_navigation_history, capture_pixels);
   }
 }
 

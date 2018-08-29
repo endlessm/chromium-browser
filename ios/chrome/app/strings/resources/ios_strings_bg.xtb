@@ -81,6 +81,7 @@
 <translation id="2381405137052800939">Основни положения</translation>
 <translation id="2386793615875593361">1 избрана</translation>
 <translation id="2435457462613246316">Показване на паролата</translation>
+<translation id="2481538920734869610">НОВ ПРОФИЛ</translation>
 <translation id="2523363575747517183">Този уебсайт многократно се опитва да отвори друго приложение.</translation>
 <translation id="2529021024822217800">Отваряне на всички</translation>
 <translation id="2572712655377361602">Достъпът до снимките ви е блокиран от правило за устройства</translation>
@@ -112,6 +113,7 @@
 <translation id="2909437209446960244">Скорошни раздели</translation>
 <translation id="291754862089661335">Поставете кода за бърза реакция или баркода в тази рамка</translation>
 <translation id="2921219216347069551">Стр. не може да се сподели</translation>
+<translation id="2923448633003185837">Поставяне и старт</translation>
 <translation id="292639812446257861">Означаване като непрочетено</translation>
 <translation id="2933759065870693102">Фенерче</translation>
 <translation id="2969979262385602596">Влизането не бе успешно. Моля, опитайте пак по-късно.</translation>
@@ -131,6 +133,7 @@
 <translation id="3252394070589632019"><ph name="VALUE" />, <ph name="ADDITIONAL_INFO" />, <ph name="INDEX" /> от <ph name="NUM_SUGGESTIONS" /></translation>
 <translation id="3268451620468152448">Отворени раздели</translation>
 <translation id="3277021493514034324">Адресът на сайта бе копиран</translation>
+<translation id="3290875554372353449">Изберете профил</translation>
 <translation id="3324193307694657476">Адрес 2</translation>
 <translation id="3329904751041170572">Не можа да се установи връзка със сървъра.</translation>
 <translation id="3335947283844343239">Повторно отваряне на затворения раздел</translation>
@@ -151,6 +154,7 @@
 <translation id="3588820906588687999">Отваряне на изображението в нов раздел</translation>
 <translation id="3603009562372709545">Копиране на URL адреса на връзката</translation>
 <translation id="3607167657931203000">Автоматично попълване на данни</translation>
+<translation id="3609785682760573515">Синхронизира се...</translation>
 <translation id="3628119975092896051">Списъкът ви за четене е налице офлайн. За да добавите страница към него, докоснете „<ph name="SHARE_OPENING_ICON" />“.</translation>
 <translation id="3638472932233958418">Предв. зареждане на уеб стр.</translation>
 <translation id="3691593122358196899">Отметката бе запазена в/ъв „<ph name="FOLDER_TITLE" />“</translation>
@@ -171,6 +175,7 @@
 <translation id="4049507953662678203">Уверете се, че сте свързани с мрежа, и опитайте отново.</translation>
 <translation id="4084682180776658562">Отметка</translation>
 <translation id="411254640334432676">Изтеглянето не бе успешно.</translation>
+<translation id="4112644173421521737">Търсене</translation>
 <translation id="4121993058175073134">За изпращане на експ. данни от мрежата конфиг. имейла си в Настройки.</translation>
 <translation id="4124987746317609294">Период от време</translation>
 <translation id="4172051516777682613">Показване винаги</translation>
@@ -338,10 +343,12 @@
 <translation id="7159472599653637159">Мобилен сайт</translation>
 <translation id="7167621057293532233">Типове данни</translation>
 <translation id="7175593937868963913">Ново съобщение</translation>
+<translation id="7180611975245234373">Опресняване</translation>
 <translation id="7189598951263744875">Споделяне...</translation>
 <translation id="7203585745079012652">Изговаряне на отговорите</translation>
 <translation id="722055596168483966">Персонализиране на услугите на Google</translation>
 <translation id="7272437679830969316">Паролата не бе копирана поради неуспешно удостоверяване.</translation>
+<translation id="7285236536143823449">ДА, ПРИЕМАМ</translation>
 <translation id="7291368939935408496">Паролите се подготвят...</translation>
 <translation id="7336264872878993241">Изтеглено: <ph name="PERCENT" />%</translation>
 <translation id="7346909386216857016">Добре, разбрах</translation>
@@ -356,6 +363,7 @@
 <translation id="750493650310597496">Избрахте 0</translation>
 <translation id="7514365320538308">Изтегляне</translation>
 <translation id="7537586195939242955">Понастоящем пропускът не може да се инсталира в Passbook.</translation>
+<translation id="7554791636758816595">Нов раздел</translation>
 <translation id="7561196759112975576">Винаги</translation>
 <translation id="7603852183842204213">Блок. изск. прозорци (<ph name="NUMBER_OF_BLOCKED_POPUPS" />)</translation>
 <translation id="7605594153474022051">Синхронизирането не работи</translation>

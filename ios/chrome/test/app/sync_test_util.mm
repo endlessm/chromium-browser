@@ -17,6 +17,7 @@
 #include "components/browser_sync/profile_sync_service.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/keyed_service/core/service_access_type.h"
+#include "components/sync/device_info/local_device_info_provider.h"
 #include "components/sync/engine/net/http_bridge_network_resources.h"
 #include "components/sync/test/fake_server/entity_builder_factory.h"
 #include "components/sync/test/fake_server/fake_server.h"
@@ -288,7 +289,7 @@ BOOL IsTypedUrlPresentOnClient(const GURL& url,
   __block bool history_service_callback_called = false;
   __block int count = 0;
   using history::OriginCountAndLastVisitMap;
-  history_service->GetCountsAndLastVisitForOrigins(
+  history_service->GetCountsAndLastVisitForOriginsForTesting(
       origins, base::BindBlockArc(^(const OriginCountAndLastVisitMap& result) {
         auto iter = result.find(block_safe_url);
         if (iter != result.end())

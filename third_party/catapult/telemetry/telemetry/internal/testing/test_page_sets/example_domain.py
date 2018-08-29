@@ -3,7 +3,24 @@
 # found in the LICENSE file.
 
 from telemetry import story
+from telemetry.core import platform
 from telemetry.page import page
+from telemetry.internal.util import binary_manager
+
+
+HTTP_EXAMPLE = 'http://www.example.com'
+HTTPS_EXAMPLE = 'https://www.example.com'
+
+
+def FetchExampleDomainArchive():
+  ''' Return the path to wpr go archive of example.com page.
+
+  This may involve fetching the archives from cloud storage if it doesn't
+  exist on local file system.
+  '''
+  p = platform.GetHostPlatform()
+  return binary_manager.FetchPath(
+      'example_domain_wpr_go_archive', p.GetArchName(), p.GetOSName())
 
 
 class ExampleDomainPageSet(story.StorySet):
@@ -12,7 +29,5 @@ class ExampleDomainPageSet(story.StorySet):
         archive_data_file='data/example_domain.json',
         cloud_storage_bucket=story.PUBLIC_BUCKET)
 
-    self.AddStory(page.Page('http://www.example.com', self,
-                            name='http://www.example.com'))
-    self.AddStory(page.Page('https://www.example.com', self,
-                            name='https://www.example.com'))
+    self.AddStory(page.Page(HTTP_EXAMPLE, self, name=HTTP_EXAMPLE))
+    self.AddStory(page.Page(HTTPS_EXAMPLE, self, name=HTTPS_EXAMPLE))

@@ -143,17 +143,9 @@ AddressNormalizer* ChromeAutofillClient::GetAddressNormalizer() {
   return nullptr;
 }
 
-SaveCardBubbleController* ChromeAutofillClient::GetSaveCardBubbleController() {
-#if defined(OS_ANDROID)
-  return nullptr;
-#else
-  return SaveCardBubbleControllerImpl::FromWebContents(web_contents());
-#endif
-}
-
 void ChromeAutofillClient::ShowAutofillSettings() {
 #if defined(OS_ANDROID)
-  chrome::android::PreferencesLauncher::ShowAutofillSettings();
+  chrome::android::PreferencesLauncher::ShowAutofillSettings(web_contents());
 #else
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents());
   if (browser)
@@ -197,7 +189,6 @@ void ChromeAutofillClient::ConfirmSaveCreditCardLocally(
 void ChromeAutofillClient::ConfirmSaveCreditCardToCloud(
     const CreditCard& card,
     std::unique_ptr<base::DictionaryValue> legal_message,
-    bool should_cvc_be_requested,
     const base::Closure& callback) {
 #if defined(OS_ANDROID)
   std::unique_ptr<AutofillSaveCardInfoBarDelegateMobile>
@@ -214,8 +205,7 @@ void ChromeAutofillClient::ConfirmSaveCreditCardToCloud(
   autofill::SaveCardBubbleControllerImpl::CreateForWebContents(web_contents());
   autofill::SaveCardBubbleControllerImpl* controller =
       autofill::SaveCardBubbleControllerImpl::FromWebContents(web_contents());
-  controller->ShowBubbleForUpload(card, std::move(legal_message),
-                                  should_cvc_be_requested, callback);
+  controller->ShowBubbleForUpload(card, std::move(legal_message), callback);
 #endif
 }
 
@@ -387,10 +377,7 @@ bool ChromeAutofillClient::ShouldShowSigninPromo() {
 }
 
 void ChromeAutofillClient::ExecuteCommand(int id) {
-  if (id == autofill::POPUP_ITEM_ID_HTTP_NOT_SECURE_WARNING_MESSAGE) {
-    password_manager::metrics_util::LogShowedHttpNotSecureExplanation();
-    ShowHttpNotSecureExplanation();
-  } else if (id == autofill::POPUP_ITEM_ID_ALL_SAVED_PASSWORDS_ENTRY) {
+  if (id == autofill::POPUP_ITEM_ID_ALL_SAVED_PASSWORDS_ENTRY) {
 #if !defined(OS_ANDROID)
     chrome::ShowSettingsSubPage(
         chrome::FindBrowserWithWebContents(web_contents()),
@@ -409,27 +396,6 @@ void ChromeAutofillClient::ExecuteCommand(int id) {
     }
 #endif
   }
-}
-
-void ChromeAutofillClient::ShowHttpNotSecureExplanation() {
-#if !defined(OS_ANDROID)
-  // On desktop platforms, open Page Info, which briefly explains the HTTP
-  // warning message and provides a link to the Help Center for more details.
-  if (ShowPageInfoDialog(web_contents()))
-    return;
-// Otherwise fall through to the section below that opens the URL directly.
-#endif
-
-  // On Android, where Page Info does not (yet) contain a link to the Help
-  // Center (https://crbug.com/679532), or in corner cases where Page Info is
-  // not shown (for example, no navigation entry), just launch the Help topic
-  // directly.
-  const GURL kSecurityIndicatorHelpCenterUrl(
-      "https://support.google.com/chrome/?p=ui_security_indicator");
-  web_contents()->OpenURL(content::OpenURLParams(
-      GURL(kSecurityIndicatorHelpCenterUrl), content::Referrer(),
-      WindowOpenDisposition::NEW_FOREGROUND_TAB, ui::PAGE_TRANSITION_LINK,
-      false /* is_renderer_initiated */));
 }
 
 bool ChromeAutofillClient::IsAutofillSupported() {

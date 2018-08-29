@@ -410,7 +410,7 @@ void BrowserActionsContainer::Layout() {
     }
   }
   if (separator_) {
-    if (width() < resize_area_->width() + GetSeparatorAreaWidth()) {
+    if (width() < GetResizeAreaWidth() + GetSeparatorAreaWidth()) {
       separator_->SetVisible(false);
     } else {
       // Position separator_ in the center of the separator area.
@@ -556,7 +556,8 @@ void BrowserActionsContainer::WriteDragDataForView(View* sender,
   data->provider().SetDragImage(
       view_controller
           ->GetIcon(GetCurrentWebContents(),
-                    toolbar_actions_bar_->GetViewSize())
+                    toolbar_actions_bar_->GetViewSize(),
+                    ToolbarActionButtonState::kNormal)
           .AsImageSkia(),
       press_pt.OffsetFromOrigin());
   // Fill in the remaining info.
@@ -734,8 +735,7 @@ int BrowserActionsContainer::GetResizeAreaWidth() const {
 int BrowserActionsContainer::GetSeparatorAreaWidth() const {
   // The separator is not applicable to the app menu, and is only available in
   // Material refresh.
-  if (ShownInsideMenu() || ui::MaterialDesignController::GetMode() !=
-                               ui::MaterialDesignController::MATERIAL_REFRESH) {
+  if (ShownInsideMenu() || !ui::MaterialDesignController::IsRefreshUi()) {
     return 0;
   }
   return 2 * GetLayoutConstant(TOOLBAR_STANDARD_SPACING) +

@@ -93,14 +93,10 @@ Status EvaluateScriptAndIgnoreResult(Session* session, std::string expression) {
 InitSessionParams::InitSessionParams(
     scoped_refptr<URLRequestContextGetter> context_getter,
     const SyncWebSocketFactory& socket_factory,
-    DeviceManager* device_manager,
-    PortServer* port_server,
-    PortManager* port_manager)
+    DeviceManager* device_manager)
     : context_getter(context_getter),
       socket_factory(socket_factory),
-      device_manager(device_manager),
-      port_server(port_server),
-      port_manager(port_manager) {}
+      device_manager(device_manager) {}
 
 InitSessionParams::InitSessionParams(const InitSessionParams& other) = default;
 
@@ -116,6 +112,9 @@ std::unique_ptr<base::DictionaryValue> CreateCapabilities(
   caps->SetString("version",
                   session->chrome->GetBrowserInfo()->browser_version);
   caps->SetString("chrome.chromedriverVersion", kChromeDriverVersion);
+  caps->SetString(
+      "goog:chromeOptions.debuggerAddress",
+      session->chrome->GetBrowserInfo()->debugger_address.ToString());
   caps->SetString("platform", session->chrome->GetOperatingSystemName());
   caps->SetString("pageLoadStrategy", session->chrome->page_load_strategy());
   caps->SetBoolean("javascriptEnabled", true);
@@ -268,7 +267,6 @@ Status InitSessionHelper(const InitSessionParams& bound_params,
   status =
       LaunchChrome(bound_params.context_getter.get(),
                    bound_params.socket_factory, bound_params.device_manager,
-                   bound_params.port_server, bound_params.port_manager,
                    capabilities, std::move(devtools_event_listeners),
                    &session->chrome, session->w3c_compliant);
   if (status.IsError())

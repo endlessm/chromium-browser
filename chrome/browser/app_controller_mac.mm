@@ -33,7 +33,6 @@
 #include "chrome/browser/background/background_application_list_model.h"
 #include "chrome/browser/background/background_mode_manager.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/command_updater_impl.h"
 #include "chrome/browser/download/download_core_service.h"
@@ -41,6 +40,7 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/mac/mac_startup_profiler.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
@@ -725,7 +725,10 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
   // If there's only 1 tab and the tab is NTP, close this NTP tab and open all
   // startup urls in new tabs, because the omnibox will stay focused if we
   // load url in NTP tab.
-  Browser* browser = chrome::GetLastActiveBrowser();
+  Profile* profile =
+      g_browser_process->profile_manager()->GetLastUsedProfileAllowedByPolicy();
+  Browser* browser = chrome::FindLastActiveWithProfile(profile);
+
   int startupIndex = TabStripModel::kNoTab;
   content::WebContents* startupContent = NULL;
 
@@ -1393,8 +1396,10 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
     startupUrls_.insert(startupUrls_.end(), urls.begin(), urls.end());
     return;
   }
-
-  Browser* browser = chrome::GetLastActiveBrowser();
+  // Pick the last used browser from a regular profile to open the urls.
+  Profile* profile =
+      g_browser_process->profile_manager()->GetLastUsedProfileAllowedByPolicy();
+  Browser* browser = chrome::FindLastActiveWithProfile(profile);
   // if no browser window exists then create one with no tabs to be filled in
   if (!browser) {
     browser = new Browser(
@@ -1716,10 +1721,29 @@ static base::mac::ScopedObjCClassSwizzler* g_swizzle_imk_input_session;
 
 //---------------------------------------------------------------------------
 
+namespace {
+
+void UpdateProfileInUse(Profile* profile, Profile::CreateStatus status) {
+  if (status == Profile::CREATE_STATUS_INITIALIZED) {
+    AppController* controller =
+        base::mac::ObjCCastStrict<AppController>([NSApp delegate]);
+    [controller windowChangedToProfile:profile];
+  }
+}
+
+}  // namespace
+
 namespace app_controller_mac {
 
 bool IsOpeningNewWindow() {
   return g_is_opening_new_window;
+}
+
+void CreateGuestProfileIfNeeded() {
+  g_browser_process->profile_manager()->CreateProfileAsync(
+      ProfileManager::GetGuestProfilePath(),
+      base::BindRepeating(&UpdateProfileInUse), base::string16(), std::string(),
+      std::string());
 }
 
 }  // namespace app_controller_mac

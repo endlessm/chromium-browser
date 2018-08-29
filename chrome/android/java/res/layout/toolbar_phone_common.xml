@@ -42,15 +42,18 @@
             android:layout_width="4dp"
             android:layout_height="match_parent" />
 
-        <org.chromium.chrome.browser.widget.TintedImageButton
-            android:id="@+id/expand_sheet_button"
+        <ViewStub
+            android:id="@+id/incognito_button_stub"
+            android:inflatedId="@+id/incognito_button"
+            android:layout="@layout/toolbar_phone_incognito_button"
             style="@style/ToolbarButton"
-            android:src="@drawable/ic_expand_less_black_24dp"
-            android:contentDescription="@string/accessibility_toolbar_btn_expand"
+            android:layout_gravity="top"
+            android:contentDescription="@string/accessibility_tabstrip_btn_incognito_toggle_standard"
             android:visibility="gone" />
 
         <ImageButton android:id="@+id/tab_switcher_button"
             style="@style/ToolbarButton"
+            android:paddingStart="8dp"
             android:layout_gravity="top"
             android:contentDescription="@string/accessibility_toolbar_btn_tabswitcher_toggle_default" />
 

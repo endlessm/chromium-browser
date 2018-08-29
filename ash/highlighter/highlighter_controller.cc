@@ -64,10 +64,44 @@ HighlighterController::~HighlighterController() {
   Shell::Get()->RemovePreTargetHandler(this);
 }
 
+void HighlighterController::AddObserver(Observer* observer) {
+  DCHECK(observer);
+  observers_.AddObserver(observer);
+}
+
+void HighlighterController::RemoveObserver(Observer* observer) {
+  DCHECK(observer);
+  observers_.RemoveObserver(observer);
+}
+
 void HighlighterController::SetExitCallback(base::OnceClosure exit_callback,
                                             bool require_success) {
   exit_callback_ = std::move(exit_callback);
   require_success_ = require_success;
+}
+
+void HighlighterController::UpdateEnabledState(
+    HighlighterEnabledState enabled_state) {
+  if (enabled_state_ == enabled_state)
+    return;
+  enabled_state_ = enabled_state;
+
+  SetEnabled(enabled_state == HighlighterEnabledState::kEnabled);
+  for (auto& observer : observers_)
+    observer.OnHighlighterEnabledChanged(enabled_state);
+}
+
+void HighlighterController::BindRequest(
+    mojom::HighlighterControllerRequest request) {
+  binding_.Bind(std::move(request));
+}
+
+void HighlighterController::SetClient(
+    mojom::HighlighterControllerClientPtr client) {
+  client_ = std::move(client);
+  client_.set_connection_error_handler(
+      base::BindOnce(&HighlighterController::OnClientConnectionLost,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void HighlighterController::SetEnabled(bool enabled) {
@@ -89,21 +123,9 @@ void HighlighterController::SetEnabled(bool enabled) {
     if (highlighter_view_ && !highlighter_view_->animating())
       DestroyPointerView();
   }
+
   if (client_)
     client_->HandleEnabledStateChange(enabled);
-}
-
-void HighlighterController::BindRequest(
-    mojom::HighlighterControllerRequest request) {
-  binding_.Bind(std::move(request));
-}
-
-void HighlighterController::SetClient(
-    mojom::HighlighterControllerClientPtr client) {
-  client_ = std::move(client);
-  client_.set_connection_error_handler(
-      base::Bind(&HighlighterController::OnClientConnectionLost,
-                 weak_factory_.GetWeakPtr()));
 }
 
 void HighlighterController::ExitHighlighterMode() {
@@ -195,10 +217,13 @@ void HighlighterController::RecognizeGesture() {
 
   if (!box.IsEmpty() &&
       gesture_type != HighlighterGestureType::kNotRecognized) {
-    if (client_) {
-      client_->HandleSelection(gfx::ToEnclosingRect(
-          gfx::ScaleRect(box, GetScreenshotScale(current_window))));
-    }
+    const gfx::Rect selection_rect = gfx::ToEnclosingRect(
+        gfx::ScaleRect(box, GetScreenshotScale(current_window)));
+    if (client_)
+      client_->HandleSelection(selection_rect);
+
+    for (auto& observer : observers_)
+      observer.OnHighlighterSelectionRecognized(selection_rect);
 
     result_view_ = std::make_unique<HighlighterResultView>(current_window);
     result_view_->Animate(box, gesture_type,

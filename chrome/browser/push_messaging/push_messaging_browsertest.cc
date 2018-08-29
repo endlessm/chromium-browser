@@ -13,7 +13,6 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/histogram_tester.h"
@@ -26,7 +25,6 @@
 #include "chrome/browser/engagement/site_engagement_score.h"
 #include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/gcm/gcm_profile_service_factory.h"
-#include "chrome/browser/gcm/instance_id/instance_id_profile_service.h"
 #include "chrome/browser/gcm/instance_id/instance_id_profile_service_factory.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/notifications/notification_handler.h"
@@ -50,6 +48,7 @@
 #include "components/gcm_driver/gcm_client.h"
 #include "components/gcm_driver/instance_id/fake_gcm_driver_for_instance_id.h"
 #include "components/gcm_driver/instance_id/instance_id_driver.h"
+#include "components/gcm_driver/instance_id/instance_id_profile_service.h"
 #include "components/keep_alive_registry/keep_alive_registry.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "content/public/browser/browsing_data_remover.h"
@@ -1644,7 +1643,13 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, PermissionStateSaysDenied) {
   EXPECT_EQ("permission status - denied", script_result);
 }
 
-IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, UnsubscribeSuccess) {
+// TODO(peter): Flaky on Win buildbots. https://crbug.com/838759
+#if defined(OS_WIN)
+#define MAYBE_UnsubscribeSuccess DISABLED_UnsubscribeSuccess
+#else
+#define MAYBE_UnsubscribeSuccess UnsubscribeSucces
+#endif
+IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, MAYBE_UnsubscribeSuccess) {
   std::string script_result;
 
   std::string token1;
@@ -1725,7 +1730,14 @@ IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, UnsubscribeSuccess) {
 
 // Push subscriptions used to be non-InstanceID GCM registrations. Still need
 // to be able to unsubscribe these, even though new ones are no longer created.
-IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest, LegacyUnsubscribeSuccess) {
+// Flaky on some Win and Linux buildbots.  See crbug.com/835382.
+#if defined(OS_WIN) || defined(OS_LINUX)
+#define MAYBE_LegacyUnsubscribeSuccess DISABLED_LegacyUnsubscribeSuccess
+#else
+#define MAYBE_LegacyUnsubscribeSuccess LegacyUnsubscribeSuccess
+#endif
+IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest,
+                       MAYBE_LegacyUnsubscribeSuccess) {
   std::string script_result;
 
   std::string subscription_id1;
@@ -2376,104 +2388,3 @@ IN_PROC_BROWSER_TEST_F(PushMessagingIncognitoBrowserTest,
   ASSERT_TRUE(RunScript("hasSubscription()", &script_result));
   ASSERT_EQ("false - not subscribed", script_result);
 }
-
-#if BUILDFLAG(ENABLE_BACKGROUND_MODE)
-// Push background mode is disabled by default.
-IN_PROC_BROWSER_TEST_F(PushMessagingBrowserTest,
-                       BackgroundModeDisabledByDefault) {
-  // Initially background mode is inactive.
-  BackgroundModeManager* background_mode_manager =
-      g_browser_process->background_mode_manager();
-  ASSERT_FALSE(background_mode_manager->IsBackgroundModeActive());
-
-  // Once there is a push subscription background mode is still inactive.
-  ASSERT_NO_FATAL_FAILURE(SubscribeSuccessfully());
-  ASSERT_FALSE(background_mode_manager->IsBackgroundModeActive());
-
-  // After dropping the last subscription it is still inactive.
-  std::string script_result;
-  base::RunLoop run_loop;
-  push_service()->SetUnsubscribeCallbackForTesting(run_loop.QuitClosure());
-  ASSERT_TRUE(RunScript("unsubscribePush()", &script_result));
-  EXPECT_EQ("unsubscribe result: true", script_result);
-  // Background mode is only guaranteed to have updated once the unsubscribe
-  // callback for testing has been run (PushSubscription.unsubscribe() usually
-  // resolves before that, in order to avoid blocking on network retries etc).
-  run_loop.Run();
-  ASSERT_FALSE(background_mode_manager->IsBackgroundModeActive());
-}
-
-class PushMessagingBackgroundModeEnabledBrowserTest
-    : public PushMessagingBrowserTest {
- public:
-  ~PushMessagingBackgroundModeEnabledBrowserTest() override {}
-
-  // PushMessagingBrowserTest:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(switches::kEnablePushApiBackgroundMode);
-    PushMessagingBrowserTest::SetUpCommandLine(command_line);
-  }
-};
-
-// In this test the command line enables push background mode.
-IN_PROC_BROWSER_TEST_F(PushMessagingBackgroundModeEnabledBrowserTest,
-                       BackgroundModeEnabledWithCommandLine) {
-  // Initially background mode is inactive.
-  BackgroundModeManager* background_mode_manager =
-      g_browser_process->background_mode_manager();
-  ASSERT_FALSE(background_mode_manager->IsBackgroundModeActive());
-
-  // Once there is a push subscription background mode is active.
-  ASSERT_NO_FATAL_FAILURE(SubscribeSuccessfully());
-  ASSERT_TRUE(background_mode_manager->IsBackgroundModeActive());
-
-  // Dropping the last subscription deactivates background mode.
-  std::string script_result;
-  base::RunLoop run_loop;
-  push_service()->SetUnsubscribeCallbackForTesting(run_loop.QuitClosure());
-  ASSERT_TRUE(RunScript("unsubscribePush()", &script_result));
-  EXPECT_EQ("unsubscribe result: true", script_result);
-  // Background mode is only guaranteed to have updated once the unsubscribe
-  // callback for testing has been run (PushSubscription.unsubscribe() usually
-  // resolves before that, in order to avoid blocking on network retries etc).
-  run_loop.Run();
-  ASSERT_FALSE(background_mode_manager->IsBackgroundModeActive());
-}
-
-class PushMessagingBackgroundModeDisabledBrowserTest
-    : public PushMessagingBrowserTest {
- public:
-  ~PushMessagingBackgroundModeDisabledBrowserTest() override {}
-
-  // PushMessagingBrowserTest:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(switches::kDisablePushApiBackgroundMode);
-    PushMessagingBrowserTest::SetUpCommandLine(command_line);
-  }
-};
-
-// In this test the command line disables push background mode.
-IN_PROC_BROWSER_TEST_F(PushMessagingBackgroundModeDisabledBrowserTest,
-                       BackgroundModeDisabledWithCommandLine) {
-  // Initially background mode is inactive.
-  BackgroundModeManager* background_mode_manager =
-      g_browser_process->background_mode_manager();
-  ASSERT_FALSE(background_mode_manager->IsBackgroundModeActive());
-
-  // Once there is a push subscription background mode is still inactive.
-  ASSERT_NO_FATAL_FAILURE(SubscribeSuccessfully());
-  ASSERT_FALSE(background_mode_manager->IsBackgroundModeActive());
-
-  // After dropping the last subscription background mode is still inactive.
-  std::string script_result;
-  base::RunLoop run_loop;
-  push_service()->SetUnsubscribeCallbackForTesting(run_loop.QuitClosure());
-  ASSERT_TRUE(RunScript("unsubscribePush()", &script_result));
-  EXPECT_EQ("unsubscribe result: true", script_result);
-  // Background mode is only guaranteed to have updated once the unsubscribe
-  // callback for testing has been run (PushSubscription.unsubscribe() usually
-  // resolves before that, in order to avoid blocking on network retries etc).
-  run_loop.Run();
-  ASSERT_FALSE(background_mode_manager->IsBackgroundModeActive());
-}
-#endif  // BUILDFLAG(ENABLE_BACKGROUND_MODE)

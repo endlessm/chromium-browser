@@ -18,11 +18,9 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/message_center/public/cpp/notification_delegate.h"
 
-namespace chromeos {
-FORWARD_DECLARE_TEST(DisplayPrefsTest, PreventStore);
-}  // namespace chromeos
-
 namespace ash {
+
+FORWARD_DECLARE_TEST(DisplayPrefsTest, PreventStore);
 
 // A class which manages the notification of display resolution change and
 // also manages the timeout in case the new resolution is unusable.
@@ -61,7 +59,7 @@ class ASH_EXPORT ResolutionNotificationController
       int64_t display_id,
       const display::ManagedDisplayMode& old_resolution,
       const display::ManagedDisplayMode& new_resolution,
-      const base::Closure& accept_callback) WARN_UNUSED_RESULT;
+      base::OnceClosure accept_callback) WARN_UNUSED_RESULT;
 
   // Returns true if the notification is visible or scheduled to be visible and
   // the notification times out.
@@ -75,7 +73,7 @@ class ASH_EXPORT ResolutionNotificationController
  private:
   friend class ResolutionNotificationControllerTest;
   FRIEND_TEST_ALL_PREFIXES(ResolutionNotificationControllerTest, Timeout);
-  FRIEND_TEST_ALL_PREFIXES(chromeos::DisplayPrefsTest, PreventStore);
+  FRIEND_TEST_ALL_PREFIXES(DisplayPrefsTest, PreventStore);
 
   // A struct to bundle the data for a single resolution change.
   struct ResolutionChangeInfo;

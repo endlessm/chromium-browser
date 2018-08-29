@@ -19,14 +19,14 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/platform_thread.h"
 #include "rtc_base/timeutils.h"
-#include "sdk/android/generated_java_audio_device_jni/jni/WebRtcAudioRecord_jni.h"
+#include "sdk/android/generated_java_audio_device_module_native_jni/jni/WebRtcAudioRecord_jni.h"
 #include "sdk/android/src/jni/audio_device/audio_common.h"
 #include "sdk/android/src/jni/jni_helpers.h"
 #include "system_wrappers/include/metrics.h"
 
 namespace webrtc {
 
-namespace android_adm {
+namespace jni {
 
 namespace {
 // Scoped class which logs its time of life as a UMA statistic. It generates
@@ -107,7 +107,7 @@ int32_t AudioRecordJni::InitRecording() {
 
   int frames_per_buffer = Java_WebRtcAudioRecord_initRecording(
       env_, j_audio_record_, audio_parameters_.sample_rate(),
-      audio_parameters_.channels());
+      static_cast<int>(audio_parameters_.channels()));
   if (frames_per_buffer < 0) {
     direct_buffer_address_ = nullptr;
     RTC_LOG(LS_ERROR) << "InitRecording failed";
@@ -182,11 +182,13 @@ void AudioRecordJni::AttachAudioBuffer(AudioDeviceBuffer* audioBuffer) {
 }
 
 bool AudioRecordJni::IsAcousticEchoCancelerSupported() const {
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
   return Java_WebRtcAudioRecord_isAcousticEchoCancelerSupported(
       env_, j_audio_record_);
 }
 
 bool AudioRecordJni::IsNoiseSuppressorSupported() const {
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
   return Java_WebRtcAudioRecord_isNoiseSuppressorSupported(env_,
                                                            j_audio_record_);
 }
@@ -197,12 +199,6 @@ int32_t AudioRecordJni::EnableBuiltInAEC(bool enable) {
   return Java_WebRtcAudioRecord_enableBuiltInAEC(env_, j_audio_record_, enable)
              ? 0
              : -1;
-}
-
-int32_t AudioRecordJni::EnableBuiltInAGC(bool enable) {
-  // TODO(henrika): possibly remove when no longer used by any client.
-  FATAL() << "Should never be called";
-  return -1;
 }
 
 int32_t AudioRecordJni::EnableBuiltInNS(bool enable) {
@@ -247,6 +243,6 @@ void AudioRecordJni::DataIsRecorded(JNIEnv* env,
   }
 }
 
-}  // namespace android_adm
+}  // namespace jni
 
 }  // namespace webrtc

@@ -16,7 +16,6 @@ import string
 
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
-from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
 from chromite.lib import gs
 from chromite.lib import osutils
@@ -77,7 +76,7 @@ PreconditionException: 412 Precondition Failed"""
     result = self._results['DoCommand'].LookupResult(
         (gsutil_cmd,), hook_args=(inst, gsutil_cmd), hook_kwargs=kwargs)
 
-    rc_mock = cros_build_lib_unittest.RunCommandMock()
+    rc_mock = cros_test_lib.RunCommandMock()
     rc_mock.AddCmdResult(
         partial_mock.ListRegex('gsutil'), result.returncode, result.output,
         result.error)
@@ -1495,8 +1494,27 @@ class CatTest(cros_test_lib.TempDirTestCase):
       with self.assertRaises(gs.GSNoSuchKey):
         ctx.Cat(tempuri)
 
+  @cros_test_lib.NetworkTest()
+  def testStreamingRemoteFile(self):
+    """Test streaming a remote file."""
+    ctx = gs.GSContext()
+    with gs.TemporaryURL('chromite.cat') as url:
+      # The default chunksize is 0x100000 (1MB).
+      first_chunk = 'a' * 0x100000
+      second_chunk = 'aaaaaaaaabbbbbbccc'
+      ctx.CreateWithContents(url, first_chunk + second_chunk)
 
-class DryRunTest(cros_build_lib_unittest.RunCommandTestCase):
+      result = ctx.StreamingCat(url)
+      # Get the 1st chunk.
+      self.assertEquals(next(result), first_chunk)
+      # Then the second chunk.
+      self.assertEquals(next(result), second_chunk)
+      # At last, no more.
+      with self.assertRaises(StopIteration):
+        next(result)
+
+
+class DryRunTest(cros_test_lib.RunCommandTestCase):
   """Verify dry_run works for all of GSContext."""
 
   def setUp(self):
@@ -1575,6 +1593,13 @@ class DryRunTest(cros_build_lib_unittest.RunCommandTestCase):
     result = self.ctx.Stat('gs://foo/bar')
     self.assertEqual(result.content_length, 0)
     self.assertNotEqual(result.creation_time, None)
+
+  def testStreamingCat(self):
+    """Test StreamingCat in dry_run mode."""
+    result = self.ctx.StreamingCat('gs://foo/bar')
+    self.assertEqual(next(result), '')
+    with self.assertRaises(StopIteration):
+      next(result)
 
   def testVersion(self):
     """Test gsutil_version in dry_run mode."""

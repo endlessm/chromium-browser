@@ -20,7 +20,6 @@ import org.webrtc.VideoFrame;
  * class also provides a createGui() method for creating a GUI-rendering window
  * on various platforms.
  */
-@JNINamespace("webrtc::jni")
 public class VideoRenderer {
   /**
    * Java version of webrtc::VideoFrame. Frames are only constructed from native code and test
@@ -171,10 +170,10 @@ public class VideoRenderer {
             yuvStrides[1], yuvPlanes[2], yuvStrides[2],
             () -> { VideoRenderer.renderFrameDone(this); });
       } else {
-        // Note: surfaceTextureHelper being null means calling toI420 will crash.
+        // Note: No Handler or YuvConverter means calling toI420 will crash.
         buffer = new TextureBufferImpl(width, height, VideoFrame.TextureBuffer.Type.OES, textureId,
-            RendererCommon.convertMatrixToAndroidGraphicsMatrix(samplingMatrix),
-            null /* surfaceTextureHelper */, () -> { VideoRenderer.renderFrameDone(this); });
+            RendererCommon.convertMatrixToAndroidGraphicsMatrix(samplingMatrix), null /* handler */,
+            null /* yuvConverter */, () -> VideoRenderer.renderFrameDone(this));
       }
       return new VideoFrame(buffer, rotationDegree, 0 /* timestampNs */);
     }
@@ -186,18 +185,7 @@ public class VideoRenderer {
       return new I420Frame(width, height, rotationDegree, new int[] {y_stride, u_stride, v_stride},
           new ByteBuffer[] {y_buffer, u_buffer, v_buffer}, nativeFramePointer);
     }
-
-    @CalledByNative("I420Frame")
-    static I420Frame createTextureFrame(int width, int height, int rotationDegree, int textureId,
-        float[] samplingMatrix, long nativeFramePointer) {
-      return new I420Frame(
-          width, height, rotationDegree, textureId, samplingMatrix, nativeFramePointer);
-    }
   }
-
-  // Helper native function to do a video frame plane copying.
-  static native void nativeCopyPlane(
-      ByteBuffer src, int width, int height, int srcStride, ByteBuffer dst, int dstStride);
 
   /** The real meat of VideoSinkInterface. */
   public static interface Callbacks {

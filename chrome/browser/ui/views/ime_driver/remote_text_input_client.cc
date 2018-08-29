@@ -91,6 +91,12 @@ bool RemoteTextInputClient::HasCompositionText() const {
   return false;
 }
 
+ui::TextInputClient::FocusReason RemoteTextInputClient::GetFocusReason() const {
+  // TODO(https://crbug.com/824604): Implement this correctly.
+  NOTIMPLEMENTED_LOG_ONCE();
+  return ui::TextInputClient::FOCUS_REASON_OTHER;
+}
+
 bool RemoteTextInputClient::GetTextRange(gfx::Range* range) const {
   // TODO(moshayedi): crbug.com/631527.
   NOTIMPLEMENTED_LOG_ONCE();
@@ -168,6 +174,12 @@ const std::string& RemoteTextInputClient::GetClientSourceInfo() const {
   // TODO(moshayedi): crbug.com/631527.
   NOTIMPLEMENTED_LOG_ONCE();
   return base::EmptyString();
+}
+
+bool RemoteTextInputClient::ShouldDoLearning() {
+  // TODO(https://crbug.com/311180): Implement this method.
+  NOTIMPLEMENTED_LOG_ONCE();
+  return false;
 }
 
 ui::EventDispatchDetails RemoteTextInputClient::DispatchKeyEventPostIME(

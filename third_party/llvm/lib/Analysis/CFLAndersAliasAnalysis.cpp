@@ -395,7 +395,7 @@ populateAliasMap(DenseMap<const Value *, std::vector<OffsetValue>> &AliasMap,
     }
 
     // Sort AliasList for faster lookup
-    std::sort(AliasList.begin(), AliasList.end());
+    llvm::sort(AliasList.begin(), AliasList.end());
   }
 }
 
@@ -479,7 +479,7 @@ static void populateExternalRelations(
   }
 
   // Remove duplicates in ExtRelations
-  std::sort(ExtRelations.begin(), ExtRelations.end());
+  llvm::sort(ExtRelations.begin(), ExtRelations.end());
   ExtRelations.erase(std::unique(ExtRelations.begin(), ExtRelations.end()),
                      ExtRelations.end());
 }
@@ -855,8 +855,9 @@ AliasResult CFLAndersAAResult::query(const MemoryLocation &LocA,
     if (!Fn) {
       // The only times this is known to happen are when globals + InlineAsm are
       // involved
-      DEBUG(dbgs()
-            << "CFLAndersAA: could not extract parent function information.\n");
+      LLVM_DEBUG(
+          dbgs()
+          << "CFLAndersAA: could not extract parent function information.\n");
       return MayAlias;
     }
   } else {

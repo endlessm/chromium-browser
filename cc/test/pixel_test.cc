@@ -4,14 +4,16 @@
 
 #include "cc/test/pixel_test.h"
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/command_line.h"
+#include "base/memory/shared_memory.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "cc/base/switches.h"
 #include "cc/raster/raster_buffer_provider.h"
 #include "cc/resources/layer_tree_resource_provider.h"
-#include "cc/resources/resource_provider.h"
 #include "cc/test/fake_output_surface_client.h"
 #include "cc/test/pixel_test_output_surface.h"
 #include "cc/test/pixel_test_utils.h"
@@ -20,12 +22,14 @@
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "components/viz/common/quads/compositor_frame_metadata.h"
+#include "components/viz/common/quads/shared_bitmap.h"
+#include "components/viz/common/resources/bitmap_allocation.h"
+#include "components/viz/service/display/display_resource_provider.h"
 #include "components/viz/service/display/gl_renderer.h"
 #include "components/viz/service/display/output_surface_client.h"
 #include "components/viz/service/display/software_output_device.h"
 #include "components/viz/service/display/software_renderer.h"
 #include "components/viz/test/paths.h"
-#include "components/viz/test/test_gpu_memory_buffer_manager.h"
 #include "components/viz/test/test_shared_bitmap_manager.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -143,7 +147,7 @@ void PixelTest::ReadbackResult(base::Closure quit_run_loop,
 bool PixelTest::PixelsMatchReference(const base::FilePath& ref_file,
                                      const PixelComparator& comparator) {
   base::FilePath test_data_dir;
-  if (!PathService::Get(viz::Paths::DIR_TEST_DATA, &test_data_dir))
+  if (!base::PathService::Get(viz::Paths::DIR_TEST_DATA, &test_data_dir))
     return false;
 
   // If this is false, we didn't set up a readback on a render pass.
@@ -158,28 +162,52 @@ bool PixelTest::PixelsMatchReference(const base::FilePath& ref_file,
       *result_bitmap_, test_data_dir.Append(ref_file), comparator);
 }
 
+std::unique_ptr<base::SharedMemory> PixelTest::AllocateSharedBitmapMemory(
+    const viz::SharedBitmapId& id,
+    const gfx::Size& size) {
+  std::unique_ptr<base::SharedMemory> shm =
+      viz::bitmap_allocation::AllocateMappedBitmap(size, viz::RGBA_8888);
+  this->shared_bitmap_manager_->ChildAllocatedSharedBitmap(
+      viz::bitmap_allocation::DuplicateAndCloseMappedBitmap(shm.get(), size,
+                                                            viz::RGBA_8888),
+      id);
+  return shm;
+}
+
+viz::ResourceId PixelTest::AllocateAndFillSoftwareResource(
+    const gfx::Size& size,
+    const SkBitmap& source) {
+  viz::SharedBitmapId shared_bitmap_id = viz::SharedBitmap::GenerateId();
+  std::unique_ptr<base::SharedMemory> shm =
+      AllocateSharedBitmapMemory(shared_bitmap_id, size);
+
+  SkImageInfo info = SkImageInfo::MakeN32Premul(size.width(), size.height());
+  source.readPixels(info, shm->memory(), info.minRowBytes(), 0, 0);
+
+  return child_resource_provider_->ImportResource(
+      viz::TransferableResource::MakeSoftware(shared_bitmap_id, size,
+                                              viz::RGBA_8888),
+      viz::SingleReleaseCallback::Create(base::DoNothing()));
+}
+
 void PixelTest::SetUpGLWithoutRenderer(bool flipped_output_surface) {
   enable_pixel_output_ = std::make_unique<gl::DisableNullDrawGLBindings>();
 
-  auto context_provider =
-      base::MakeRefCounted<TestInProcessContextProvider>(nullptr, false);
+  auto context_provider = base::MakeRefCounted<TestInProcessContextProvider>(
+      /*enable_oop_rasterization=*/false);
   output_surface_ = std::make_unique<PixelTestOutputSurface>(
       std::move(context_provider), flipped_output_surface);
   output_surface_->BindToClient(output_surface_client_.get());
 
   shared_bitmap_manager_ = std::make_unique<viz::TestSharedBitmapManager>();
-  gpu_memory_buffer_manager_ =
-      std::make_unique<viz::TestGpuMemoryBufferManager>();
-  resource_provider_ = std::make_unique<DisplayResourceProvider>(
+  resource_provider_ = std::make_unique<viz::DisplayResourceProvider>(
       output_surface_->context_provider(), shared_bitmap_manager_.get());
 
-  child_context_provider_ =
-      base::MakeRefCounted<TestInProcessContextProvider>(nullptr, false);
+  child_context_provider_ = base::MakeRefCounted<TestInProcessContextProvider>(
+      /*enable_oop_rasterization=*/false);
   child_context_provider_->BindToCurrentThread();
   child_resource_provider_ = std::make_unique<LayerTreeResourceProvider>(
-      child_context_provider_.get(), shared_bitmap_manager_.get(),
-      gpu_memory_buffer_manager_.get(), true,
-      settings_.resource_settings);
+      child_context_provider_.get(), true);
 }
 
 void PixelTest::SetUpGLRenderer(bool flipped_output_surface) {
@@ -209,11 +237,10 @@ void PixelTest::SetUpSoftwareRenderer() {
       std::make_unique<viz::SoftwareOutputDevice>()));
   output_surface_->BindToClient(output_surface_client_.get());
   shared_bitmap_manager_ = std::make_unique<viz::TestSharedBitmapManager>();
-  resource_provider_ = std::make_unique<DisplayResourceProvider>(
+  resource_provider_ = std::make_unique<viz::DisplayResourceProvider>(
       nullptr, shared_bitmap_manager_.get());
-  child_resource_provider_ = std::make_unique<LayerTreeResourceProvider>(
-      nullptr, shared_bitmap_manager_.get(), nullptr, true,
-      settings_.resource_settings);
+  child_resource_provider_ =
+      std::make_unique<LayerTreeResourceProvider>(nullptr, true);
 
   auto renderer = std::make_unique<viz::SoftwareRenderer>(
       &renderer_settings_, output_surface_.get(), resource_provider_.get());

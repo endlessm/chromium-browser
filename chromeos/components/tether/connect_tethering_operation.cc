@@ -37,7 +37,7 @@ ConnectTetheringOperation::Factory*
 // static
 std::unique_ptr<ConnectTetheringOperation>
 ConnectTetheringOperation::Factory::NewInstance(
-    const cryptauth::RemoteDevice& device_to_connect,
+    cryptauth::RemoteDeviceRef device_to_connect,
     BleConnectionManager* connection_manager,
     TetherHostResponseRecorder* tether_host_response_recorder,
     bool setup_required) {
@@ -57,7 +57,7 @@ void ConnectTetheringOperation::Factory::SetInstanceForTesting(
 
 std::unique_ptr<ConnectTetheringOperation>
 ConnectTetheringOperation::Factory::BuildInstance(
-    const cryptauth::RemoteDevice& device_to_connect,
+    cryptauth::RemoteDeviceRef device_to_connect,
     BleConnectionManager* connection_manager,
     TetherHostResponseRecorder* tether_host_response_recorder,
     bool setup_required) {
@@ -67,20 +67,18 @@ ConnectTetheringOperation::Factory::BuildInstance(
 }
 
 ConnectTetheringOperation::ConnectTetheringOperation(
-    const cryptauth::RemoteDevice& device_to_connect,
+    cryptauth::RemoteDeviceRef device_to_connect,
     BleConnectionManager* connection_manager,
     TetherHostResponseRecorder* tether_host_response_recorder,
     bool setup_required)
     : MessageTransferOperation(
-          std::vector<cryptauth::RemoteDevice>{device_to_connect},
+          cryptauth::RemoteDeviceRefList{device_to_connect},
           connection_manager),
       remote_device_(device_to_connect),
       tether_host_response_recorder_(tether_host_response_recorder),
       clock_(base::DefaultClock::GetInstance()),
       setup_required_(setup_required),
-      error_code_to_return_(
-          ConnectTetheringResponse_ResponseCode::
-              ConnectTetheringResponse_ResponseCode_UNKNOWN_ERROR) {}
+      error_code_to_return_(HostResponseErrorCode::NO_RESPONSE) {}
 
 ConnectTetheringOperation::~ConnectTetheringOperation() = default;
 
@@ -93,7 +91,7 @@ void ConnectTetheringOperation::RemoveObserver(Observer* observer) {
 }
 
 void ConnectTetheringOperation::OnDeviceAuthenticated(
-    const cryptauth::RemoteDevice& remote_device) {
+    cryptauth::RemoteDeviceRef remote_device) {
   DCHECK(remote_devices().size() == 1u && remote_devices()[0] == remote_device);
   connect_tethering_request_start_time_ = clock_->Now();
   connect_message_sequence_number_ = SendMessageToDevice(
@@ -103,7 +101,7 @@ void ConnectTetheringOperation::OnDeviceAuthenticated(
 
 void ConnectTetheringOperation::OnMessageReceived(
     std::unique_ptr<MessageWrapper> message_wrapper,
-    const cryptauth::RemoteDevice& remote_device) {
+    cryptauth::RemoteDeviceRef remote_device) {
   if (message_wrapper->GetMessageType() !=
       MessageType::CONNECT_TETHERING_RESPONSE) {
     // If another type of message has been received, ignore it.
@@ -140,12 +138,15 @@ void ConnectTetheringOperation::OnMessageReceived(
                     << remote_device.GetTruncatedDeviceIdForLogs() << " and "
                     << "response_code == SUCCESS, but the response did not "
                     << "contain a Wi-Fi SSID and/or password.";
+      error_code_to_return_ =
+          HostResponseErrorCode::INVALID_HOTSPOT_CREDENTIALS;
     }
   } else {
     PA_LOG(INFO) << "Received ConnectTetheringResponse from device with ID "
                  << remote_device.GetTruncatedDeviceIdForLogs() << " and "
                  << "response_code == " << response->response_code() << ".";
-    error_code_to_return_ = response->response_code();
+    error_code_to_return_ = ConnectTetheringResponseCodeToHostResponseErrorCode(
+        response->response_code());
   }
 
   // UMA_HISTOGRAM_MEDIUM_TIMES is used because UMA_HISTOGRAM_TIMES has a max
@@ -198,7 +199,7 @@ void ConnectTetheringOperation::NotifyObserversOfSuccessfulResponse(
 }
 
 void ConnectTetheringOperation::NotifyObserversOfConnectionFailure(
-    ConnectTetheringResponse_ResponseCode error_code) {
+    HostResponseErrorCode error_code) {
   for (auto& observer : observer_list_)
     observer.OnConnectTetheringFailure(remote_device_, error_code);
 }
@@ -208,6 +209,38 @@ uint32_t ConnectTetheringOperation::GetTimeoutSeconds() {
              ? ConnectTetheringOperation::kSetupRequiredResponseTimeoutSeconds
              : ConnectTetheringOperation::
                    kSetupNotRequiredResponseTimeoutSeconds;
+}
+
+ConnectTetheringOperation::HostResponseErrorCode
+ConnectTetheringOperation::ConnectTetheringResponseCodeToHostResponseErrorCode(
+    ConnectTetheringResponse_ResponseCode error_code) {
+  switch (error_code) {
+    case ConnectTetheringResponse_ResponseCode::
+        ConnectTetheringResponse_ResponseCode_PROVISIONING_FAILED:
+      return HostResponseErrorCode::PROVISIONING_FAILED;
+    case ConnectTetheringResponse_ResponseCode::
+        ConnectTetheringResponse_ResponseCode_TETHERING_TIMEOUT:
+      return HostResponseErrorCode::TETHERING_TIMEOUT;
+    case ConnectTetheringResponse_ResponseCode::
+        ConnectTetheringResponse_ResponseCode_TETHERING_UNSUPPORTED:
+      return HostResponseErrorCode::TETHERING_UNSUPPORTED;
+    case ConnectTetheringResponse_ResponseCode::
+        ConnectTetheringResponse_ResponseCode_NO_CELL_DATA:
+      return HostResponseErrorCode::NO_CELL_DATA;
+    case ConnectTetheringResponse_ResponseCode::
+        ConnectTetheringResponse_ResponseCode_ENABLING_HOTSPOT_FAILED:
+      return HostResponseErrorCode::ENABLING_HOTSPOT_FAILED;
+    case ConnectTetheringResponse_ResponseCode::
+        ConnectTetheringResponse_ResponseCode_ENABLING_HOTSPOT_TIMEOUT:
+      return HostResponseErrorCode::ENABLING_HOTSPOT_TIMEOUT;
+    case ConnectTetheringResponse_ResponseCode::
+        ConnectTetheringResponse_ResponseCode_UNKNOWN_ERROR:
+      return HostResponseErrorCode::UNKNOWN_ERROR;
+    default:
+      break;
+  }
+
+  return HostResponseErrorCode::NO_RESPONSE;
 }
 
 void ConnectTetheringOperation::SetClockForTest(base::Clock* clock_for_test) {

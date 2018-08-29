@@ -20,7 +20,6 @@
 #include "base/json/json_string_value_serializer.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/strings/string_util.h"
 #include "base/task_scheduler/post_task.h"
@@ -284,7 +283,7 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
   std::string GetTraceEventLabel() override { return kCrOSTraceLabel; }
 
   void StartAgentTracing(const base::trace_event::TraceConfig& trace_config,
-                         const StartAgentTracingCallback& callback) override {
+                         StartAgentTracingCallback callback) override {
     dbus::MethodCall method_call(
         debugd::kDebugdInterface,
         debugd::kSystraceStart);
@@ -298,11 +297,11 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
                        weak_ptr_factory_.GetWeakPtr()));
 
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::BindOnce(callback, GetTracingAgentName(), true /* success */));
+        FROM_HERE, base::BindOnce(std::move(callback), GetTracingAgentName(),
+                                  true /* success */));
   }
 
-  void StopAgentTracing(const StopAgentTracingCallback& callback) override {
+  void StopAgentTracing(StopAgentTracingCallback callback) override {
     DCHECK(stop_agent_tracing_task_runner_);
     if (pipe_reader_ != NULL) {
       LOG(ERROR) << "Busy doing StopSystemTracing";
@@ -311,7 +310,7 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
 
     pipe_reader_ =
         std::make_unique<PipeReader>(stop_agent_tracing_task_runner_);
-    callback_ = callback;
+    callback_ = std::move(callback);
     base::ScopedFD pipe_write_end = pipe_reader_->StartIO(base::BindOnce(
         &DebugDaemonClientImpl::OnIOComplete, weak_ptr_factory_.GetWeakPtr()));
 
@@ -501,23 +500,23 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
                        error_callback));
   }
 
-  void StartVmConcierge(VmConciergeCallback callback) override {
+  void StartConcierge(ConciergeCallback callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kStartVmConcierge);
     dbus::MessageWriter writer(&method_call);
     debugdaemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(&DebugDaemonClientImpl::OnStartVmConcierge,
+        base::BindOnce(&DebugDaemonClientImpl::OnStartConcierge,
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  void StopVmConcierge(VmConciergeCallback callback) override {
+  void StopConcierge(ConciergeCallback callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kStopVmConcierge);
     dbus::MessageWriter writer(&method_call);
     debugdaemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(&DebugDaemonClientImpl::OnStopVmConcierge,
+        base::BindOnce(&DebugDaemonClientImpl::OnStopConcierge,
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
@@ -668,10 +667,9 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
       // then pipe_reader_ can be NULL, see OnIOComplete().
       if (pipe_reader_.get()) {
         pipe_reader_.reset();
-        base::ResetAndReturn(&callback_)
-            .Run(GetTracingAgentName(), GetTraceEventLabel(),
-                 scoped_refptr<base::RefCountedString>(
-                     new base::RefCountedString()));
+        std::move(callback_).Run(GetTracingAgentName(), GetTraceEventLabel(),
+                                 scoped_refptr<base::RefCountedString>(
+                                     new base::RefCountedString()));
       }
     }
     // NB: requester is signaled when i/o completes
@@ -690,9 +688,8 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
     pipe_reader_.reset();
     std::string pipe_data =
         result.has_value() ? std::move(result).value() : std::string();
-    base::ResetAndReturn(&callback_)
-        .Run(GetTracingAgentName(), GetTraceEventLabel(),
-             base::RefCountedString::TakeString(&pipe_data));
+    std::move(callback_).Run(GetTracingAgentName(), GetTraceEventLabel(),
+                             base::RefCountedString::TakeString(&pipe_data));
   }
 
   void OnSetOomScoreAdj(const SetOomScoreAdjCallback& callback,
@@ -727,8 +724,7 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
     }
   }
 
-  void OnStartVmConcierge(VmConciergeCallback callback,
-                          dbus::Response* response) {
+  void OnStartConcierge(ConciergeCallback callback, dbus::Response* response) {
     bool result = false;
     dbus::MessageReader reader(response);
     if (response) {
@@ -737,8 +733,7 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
     std::move(callback).Run(result);
   }
 
-  void OnStopVmConcierge(VmConciergeCallback callback,
-                         dbus::Response* response) {
+  void OnStopConcierge(ConciergeCallback callback, dbus::Response* response) {
     bool result = false;
     dbus::MessageReader reader(response);
     if (response) {

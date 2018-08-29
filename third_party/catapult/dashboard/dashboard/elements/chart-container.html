@@ -26,7 +26,6 @@ triaging functionality in the chart.
 <link rel="import" href="/dashboard/static/related_timeseries.html">
 <link rel="import" href="/dashboard/static/series_group.html">
 <link rel="import" href="/dashboard/static/simple_xhr.html">
-<link rel="import" href="/dashboard/static/testselection.html">
 <link rel="import" href="/dashboard/static/uri.html">
 
 <link rel="import" href="/tracing/base/sinebow_color_generator.html">
@@ -373,7 +372,7 @@ triaging functionality in the chart.
         properties: {
           SERIES_SELECTION_OPTIONS: {
             type: Array,
-            value: () => ['important', 'all', 'none']
+            value: () => ['all', 'none']
           },
 
           // Default values for reverting series highlighting.
@@ -741,7 +740,7 @@ triaging functionality in the chart.
                     '/').slice(commonIndex, minPathLength).join('/');
                 for (let j = 0; j < this.seriesGroupList[i].tests.length; j++) {
                   const displayName = prefix + '/' + (
-                      this.seriesGroupList[i].tests[j].name);
+                    this.seriesGroupList[i].tests[j].name);
                   this.set(
                       'seriesGroupList.' + i + '.tests.' + j + '.displayName',
                       displayName);
@@ -1143,9 +1142,6 @@ triaging functionality in the chart.
               description: series[i].description,
               color: this.json.data[i].color,
               index: i,
-              important: testselection.isImportant(
-                  series[i].path.split('/').slice(2).join('/'),
-                  this.testSuites)
             };
 
             testList.push(test);
@@ -1212,7 +1208,7 @@ triaging functionality in the chart.
             for (const key in newTest) {
               this.set('seriesGroupList.' + seriesGroupIndex + '.tests.' +
                        testIndex + '.' + key,
-                  newTest[key]);
+              newTest[key]);
             }
           } else {
             this.addTestToSeriesGroup(seriesGroupIndex, newTest);
@@ -1220,9 +1216,7 @@ triaging functionality in the chart.
                 seriesGroupIndex, newTest.name);
           }
 
-          if (this.seriesGroupList[seriesGroupIndex].selection == 'all' ||
-              this.seriesGroupList[seriesGroupIndex].selection == 'important' &&
-              newTest.important) {
+          if (this.seriesGroupList[seriesGroupIndex].selection == 'all') {
             this.set('seriesGroupList.' + seriesGroupIndex + '.tests.' +
                      testIndex + '.selected', true);
           }
@@ -1233,7 +1227,7 @@ triaging functionality in the chart.
          */
         addTestToSeriesGroup(seriesGroupIndex, test) {
           const seriesGroup = this.seriesGroupList[seriesGroupIndex];
-          if (seriesGroup.collapse && !test.selected && !test.important) {
+          if (seriesGroup.collapse && !test.selected) {
             test.hidden = true;
             if (seriesGroup.numHidden == undefined) {
               this.set('seriesGroupList.' + seriesGroupIndex + '.numHidden', 0);
@@ -1339,12 +1333,6 @@ triaging functionality in the chart.
          * Sorts by tests by important and then by name.
          */
         compareTest(testA, testB) {
-          if (testA.important && !testB.important) {
-            return -1;
-          }
-          if (testB.important && !testA.important) {
-            return 1;
-          }
           if (testA.name > testB.name) {
             return 1;
           }
@@ -2070,8 +2058,8 @@ triaging functionality in the chart.
           // information about a point.
           const nudgeList = [];
           for (let i = Math.max(1, dataIndex - 5);
-               i < Math.min(dataIndex + 5, data.length - 1);
-               i++) {
+            i < Math.min(dataIndex + 5, data.length - 1);
+            i++) {
             // Get annotation information about this nearby point.
             // This might be null if there are gaps in the data series.
             // In that case, we can just not add the point to the nudge list.

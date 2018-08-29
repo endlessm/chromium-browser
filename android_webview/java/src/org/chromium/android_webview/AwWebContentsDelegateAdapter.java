@@ -22,7 +22,7 @@ import android.widget.FrameLayout;
 import org.chromium.base.Callback;
 import org.chromium.base.ContentUriUtils;
 import org.chromium.base.ThreadUtils;
-import org.chromium.content.browser.ContentVideoViewEmbedder;
+import org.chromium.content_public.browser.ContentVideoViewEmbedder;
 import org.chromium.content_public.browser.InvalidateTypes;
 import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.content_public.common.ResourceRequestBody;
@@ -54,6 +54,7 @@ class AwWebContentsDelegateAdapter extends AwWebContentsDelegate {
 
     public void setContainerView(View containerView) {
         mContainerView = containerView;
+        mContainerView.setClickable(true);
     }
 
     @Override
@@ -265,12 +266,13 @@ class AwWebContentsDelegateAdapter extends AwWebContentsDelegate {
     }
 
     @Override
-    public void toggleFullscreenModeForTab(boolean enterFullscreen) {
-        if (enterFullscreen) {
-            enterFullscreen();
-        } else {
-            exitFullscreen();
-        }
+    public void enterFullscreenModeForTab(boolean prefersNavigationBar) {
+        enterFullscreen();
+    }
+
+    @Override
+    public void exitFullscreenModeForTab() {
+        exitFullscreen();
     }
 
     @Override

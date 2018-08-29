@@ -31,8 +31,8 @@
 #include "xray/xray_log_interface.h"
 #include "xray_buffer_queue.h"
 #include "xray_defs.h"
+#include "xray_fdr_flags.h"
 #include "xray_fdr_log_records.h"
-#include "xray_flags.h"
 #include "xray_tsc.h"
 
 namespace __xray {
@@ -364,6 +364,16 @@ writeFunctionRecord(int FuncId, uint32_t TSCDelta,
     (void)Once;
     return;
   }
+  case XRayEntryType::TYPED_EVENT: {
+    static bool Once = [&] {
+      Report("Internal error: patched an XRay typed event call as a function; "
+             "func id = %d\n",
+             FuncId);
+      return true;
+    }();
+    (void)Once;
+    return;
+  }
   }
 
   std::memcpy(TLD.RecordPtr, &FuncRecord, sizeof(FunctionRecord));
@@ -376,7 +386,7 @@ static uint64_t thresholdTicks() {
                                     ? getTSCFrequency()
                                     : __xray::NanosecondsPerSecond;
   static const uint64_t ThresholdTicks =
-      TicksPerSec * flags()->xray_fdr_log_func_duration_threshold_us / 1000000;
+      TicksPerSec * fdrFlags()->func_duration_threshold_us / 1000000;
   return ThresholdTicks;
 }
 
@@ -596,6 +606,7 @@ inline void processFunctionHook(int32_t FuncId, XRayEntryType Entry,
                                 int (*wall_clock_reader)(clockid_t,
                                                          struct timespec *),
                                 BufferQueue *BQ) XRAY_NEVER_INSTRUMENT {
+  __asm volatile("# LLVM-MCA-BEGIN processFunctionHook");
   // Prevent signal handler recursion, so in case we're already in a log writing
   // mode and the signal handler comes in (and is also instrumented) then we
   // don't want to be clobbering potentially partial writes already happening in
@@ -689,6 +700,16 @@ inline void processFunctionHook(int32_t FuncId, XRayEntryType Entry,
     (void)Once;
     return;
   }
+  case XRayEntryType::TYPED_EVENT: {
+    static bool Once = [&] {
+      Report("Internal error: patched an XRay typed event call as a function; "
+             "func id = %d\n",
+             FuncId);
+      return true;
+    }();
+    (void)Once;
+    return;
+  }
   }
 
   writeFunctionRecord(FuncId, RecordTSCDelta, Entry);
@@ -698,6 +719,7 @@ inline void processFunctionHook(int32_t FuncId, XRayEntryType Entry,
   // If we've exhausted the buffer by this time, we then release the buffer to
   // make sure that other threads may start using this buffer.
   endBufferIfFull();
+  __asm volatile("# LLVM-MCA-END");
 }
 
 } // namespace __xray_fdr_internal

@@ -20,6 +20,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/sys_info.h"
+#include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/ios/browser/autofill_switches.h"
 #include "components/dom_distiller/core/dom_distiller_switches.h"
@@ -42,7 +43,7 @@
 #include "ios/chrome/browser/chrome_switches.h"
 #include "ios/chrome/browser/drag_and_drop/drag_and_drop_flag.h"
 #include "ios/chrome/browser/ios_chrome_flag_descriptions.h"
-#include "ios/chrome/browser/itunes_links/itunes_links_flag.h"
+#include "ios/chrome/browser/itunes_urls/itunes_urls_flag.h"
 #include "ios/chrome/browser/mailto/features.h"
 #include "ios/chrome/browser/ssl/captive_portal_features.h"
 #include "ios/chrome/browser/ui/external_search/features.h"
@@ -206,6 +207,9 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
     {"new-file-download", flag_descriptions::kNewFileDownloadName,
      flag_descriptions::kNewFileDownloadDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(web::features::kNewFileDownload)},
+    {"web-error-pages", flag_descriptions::kWebErrorPagesName,
+     flag_descriptions::kWebErrorPagesDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(web::features::kWebErrorPages)},
     {"memex-tab-switcher", flag_descriptions::kMemexTabSwitcherName,
      flag_descriptions::kMemexTabSwitcherDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(kMemexTabSwitcher)},
@@ -216,6 +220,24 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kWKHTTPSystemCookieStoreName,
      flag_descriptions::kWKHTTPSystemCookieStoreName, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(web::features::kWKHTTPSystemCookieStore)},
+    {"enable-autofill-credit-card-upload",
+     flag_descriptions::kAutofillCreditCardUploadName,
+     flag_descriptions::kAutofillCreditCardUploadDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(autofill::kAutofillUpstream)},
+    {"enable-autofill-credit-card-upload-google-pay-branding",
+     flag_descriptions::kAutofillUpstreamUseGooglePayBrandingOnMobileName,
+     flag_descriptions::
+         kAutofillUpstreamUseGooglePayBrandingOnMobileDescription,
+     flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(
+         autofill::features::kAutofillUpstreamUseGooglePayBrandingOnMobile)},
+    {"enable-autofill-credit-card-upload-update-prompt-explanation",
+     flag_descriptions::
+         kEnableAutofillCreditCardUploadUpdatePromptExplanationName,
+     flag_descriptions::
+         kEnableAutofillCreditCardUploadUpdatePromptExplanationDescription,
+     flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(autofill::kAutofillUpstreamUpdatePromptExplanation)},
     {"show-autofill-type-predictions",
      flag_descriptions::kShowAutofillTypePredictionsName,
      flag_descriptions::kShowAutofillTypePredictionsDescription,
@@ -231,6 +253,9 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
     {"collections-ui-reboot", flag_descriptions::kCollectionsUIRebootName,
      flag_descriptions::kCollectionsUIRebootDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(kCollectionsUIReboot)},
+    {"infobars-ui-reboot", flag_descriptions::kInfobarsUIRebootName,
+     flag_descriptions::kInfobarsUIRebootDescription, flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(kInfobarsUIReboot)},
     {"context-menu-element-post-message",
      flag_descriptions::kContextMenuElementPostMessageName,
      flag_descriptions::kContextMenuElementPostMessageDescription,
@@ -254,10 +279,10 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
     {"new-tools_menu", flag_descriptions::kNewToolsMenuName,
      flag_descriptions::kNewToolsMenuDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(kNewToolsMenu)},
-    {"itunes-links-store-kit-handling",
-     flag_descriptions::kITunesLinksStoreKitHandlingName,
-     flag_descriptions::kITunesLinksStoreKitHandlingDescription,
-     flags_ui::kOsIos, FEATURE_VALUE_TYPE(kITunesLinksStoreKitHandling)},
+    {"itunes-urls-store-kit-handling",
+     flag_descriptions::kITunesUrlsStoreKitHandlingName,
+     flag_descriptions::kITunesUrlsStoreKitHandlingDescription,
+     flags_ui::kOsIos, FEATURE_VALUE_TYPE(kITunesUrlsStoreKitHandling)},
     {"unified-consent", flag_descriptions::kUnifiedConsentName,
      flag_descriptions::kUnifiedConsentDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(signin::kUnifiedConsent)},
@@ -274,28 +299,46 @@ const flags_ui::FeatureEntry kFeatureEntries[] = {
     {"ui-refresh-location-bar", flag_descriptions::kUIRefreshLocationBarName,
      flag_descriptions::kUIRefreshLocationBarDescription, flags_ui::kOsIos,
      FEATURE_VALUE_TYPE(kUIRefreshLocationBar)},
-    {"fullscreen-content-inset", flag_descriptions::kFullscreenContentInsetName,
-     flag_descriptions::kFullscreenContentInsetDescription, flags_ui::kOsIos,
-     FEATURE_VALUE_TYPE(fullscreen::features::kFullscreenContentInset)},
+    {"fullscreen-viewport-adjustment-experiment",
+     flag_descriptions::kFullscreenViewportAdjustmentExperimentName,
+     flag_descriptions::kFullscreenViewportAdjustmentExperimentDescription,
+     flags_ui::kOsIos,
+     MULTI_VALUE_TYPE(
+         fullscreen::features::kViewportAdjustmentExperimentChoices)},
+    {"autofill-enforce-min-required-fields-for-heuristics",
+     flag_descriptions::kAutofillEnforceMinRequiredFieldsForHeuristicsName,
+     flag_descriptions::
+         kAutofillEnforceMinRequiredFieldsForHeuristicsDescription,
+     flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(
+         autofill::features::kAutofillEnforceMinRequiredFieldsForHeuristics)},
+    {"autofill-enforce-min-required-fields-for-query",
+     flag_descriptions::kAutofillEnforceMinRequiredFieldsForQueryName,
+     flag_descriptions::kAutofillEnforceMinRequiredFieldsForQueryDescription,
+     flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(
+         autofill::features::kAutofillEnforceMinRequiredFieldsForQuery)},
+    {"autofill-enforce-min-required-fields-for-upload",
+     flag_descriptions::kAutofillEnforceMinRequiredFieldsForUploadName,
+     flag_descriptions::kAutofillEnforceMinRequiredFieldsForUploadDescription,
+     flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(
+         autofill::features::kAutofillEnforceMinRequiredFieldsForUpload)},
+    {"browser-container-fullscreen",
+     flag_descriptions::kBrowserContainerFullscreenName,
+     flag_descriptions::kBrowserContainerFullscreenDescription,
+     flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(web::features::kBrowserContainerFullscreen)},
+    {"autofill-cache-query-responses",
+     flag_descriptions::kAutofillCacheQueryResponsesName,
+     flag_descriptions::kAutofillCacheQueryResponsesDescription,
+     flags_ui::kOsIos,
+     FEATURE_VALUE_TYPE(autofill::features::kAutofillCacheQueryResponses)},
 };
 
 // Add all switches from experimental flags to |command_line|.
 void AppendSwitchesFromExperimentalSettings(base::CommandLine* command_line) {
   NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
-
-  // Web page replay flags.
-  BOOL webPageReplayEnabled = [defaults boolForKey:@"WebPageReplayEnabled"];
-  NSString* webPageReplayProxy =
-      [defaults stringForKey:@"WebPageReplayProxyAddress"];
-  if (webPageReplayEnabled && [webPageReplayProxy length]) {
-    command_line->AppendSwitch(switches::kIOSIgnoreCertificateErrors);
-    // 80 and 443 are the default ports from web page replay.
-    command_line->AppendSwitchASCII(switches::kIOSTestingFixedHttpPort, "80");
-    command_line->AppendSwitchASCII(switches::kIOSTestingFixedHttpsPort, "443");
-    command_line->AppendSwitchASCII(
-        switches::kIOSHostResolverRules,
-        "MAP * " + base::SysNSStringToUTF8(webPageReplayProxy));
-  }
 
   // Set the UA flag if UseMobileSafariUA is enabled.
   if ([defaults boolForKey:@"UseMobileSafariUA"]) {

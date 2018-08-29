@@ -152,6 +152,7 @@ public abstract class ChromeFeatureList {
     public static final String ANDROID_PAY_INTEGRATION_V1 = "AndroidPayIntegrationV1";
     public static final String ANDROID_PAY_INTEGRATION_V2 = "AndroidPayIntegrationV2";
     public static final String ANDROID_PAYMENT_APPS = "AndroidPaymentApps";
+    public static final String AUTOFILL_KEYBOARD_ACCESSORY = "AutofillKeyboardAccessory";
     public static final String AUTOFILL_SCAN_CARDHOLDER_NAME = "AutofillScanCardholderName";
     public static final String CAF_MEDIA_ROUTER_IMPL = "CafMediaRouterImpl";
     public static final String CAPTIVE_PORTAL_CERTIFICATE_LIST = "CaptivePortalCertificateList";
@@ -161,17 +162,11 @@ public abstract class ChromeFeatureList {
     public static final String CCT_POST_MESSAGE_API = "CCTPostMessageAPI";
     public static final String CCT_REDIRECT_PRECONNECT = "CCTRedirectPreconnect";
     public static final String CHROME_DUPLEX = "ChromeDuplex";
-    // TODO(mdjones): Remove CHROME_HOME completely.
-    public static final String CHROME_HOME = "ChromeHome";
-    public static final String CHROME_HOME_DROP_ALL_BUT_FIRST_THUMBNAIL =
-            "ChromeHomeDropAllButFirstThumbnail";
-    public static final String CHROME_HOME_MENU_ITEMS_EXPAND_SHEET =
-            "ChromeHomeMenuItemsExpandSheet";
-    public static final String CHROME_HOME_PERSISTENT_IPH = "ChromeHomePersistentIph";
-    public static final String CHROME_HOME_PULL_TO_REFRESH_IPH_AT_TOP =
-            "ChromeHomePullToRefreshIphAtTop";
+    // TODO(mdjones): Remove CHROME_HOME_SWIPE_VELOCITY_FEATURE or rename.
     public static final String CHROME_HOME_SWIPE_VELOCITY_FEATURE = "ChromeHomeSwipeLogicVelocity";
     public static final String CHROME_MEMEX = "ChromeMemex";
+    public static final String CHROME_MODERN_ALTERNATE_CARD_LAYOUT =
+            "ChromeModernAlternateCardLayout";
     public static final String CHROME_MODERN_DESIGN = "ChromeModernDesign";
     public static final String CHROME_SMART_SELECTION = "ChromeSmartSelection";
     public static final String CLEAR_OLD_BROWSING_DATA = "ClearOldBrowsingData";
@@ -193,6 +188,8 @@ public abstract class ChromeFeatureList {
             "ContextualSearchTapDisableOverride";
     public static final String CONTEXTUAL_SUGGESTIONS_BOTTOM_SHEET =
             "ContextualSuggestionsBottomSheet";
+    public static final String CONTEXTUAL_SUGGESTIONS_SLIM_PEEK_UI =
+            "ContextualSuggestionsSlimPeekUI";
     public static final String CUSTOM_CONTEXT_MENU = "CustomContextMenu";
     public static final String CUSTOM_FEEDBACK_UI = "CustomFeedbackUi";
     // Enables the Data Reduction Proxy menu item in the main menu rather than under Settings on
@@ -200,6 +197,7 @@ public abstract class ChromeFeatureList {
     public static final String DATA_REDUCTION_MAIN_MENU = "DataReductionProxyMainMenu";
     public static final String DONT_PREFETCH_LIBRARIES = "DontPrefetchLibraries";
     public static final String DOWNLOAD_HOME_SHOW_STORAGE_INFO = "DownloadHomeShowStorageInfo";
+    public static final String DOWNLOAD_PROGRESS_INFOBAR = "DownloadProgressInfoBar";
     public static final String DOWNLOADS_FOREGROUND = "DownloadsForeground";
     public static final String DOWNLOADS_LOCATION_CHANGE = "DownloadsLocationChange";
     public static final String EXPERIMENTAL_APP_BANNERS = "ExperimentalAppBanners";
@@ -222,12 +220,10 @@ public abstract class ChromeFeatureList {
     public static final String NO_CREDIT_CARD_ABORT = "NoCreditCardAbort";
     public static final String NTP_ARTICLE_SUGGESTIONS_EXPANDABLE_HEADER =
             "NTPArticleSuggestionsExpandableHeader";
-    public static final String NTP_CONDENSED_LAYOUT = "NTPCondensedLayout";
-    public static final String NTP_CONDENSED_TILE_LAYOUT = "NTPCondensedTileLayout";
+    public static final String NTP_BUTTON = "NTPButton";
     public static final String NTP_FOREIGN_SESSIONS_SUGGESTIONS = "NTPForeignSessionsSuggestions";
     public static final String NTP_LAUNCH_AFTER_INACTIVITY = "NTPLaunchAfterInactivity";
     public static final String NTP_MODERN_LAYOUT = "NTPModernLayout";
-    public static final String NTP_SHORTCUTS = "NTPShortcuts";
     public static final String NTP_SHOW_GOOGLE_G_IN_OMNIBOX = "NTPShowGoogleGInOmnibox";
     public static final String NTP_SNIPPETS_INCREASED_VISIBILITY = "NTPSnippetsIncreasedVisibility";
     public static final String OFFLINE_PAGES_DESCRIPTIVE_FAIL_STATUS =
@@ -241,6 +237,7 @@ public abstract class ChromeFeatureList {
             "OmniboxVoiceSearchAlwaysVisible";
     public static final String PAY_WITH_GOOGLE_V1 = "PayWithGoogleV1";
     public static final String PASSWORD_SEARCH = "PasswordSearchMobile";
+    public static final String PASSWORDS_KEYBOARD_ACCESSORY = "PasswordsKeyboardAccessory";
     public static final String PERMISSION_DELEGATION = "PermissionDelegation";
     public static final String PROGRESS_BAR_THROTTLE = "ProgressBarThrottle";
     public static final String PWA_PERSISTENT_NOTIFICATION = "PwaPersistentNotification";
@@ -248,6 +245,7 @@ public abstract class ChromeFeatureList {
     public static final String REMOVE_NAVIGATION_HISTORY = "RemoveNavigationHistory";
     public static final String SERVICE_WORKER_PAYMENT_APPS = "ServiceWorkerPaymentApps";
     public static final String SHOW_TRUSTED_PUBLISHER_URL = "ShowTrustedPublisherURL";
+    public static final String SIMPLIFIED_NTP = "SimplifiedNTP";
     public static final String SITE_NOTIFICATION_CHANNELS = "SiteNotificationChannels";
     public static final String SOLE_INTEGRATION = "SoleIntegration";
     public static final String SOUND_CONTENT_SETTING = "SoundContentSetting";
@@ -260,7 +258,6 @@ public abstract class ChromeFeatureList {
     public static final String VR_BROWSING_FEEDBACK = "VrBrowsingFeedback";
     public static final String VR_BROWSING_IN_CUSTOM_TAB = "VrBrowsingInCustomTab";
     public static final String VR_BROWSING_NATIVE_ANDROID_UI = "VrBrowsingNativeAndroidUi";
-    public static final String VR_ICON_IN_DAYDREAM_HOME = "VrIconInDaydreamHome";
     public static final String WEB_AUTH = "WebAuthentication";
     public static final String WEB_PAYMENTS = "WebPayments";
     public static final String WEB_PAYMENTS_METHOD_SECTION_ORDER_V2 =

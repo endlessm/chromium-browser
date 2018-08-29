@@ -6,22 +6,16 @@
 
 #include <utility>
 
-#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/mus_property_mirror_ash.h"
 #include "ash/public/cpp/shelf_model.h"
-#include "ash/public/cpp/window_pin_type.h"
 #include "ash/public/cpp/window_properties.h"
-#include "ash/public/cpp/window_state_type.h"
 #include "ash/public/interfaces/constants.mojom.h"
 #include "ash/public/interfaces/process_creation_time_recorder.mojom.h"
-#include "ash/public/interfaces/window_pin_type.mojom.h"
-#include "ash/public/interfaces/window_properties.mojom.h"
-#include "ash/public/interfaces/window_state_type.mojom.h"
 #include "ash/shell.h"
+#include "base/command_line.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/ash_config.h"
-#include "chrome/browser/chromeos/docked_magnifier/docked_magnifier_client.h"
 #include "chrome/browser/chromeos/night_light/night_light_client.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
@@ -37,6 +31,7 @@
 #include "chrome/browser/ui/ash/media_client.h"
 #include "chrome/browser/ui/ash/network/data_promo_notification.h"
 #include "chrome/browser/ui/ash/network/network_connect_delegate_chromeos.h"
+#include "chrome/browser/ui/ash/network/network_portal_notification_controller.h"
 #include "chrome/browser/ui/ash/session_controller_client.h"
 #include "chrome/browser/ui/ash/system_tray_client.h"
 #include "chrome/browser/ui/ash/tab_scrubber.h"
@@ -46,13 +41,16 @@
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/browser/ui/views/frame/immersive_context_mus.h"
 #include "chrome/browser/ui/views/frame/immersive_handler_factory_mus.h"
+#include "chrome/browser/ui/views/ime_driver/ime_driver_mus.h"
 #include "chrome/browser/ui/views/select_file_dialog_extension.h"
 #include "chrome/browser/ui/views/select_file_dialog_extension_factory.h"
 #include "chromeos/network/network_connect.h"
 #include "chromeos/network/network_handler.h"
+#include "chromeos/network/portal_detector/network_portal_detector.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/session_manager/core/session_manager_observer.h"
 #include "components/startup_metric_utils/browser/startup_metric_utils.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/common/service_manager_connection.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/ui/public/interfaces/constants.mojom.h"
@@ -65,6 +63,10 @@
 
 #if BUILDFLAG(ENABLE_WAYLAND_SERVER)
 #include "chrome/browser/exo_parts.h"
+#endif
+
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+#include "chrome/browser/ui/ash/assistant/assistant_client.h"
 #endif
 
 namespace {
@@ -135,56 +137,21 @@ void ChromeBrowserMainExtraPartsAsh::ServiceManagerConnectionStarted(
   if (chromeos::GetAshConfig() == ash::Config::MASH) {
     // ash::Shell will not be created because ash is running out-of-process.
     ash::Shell::SetIsBrowserProcessWithMash();
-    // Register ash-specific window properties with Chrome's property converter.
-    // This propagates ash properties set on chrome windows to ash, via mojo.
     DCHECK(views::MusClient::Exists());
     views::MusClient* mus_client = views::MusClient::Get();
     aura::WindowTreeClientDelegate* delegate = mus_client;
-    aura::PropertyConverter* converter = delegate->GetPropertyConverter();
-
-    converter->RegisterPrimitiveProperty(
-        ash::kCanConsumeSystemKeysKey,
-        ash::mojom::kCanConsumeSystemKeys_Property,
-        aura::PropertyConverter::CreateAcceptAnyValueCallback());
-    converter->RegisterPrimitiveProperty(
-        ash::kHideShelfWhenFullscreenKey,
-        ash::mojom::kHideShelfWhenFullscreen_Property,
-        aura::PropertyConverter::CreateAcceptAnyValueCallback());
-    converter->RegisterPrimitiveProperty(
-        ash::kPanelAttachedKey,
-        ui::mojom::WindowManager::kPanelAttached_Property,
-        aura::PropertyConverter::CreateAcceptAnyValueCallback());
-    converter->RegisterPrimitiveProperty(
-        ash::kShelfItemTypeKey,
-        ui::mojom::WindowManager::kShelfItemType_Property,
-        base::Bind(&ash::IsValidShelfItemType));
-    converter->RegisterPrimitiveProperty(
-        ash::kWindowStateTypeKey, ash::mojom::kWindowStateType_Property,
-        base::Bind(&ash::IsValidWindowStateType));
-    converter->RegisterPrimitiveProperty(
-        ash::kWindowPinTypeKey, ash::mojom::kWindowPinType_Property,
-        base::Bind(&ash::IsValidWindowPinType));
-    converter->RegisterPrimitiveProperty(
-        ash::kWindowPositionManagedTypeKey,
-        ash::mojom::kWindowPositionManaged_Property,
-        aura::PropertyConverter::CreateAcceptAnyValueCallback());
-    converter->RegisterStringProperty(
-        ash::kShelfIDKey, ui::mojom::WindowManager::kShelfID_Property);
-    converter->RegisterPrimitiveProperty(
-        ash::kRestoreBoundsOverrideKey,
-        ash::mojom::kRestoreBoundsOverride_Property,
-        aura::PropertyConverter::CreateAcceptAnyValueCallback());
-    converter->RegisterPrimitiveProperty(
-        ash::kRestoreWindowStateTypeOverrideKey,
-        ash::mojom::kRestoreWindowStateTypeOverride_Property,
-        base::BindRepeating(&ash::IsValidWindowStateType));
-
+    // Register ash-specific window properties with Chrome's property converter.
+    // Values of registered properties will be transported between the services.
+    ash::RegisterWindowProperties(delegate->GetPropertyConverter());
     mus_client->SetMusPropertyMirror(
         std::make_unique<ash::MusPropertyMirrorAsh>());
   }
 }
 
 void ChromeBrowserMainExtraPartsAsh::PreProfileInit() {
+  // IME driver must be available at login screen, so initialize before profile.
+  IMEDriver::Register();
+
   // NetworkConnect handles the network connection state machine for the UI.
   network_connect_delegate_ =
       std::make_unique<NetworkConnectDelegateChromeOS>();
@@ -257,6 +224,18 @@ void ChromeBrowserMainExtraPartsAsh::PostProfileInit() {
   login_screen_client_ = std::make_unique<LoginScreenClient>();
   media_client_ = std::make_unique<MediaClient>();
 
+  // Do not create a NetworkPortalNotificationController for tests since the
+  // NetworkPortalDetector instance may be replaced.
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          ::switches::kTestType)) {
+    chromeos::NetworkPortalDetector* detector =
+        chromeos::network_portal_detector::GetInstance();
+    CHECK(detector);
+    network_portal_notification_controller_ =
+        std::make_unique<chromeos::NetworkPortalNotificationController>(
+            detector);
+  }
+
   // TODO(mash): Port TabScrubber.
   if (chromeos::GetAshConfig() != ash::Config::MASH) {
     // Initialize TabScrubber after the Ash Shell has been initialized.
@@ -271,6 +250,10 @@ void ChromeBrowserMainExtraPartsAsh::PostProfileInit() {
         chromeos::NetworkHandler::Get()->network_state_handler(),
         chromeos::NetworkHandler::Get()->auto_connect_handler());
   }
+
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+  assistant_client_ = std::make_unique<AssistantClient>();
+#endif
 }
 
 void ChromeBrowserMainExtraPartsAsh::PostBrowserStart() {
@@ -280,11 +263,6 @@ void ChromeBrowserMainExtraPartsAsh::PostBrowserStart() {
     night_light_client_ = std::make_unique<NightLightClient>(
         g_browser_process->system_request_context());
     night_light_client_->Start();
-  }
-
-  if (ash::features::IsDockedMagnifierEnabled()) {
-    docked_magnifier_client_ = std::make_unique<DockedMagnifierClient>();
-    docked_magnifier_client_->Start();
   }
 }
 
@@ -297,7 +275,9 @@ void ChromeBrowserMainExtraPartsAsh::PostMainMessageLoopRun() {
 
   night_light_client_.reset();
   data_promo_notification_.reset();
-
+#if BUILDFLAG(ENABLE_CROS_ASSISTANT)
+  assistant_client_.reset();
+#endif
   chrome_launcher_controller_initializer_.reset();
 
   wallpaper_controller_client_.reset();
@@ -307,6 +287,7 @@ void ChromeBrowserMainExtraPartsAsh::PostMainMessageLoopRun() {
   system_tray_client_.reset();
   session_controller_client_.reset();
   chrome_new_window_client_.reset();
+  network_portal_notification_controller_.reset();
   media_client_.reset();
   login_screen_client_.reset();
   ime_controller_client_.reset();

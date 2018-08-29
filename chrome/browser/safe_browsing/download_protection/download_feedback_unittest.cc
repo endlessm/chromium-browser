@@ -4,10 +4,12 @@
 
 #include "chrome/browser/safe_browsing/download_protection/download_feedback.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task_scheduler/post_task.h"
@@ -96,11 +98,6 @@ class SharedURLLoaderFactory : public network::SharedURLLoaderFactory {
       network::mojom::URLLoaderFactory* url_loader_factory)
       : url_loader_factory_(url_loader_factory) {}
 
-  std::unique_ptr<network::SharedURLLoaderFactoryInfo> Clone() override {
-    NOTREACHED();
-    return nullptr;
-  }
-
   // network::URLLoaderFactory implementation:
   void CreateLoaderAndStart(network::mojom::URLLoaderRequest loader,
                             int32_t routing_id,
@@ -113,6 +110,16 @@ class SharedURLLoaderFactory : public network::SharedURLLoaderFactory {
     url_loader_factory_->CreateLoaderAndStart(
         std::move(loader), routing_id, request_id, options, std::move(request),
         std::move(client), traffic_annotation);
+  }
+
+  void Clone(network::mojom::URLLoaderFactoryRequest request) override {
+    NOTREACHED();
+  }
+
+  // network::SharedURLLoaderFactoryInfo implementation
+  std::unique_ptr<network::SharedURLLoaderFactoryInfo> Clone() override {
+    NOTREACHED();
+    return nullptr;
   }
 
  private:
@@ -131,16 +138,19 @@ class DownloadFeedbackTest : public testing::Test {
             {base::MayBlock(), base::TaskPriority::BACKGROUND})),
         io_task_runner_(content::BrowserThread::GetTaskRunnerForThread(
             content::BrowserThread::IO)),
-        url_request_context_getter_(
-            new net::TestURLRequestContextGetter(io_task_runner_)),
+        url_request_context_(std::make_unique<net::TestURLRequestContext>()),
         feedback_finish_called_(false) {
     EXPECT_NE(io_task_runner_, file_task_runner_);
     network::mojom::NetworkContextPtr network_context;
     network_context_ = std::make_unique<network::NetworkContext>(
         nullptr, mojo::MakeRequest(&network_context),
-        url_request_context_getter_);
+        url_request_context_.get());
+    network::mojom::URLLoaderFactoryParamsPtr params =
+        network::mojom::URLLoaderFactoryParams::New();
+    params->process_id = network::mojom::kBrowserProcessId;
+    params->is_corb_enabled = false;
     network_context_->CreateURLLoaderFactory(
-        mojo::MakeRequest(&url_loader_factory_), 0);
+        mojo::MakeRequest(&url_loader_factory_), std::move(params));
     shared_url_loader_factory_ =
         base::MakeRefCounted<SharedURLLoaderFactory>(url_loader_factory_.get());
   }
@@ -174,7 +184,7 @@ class DownloadFeedbackTest : public testing::Test {
   scoped_refptr<base::SequencedTaskRunner> file_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
   FakeUploaderFactory two_phase_uploader_factory_;
-  scoped_refptr<net::TestURLRequestContextGetter> url_request_context_getter_;
+  std::unique_ptr<net::TestURLRequestContext> url_request_context_;
   std::unique_ptr<network::NetworkContext> network_context_;
   network::mojom::URLLoaderFactoryPtr url_loader_factory_;
   scoped_refptr<SharedURLLoaderFactory> shared_url_loader_factory_;

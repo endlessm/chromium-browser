@@ -42,6 +42,26 @@ class TempDir():
     shutil.rmtree(self._dirpath)
 
 
+class SwitchDirsIfNotChromiumBisect():
+  """Context manager for switching between another repo and Chromium src.
+
+  No-op if the --bisect-repo option is not used, otherwise changes directories
+  to the specified repo's directory, then returns to the original directory when
+  the context is left.
+  """
+  def __init__(self, args):
+    self.starting_directory = os.getcwd()
+    self.target_directory = args.bisect_repo
+
+  def __enter__(self):
+    if self.target_directory:
+      os.chdir(self.target_directory)
+
+  def __exit__(self, type, value, traceback):
+    if self.target_directory:
+      os.chdir(self.starting_directory)
+
+
 def VerifyCwd():
   """Checks that the script is being run from the Chromium root directory.
 
@@ -91,6 +111,15 @@ def ParseArgsAndAssertValid():
                            'third_party/android_ndk,abcdefg would cause the '
                            'checkout in //third_party/android_ndk to be synced '
                            'to revision abcdefg.')
+  parser.add_argument('--bisect-repo',
+                      help='A path to the repo that will be bisected instead '
+                           'the Chromium src repo. Meant to be used for '
+                           'bisecting rolls of DEPS (e.g V8 or Skia) after '
+                           'an initial bisect finds that a roll is the culprit '
+                           'CL. Using this option will disable any syncing of '
+                           'the Chromium src repo, so ensure that you are '
+                           'synced to the correct src revision before running '
+                           'with this option.')
   parser.add_argument('--reset-before-sync', action='store_true',
                       default=False,
                       help='When set, runs "git reset --hard HEAD" before '
@@ -109,6 +138,18 @@ def ParseArgsAndAssertValid():
                       help='The data format the JSON results from the test are '
                            'expected to be in. Supported values are: ' +
                            (', '.join(SUPPORTED_JSON_RESULT_FORMATS.keys())))
+  parser.add_argument('--manual-mode', action='store_true', default=False,
+                      help='Does not automatically run gclient sync and waits '
+                           'for user input before starting the build/run '
+                           'process. Useful if a bisect needs to be run within '
+                           'a range where some change breaks gclient sync and '
+                           'a patch needs to be applied at each step before '
+                           'syncing.')
+  parser.add_argument('--apply-stash-before-sync',
+                      help='Applies the given stash entry (e.g. "stash@{0}"), '
+                           'commits it, and syncs to the new revision during '
+                           'each iteration. Primary use case for this is '
+                           'fixing bad DEPS entries in the revision range.')
 
   parser.add_argument_group('swarming arguments')
   parser.add_argument('--swarming-server', required=True,
@@ -161,6 +202,14 @@ def ParseArgsAndAssertValid():
         '--expected-json-result-format set to invalid value %s' %
         args.expected_json_result_format)
 
+  # Determining initial values is not currently supported if we're bisecting a
+  # roll. Since bisecting a roll is almost always a product of a normal bisect
+  # pointing to a roll anyways, the user should have the good/bad values
+  # already.
+  if args.bisect_repo and (args.good_value is None or args.bad_value is None):
+    raise RuntimeError(
+        '--bisect-repo requires good and bad values to be set.')
+
   return (args, unknown_args)
 
 
@@ -172,6 +221,14 @@ def VerifyInput(args, unknown_args):
     unknown_args: The unknown args parsed by the argument parser
   """
   print '======'
+  if args.manual_mode:
+    print ('Script is running in manual mode - you must manually run gclient '
+          'sync on each revision')
+  if args.bisect_repo:
+    print ('Script is set to bisect %s instead of Chromium src. gclient sync '
+           'will not be run, so ensure you are synced to the correct revision '
+           'and any patches, etc. you need are applied before running.' %
+           args.bisect_repo)
   print 'This will start a bisect for a for:'
   print 'Metric: %s' % args.metric
   print 'Story: %s' % args.story
@@ -193,6 +250,9 @@ def VerifyInput(args, unknown_args):
     for pair in args.checkout_overrides:
       for key, val in pair.iteritems():
         print '%s will be synced to revision %s' % (key, val)
+  if args.apply_stash_before_sync:
+    print 'The stash entry %s will be applied before each sync' % (
+        args.apply_stash_before_sync)
   if args.num_attempts_before_marking_good > 1:
     print ('Each revision must be found to be good %d times before actually '
            'being marked as good' % args.num_attempts_before_marking_good)
@@ -228,23 +288,20 @@ def VerifyInput(args, unknown_args):
 def SetupBisect(args):
   """Does all the one-time setup for a bisect.
 
-  This includes creating a new branch and starting a bisect.
-
   Args
     args: The parsed args from argparse
   Returns:
-    The name of the git branch created and the first revision to sync to
+    The first revision to sync to
   """
-  # bisect-year-month-day-hour-minute-second
-  branch_name = 'bisect-' + time.strftime('%Y-%m-%d-%H-%M-%S')
-  subprocess.check_output(['git', 'checkout', '-b', branch_name])
-  subprocess.check_output(['git', 'bisect', 'start'])
-  subprocess.check_output(['git', 'bisect', 'good', args.good_revision])
-  output = subprocess.check_output(['git', 'bisect', 'bad', args.bad_revision])
-  print output
-  # Get the revision, which is between []
-  revision = output.split('[', 1)[1].split(']', 1)[0]
-  return (branch_name, revision)
+  with SwitchDirsIfNotChromiumBisect(args):
+    subprocess.check_output(['git', 'bisect', 'start'])
+    subprocess.check_output(['git', 'bisect', 'good', args.good_revision])
+    output = subprocess.check_output(
+        ['git', 'bisect', 'bad', args.bad_revision])
+    print output
+    # Get the revision, which is between []
+    revision = output.split('[', 1)[1].split(']', 1)[0]
+  return revision
 
 
 def RunTestOnSwarming(args, unknown_args, output_dir):
@@ -393,17 +450,25 @@ def RunBisectStep(args, unknown_args, revision, output_dir):
         print '=== Attempt %d found that revision is GOOD ===' % attempt
 
   output = ""
-  if revision_good:
-    print '=== Current revision is GOOD ==='
-    output = subprocess.check_output(['git', 'bisect', 'good'])
-  else:
-    print '=== Current revision is BAD ==='
-    output = subprocess.check_output(['git', 'bisect', 'bad'])
+  with SwitchDirsIfNotChromiumBisect(args):
+    if revision_good:
+      print '=== Current revision is GOOD ==='
+      output = subprocess.check_output(['git', 'bisect', 'good', revision])
+    else:
+      print '=== Current revision is BAD ==='
+      output = subprocess.check_output(['git', 'bisect', 'bad', revision])
 
   print output
   if output.startswith('Bisecting:'):
     RunBisectStep(args, unknown_args, output.split('[', 1)[1].split(']', 1)[0],
         output_dir)
+
+
+def BuildTarget(args):
+  print 'Building'
+  subprocess.check_output(['ninja', '-C', args.build_output_dir,
+                           '-j', str(args.parallel_jobs),
+                           '-l', str(args.load_limit), args.build_target])
 
 
 def SyncAndBuild(args, unknown_args, revision):
@@ -414,20 +479,34 @@ def SyncAndBuild(args, unknown_args, revision):
     unknown_args: The unknown args parsed by the argument parser
     revision: The revision to sync to and build
   """
-  print '=== Syncing to revision %s and building ===' % revision
-  # Sometimes random files show up as unstaged changes (???), so make sure that
-  # isn't the case before we try to run gclient sync
-  if args.reset_before_sync:
-    subprocess.check_output(['git', 'reset', '--hard', 'HEAD'])
-  print 'Syncing'
-  output = subprocess.check_output(['gclient', 'sync', '-r',
-      'src@%s' % revision])
-  if ('error: Your local changes to the following files would be overwritten '
-      'by checkout:' in output):
-    raise RuntimeError('Could not run gclient sync due to uncommitted changes. '
-        'If these changes are actually yours, please commit or stash them. If '
-        'they are not, remove them and try again. If the issue persists, try '
-        'running with --reset-before-sync')
+  if args.manual_mode:
+    print ('=== Waiting on user input to start build/run process for %s ===' %
+        revision)
+    raw_input('Press any key to continue')
+    print '=== Building ==='
+  else:
+    print '=== Syncing to revision %s and building ===' % revision
+    # Sometimes random files show up as unstaged changes (???), so make sure
+    # that isn't the case before we try to run gclient sync
+    if args.reset_before_sync:
+      subprocess.check_output(['git', 'reset', '--hard', 'HEAD'])
+    sync_revision = revision
+    if args.apply_stash_before_sync:
+      print 'Applying stash entry %s' % args.apply_stash_before_sync
+      subprocess.check_output(
+          ['git', 'stash', 'apply', args.apply_stash_before_sync])
+      subprocess.check_output(['git', 'add', '-u'])
+      subprocess.check_output(['git', 'commit', '-m', 'Apply stash.'])
+      sync_revision = 'HEAD'
+    print 'Syncing'
+    output = subprocess.check_output(['gclient', 'sync', '-r',
+        'src@%s' % sync_revision])
+    if ('error: Your local changes to the following files would be overwritten '
+        'by checkout:' in output):
+      raise RuntimeError('Could not run gclient sync due to uncommitted '
+          'changes. If these changes are actually yours, please commit or '
+          'stash them. If they are not, remove them and try again. If the '
+          'issue persists, try running with --reset-before-sync')
 
   # Ensure that the VR assets are synced to the current revision since it isn't
   # guaranteed that gclient will handle it properly
@@ -446,10 +525,7 @@ def SyncAndBuild(args, unknown_args, revision):
       os.chdir(repo)
       subprocess.check_output(['git', 'checkout', rev])
       os.chdir(cwd)
-  print 'Building'
-  subprocess.check_output(['ninja', '-C', args.build_output_dir,
-                           '-j', str(args.parallel_jobs),
-                           '-l', str(args.load_limit), args.build_target])
+  BuildTarget(args)
 
 
 def BisectRegression(args, unknown_args):
@@ -466,17 +542,24 @@ def BisectRegression(args, unknown_args):
     os.environ['DOWNLOAD_VR_TEST_APKS'] = '1'
     try:
       if args.good_value == None:
+        # Once we've run "git bisect start" and set the good/bad revisions,
+        # we'll be in a detached head state before we sync. However, the git
+        # bisect has to start after this point, so we can't use that behavior
+        # here. So, manually sync to the revision to get into a detached state.
+        subprocess.check_output(['git', 'checkout', args.good_revision])
         args.good_value = GetValueAtRevision(args, unknown_args,
             args.good_revision, output_dir)
         print '=== Got initial good value of %f ===' % args.good_value
       if args.bad_value == None:
+        subprocess.check_output(['git', 'checkout', args.bad_revision])
         args.bad_value = GetValueAtRevision(args, unknown_args,
             args.bad_revision, output_dir)
         print '=== Got initial bad value of %f ===' % args.bad_value
-      branch_name, revision = SetupBisect(args)
+      revision = SetupBisect(args)
       RunBisectStep(args, unknown_args, revision, output_dir)
     finally:
-      subprocess.check_output(['git', 'bisect', 'reset'])
+      with SwitchDirsIfNotChromiumBisect(args):
+        subprocess.check_output(['git', 'bisect', 'reset'])
 
 
 def GetValueAtRevision(args, unknown_args, revision, output_dir, sync=True):
@@ -491,7 +574,14 @@ def GetValueAtRevision(args, unknown_args, revision, output_dir, sync=True):
   Returns:
     The value of the story/metric combo at the given revision
   """
-  if sync:
+  # In the case where we're bisecting a repo other than Chromium src,
+  # "git bisect"'s automatic checkouts will be enough to ensure we're at the
+  # correct revision, so we can just build immediately.
+  if args.bisect_repo:
+    print '=== Building with %s at revision %s ===' % (
+        args.bisect_repo, revision)
+    BuildTarget(args)
+  elif sync:
     SyncAndBuild(args, unknown_args, revision)
   RunTestOnSwarming(args, unknown_args, output_dir)
   return GetSwarmingResult(args, unknown_args, output_dir)

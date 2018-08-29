@@ -14,6 +14,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/single_thread_task_runner.h"
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/time/time.h"
@@ -32,6 +33,7 @@
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/gfx/color_space.h"
 
 using ::testing::_;
 using ::testing::AtLeast;
@@ -116,10 +118,12 @@ class MockVideoDecoder : public VideoDecoder {
     if (!buffer->end_of_stream()) {
       gpu::MailboxHolder mailbox_holders[VideoFrame::kMaxPlanes];
       mailbox_holders[0].mailbox.name[0] = 1;
-      output_cb_.Run(VideoFrame::WrapNativeTextures(
+      scoped_refptr<VideoFrame> frame = VideoFrame::WrapNativeTextures(
           PIXEL_FORMAT_ARGB, mailbox_holders, GetReleaseMailboxCB(),
           config_.coded_size(), config_.visible_rect(), config_.natural_size(),
-          buffer->timestamp()));
+          buffer->timestamp());
+      frame->metadata()->SetBoolean(VideoFrameMetadata::POWER_EFFICIENT, true);
+      output_cb_.Run(frame);
     }
     // |decode_cb| must not be called from the same stack.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
@@ -156,7 +160,8 @@ class FakeMojoMediaClient : public MojoMediaClient {
       scoped_refptr<base::SingleThreadTaskRunner> task_runner,
       MediaLog* media_log,
       mojom::CommandBufferIdPtr command_buffer_id,
-      RequestOverlayInfoCB request_overlay_info_cb) override {
+      RequestOverlayInfoCB request_overlay_info_cb,
+      const gfx::ColorSpace& target_color_space) override {
     return create_video_decoder_cb_.Run(media_log);
   }
 
@@ -181,7 +186,8 @@ class MojoVideoDecoderIntegrationTest : public ::testing::Test {
         mojo::MakeRequest(&remote_video_decoder));
     client_ = std::make_unique<MojoVideoDecoder>(
         base::ThreadTaskRunnerHandle::Get(), nullptr, &client_media_log_,
-        std::move(remote_video_decoder), RequestOverlayInfoCB());
+        std::move(remote_video_decoder), RequestOverlayInfoCB(),
+        gfx::ColorSpace());
   }
 
   void TearDown() override {
@@ -206,9 +212,8 @@ class MojoVideoDecoderIntegrationTest : public ::testing::Test {
     StrictMock<base::MockCallback<VideoDecoder::InitCB>> init_cb;
     EXPECT_CALL(init_cb, Run(_)).WillOnce(SaveArg<0>(&result));
 
-    client_->Initialize(TestVideoConfig::Normal(), false, nullptr,
-                        init_cb.Get(), output_cb_.Get(),
-                        VideoDecoder::WaitingForDecryptionKeyCB());
+    client_->Initialize(TestVideoConfig::NormalH264(), false, nullptr,
+                        init_cb.Get(), output_cb_.Get(), base::NullCallback());
     RunUntilIdle();
 
     return result;

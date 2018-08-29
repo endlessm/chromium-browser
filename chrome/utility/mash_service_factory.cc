@@ -9,7 +9,10 @@
 #include "ash/components/autoclick/autoclick_application.h"
 #include "ash/components/quick_launch/public/mojom/constants.mojom.h"
 #include "ash/components/quick_launch/quick_launch_application.h"
-#include "ash/components/touch_hud/touch_hud_application.h"
+#include "ash/components/shortcut_viewer/public/mojom/constants.mojom.h"
+#include "ash/components/shortcut_viewer/shortcut_viewer_application.h"
+#include "ash/components/tap_visualizer/public/mojom/constants.mojom.h"
+#include "ash/components/tap_visualizer/tap_visualizer_app.h"
 #include "ash/public/interfaces/constants.mojom.h"
 #include "ash/window_manager_service.h"
 #include "base/bind.h"
@@ -76,8 +79,13 @@ std::unique_ptr<service_manager::Service> CreateQuickLaunchApp() {
   return std::make_unique<quick_launch::QuickLaunchApplication>();
 }
 
-std::unique_ptr<service_manager::Service> CreateTouchHudApp() {
-  return std::make_unique<touch_hud::TouchHudApplication>();
+std::unique_ptr<service_manager::Service> CreateShortcutViewerApp() {
+  return std::make_unique<
+      keyboard_shortcut_viewer::ShortcutViewerApplication>();
+}
+
+std::unique_ptr<service_manager::Service> CreateTapVisualizerApp() {
+  return std::make_unique<tap_visualizer::TapVisualizerApp>();
 }
 
 std::unique_ptr<service_manager::Service> CreateFontService() {
@@ -98,7 +106,10 @@ void MashServiceFactory::RegisterOutOfProcessServices(
                       &CreateQuickLaunchApp);
   RegisterMashService(services, ash::mojom::kServiceName, &CreateAshService);
   RegisterMashService(services, "autoclick_app", &CreateAutoclickApp);
-  RegisterMashService(services, "touch_hud_app", &CreateTouchHudApp);
+  RegisterMashService(services, shortcut_viewer::mojom::kServiceName,
+                      &CreateShortcutViewerApp);
+  RegisterMashService(services, tap_visualizer::mojom::kServiceName,
+                      &CreateTapVisualizerApp);
   RegisterMashService(services, font_service::mojom::kServiceName,
                       &CreateFontService);
 }

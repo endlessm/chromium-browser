@@ -21,7 +21,10 @@
 #import "ios/web/public/web_state/js/crw_js_injection_receiver.h"
 #import "ios/web/public/web_state/web_state_observer_bridge.h"
 #include "ios/web_view/internal/app/application_context.h"
+#import "ios/web_view/internal/autofill/cwv_autofill_client_ios_bridge.h"
 #import "ios/web_view/internal/autofill/cwv_autofill_suggestion_internal.h"
+#import "ios/web_view/internal/autofill/cwv_credit_card_internal.h"
+#import "ios/web_view/internal/autofill/cwv_credit_card_verifier_internal.h"
 #import "ios/web_view/internal/autofill/web_view_autofill_client_ios.h"
 #include "ios/web_view/internal/autofill/web_view_personal_data_manager_factory.h"
 #include "ios/web_view/internal/signin/web_view_identity_manager_factory.h"
@@ -29,9 +32,9 @@
 #include "ios/web_view/internal/webdata_services/web_view_web_data_service_wrapper_factory.h"
 #import "ios/web_view/public/cwv_autofill_controller_delegate.h"
 
-@interface CWVAutofillController ()<AutofillClientIOSBridge,
-                                    AutofillDriverIOSBridge,
-                                    CRWWebStateObserver>
+@interface CWVAutofillController ()<AutofillDriverIOSBridge,
+                                    CRWWebStateObserver,
+                                    CWVAutofillClientIOSBridge>
 
 @end
 
@@ -56,6 +59,10 @@
 
   // The |webState| which this autofill controller should observe.
   web::WebState* _webState;
+
+  // The current credit card verifier. Can be nil if no verification is pending.
+  // Held weak because |_delegate| is responsible for maintaing its lifetime.
+  __weak CWVCreditCardVerifier* _verifier;
 }
 
 @synthesize delegate = _delegate;
@@ -213,7 +220,7 @@
           completionHandler];
 }
 
-#pragma mark - AutofillClientIOSBridge | AutofillDriverIOSBridge
+#pragma mark - CWVAutofillClientIOSBridge
 
 - (void)showAutofillPopup:(const std::vector<autofill::Suggestion>&)suggestions
             popupDelegate:
@@ -257,6 +264,55 @@
       onSuggestionsReady:@[]
            popupDelegate:base::WeakPtr<autofill::AutofillPopupDelegate>()];
 }
+
+- (void)confirmSaveCreditCardLocally:(const autofill::CreditCard&)creditCard
+                            callback:(const base::RepeatingClosure&)callback {
+  if ([_delegate respondsToSelector:@selector
+                 (autofillController:decidePolicyForLocalStorageOfCreditCard
+                                       :decisionHandler:)]) {
+    CWVCreditCard* card = [[CWVCreditCard alloc] initWithCreditCard:creditCard];
+    __block base::RepeatingClosure scopedCallback = callback;
+    [_delegate autofillController:self
+        decidePolicyForLocalStorageOfCreditCard:card
+                                decisionHandler:^(CWVStoragePolicy policy) {
+                                  if (policy == CWVStoragePolicyAllow) {
+                                    if (scopedCallback) {
+                                      scopedCallback.Run();
+                                      scopedCallback.Reset();
+                                    }
+                                  }
+                                }];
+  }
+}
+
+- (void)
+showUnmaskPromptForCard:(const autofill::CreditCard&)creditCard
+                 reason:(autofill::AutofillClient::UnmaskCardReason)reason
+               delegate:(base::WeakPtr<autofill::CardUnmaskDelegate>)delegate {
+  if ([_delegate respondsToSelector:@selector
+                 (autofillController:verifyCreditCardWithVerifier:)]) {
+    ios_web_view::WebViewBrowserState* browserState =
+        ios_web_view::WebViewBrowserState::FromBrowserState(
+            _webState->GetBrowserState());
+    CWVCreditCardVerifier* verifier = [[CWVCreditCardVerifier alloc]
+         initWithPrefs:browserState->GetPrefs()
+        isOffTheRecord:browserState->IsOffTheRecord()
+            creditCard:creditCard
+                reason:reason
+              delegate:delegate];
+    [_delegate autofillController:self verifyCreditCardWithVerifier:verifier];
+
+    // Store so verifier can receive unmask verification results later on.
+    _verifier = verifier;
+  }
+}
+
+- (void)didReceiveUnmaskVerificationResult:
+    (autofill::AutofillClient::PaymentsRpcResult)result {
+  [_verifier didReceiveUnmaskVerificationResult:result];
+}
+
+#pragma mark - AutofillDriverIOSBridge
 
 - (void)onFormDataFilled:(uint16_t)query_id
                   result:(const autofill::FormData&)result {

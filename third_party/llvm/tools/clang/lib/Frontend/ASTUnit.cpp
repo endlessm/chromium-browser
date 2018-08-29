@@ -151,7 +151,7 @@ static bool moveOnNoError(llvm::ErrorOr<T> Val, T &Output) {
   return true;
 }
 
-/// \brief Get a source buffer for \p MainFilePath, handling all file-to-file
+/// Get a source buffer for \p MainFilePath, handling all file-to-file
 /// and file-to-buffer remappings inside \p Invocation.
 static std::unique_ptr<llvm::MemoryBuffer>
 getBufferForFileHandlingRemapping(const CompilerInvocation &Invocation,
@@ -226,13 +226,13 @@ void ASTUnit::clearFileLevelDecls() {
   llvm::DeleteContainerSeconds(FileDecls);
 }
 
-/// \brief After failing to build a precompiled preamble (due to
+/// After failing to build a precompiled preamble (due to
 /// errors in the source that occurs in the preamble), the number of
 /// reparses during which we'll skip even trying to precompile the
 /// preamble.
 const unsigned DefaultPreambleRebuildInterval = 5;
 
-/// \brief Tracks the number of ASTUnit objects that are currently active.
+/// Tracks the number of ASTUnit objects that are currently active.
 ///
 /// Used for debugging purposes only.
 static std::atomic<unsigned> ActiveASTUnitObjects;
@@ -274,7 +274,7 @@ void ASTUnit::setPreprocessor(std::shared_ptr<Preprocessor> PP) {
   this->PP = std::move(PP);
 }
 
-/// \brief Determine the set of code-completion contexts in which this
+/// Determine the set of code-completion contexts in which this
 /// declaration should be shown.
 static unsigned getDeclShowContexts(const NamedDecl *ND,
                                     const LangOptions &LangOpts,
@@ -504,7 +504,7 @@ void ASTUnit::ClearCachedCompletionResults() {
 
 namespace {
 
-/// \brief Gathers information from ASTReader that will be used to initialize
+/// Gathers information from ASTReader that will be used to initialize
 /// a Preprocessor.
 class ASTInfoCollector : public ASTReaderListener {
   Preprocessor &PP;
@@ -601,7 +601,7 @@ private:
   }
 };
 
-/// \brief Diagnostic consumer that saves each diagnostic it is given.
+/// Diagnostic consumer that saves each diagnostic it is given.
 class StoredDiagnosticConsumer : public DiagnosticConsumer {
   SmallVectorImpl<StoredDiagnostic> *StoredDiags;
   SmallVectorImpl<ASTUnit::StandaloneDiagnostic> *StandaloneDiags;
@@ -628,7 +628,7 @@ public:
                         const Diagnostic &Info) override;
 };
 
-/// \brief RAII object that optionally captures diagnostics, if
+/// RAII object that optionally captures diagnostics, if
 /// there is no diagnostic client to capture them already.
 class CaptureDroppedDiagnostics {
   DiagnosticsEngine &Diags;
@@ -715,7 +715,7 @@ ASTUnit::getBufferForFile(StringRef Filename, std::string *ErrorStr) {
   return nullptr;
 }
 
-/// \brief Configure the diagnostics object for use with ASTUnit.
+/// Configure the diagnostics object for use with ASTUnit.
 void ASTUnit::ConfigureDiags(IntrusiveRefCntPtr<DiagnosticsEngine> Diags,
                              ASTUnit &AST, bool CaptureDiagnostics) {
   assert(Diags.get() && "no DiagnosticsEngine was provided");
@@ -837,14 +837,14 @@ std::unique_ptr<ASTUnit> ASTUnit::LoadFromASTFile(
   return AST;
 }
 
-/// \brief Add the given macro to the hash of all top-level entities.
+/// Add the given macro to the hash of all top-level entities.
 static void AddDefinedMacroToHash(const Token &MacroNameTok, unsigned &Hash) {
   Hash = llvm::djbHash(MacroNameTok.getIdentifierInfo()->getName(), Hash);
 }
 
 namespace {
 
-/// \brief Preprocessor callback class that updates a hash value with the names
+/// Preprocessor callback class that updates a hash value with the names
 /// of all macros that have been defined by the translation unit.
 class MacroDefinitionTrackerPPCallbacks : public PPCallbacks {
   unsigned &Hash;
@@ -860,7 +860,7 @@ public:
 
 } // namespace
 
-/// \brief Add the given declaration to the hash of all top-level entities.
+/// Add the given declaration to the hash of all top-level entities.
 static void AddTopLevelDeclarationToHash(Decl *D, unsigned &Hash) {
   if (!D)
     return;
@@ -1248,7 +1248,7 @@ makeStandaloneDiagnostic(const LangOptions &LangOpts,
   return OutDiag;
 }
 
-/// \brief Attempt to build or re-use a precompiled preamble when (re-)parsing
+/// Attempt to build or re-use a precompiled preamble when (re-)parsing
 /// the source file.
 ///
 /// This routine will compute the preamble of the main source file. If a
@@ -1271,7 +1271,7 @@ makeStandaloneDiagnostic(const LangOptions &LangOpts,
 std::unique_ptr<llvm::MemoryBuffer>
 ASTUnit::getMainBufferWithPrecompiledPreamble(
     std::shared_ptr<PCHContainerOperations> PCHContainerOps,
-    const CompilerInvocation &PreambleInvocationIn,
+    CompilerInvocation &PreambleInvocationIn,
     IntrusiveRefCntPtr<vfs::FileSystem> VFS, bool AllowRebuild,
     unsigned MaxLines) {
   auto MainFilePath =
@@ -1338,9 +1338,18 @@ ASTUnit::getMainBufferWithPrecompiledPreamble(
     SimpleTimer PreambleTimer(WantTiming);
     PreambleTimer.setOutput("Precompiling preamble");
 
+    const bool PreviousSkipFunctionBodies =
+        PreambleInvocationIn.getFrontendOpts().SkipFunctionBodies;
+    if (SkipFunctionBodies == SkipFunctionBodiesScope::Preamble)
+      PreambleInvocationIn.getFrontendOpts().SkipFunctionBodies = true;
+
     llvm::ErrorOr<PrecompiledPreamble> NewPreamble = PrecompiledPreamble::Build(
         PreambleInvocationIn, MainFileBuffer.get(), Bounds, *Diagnostics, VFS,
         PCHContainerOps, /*StoreInMemory=*/false, Callbacks);
+
+    PreambleInvocationIn.getFrontendOpts().SkipFunctionBodies =
+        PreviousSkipFunctionBodies;
+
     if (NewPreamble) {
       Preamble = std::move(*NewPreamble);
       PreambleRebuildCounter = 1;
@@ -1691,7 +1700,7 @@ ASTUnit *ASTUnit::LoadFromCommandLine(
     ArrayRef<RemappedFile> RemappedFiles, bool RemappedFilesKeepOriginalName,
     unsigned PrecompilePreambleAfterNParses, TranslationUnitKind TUKind,
     bool CacheCodeCompletionResults, bool IncludeBriefCommentsInCodeCompletion,
-    bool AllowPCHWithCompilerErrors, bool SkipFunctionBodies,
+    bool AllowPCHWithCompilerErrors, SkipFunctionBodiesScope SkipFunctionBodies,
     bool SingleFileParse, bool UserFilesAreVolatile, bool ForSerialization,
     llvm::Optional<StringRef> ModuleFormat, std::unique_ptr<ASTUnit> *ErrAST,
     IntrusiveRefCntPtr<vfs::FileSystem> VFS) {
@@ -1724,7 +1733,8 @@ ASTUnit *ASTUnit::LoadFromCommandLine(
   // Override the resources path.
   CI->getHeaderSearchOpts().ResourceDir = ResourceFilesPath;
 
-  CI->getFrontendOpts().SkipFunctionBodies = SkipFunctionBodies;
+  CI->getFrontendOpts().SkipFunctionBodies =
+      SkipFunctionBodies == SkipFunctionBodiesScope::PreambleAndMainFile;
 
   if (ModuleFormat)
     CI->getHeaderSearchOpts().ModuleFormat = ModuleFormat.getValue();
@@ -1750,6 +1760,7 @@ ASTUnit *ASTUnit::LoadFromCommandLine(
     = IncludeBriefCommentsInCodeCompletion;
   AST->UserFilesAreVolatile = UserFilesAreVolatile;
   AST->Invocation = CI;
+  AST->SkipFunctionBodies = SkipFunctionBodies;
   if (ForSerialization)
     AST->WriterData.reset(new ASTWriterData(*AST->PCMCache));
   // Zero out now to ease cleanup during crash recovery.
@@ -1852,7 +1863,7 @@ void ASTUnit::ResetForParse() {
 
 namespace {
 
-  /// \brief Code completion consumer that combines the cached code-completion
+  /// Code completion consumer that combines the cached code-completion
   /// results from an ASTUnit with the code-completion results provided to it,
   /// then passes the result on to
   class AugmentedCodeCompleteConsumer : public CodeCompleteConsumer {
@@ -1909,7 +1920,7 @@ namespace {
 
 } // namespace
 
-/// \brief Helper function that computes which global names are hidden by the
+/// Helper function that computes which global names are hidden by the
 /// local code-completion results.
 static void CalculateHiddenNames(const CodeCompletionContext &Context,
                                  CodeCompletionResult *Results,
@@ -2459,7 +2470,7 @@ SourceLocation ASTUnit::getLocation(const FileEntry *File,
   return SM.getMacroArgExpandedLocation(FileLoc.getLocWithOffset(Offset));
 }
 
-/// \brief If \arg Loc is a loaded location from the preamble, returns
+/// If \arg Loc is a loaded location from the preamble, returns
 /// the corresponding local location of the main file, otherwise it returns
 /// \arg Loc.
 SourceLocation ASTUnit::mapLocationFromPreamble(SourceLocation Loc) const {
@@ -2480,7 +2491,7 @@ SourceLocation ASTUnit::mapLocationFromPreamble(SourceLocation Loc) const {
   return Loc;
 }
 
-/// \brief If \arg Loc is a local location of the main file but inside the
+/// If \arg Loc is a local location of the main file but inside the
 /// preamble chunk, returns the corresponding loaded location from the
 /// preamble, otherwise it returns \arg Loc.
 SourceLocation ASTUnit::mapLocationToPreamble(SourceLocation Loc) const {

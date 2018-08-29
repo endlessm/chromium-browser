@@ -109,15 +109,22 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   // LoginScreenController::Observer:
+  void SetAvatarForUser(const AccountId& account_id,
+                        const mojom::UserAvatarPtr& avatar) override;
   void OnFocusLeavingLockScreenApps(bool reverse) override;
 
   // LoginDataDispatcher::Observer:
   void OnUsersChanged(
       const std::vector<mojom::LoginUserInfoPtr>& users) override;
   void OnPinEnabledForUserChanged(const AccountId& user, bool enabled) override;
+  void OnAuthEnabledForUserChanged(
+      const AccountId& user,
+      bool enabled,
+      const base::Optional<base::Time>& auth_reenabled_time) override;
   void OnLockScreenNoteStateChanged(mojom::TrayActionState state) override;
   void OnClickToUnlockEnabledForUserChanged(const AccountId& user,
                                             bool enabled) override;
+  void OnForceOnlineSignInForUser(const AccountId& user) override;
   void OnShowEasyUnlockIcon(
       const AccountId& user,
       const mojom::EasyUnlockIconOptionsPtr& icon) override;
@@ -127,12 +134,20 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
   void OnPublicSessionDisplayNameChanged(
       const AccountId& account_id,
       const std::string& display_name) override;
-  void OnPublicSessionLocalesChanged(const AccountId& account_id,
-                                     const base::ListValue& locales,
-                                     const std::string& default_locale,
-                                     bool show_advanced_view) override;
+  void OnPublicSessionLocalesChanged(
+      const AccountId& account_id,
+      const std::vector<mojom::LocaleItemPtr>& locales,
+      const std::string& default_locale,
+      bool show_advanced_view) override;
+  void OnPublicSessionKeyboardLayoutsChanged(
+      const AccountId& account_id,
+      const std::string& locale,
+      const std::vector<mojom::InputMethodItemPtr>& keyboard_layouts) override;
   void OnDetachableBasePairingStatusChanged(
       DetachableBasePairingStatus pairing_status) override;
+  void OnFingerprintUnlockStateChanged(
+      const AccountId& account_id,
+      mojom::FingerprintUnlockState state) override;
 
   // SystemTrayFocusObserver:
   void OnFocusLeavingSystemTray(bool reverse) override;
@@ -165,7 +180,10 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
     AccountId account_id;
     bool show_pin = false;
     bool enable_tap_auth = false;
+    bool force_online_sign_in = false;
+    bool disable_auth = false;
     mojom::EasyUnlockIconOptionsPtr easy_unlock_state;
+    mojom::FingerprintUnlockState fingerprint_state;
 
    private:
     DISALLOW_COPY_AND_ASSIGN(UserState);
@@ -299,6 +317,10 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
   // Change the visibility of child views based on the |style|.
   void SetDisplayStyle(DisplayStyle style);
 
+  // Set the lock screen note state to |mojom::TrayActionState::kNotAvailable|.
+  // All the subsequent calls of |OnLockScreenNoteStateChanged| will be ignored.
+  void DisableLockScreenNote();
+
   std::vector<UserState> users_;
 
   LoginDataDispatcher* const data_dispatcher_;  // Unowned.
@@ -348,6 +370,10 @@ class ASH_EXPORT LockContentsView : public NonAccessibleView,
   // Whether a lock screen app is currently active (i.e. lock screen note action
   // state is reported as kActive by the data dispatcher).
   bool lock_screen_apps_active_ = false;
+
+  // Whether the lock screen note is disabled. Used to override the actual lock
+  // screen note state.
+  bool disable_lock_screen_note_ = false;
 
   // Expanded view for public account user to select language and keyboard.
   LoginExpandedPublicAccountView* expanded_view_ = nullptr;

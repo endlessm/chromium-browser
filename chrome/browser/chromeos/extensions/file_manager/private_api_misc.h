@@ -19,12 +19,17 @@
 #include "chrome/browser/extensions/chrome_extension_function.h"
 #include "chrome/browser/extensions/chrome_extension_function_details.h"
 #include "chrome/common/extensions/api/file_manager_private.h"
+#include "chromeos/disks/disk_mount_manager.h"
 #include "google_apis/drive/drive_api_error_codes.h"
 #include "storage/browser/fileapi/file_system_url.h"
 
 namespace chromeos {
 class RecentFile;
 }  // namespace chromeos
+
+namespace crostini {
+enum class ConciergeClientResult;
+}
 
 namespace file_manager {
 namespace util {
@@ -259,6 +264,52 @@ class FileManagerPrivateConfigureVolumeFunction
 
   const ChromeExtensionFunctionDetails chrome_details_;
   DISALLOW_COPY_AND_ASSIGN(FileManagerPrivateConfigureVolumeFunction);
+};
+
+// Implements the chrome.fileManagerPrivate.isCrostiniEnabled method.
+// Gets crostini sftp mount params.
+class FileManagerPrivateIsCrostiniEnabledFunction
+    : public UIThreadExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("fileManagerPrivate.isCrostiniEnabled",
+                             FILEMANAGERPRIVATE_ISCROSTINIENABLED)
+
+ protected:
+  ~FileManagerPrivateIsCrostiniEnabledFunction() override {}
+
+  ResponseAction Run() override;
+};
+
+// Implements the chrome.fileManagerPrivate.mountCrostiniContainer method.
+// Starts and mounts crostini container.
+class FileManagerPrivateMountCrostiniContainerFunction
+    : public LoggedAsyncExtensionFunction,
+      public chromeos::disks::DiskMountManager::Observer {
+ public:
+  DECLARE_EXTENSION_FUNCTION("fileManagerPrivate.mountCrostiniContainer",
+                             FILEMANAGERPRIVATE_MOUNTCROSTINICONTAINER)
+  FileManagerPrivateMountCrostiniContainerFunction();
+
+ protected:
+  ~FileManagerPrivateMountCrostiniContainerFunction() override;
+
+  bool RunAsync() override;
+  void RestartCallback(crostini::ConciergeClientResult);
+  void SshKeysCallback(crostini::ConciergeClientResult,
+                       const std::string& container_public_key,
+                       const std::string& host_private_key);
+
+  // DiskMountManager::Observer
+  void OnMountEvent(chromeos::disks::DiskMountManager::MountEvent event,
+                    chromeos::MountError error_code,
+                    const chromeos::disks::DiskMountManager::MountPointInfo&
+                        mount_info) override;
+
+ private:
+  std::string source_path_;
+  std::string mount_label_;
+  // Self reference used to keep object alive to receive OnMountEvent.
+  scoped_refptr<FileManagerPrivateMountCrostiniContainerFunction> self_;
 };
 
 // Implements the chrome.fileManagerPrivate.getCustomActions method.

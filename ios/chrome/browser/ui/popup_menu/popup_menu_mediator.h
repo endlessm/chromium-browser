@@ -7,6 +7,8 @@
 
 #import <UIKit/UIKit.h>
 
+#import "ios/chrome/browser/ui/popup_menu/public/popup_menu_ui_updating.h"
+
 namespace bookmarks {
 class BookmarkModel;
 }
@@ -18,22 +20,17 @@ class Tracker;
 class ReadingListModel;
 class WebStateList;
 
-// Type of popup menus.
-typedef NS_ENUM(NSInteger, PopupMenuType) {
-  PopupMenuTypeToolsMenu,
-  PopupMenuTypeNavigationBackward,
-  PopupMenuTypeNavigationForward,
-  PopupMenuTypeTabGrid,
-  PopupMenuTypeSearch,
-};
-
 // Mediator for the popup menu. This object is in charge of creating and
 // updating the items of the popup menu.
 @interface PopupMenuMediator : NSObject
 
+// Initializes the mediator with a |type| of popup menu, whether it
+// |isIncognito|, a |readingListModel| used to display the badge for the reading
+// list entry, and whether the mediator should |triggerNewIncognitoTabTip|.
 - (instancetype)initWithType:(PopupMenuType)type
-                 isIncognito:(BOOL)isIncognito
-            readingListModel:(ReadingListModel*)readingListModel
+                  isIncognito:(BOOL)isIncognito
+             readingListModel:(ReadingListModel*)readingListModel
+    triggerNewIncognitoTabTip:(BOOL)triggerNewIncognitoTabTip
     NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 

@@ -37,7 +37,6 @@ import org.webrtc.VideoFrame;
 // This class is an implementation detail of the Java PeerConnection API.
 @TargetApi(19)
 @SuppressWarnings("deprecation")
-@JNINamespace("webrtc::jni")
 public class MediaCodecVideoEncoder {
   // This class is constructed, operated, and destroyed by its C++ incarnation,
   // so the class and its methods have non-public visibility.  The API this
@@ -608,25 +607,6 @@ public class MediaCodecVideoEncoder {
       return true;
     } catch (IllegalStateException e) {
       Logging.e(TAG, "encodeBuffer failed", e);
-      return false;
-    }
-  }
-
-  @CalledByNativeUnchecked
-  boolean encodeTexture(boolean isKeyframe, int oesTextureId, float[] transformationMatrix,
-      long presentationTimestampUs) {
-    checkOnMediaCodecThread();
-    try {
-      checkKeyFrameRequired(isKeyframe, presentationTimestampUs);
-      eglBase.makeCurrent();
-      // TODO(perkj): glClear() shouldn't be necessary since every pixel is covered anyway,
-      // but it's a workaround for bug webrtc:5147.
-      GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
-      drawer.drawOes(oesTextureId, transformationMatrix, width, height, 0, 0, width, height);
-      eglBase.swapBuffers(TimeUnit.MICROSECONDS.toNanos(presentationTimestampUs));
-      return true;
-    } catch (RuntimeException e) {
-      Logging.e(TAG, "encodeTexture failed", e);
       return false;
     }
   }

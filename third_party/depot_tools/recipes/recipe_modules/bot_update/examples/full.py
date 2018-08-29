@@ -193,12 +193,12 @@ def GenTests(api):
       patch_issue=338811,
       patch_set=3,
   )
-  yield api.test('apply_patch_on_gclient') + api.properties.tryserver(
+  yield api.test('no_apply_patch_on_gclient') + api.properties.tryserver(
       gerrit_project='angle/angle',
       patch_issue=338811,
       patch_set=3,
   ) + api.bot_update.properties(
-      apply_patch_on_gclient=True,
+      apply_patch_on_gclient=False,
   )
   yield api.test('tryjob_gerrit_v8') + api.properties.tryserver(
       gerrit_project='v8/v8',
@@ -221,6 +221,14 @@ def GenTests(api):
   ) + api.step_data(
       'gerrit get_patch_destination_branch',
       api.gerrit.get_one_change_response_data(branch='experimental/feature'),
+  )
+  yield api.test('tryjob_gerrit_branch_heads') + api.properties.tryserver(
+      gerrit_project='chromium/src',
+      patch_issue=338811,
+      patch_set=3,
+  ) + api.step_data(
+      'gerrit get_patch_destination_branch',
+      api.gerrit.get_one_change_response_data(branch='refs/branch-heads/67'),
   )
   yield api.test('tryjob_gerrit_angle_deprecated') + api.properties.tryserver(
       patch_project='angle/angle',

@@ -10,7 +10,6 @@
 
 #include "ash/app_list/model/search/search_result.h"
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
 #include "base/time/time.h"
 #include "ui/app_list/app_list_metrics.h"
 #include "ui/app_list/app_list_view_delegate.h"
@@ -39,7 +38,8 @@ SearchResultListView::SearchResultListView(AppListMainView* main_view,
       std::make_unique<views::BoxLayout>(views::BoxLayout::kVertical));
 
   for (int i = 0; i < kMaxResults; ++i) {
-    search_result_views_.emplace_back(new SearchResultView(this));
+    search_result_views_.emplace_back(
+        new SearchResultView(this, view_delegate_));
     results_container_->AddChildView(search_result_views_.back());
   }
   AddChildView(results_container_);
@@ -117,7 +117,7 @@ int SearchResultListView::DoUpdate() {
   }
 
   set_container_score(
-      display_results.empty() ? 0 : display_results.front()->relevance());
+      display_results.empty() ? 0 : display_results.front()->display_score());
 
   return display_results.size();
 }

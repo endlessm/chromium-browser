@@ -21,6 +21,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
 #include "llvm/Support/Program.h"
+#include "llvm/Support/SmallVectorMemoryBuffer.h"
 #include <cassert>
 #include <cerrno>
 #include <cstring>
@@ -162,7 +163,7 @@ MemoryBuffer::getFileSlice(const Twine &FilePath, uint64_t MapSize,
 //===----------------------------------------------------------------------===//
 
 namespace {
-/// \brief Memory maps a file descriptor using sys::fs::mapped_file_region.
+/// Memory maps a file descriptor using sys::fs::mapped_file_region.
 ///
 /// This handles converting the offset into a legal offset on the platform.
 template<typename MB>
@@ -531,3 +532,6 @@ MemoryBufferRef MemoryBuffer::getMemBufferRef() const {
   StringRef Identifier = getBufferIdentifier();
   return MemoryBufferRef(Data, Identifier);
 }
+
+void MemoryBuffer::anchor() {}
+void SmallVectorMemoryBuffer::anchor() {}

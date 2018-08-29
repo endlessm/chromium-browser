@@ -826,12 +826,29 @@ def CheckBuildbotPendingBuilds(input_api, output_api, url, max_pendings,
   return []
 
 
+def CheckOwnersFormat(input_api, output_api):
+  affected_files = set([
+      f.LocalPath()
+      for f in input_api.change.AffectedFiles()
+      if 'OWNERS' in f.LocalPath() and f.Action() != 'D'
+  ])
+  if not affected_files:
+    return []
+  try:
+    input_api.owners_db.load_data_needed_for(affected_files)
+    return []
+  except Exception as e:
+    return [output_api.PresubmitError(
+        'Error parsing OWNERS files:\n%s' % e)]
+
+
 def CheckOwners(input_api, output_api, source_file_filter=None):
   affected_files = set([f.LocalPath() for f in
       input_api.change.AffectedFiles(file_filter=source_file_filter)])
+  affects_owners = any('OWNERS' in name for name in affected_files)
 
   if input_api.is_committing:
-    if input_api.tbr and not any(['OWNERS' in name for name in affected_files]):
+    if input_api.tbr and not affects_owners:
       return [output_api.PresubmitNotifyResult(
           '--tbr was specified, skipping OWNERS check')]
     needed = 'LGTM from an OWNER'
@@ -869,6 +886,9 @@ def CheckOwners(input_api, output_api, source_file_filter=None):
     output_list = [
         output_fn('Missing %s for these files:\n    %s' %
                   (needed, '\n    '.join(sorted(missing_files))))]
+    if input_api.tbr and affects_owners:
+      output_list.append(output_fn('Note that TBR does not apply to changes '
+                                   'that affect OWNERS files.'))
     if not input_api.is_committing:
       suggested_owners = owners_db.reviewers_for(missing_files, owner_email)
       owners_with_comments = []
@@ -996,6 +1016,10 @@ def PanProjectChecks(input_api, output_api,
       if delta_ms > 500:
         print "  %s took a long time: %dms" % (snapshot_memory[1], delta_ms)
     snapshot_memory[:] = (dt2, msg)
+
+  snapshot("checking owners files format")
+  results.extend(input_api.canned_checks.CheckOwnersFormat(
+      input_api, output_api))
 
   if owners_check:
     snapshot("checking owners")
@@ -1157,7 +1181,7 @@ def CheckVPythonSpec(input_api, output_api, file_filter=None):
     A list of input_api.Command objects containing verification commands.
   """
   file_filter = file_filter or (lambda f: f.LocalPath().endswith('.vpython'))
-  affected_files = input_api.AffectedFiles(file_filter=file_filter)
+  affected_files = input_api.AffectedTestableFiles(file_filter=file_filter)
   affected_files = map(lambda f: f.AbsoluteLocalPath(), affected_files)
 
   commands = []

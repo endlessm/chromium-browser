@@ -15,7 +15,6 @@
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/ash_switches.h"
-#include "ash/public/cpp/config.h"
 #include "ash/public/interfaces/docked_magnifier_controller.mojom.h"
 #include "ash/session/session_controller.h"
 #include "ash/session/test_session_controller_client.h"
@@ -27,13 +26,13 @@
 #include "base/test/scoped_feature_list.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/session_manager_types.h"
-#include "mojo/public/cpp/bindings/binding.h"
 #include "ui/aura/window.h"
 #include "ui/compositor/layer.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/managed_display_info.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/views/widget/widget.h"
+#include "ui/wm/core/coordinate_conversion.h"
 
 namespace ash {
 
@@ -41,34 +40,6 @@ namespace {
 
 constexpr char kUser1Email[] = "user1@dockedmagnifier";
 constexpr char kUser2Email[] = "user2@dockedmagnifier";
-
-// Mock mojo client of the Docked Magnifier.
-class DockedMagnifierTestClient : public mojom::DockedMagnifierClient {
- public:
-  DockedMagnifierTestClient() : binding_(this) {}
-  ~DockedMagnifierTestClient() override = default;
-
-  bool docked_magnifier_enabled() const { return docked_magnifier_enabled_; }
-
-  // Connects to the DockedMagnifierController.
-  void Start() {
-    ash::mojom::DockedMagnifierClientPtr client;
-    binding_.Bind(mojo::MakeRequest(&client));
-    Shell::Get()->docked_magnifier_controller()->SetClient(std::move(client));
-  }
-
-  // ash::mojom::DockedMagnifierClient:
-  void OnEnabledStatusChanged(bool enabled) override {
-    docked_magnifier_enabled_ = enabled;
-  }
-
- private:
-  mojo::Binding<ash::mojom::DockedMagnifierClient> binding_;
-
-  bool docked_magnifier_enabled_ = false;
-
-  DISALLOW_COPY_AND_ASSIGN(DockedMagnifierTestClient);
-};
 
 class DockedMagnifierTest : public NoSessionAshTestBase {
  public:
@@ -78,8 +49,6 @@ class DockedMagnifierTest : public NoSessionAshTestBase {
   DockedMagnifierController* controller() const {
     return Shell::Get()->docked_magnifier_controller();
   }
-
-  DockedMagnifierTestClient* test_client() { return &test_client_; }
 
   PrefService* user1_pref_service() {
     return Shell::Get()->session_controller()->GetUserPrefServiceForUser(
@@ -109,8 +78,6 @@ class DockedMagnifierTest : public NoSessionAshTestBase {
     // Create user 2 session.
     GetSessionControllerClient()->AddUserSession(kUser2Email);
 
-    test_client_.Start();
-
     // Place the cursor in the first display.
     GetEventGenerator().MoveMouseTo(gfx::Point(0, 0));
   }
@@ -120,12 +87,41 @@ class DockedMagnifierTest : public NoSessionAshTestBase {
         AccountId::FromUserEmail(email));
   }
 
- protected:
-  MagnifierTextInputTestHelper text_input_helper_;
+  // Tests that when the magnifier layer's transform is applied on the point in
+  // the |root_window| coordinates that corresponds to the
+  // |point_of_interest_in_screen|, the resulting point is at the center of the
+  // magnifier viewport widget.
+  void TestMagnifierLayerTransform(
+      const gfx::Point& point_of_interest_in_screen,
+      const aura::Window* root_window) {
+    // Convert to root coordinates.
+    gfx::Point point_of_interest_in_root = point_of_interest_in_screen;
+    ::wm::ConvertPointFromScreen(root_window, &point_of_interest_in_root);
+    // Account for point of interest being outside the minimum height threshold.
+    // Do this in gfx::PointF to avoid rounding errors.
+    gfx::PointF point_of_interest_in_root_f(point_of_interest_in_root);
+    const float min_pov_height =
+        controller()->GetMinimumPointOfInterestHeightForTesting();
+    if (point_of_interest_in_root_f.y() < min_pov_height)
+      point_of_interest_in_root_f.set_y(min_pov_height);
+
+    const ui::Layer* magnifier_layer =
+        controller()->GetViewportMagnifierLayerForTesting();
+    // The magnifier layer's transform, when applied to the point of interest
+    // (in root coordinates), should take it to the point at the center of the
+    // viewport widget (also in root coordinates).
+    magnifier_layer->transform().TransformPoint(&point_of_interest_in_root_f);
+    const views::Widget* viewport_widget =
+        controller()->GetViewportWidgetForTesting();
+    const gfx::Point viewport_center_in_root =
+        viewport_widget->GetNativeWindow()
+            ->GetBoundsInRootWindow()
+            .CenterPoint();
+    EXPECT_EQ(viewport_center_in_root,
+              gfx::ToFlooredPoint(point_of_interest_in_root_f));
+  }
 
  private:
-  DockedMagnifierTestClient test_client_;
-
   base::test::ScopedFeatureList scoped_feature_list_;
 
   DISALLOW_COPY_AND_ASSIGN(DockedMagnifierTest);
@@ -157,37 +153,17 @@ TEST_F(DockedMagnifierTest, MutuallyExclusiveMagnifiers) {
   EXPECT_FALSE(controller()->GetFullscreenMagnifierEnabled());
 }
 
-// Tests the changes in the magnifier's status, user switches and the
-// interaction with the client.
+// Tests the changes in the magnifier's status, user switches.
 TEST_F(DockedMagnifierTest, TestEnableAndDisable) {
-  // Client should receive status updates.
-  EXPECT_FALSE(controller()->GetEnabled());
-  EXPECT_FALSE(test_client()->docked_magnifier_enabled());
+  // Enable for user 1, and switch to user 2. User 2 should have it disabled.
   controller()->SetEnabled(true);
-  controller()->FlushClientPtrForTesting();
   EXPECT_TRUE(controller()->GetEnabled());
-  EXPECT_TRUE(test_client()->docked_magnifier_enabled());
-  controller()->SetEnabled(false);
-  controller()->FlushClientPtrForTesting();
-  EXPECT_FALSE(controller()->GetEnabled());
-  EXPECT_FALSE(test_client()->docked_magnifier_enabled());
-
-  // Enable again for user 1, and switch to user 2. User 2 should have it
-  // disabled, the client should be updated accordingly.
-  controller()->SetEnabled(true);
-  controller()->FlushClientPtrForTesting();
-  EXPECT_TRUE(controller()->GetEnabled());
-  EXPECT_TRUE(test_client()->docked_magnifier_enabled());
   SwitchActiveUser(kUser2Email);
-  controller()->FlushClientPtrForTesting();
   EXPECT_FALSE(controller()->GetEnabled());
-  EXPECT_FALSE(test_client()->docked_magnifier_enabled());
 
   // Switch back to user 1, expect it to be enabled.
   SwitchActiveUser(kUser1Email);
-  controller()->FlushClientPtrForTesting();
   EXPECT_TRUE(controller()->GetEnabled());
-  EXPECT_TRUE(test_client()->docked_magnifier_enabled());
 }
 
 // Tests the magnifier's scale changes.
@@ -214,17 +190,12 @@ TEST_F(DockedMagnifierTest, TestScale) {
 // DockedMagnifierController (such as Settings UI) are observed and applied.
 TEST_F(DockedMagnifierTest, TestOutsidePrefsUpdates) {
   EXPECT_FALSE(controller()->GetEnabled());
-  EXPECT_FALSE(test_client()->docked_magnifier_enabled());
   user1_pref_service()->SetBoolean(prefs::kDockedMagnifierEnabled, true);
-  controller()->FlushClientPtrForTesting();
   EXPECT_TRUE(controller()->GetEnabled());
-  EXPECT_TRUE(test_client()->docked_magnifier_enabled());
   user1_pref_service()->SetDouble(prefs::kDockedMagnifierScale, 7.3f);
   EXPECT_FLOAT_EQ(7.3f, controller()->GetScale());
   user1_pref_service()->SetBoolean(prefs::kDockedMagnifierEnabled, false);
-  controller()->FlushClientPtrForTesting();
   EXPECT_FALSE(controller()->GetEnabled());
-  EXPECT_FALSE(test_client()->docked_magnifier_enabled());
 }
 
 // Tests that the workareas of displays are adjusted properly when the Docked
@@ -342,6 +313,35 @@ TEST_F(DockedMagnifierTest, DisplaysWorkAreas) {
             gfx::Rect(gfx::Point(0, 0), disp_2_bounds.size()));
 }
 
+// Tests that the Docked Magnifier follows touch events.
+TEST_F(DockedMagnifierTest, TouchEvents) {
+  UpdateDisplay("800x600,800+0-400x300");
+  const auto root_windows = Shell::GetAllRootWindows();
+  ASSERT_EQ(2u, root_windows.size());
+
+  controller()->SetEnabled(true);
+  EXPECT_TRUE(controller()->GetEnabled());
+  controller()->SetScale(4.0f);
+
+  // Generate some touch events in both displays and expect the magnifier
+  // viewport moves accordingly.
+  gfx::Point touch_point(200, 350);
+  GetEventGenerator().PressMoveAndReleaseTouchTo(touch_point);
+  const views::Widget* viewport_widget =
+      controller()->GetViewportWidgetForTesting();
+  EXPECT_EQ(root_windows[0], viewport_widget->GetNativeView()->GetRootWindow());
+  TestMagnifierLayerTransform(touch_point, root_windows[0]);
+
+  // Touch a new point in the other display.
+  touch_point = gfx::Point(900, 200);
+  GetEventGenerator().PressMoveAndReleaseTouchTo(touch_point);
+  // New viewport widget is created in the second display.
+  ASSERT_NE(viewport_widget, controller()->GetViewportWidgetForTesting());
+  viewport_widget = controller()->GetViewportWidgetForTesting();
+  EXPECT_EQ(root_windows[1], viewport_widget->GetNativeView()->GetRootWindow());
+  TestMagnifierLayerTransform(touch_point, root_windows[1]);
+}
+
 // Tests the behavior of the magnifier when displays are added or removed.
 TEST_F(DockedMagnifierTest, AddRemoveDisplays) {
   // Start with a single display.
@@ -401,11 +401,6 @@ TEST_F(DockedMagnifierTest, AddRemoveDisplays) {
   base::RunLoop().RunUntilIdle();
   root_windows = Shell::GetAllRootWindows();
   ASSERT_EQ(1u, root_windows.size());
-  if (Shell::GetAshConfig() == Config::MUS) {
-    // TODO: Figure out why do we need to manually simulate the mouse cursor
-    // being teleported to the first display. https://crbug.com/814590.
-    GetEventGenerator().MoveMouseTo(gfx::Point(300, 400));
-  }
   viewport_widget = controller()->GetViewportWidgetForTesting();
   ASSERT_NE(nullptr, viewport_widget);
   EXPECT_EQ(root_windows[0], viewport_widget->GetNativeView()->GetRootWindow());
@@ -437,35 +432,30 @@ TEST_F(DockedMagnifierTest, TransformSimple) {
   // Move the cursor to the center of the screen.
   gfx::Point point_of_interest(400, 400);
   GetEventGenerator().MoveMouseTo(point_of_interest);
-  const ui::Layer* magnifier_layer =
-      controller()->GetViewportMagnifierLayerForTesting();
-  // The magnifier layer's transform, when applied to the point of interest,
-  // should take it to the point at the center of the viewport widget.
-  magnifier_layer->transform().TransformPoint(&point_of_interest);
-  const gfx::Point viewport_center(
-      viewport_widget->GetWindowBoundsInScreen().CenterPoint());
-  EXPECT_EQ(viewport_center, point_of_interest);
+  TestMagnifierLayerTransform(point_of_interest, root_windows[0]);
 
   // Move the cursor to the bottom right corner.
   point_of_interest = gfx::Point(799, 799);
   GetEventGenerator().MoveMouseTo(point_of_interest);
-  // Similar to the above case the expected transform should still take the
-  // point to the center of the viewport widget.
-  magnifier_layer->transform().TransformPoint(&point_of_interest);
-  EXPECT_EQ(viewport_center, point_of_interest);
+  TestMagnifierLayerTransform(point_of_interest, root_windows[0]);
 
   // Tricky: Move the cursor to the top right corner, such that the cursor is
   // over the magnifier viewport. The transform should be such that the viewport
   // doesn't show itself.
   point_of_interest = gfx::Point(799, 0);
   GetEventGenerator().MoveMouseTo(point_of_interest);
+  TestMagnifierLayerTransform(point_of_interest, root_windows[0]);
   // In this case, our point of interest is changed to be at the bottom of the
   // separator, and it should go to the center of the top *edge* of the viewport
   // widget.
   point_of_interest.set_y(viewport_height +
                           DockedMagnifierController::kSeparatorHeight);
+  const gfx::Point viewport_center =
+      viewport_widget->GetNativeWindow()->GetBoundsInRootWindow().CenterPoint();
   gfx::Point viewport_top_edge_center = viewport_center;
   viewport_top_edge_center.set_y(0);
+  const ui::Layer* magnifier_layer =
+      controller()->GetViewportMagnifierLayerForTesting();
   magnifier_layer->transform().TransformPoint(&point_of_interest);
   EXPECT_EQ(viewport_top_edge_center, point_of_interest);
   // The minimum height for the point of interest is the bottom of the viewport
@@ -482,6 +472,7 @@ TEST_F(DockedMagnifierTest, TransformSimple) {
   EXPECT_FLOAT_EQ(scale2, controller()->GetScale());
   // The transform behaves exactly as above even with a different scale.
   point_of_interest = gfx::Point(799, 0);
+  TestMagnifierLayerTransform(point_of_interest, root_windows[0]);
   point_of_interest.set_y(viewport_height +
                           DockedMagnifierController::kSeparatorHeight);
   magnifier_layer->transform().TransformPoint(&point_of_interest);
@@ -500,7 +491,8 @@ TEST_F(DockedMagnifierTest, TextInputFieldEvents) {
   const auto root_windows = Shell::GetAllRootWindows();
   ASSERT_EQ(1u, root_windows.size());
 
-  text_input_helper_.CreateAndShowTextInputView(gfx::Rect(500, 400, 80, 80));
+  MagnifierTextInputTestHelper text_input_helper;
+  text_input_helper.CreateAndShowTextInputView(gfx::Rect(500, 400, 80, 80));
 
   // Enable the docked magnifier.
   controller()->SetEnabled(true);
@@ -510,29 +502,49 @@ TEST_F(DockedMagnifierTest, TextInputFieldEvents) {
   EXPECT_FLOAT_EQ(scale1, controller()->GetScale());
 
   // Focus on the text input field.
-  text_input_helper_.FocusOnTextInputView();
+  text_input_helper.FocusOnTextInputView();
 
   // The text input caret center point will be our point of interest. When it
   // goes through the magnifier layer transform, it should end up being in the
   // center of the viewport.
-  const ui::Layer* magnifier_layer =
-      controller()->GetViewportMagnifierLayerForTesting();
-  gfx::Point caret_center(text_input_helper_.GetCaretBounds().CenterPoint());
-  magnifier_layer->transform().TransformPoint(&caret_center);
-  const views::Widget* viewport_widget =
-      controller()->GetViewportWidgetForTesting();
-  const gfx::Point viewport_center(
-      viewport_widget->GetWindowBoundsInScreen().CenterPoint());
-  EXPECT_EQ(caret_center, viewport_center);
+  gfx::Point caret_center(text_input_helper.GetCaretBounds().CenterPoint());
+  TestMagnifierLayerTransform(caret_center, root_windows[0]);
 
   // Simulate typing by pressing some keys while focus is in the text field. The
   // transformed caret center should always go to the viewport center.
   GetEventGenerator().PressKey(ui::VKEY_A, 0);
   GetEventGenerator().ReleaseKey(ui::VKEY_A, 0);
-  gfx::Point new_caret_center(
-      text_input_helper_.GetCaretBounds().CenterPoint());
-  magnifier_layer->transform().TransformPoint(&new_caret_center);
-  EXPECT_EQ(new_caret_center, viewport_center);
+  gfx::Point new_caret_center(text_input_helper.GetCaretBounds().CenterPoint());
+  TestMagnifierLayerTransform(new_caret_center, root_windows[0]);
+}
+
+TEST_F(DockedMagnifierTest, FocusChangeEvents) {
+  UpdateDisplay("600x900");
+  const auto root_windows = Shell::GetAllRootWindows();
+  ASSERT_EQ(1u, root_windows.size());
+
+  MagnifierFocusTestHelper focus_test_helper;
+  focus_test_helper.CreateAndShowFocusTestView(gfx::Point(70, 500));
+
+  // Enable the docked magnifier.
+  controller()->SetEnabled(true);
+  const float scale = 2.0f;
+  controller()->SetScale(scale);
+  EXPECT_TRUE(controller()->GetEnabled());
+  EXPECT_FLOAT_EQ(scale, controller()->GetScale());
+
+  // Focus on the first button and expect the magnifier to be centered around
+  // its center.
+  focus_test_helper.FocusFirstButton();
+  gfx::Point button_1_center(
+      focus_test_helper.GetFirstButtonBoundsInRoot().CenterPoint());
+  TestMagnifierLayerTransform(button_1_center, root_windows[0]);
+
+  // Similarly if we focus on the second button.
+  focus_test_helper.FocusSecondButton();
+  gfx::Point button_2_center(
+      focus_test_helper.GetSecondButtonBoundsInRoot().CenterPoint());
+  TestMagnifierLayerTransform(button_2_center, root_windows[0]);
 }
 
 // Tests that viewport layer is inverted properly when the status of the High

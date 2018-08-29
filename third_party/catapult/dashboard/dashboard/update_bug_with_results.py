@@ -16,11 +16,9 @@ from google.appengine.ext import ndb
 from dashboard import bisect_report
 from dashboard import email_template
 from dashboard import layered_cache
-from dashboard import quick_logger
 from dashboard.common import datastore_hooks
 from dashboard.common import request_handler
 from dashboard.common import utils
-from dashboard.models import alert_group
 from dashboard.models import anomaly
 from dashboard.models import bug_data
 from dashboard.models import try_job
@@ -352,8 +350,11 @@ def _MapAnomaliesToMergeIntoBug(dest_bug_id, source_bug_id):
       anomaly.Anomaly.bug_id == int(source_bug_id))
   anomalies = query.fetch()
 
-  alert_group.ModifyAlertsAndAssociatedGroups(
-      anomalies, bug_id=int(dest_bug_id))
+  bug_id = int(dest_bug_id)
+  for a in anomalies:
+    a.bug_id = bug_id
+
+  ndb.put_multi(anomalies)
 
 
 def _GetCommitHashCacheKey(results_data):
@@ -430,25 +431,6 @@ def _GetReviewersFromCulpritData(culprit_data):
       issue_data = json.loads(issue_response.content)
       reviewer_list.extend([str(item) for item in issue_data['reviewers']])
   return reviewer_list
-
-
-def UpdateQuickLog(job, in_progress=False):
-  if not job.bug_id or job.bug_id < 0:
-    return
-  report = bisect_report.GetReport(job, in_progress)
-  if not report:
-    logging.error('Bisect report returns empty for job id %s, bug_id %s.',
-                  job.key.id(), job.bug_id)
-    return
-  formatter = quick_logger.Formatter()
-  logger = quick_logger.QuickLogger('bisect_result', job.bug_id, formatter)
-  if job.log_record_id:
-    logger.Log(report, record_id=job.log_record_id)
-    logger.Save()
-  else:
-    job.log_record_id = logger.Log(report)
-    logger.Save()
-    job.put()
 
 
 def _IsJobCompleted(job):

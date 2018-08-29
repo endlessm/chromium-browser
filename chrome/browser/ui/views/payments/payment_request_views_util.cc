@@ -191,19 +191,18 @@ void PopulateSheetHeaderView(bool show_back_arrow,
   views::GridLayout* layout = container->SetLayoutManager(
       std::make_unique<views::GridLayout>(container));
 
-  constexpr int kHeaderTopVerticalInset = 14;
-  constexpr int kHeaderBottomVerticalInset = 8;
+  constexpr int kVerticalInset = 14;
   constexpr int kHeaderHorizontalInset = 16;
-  container->SetBorder(views::CreateEmptyBorder(
-      kHeaderTopVerticalInset, kHeaderHorizontalInset,
-      kHeaderBottomVerticalInset, kHeaderHorizontalInset));
+  container->SetBorder(
+      views::CreateEmptyBorder(kVerticalInset, kHeaderHorizontalInset,
+                               kVerticalInset, kHeaderHorizontalInset));
 
   views::ColumnSet* columns = layout->AddColumnSet(0);
   // A column for the optional back arrow.
   columns->AddColumn(views::GridLayout::LEADING, views::GridLayout::CENTER, 0,
                      views::GridLayout::USE_PREF, 0, 0);
 
-  constexpr int kPaddingBetweenArrowAndTitle = 16;
+  constexpr int kPaddingBetweenArrowAndTitle = 8;
   if (show_back_arrow)
     columns->AddPaddingColumn(0, kPaddingBetweenArrowAndTitle);
 
@@ -240,12 +239,16 @@ std::unique_ptr<views::ImageView> CreateInstrumentIconView(
   std::unique_ptr<views::ImageView> icon_view =
       std::make_unique<views::ImageView>();
   icon_view->set_can_process_events_within_subtree(false);
-  if (img != nullptr) {
+  if (img) {
     icon_view->SetImage(*img);
+    // We support max 32x32 for other instrument icons.
+    icon_view->SetImageSize(gfx::Size(32, 32));
   } else {
     icon_view->SetImage(ui::ResourceBundle::GetSharedInstance()
                             .GetImageNamed(icon_resource_id)
                             .AsImageSkia());
+    // Images from |icon_resource_id| are 32x20 credit cards.
+    icon_view->SetImageSize(gfx::Size(32, 20));
   }
   icon_view->SetTooltipText(tooltip_text);
   icon_view->SetPaintToLayer();

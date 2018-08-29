@@ -17,6 +17,7 @@
 #include "ios/web_view/internal/web_view_network_delegate.h"
 #include "net/base/cache_type.h"
 #include "net/cert/cert_verifier.h"
+#include "net/cert/ct_policy_enforcer.h"
 #include "net/cert/multi_log_ct_verifier.h"
 #include "net/dns/host_resolver.h"
 #include "net/extras/sqlite/sqlite_channel_id_store.h"
@@ -72,7 +73,8 @@ net::URLRequestContext* WebViewURLRequestContextGetter::GetURLRequestContext() {
 
     // Setup the cookie store.
     base::FilePath cookie_path;
-    bool cookie_path_found = PathService::Get(base::DIR_APP_DATA, &cookie_path);
+    bool cookie_path_found =
+        base::PathService::Get(base::DIR_APP_DATA, &cookie_path);
     DCHECK(cookie_path_found);
     cookie_path = cookie_path.Append("ChromeWebView").Append("Cookies");
     scoped_refptr<net::CookieMonster::PersistentCookieStore> persistent_store =
@@ -102,7 +104,7 @@ net::URLRequestContext* WebViewURLRequestContextGetter::GetURLRequestContext() {
     storage_->set_cert_transparency_verifier(
         base::WrapUnique(new net::MultiLogCTVerifier));
     storage_->set_ct_policy_enforcer(
-        base::WrapUnique(new net::CTPolicyEnforcer));
+        base::WrapUnique(new net::DefaultCTPolicyEnforcer));
     transport_security_persister_ =
         std::make_unique<net::TransportSecurityPersister>(
             url_request_context_->transport_security_state(), base_path_,
@@ -111,7 +113,7 @@ net::URLRequestContext* WebViewURLRequestContextGetter::GetURLRequestContext() {
 
     // Setup channel id store.
     base::FilePath channel_id_path;
-    PathService::Get(base::DIR_APP_DATA, &channel_id_path);
+    base::PathService::Get(base::DIR_APP_DATA, &channel_id_path);
     channel_id_path =
         channel_id_path.Append("ChromeWebView").Append("Channel ID");
     scoped_refptr<net::SQLiteChannelIDStore> channel_id_db =

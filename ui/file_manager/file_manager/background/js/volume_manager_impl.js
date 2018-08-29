@@ -183,10 +183,10 @@ VolumeManagerImpl.prototype.onMountCompleted_ = function(event) {
               }.bind(this));
         } else if (event.status ===
             VolumeManagerCommon.VolumeError.ALREADY_MOUNTED) {
-          var navigation_event =
+          var navigationEvent =
               new Event(VolumeManagerCommon.VOLUME_ALREADY_MOUNTED);
-          navigation_event.volumeId = event.volumeMetadata.volumeId;
-          this.dispatchEvent(navigation_event);
+          navigationEvent.volumeId = event.volumeMetadata.volumeId;
+          this.dispatchEvent(navigationEvent);
           this.finishRequest_(requestKey, event.status, volumeInfo);
           callback();
         } else {
@@ -360,6 +360,12 @@ VolumeManagerImpl.prototype.getLocationInfo = function(entry) {
         break;
       case VolumeManagerCommon.VolumeType.MEDIA_VIEW:
         rootType = VolumeManagerCommon.RootType.MEDIA_VIEW;
+        break;
+      case VolumeManagerCommon.VolumeType.CROSTINI:
+        rootType = VolumeManagerCommon.RootType.CROSTINI;
+        break;
+      case VolumeManagerCommon.VolumeType.ANDROID_FILES:
+        rootType = VolumeManagerCommon.RootType.ANDROID_FILES;
         break;
       default:
         // Programming error, throw an exception.

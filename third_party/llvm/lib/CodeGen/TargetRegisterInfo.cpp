@@ -22,6 +22,7 @@
 #include "llvm/CodeGen/TargetFrameLowering.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/CodeGen/VirtRegMap.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/MC/MCRegisterInfo.h"
@@ -86,14 +87,20 @@ bool TargetRegisterInfo::checkAllSuperRegsMarked(const BitVector &RegisterSet,
 namespace llvm {
 
 Printable printReg(unsigned Reg, const TargetRegisterInfo *TRI,
-                   unsigned SubIdx) {
-  return Printable([Reg, TRI, SubIdx](raw_ostream &OS) {
+                   unsigned SubIdx, const MachineRegisterInfo *MRI) {
+  return Printable([Reg, TRI, SubIdx, MRI](raw_ostream &OS) {
     if (!Reg)
       OS << "$noreg";
     else if (TargetRegisterInfo::isStackSlot(Reg))
       OS << "SS#" << TargetRegisterInfo::stackSlot2Index(Reg);
-    else if (TargetRegisterInfo::isVirtualRegister(Reg))
-      OS << '%' << TargetRegisterInfo::virtReg2Index(Reg);
+    else if (TargetRegisterInfo::isVirtualRegister(Reg)) {
+      StringRef Name = MRI ? MRI->getVRegName(Reg) : "";
+      if (Name != "") {
+        OS << '%' << Name;
+      } else {
+        OS << '%' << TargetRegisterInfo::virtReg2Index(Reg);
+      }
+    }
     else if (!TRI)
       OS << '$' << "physreg" << Reg;
     else if (Reg < TRI->getNumRegs()) {
@@ -338,7 +345,7 @@ getCommonSuperRegClass(const TargetRegisterClass *RCA, unsigned SubA,
   return BestRC;
 }
 
-/// \brief Check if the registers defined by the pair (RegisterClass, SubReg)
+/// Check if the registers defined by the pair (RegisterClass, SubReg)
 /// share the same register file.
 static bool shareSameRegisterFile(const TargetRegisterInfo &TRI,
                                   const TargetRegisterClass *DefRC,
@@ -436,7 +443,8 @@ bool TargetRegisterInfo::needsStackRealignment(
   if (F.hasFnAttribute("stackrealign") || requiresRealignment) {
     if (canRealignStack(MF))
       return true;
-    DEBUG(dbgs() << "Can't realign function's stack: " << F.getName() << "\n");
+    LLVM_DEBUG(dbgs() << "Can't realign function's stack: " << F.getName()
+                      << "\n");
   }
   return false;
 }

@@ -18,6 +18,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/SpecialCaseList.h"
+#include "llvm/Support/TargetParser.h"
 #include <memory>
 
 using namespace clang;
@@ -32,11 +33,12 @@ enum : SanitizerMask {
   NotAllowedWithMinimalRuntime = Vptr,
   RequiresPIE = DataFlow | HWAddress | Scudo,
   NeedsUnwindTables = Address | HWAddress | Thread | Memory | DataFlow,
-  SupportsCoverage = Address | HWAddress | KernelAddress | Memory | Leak |
-                     Undefined | Integer | Nullability | DataFlow | Fuzzer |
-                     FuzzerNoLink,
+  SupportsCoverage = Address | HWAddress | KernelAddress | KernelHWAddress |
+                     Memory | Leak | Undefined | Integer | Nullability |
+                     DataFlow | Fuzzer | FuzzerNoLink,
   RecoverableByDefault = Undefined | Integer | Nullability,
   Unrecoverable = Unreachable | Return,
+  AlwaysRecoverable = KernelAddress | KernelHWAddress,
   LegacyFsanitizeRecoverMask = Undefined | Integer,
   NeedsLTO = CFI,
   TrappingSupported = (Undefined & ~Vptr) | UnsignedIntegerOverflow |
@@ -113,6 +115,10 @@ static void addDefaultBlacklists(const Driver &D, SanitizerMask Kinds,
     llvm::sys::path::append(Path, "share", BL.File);
     if (llvm::sys::fs::exists(Path))
       BlacklistFiles.push_back(Path.str());
+    else if (BL.Mask == CFI)
+      // If cfi_blacklist.txt cannot be found in the resource dir, driver
+      // should fail.
+      D.Diag(clang::diag::err_drv_no_such_file) << Path;
   }
 }
 
@@ -282,19 +288,18 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
       // Test for -fno-rtti + explicit -fsanitizer=vptr before expanding groups
       // so we don't error out if -fno-rtti and -fsanitize=undefined were
       // passed.
-      if (Add & Vptr &&
-          (RTTIMode == ToolChain::RM_DisabledImplicitly ||
-           RTTIMode == ToolChain::RM_DisabledExplicitly)) {
-        if (RTTIMode == ToolChain::RM_DisabledImplicitly)
-          // Warn about not having rtti enabled if the vptr sanitizer is
-          // explicitly enabled
-          D.Diag(diag::warn_drv_disabling_vptr_no_rtti_default);
-        else {
-          const llvm::opt::Arg *NoRTTIArg = TC.getRTTIArg();
-          assert(NoRTTIArg &&
-                 "RTTI disabled explicitly but we have no argument!");
+      if ((Add & Vptr) && (RTTIMode == ToolChain::RM_Disabled)) {
+        if (const llvm::opt::Arg *NoRTTIArg = TC.getRTTIArg()) {
+          assert(NoRTTIArg->getOption().matches(options::OPT_fno_rtti) &&
+                  "RTTI disabled without -fno-rtti option?");
+          // The user explicitly passed -fno-rtti with -fsanitize=vptr, but
+          // the vptr sanitizer requires RTTI, so this is a user error.
           D.Diag(diag::err_drv_argument_not_allowed_with)
               << "-fsanitize=vptr" << NoRTTIArg->getAsString(Args);
+        } else {
+          // The vptr sanitizer requires RTTI, but RTTI is disabled (by 
+          // default). Warn that the vptr sanitizer is being disabled.
+          D.Diag(diag::warn_drv_disabling_vptr_no_rtti_default);
         }
 
         // Take out the Vptr sanitizer from the enabled sanitizers
@@ -343,7 +348,13 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
       std::make_pair(Scudo, Address | HWAddress | Leak | Thread | Memory |
                                 KernelAddress | Efficiency),
       std::make_pair(SafeStack, Address | HWAddress | Leak | Thread | Memory |
-                                    KernelAddress | Efficiency)};
+                                    KernelAddress | Efficiency),
+      std::make_pair(ShadowCallStack, Address | HWAddress | Leak | Thread |
+                                          Memory | KernelAddress | Efficiency |
+                                          SafeStack),
+      std::make_pair(KernelHWAddress, Address | HWAddress | Leak | Thread |
+                                          Memory | KernelAddress | Efficiency |
+                                          SafeStack | ShadowCallStack)};
 
   // Enable toolchain specific default sanitizers if not explicitly disabled.
   SanitizerMask Default = TC.getDefaultSanitizers() & ~AllRemove;
@@ -360,9 +371,7 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
 
   // We disable the vptr sanitizer if it was enabled by group expansion but RTTI
   // is disabled.
-  if ((Kinds & Vptr) &&
-      (RTTIMode == ToolChain::RM_DisabledImplicitly ||
-       RTTIMode == ToolChain::RM_DisabledExplicitly)) {
+  if ((Kinds & Vptr) && (RTTIMode == ToolChain::RM_Disabled)) {
     Kinds &= ~Vptr;
   }
 
@@ -370,6 +379,15 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
   if ((Kinds & NeedsLTO) && !D.isUsingLTO()) {
     D.Diag(diag::err_drv_argument_only_allowed_with)
         << lastArgumentForMask(D, Args, Kinds & NeedsLTO) << "-flto";
+  }
+
+  if ((Kinds & ShadowCallStack) &&
+      TC.getTriple().getArch() == llvm::Triple::aarch64 &&
+      !llvm::AArch64::isX18ReservedByDefault(TC.getTriple()) &&
+      !Args.hasArg(options::OPT_ffixed_x18)) {
+    D.Diag(diag::err_drv_argument_only_allowed_with)
+        << lastArgumentForMask(D, Args, Kinds & ShadowCallStack)
+        << "-ffixed-x18";
   }
 
   // Report error if there are non-trapping sanitizers that require
@@ -409,8 +427,9 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
   // default in ASan?
 
   // Parse -f(no-)?sanitize-recover flags.
-  SanitizerMask RecoverableKinds = RecoverableByDefault;
+  SanitizerMask RecoverableKinds = RecoverableByDefault | AlwaysRecoverable;
   SanitizerMask DiagnosedUnrecoverableKinds = 0;
+  SanitizerMask DiagnosedAlwaysRecoverableKinds = 0;
   for (const auto *Arg : Args) {
     const char *DeprecatedReplacement = nullptr;
     if (Arg->getOption().matches(options::OPT_fsanitize_recover)) {
@@ -438,7 +457,18 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
       RecoverableKinds |= expandSanitizerGroups(Add);
       Arg->claim();
     } else if (Arg->getOption().matches(options::OPT_fno_sanitize_recover_EQ)) {
-      RecoverableKinds &= ~expandSanitizerGroups(parseArgValues(D, Arg, true));
+      SanitizerMask Remove = parseArgValues(D, Arg, true);
+      // Report error if user explicitly tries to disable recovery from
+      // always recoverable sanitizer.
+      if (SanitizerMask KindsToDiagnose =
+              Remove & AlwaysRecoverable & ~DiagnosedAlwaysRecoverableKinds) {
+        SanitizerSet SetToDiagnose;
+        SetToDiagnose.Mask |= KindsToDiagnose;
+        D.Diag(diag::err_drv_unsupported_option_argument)
+            << Arg->getOption().getName() << toString(SetToDiagnose);
+        DiagnosedAlwaysRecoverableKinds |= KindsToDiagnose;
+      }
+      RecoverableKinds &= ~expandSanitizerGroups(Remove);
       Arg->claim();
     }
     if (DeprecatedReplacement) {

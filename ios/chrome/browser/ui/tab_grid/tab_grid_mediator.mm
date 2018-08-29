@@ -11,6 +11,8 @@
 #include "components/favicon/ios/web_favicon_driver.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
+#import "ios/chrome/browser/snapshots/snapshot_cache.h"
+#import "ios/chrome/browser/snapshots/snapshot_cache_factory.h"
 #import "ios/chrome/browser/snapshots/snapshot_tab_helper.h"
 #import "ios/chrome/browser/tabs/tab_model.h"
 #import "ios/chrome/browser/ui/tab_grid/grid/grid_consumer.h"
@@ -18,6 +20,7 @@
 #import "ios/chrome/browser/web/tab_id_tab_helper.h"
 #include "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
+#import "ios/chrome/browser/web_state_list/web_state_list_serialization.h"
 #include "ios/chrome/browser/web_state_list/web_state_opener.h"
 #include "ios/web/public/web_state/web_state.h"
 #import "ios/web/public/web_state/web_state_observer_bridge.h"
@@ -71,6 +74,8 @@ int GetIndexOfTabWithId(WebStateList* webStateList, NSString* identifier) {
 @property(nonatomic, assign) WebStateList* webStateList;
 // The UI consumer to which updates are made.
 @property(nonatomic, weak) id<GridConsumer> consumer;
+// The saved session window just before close all tabs is called.
+@property(nonatomic, strong) SessionWindowIOS* closedSessionWindow;
 @end
 
 @implementation TabGridMediator {
@@ -89,6 +94,7 @@ int GetIndexOfTabWithId(WebStateList* webStateList, NSString* identifier) {
 // Private properties.
 @synthesize webStateList = _webStateList;
 @synthesize consumer = _consumer;
+@synthesize closedSessionWindow = _closedSessionWindow;
 
 - (instancetype)initWithConsumer:(id<GridConsumer>)consumer {
   if (self = [super init]) {
@@ -197,6 +203,7 @@ int GetIndexOfTabWithId(WebStateList* webStateList, NSString* identifier) {
 }
 
 - (void)insertNewItemAtIndex:(NSUInteger)index {
+  DCHECK(self.tabModel.browserState);
   web::WebState::CreateParams params(self.tabModel.browserState);
   std::unique_ptr<web::WebState> webState = web::WebState::Create(params);
   self.webStateList->InsertWebState(
@@ -228,7 +235,50 @@ int GetIndexOfTabWithId(WebStateList* webStateList, NSString* identifier) {
 }
 
 - (void)closeAllItems {
+  // This is a no-op if |webStateList| is already empty.
   self.webStateList->CloseAllWebStates(WebStateList::CLOSE_USER_ACTION);
+}
+
+- (void)saveAndCloseAllItems {
+  if (self.webStateList->empty())
+    return;
+  // Tell the cache to mark these images for deletion, rather than immediately
+  // deleting them.
+  DCHECK(self.tabModel.browserState);
+  SnapshotCache* cache =
+      SnapshotCacheFactory::GetForBrowserState(self.tabModel.browserState);
+  for (int i = 0; i < self.webStateList->count(); i++) {
+    web::WebState* webState = self.webStateList->GetWebStateAt(i);
+    TabIdTabHelper* tabHelper = TabIdTabHelper::FromWebState(webState);
+    [cache markImageWithSessionID:tabHelper->tab_id()];
+  }
+  self.closedSessionWindow = SerializeWebStateList(self.webStateList);
+  self.webStateList->CloseAllWebStates(WebStateList::CLOSE_USER_ACTION);
+}
+
+- (void)undoCloseAllItems {
+  if (!self.closedSessionWindow)
+    return;
+  DCHECK(self.tabModel.browserState);
+  web::WebState::CreateParams createParams(self.tabModel.browserState);
+  DeserializeWebStateList(
+      self.webStateList, self.closedSessionWindow,
+      base::BindRepeating(&web::WebState::CreateWithStorageSession,
+                          createParams));
+  self.closedSessionWindow = nil;
+  // Unmark all images for deletion since they are now active tabs again.
+  ios::ChromeBrowserState* browserState = self.tabModel.browserState;
+  [SnapshotCacheFactory::GetForBrowserState(browserState) unmarkAllImages];
+}
+
+- (void)discardSavedClosedItems {
+  if (!self.closedSessionWindow)
+    return;
+  self.closedSessionWindow = nil;
+  // Delete all marked images from the cache.
+  DCHECK(self.tabModel.browserState);
+  ios::ChromeBrowserState* browserState = self.tabModel.browserState;
+  [SnapshotCacheFactory::GetForBrowserState(browserState) removeMarkedImages];
 }
 
 #pragma mark - GridImageDataSource

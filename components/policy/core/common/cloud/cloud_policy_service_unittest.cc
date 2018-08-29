@@ -24,7 +24,7 @@ namespace policy {
 class MockCloudPolicyServiceObserver : public CloudPolicyService::Observer {
  public:
   MockCloudPolicyServiceObserver() {}
-  virtual ~MockCloudPolicyServiceObserver() {}
+  ~MockCloudPolicyServiceObserver() override {}
 
   MOCK_METHOD1(OnInitializationCompleted, void(CloudPolicyService* service));
  private:
@@ -49,16 +49,6 @@ class CloudPolicyServiceTest : public testing::Test {
 
 MATCHER_P(ProtoMatches, proto, std::string()) {
   return arg.SerializePartialAsString() == proto.SerializePartialAsString();
-}
-
-TEST_F(CloudPolicyServiceTest, ManagedByEmptyPolicy) {
-  EXPECT_EQ(std::string(), service_.ManagedBy());
-}
-
-TEST_F(CloudPolicyServiceTest, ManagedByValidPolicy) {
-  store_.policy_.reset(new em::PolicyData());
-  store_.policy_->set_username("user@example.com");
-  EXPECT_EQ("example.com", service_.ManagedBy());
 }
 
 TEST_F(CloudPolicyServiceTest, PolicyUpdateSuccess) {

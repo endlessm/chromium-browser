@@ -12,7 +12,6 @@
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -378,7 +377,7 @@ void TestingProfile::CreateTempProfileDir() {
 
     // Fallback logic in case we fail to create unique temporary directory.
     base::FilePath system_tmp_dir;
-    bool success = PathService::Get(base::DIR_TEMP, &system_tmp_dir);
+    bool success = base::PathService::Get(base::DIR_TEMP, &system_tmp_dir);
 
     // We're severly screwed if we can't get the system temporary
     // directory. Die now to avoid writing to the filesystem root
@@ -842,12 +841,6 @@ net::URLRequestContextGetter* TestingProfile::GetRequestContextForExtensions() {
   if (!extensions_request_context_.get())
     extensions_request_context_ = new TestExtensionURLRequestContextGetter();
   return extensions_request_context_.get();
-}
-
-net::SSLConfigService* TestingProfile::GetSSLConfigService() {
-  if (!GetRequestContext())
-    return NULL;
-  return GetRequestContext()->GetURLRequestContext()->ssl_config_service();
 }
 
 content::ResourceContext* TestingProfile::GetResourceContext() {

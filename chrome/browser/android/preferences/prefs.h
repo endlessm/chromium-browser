@@ -12,6 +12,7 @@
 #include "chrome/common/pref_names.h"
 #include "components/dom_distiller/core/pref_names.h"
 #include "components/ntp_snippets/pref_names.h"
+#include "components/payments/core/payment_prefs.h"
 
 // A preference exposed to Java.
 // A Java counterpart will be generated for this enum.
@@ -24,6 +25,8 @@ enum Pref {
   NTP_ARTICLES_LIST_VISIBLE,
   READER_FOR_ACCESSIBILITY_ENABLED,
   PROMPT_FOR_DOWNLOAD_ANDROID,
+  SHOW_MISSING_SD_CARD_ERROR_ANDROID,
+  CAN_MAKE_PAYMENT_ENABLED,
   // PREF_NUM_PREFS must be the last entry.
   PREF_NUM_PREFS
 };
@@ -37,6 +40,8 @@ const char* const kPrefsExposedToJava[] = {
     ntp_snippets::prefs::kEnableSnippets,
     ntp_snippets::prefs::kArticlesListVisible,
     dom_distiller::prefs::kReaderForAccessibility,
-    prefs::kPromptForDownloadAndroid};
+    prefs::kPromptForDownloadAndroid,
+    prefs::kShowMissingSdCardErrorAndroid,
+    payments::kCanMakePaymentEnabled};
 
 #endif  // CHROME_BROWSER_ANDROID_PREFERENCES_PREFS_H_

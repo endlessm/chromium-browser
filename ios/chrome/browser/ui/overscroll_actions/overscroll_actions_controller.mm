@@ -25,6 +25,7 @@
 #import "ios/chrome/browser/ui/tools_menu/public/tools_menu_constants.h"
 #include "ios/chrome/browser/ui/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/voice/voice_search_notification_names.h"
+#include "ios/web/public/features.h"
 #import "ios/web/public/web_state/ui/crw_web_view_proxy.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -81,16 +82,18 @@ typedef struct {
   CGFloat initialYInset;
   CGFloat headerInset;
   CGFloat velocityInset;
+  CGFloat initialTopMargin;
   CFAbsoluteTime time;
 } SpringInsetState;
 
 // Used to set the height of a view frame.
 // Implicit animations are disabled when setting the new frame.
-void SetViewFrameHeight(UIView* view, CGFloat height) {
+void SetViewFrameHeight(UIView* view, CGFloat height, CGFloat topMargin) {
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
   CGRect viewFrame = view.frame;
-  viewFrame.size.height = height;
+  viewFrame.size.height = height - topMargin;
+  viewFrame.origin.y = topMargin;
   view.frame = viewFrame;
   [CATransaction commit];
 }
@@ -368,6 +371,11 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
   }
   CGFloat contentOffsetFromExpandedHeader =
       contentOffsetFromTheTop + self.initialHeaderInset;
+  CGFloat topMargin = 0;
+  if (!_webViewProxy && base::FeatureList::IsEnabled(
+                            web::features::kBrowserContainerFullscreen)) {
+    topMargin = StatusBarHeight();
+  }
   if (contentOffsetFromExpandedHeader >= 0) {
     // Record initial content offset and dispatch delegate on state change.
     self.overscrollState = OverscrollState::NO_PULL_STARTED;
@@ -382,7 +390,8 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
       _initialHeaderHeight = [[self delegate] overscrollHeaderHeight];
       self.overscrollState = OverscrollState::STARTED_PULLING;
     }
-    [self updateWithVerticalOffset:-contentOffsetFromExpandedHeader];
+    [self updateWithVerticalOffset:-contentOffsetFromExpandedHeader
+                         topMargin:topMargin];
   }
 }
 
@@ -736,7 +745,8 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
       SetViewFrameHeight(
           self.overscrollActionView,
           self.initialContentInset +
-              [UIApplication sharedApplication].statusBarFrame.size.height);
+              [UIApplication sharedApplication].statusBarFrame.size.height,
+          0);
       self.panPointScreenOrigin = CGPointZero;
       [[NSNotificationCenter defaultCenter]
           postNotificationName:kOverscrollActionsDidEnd
@@ -814,12 +824,13 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
   }
 }
 
-- (void)updateWithVerticalOffset:(CGFloat)verticalOffset {
+- (void)updateWithVerticalOffset:(CGFloat)verticalOffset
+                       topMargin:(CGFloat)topMargin {
   self.overscrollActionView.backgroundView.alpha =
       1.0 -
-      Clamp(verticalOffset / (kHeaderMaxExpansionThreshold / 2.0), 0.0, 1.0);
+      Clamp((verticalOffset) / (kHeaderMaxExpansionThreshold / 2.0), 0.0, 1.0);
   SetViewFrameHeight(self.overscrollActionView,
-                     self.initialHeaderHeight + verticalOffset);
+                     self.initialHeaderHeight + verticalOffset, topMargin);
   [self.overscrollActionView updateWithVerticalOffset:verticalOffset];
 }
 
@@ -861,6 +872,7 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
   }
   _bounceState.yInset = [self scrollView].contentInset.top;
   _bounceState.initialYInset = _bounceState.yInset;
+  _bounceState.initialTopMargin = self.overscrollActionView.frame.origin.y;
   _bounceState.headerInset = self.initialContentInset;
   _bounceState.time = CACurrentMediaTime();
   _bounceState.velocityInset = -velocity.y * 1000.0;
@@ -893,8 +905,9 @@ NSString* const kOverscrollActionsDidEnd = @"OverscrollActionsDidStop";
   if (_bounceState.yInset - _bounceState.headerInset < 0.5)
     _bounceState.yInset = _bounceState.headerInset;
   if (_performingScrollViewIndependentAnimation) {
-    [self updateWithVerticalOffset:_bounceState.yInset -
-                                   _bounceState.headerInset];
+    [self
+        updateWithVerticalOffset:_bounceState.yInset - _bounceState.headerInset
+                       topMargin:_bounceState.initialTopMargin];
   } else {
     const UIEdgeInsets insets = UIEdgeInsetsMake(_bounceState.yInset, 0, 0, 0);
     _forceStateUpdate = YES;

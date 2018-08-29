@@ -4,12 +4,12 @@
 
 #include "chromecast/browser/url_request_context_factory.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task_scheduler/post_task.h"
 #include "chromecast/base/cast_features.h"
@@ -27,7 +27,7 @@
 #include "net/cert/cert_verifier.h"
 #include "net/cert/ct_policy_enforcer.h"
 #include "net/cert/ct_policy_status.h"
-#include "net/cert/do_nothing_ct_verifier.h"
+#include "net/cert/multi_log_ct_verifier.h"
 #include "net/cert_net/nss_ocsp.h"
 #include "net/cookies/cookie_store.h"
 #include "net/dns/host_resolver.h"
@@ -60,20 +60,6 @@ namespace shell {
 namespace {
 
 const char kCookieStoreFile[] = "Cookies";
-
-// A CTPolicyEnforcer that accepts all certificates.
-class IgnoresCTPolicyEnforcer : public net::CTPolicyEnforcer {
- public:
-  IgnoresCTPolicyEnforcer() = default;
-  ~IgnoresCTPolicyEnforcer() override = default;
-
-  net::ct::CTPolicyCompliance CheckCompliance(
-      net::X509Certificate* cert,
-      const net::SCTList& verified_scts,
-      const net::NetLogWithSource& net_log) override {
-    return net::ct::CTPolicyCompliance::CT_POLICY_COMPLIES_VIA_SCTS;
-  }
-};
 
 bool IgnoreCertificateErrors() {
   base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
@@ -190,11 +176,10 @@ void URLRequestContextFactory::InitializeOnUIThread(net::NetLog* net_log) {
   // Proxy config service should be initialized in UI thread, since
   // ProxyConfigServiceDelegate on Android expects UI thread.
   pref_proxy_config_tracker_impl_ =
-      base::WrapUnique<PrefProxyConfigTrackerImpl>(
-          new PrefProxyConfigTrackerImpl(
-              CastBrowserProcess::GetInstance()->pref_service(),
-              content::BrowserThread::GetTaskRunnerForThread(
-                  content::BrowserThread::IO)));
+      std::make_unique<PrefProxyConfigTrackerImpl>(
+          CastBrowserProcess::GetInstance()->pref_service(),
+          content::BrowserThread::GetTaskRunnerForThread(
+              content::BrowserThread::IO));
 
   proxy_config_service_ =
       pref_proxy_config_tracker_impl_->CreateTrackingProxyConfigService(
@@ -246,9 +231,8 @@ void URLRequestContextFactory::InitializeSystemContextDependencies() {
   cert_verifier_ = net::CertVerifier::CreateDefault();
   ssl_config_service_ = new net::SSLConfigServiceDefaults;
   transport_security_state_.reset(new net::TransportSecurityState());
-  // Certificate transparency is current disabled for Chromecast.
-  cert_transparency_verifier_.reset(new net::DoNothingCTVerifier());
-  ct_policy_enforcer_.reset(new IgnoresCTPolicyEnforcer());
+  cert_transparency_verifier_.reset(new net::MultiLogCTVerifier());
+  ct_policy_enforcer_.reset(new net::DefaultCTPolicyEnforcer());
 
   http_auth_handler_factory_ =
       net::HttpAuthHandlerFactory::CreateDefault(host_resolver_.get());
@@ -258,8 +242,9 @@ void URLRequestContextFactory::InitializeSystemContextDependencies() {
   http_server_properties_.reset(new net::HttpServerPropertiesImpl);
 
   DCHECK(proxy_config_service_);
-  proxy_resolution_service_ = net::ProxyResolutionService::CreateUsingSystemProxyResolver(
-      std::move(proxy_config_service_), NULL);
+  proxy_resolution_service_ =
+      net::ProxyResolutionService::CreateUsingSystemProxyResolver(
+          std::move(proxy_config_service_), nullptr);
   system_dependencies_initialized_ = true;
 }
 
@@ -277,12 +262,12 @@ void URLRequestContextFactory::InitializeMainContextDependencies(
   for (content::ProtocolHandlerMap::iterator it = protocol_handlers->begin();
        it != protocol_handlers->end();
        ++it) {
-    set_protocol = job_factory->SetProtocolHandler(
-        it->first, base::WrapUnique(it->second.release()));
+    set_protocol =
+        job_factory->SetProtocolHandler(it->first, std::move(it->second));
     DCHECK(set_protocol);
   }
   set_protocol = job_factory->SetProtocolHandler(
-      url::kDataScheme, base::WrapUnique(new net::DataProtocolHandler));
+      url::kDataScheme, std::make_unique<net::DataProtocolHandler>());
   DCHECK(set_protocol);
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -329,7 +314,7 @@ void URLRequestContextFactory::PopulateNetworkSessionParams(
 
   // Enable QUIC if instructed by DCS. This remains constant for the lifetime of
   // the process.
-  session_params->enable_quic = base::FeatureList::IsEnabled(kEnableQuic);
+  session_params->enable_quic = chromecast::IsFeatureEnabled(kEnableQuic);
   LOG(INFO) << "Set HttpNetworkSessionParams.enable_quic = "
             << session_params->enable_quic;
 
@@ -340,7 +325,7 @@ void URLRequestContextFactory::PopulateNetworkSessionParams(
   // 2. if idle sockets are kept alive when memory pressure happens, this may
   // cause JS engine gc frequently, leading to JS suspending.
   session_params->disable_idle_sockets_close_on_memory_pressure =
-      base::FeatureList::IsEnabled(kDisableIdleSocketsCloseOnMemoryPressure);
+      chromecast::IsFeatureEnabled(kDisableIdleSocketsCloseOnMemoryPressure);
   LOG(INFO) << "Set HttpNetworkSessionParams."
             << "disable_idle_sockets_close_on_memory_pressure = "
             << session_params->disable_idle_sockets_close_on_memory_pressure;

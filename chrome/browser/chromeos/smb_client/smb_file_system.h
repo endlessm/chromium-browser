@@ -54,8 +54,6 @@ class SmbFileSystem : public file_system_provider::ProvidedFileSystemInterface,
       UnmountCallback unmount_callback);
   ~SmbFileSystem() override;
 
-  static base::File::Error TranslateError(smbprovider::ErrorType);
-
   // ProvidedFileSystemInterface overrides.
   file_system_provider::AbortCallback RequestUnmount(
       storage::AsyncFileUtil::StatusCallback callback) override;
@@ -175,6 +173,20 @@ class SmbFileSystem : public file_system_provider::ProvidedFileSystemInterface,
  private:
   void Abort(OperationId operation_id);
 
+  // Initializes temp_file_manager_.
+  void InitTempFileManager();
+
+  // Calls InitTempFileManager() and executes |task|.
+  void InitTempFileManagerAndExecuteTask(SmbTask task);
+
+  // Calls WriteFile in SmbProviderClient.
+  file_system_provider::AbortCallback CallWriteFile(
+      int file_handle,
+      const std::vector<uint8_t>& data,
+      int64_t offset,
+      int length,
+      storage::AsyncFileUtil::StatusCallback callback);
+
   file_system_provider::AbortCallback CreateAbortCallback(
       OperationId operation_id);
 
@@ -245,7 +257,7 @@ class SmbFileSystem : public file_system_provider::ProvidedFileSystemInterface,
   const file_system_provider::OpenedFiles opened_files_;
 
   UnmountCallback unmount_callback_;
-  TempFileManager temp_file_manager_;
+  std::unique_ptr<TempFileManager> temp_file_manager_;
   mutable SmbTaskQueue task_queue_;
 
   DISALLOW_COPY_AND_ASSIGN(SmbFileSystem);

@@ -58,6 +58,9 @@ class Commit(collections.namedtuple('Commit', ('repository', 'git_hash'))):
     for deps_os in deps_data.get('deps_os', {}).itervalues():
       deps_dict.update(deps_os)
 
+    # Pull out vars dict to format brace variables.
+    vars_dict = deps_data.get('vars', {})
+
     # Convert deps strings to repository and git hash.
     commits = []
     for dep_value in deps_dict.itervalues():
@@ -68,8 +71,10 @@ class Commit(collections.namedtuple('Commit', ('repository', 'git_hash'))):
           # We don't support DEPS that are CIPD packages.
           continue
         dep_string = dep_value['url']
+        if 'revision' in dep_value:
+          dep_string += '@' + dep_value['revision']
 
-      dep_string_parts = dep_string.split('@')
+      dep_string_parts = dep_string.format(**vars_dict).split('@')
       if len(dep_string_parts) < 2:
         continue  # Dep is not pinned to any particular revision.
       if len(dep_string_parts) > 2:
@@ -92,12 +97,19 @@ class Commit(collections.namedtuple('Commit', ('repository', 'git_hash'))):
         'url': self.repository_url + '/+/' + commit_info['commit'],
         'subject': commit_info['message'].split('\n', 1)[0],
         'author': commit_info['author']['email'],
-        'reviewers': _ParseReviewers(commit_info['message']),
         'time': commit_info['committer']['time'],
     }
     commit_position = _ParseCommitPosition(commit_info['message'])
     if commit_position:
       details['commit_position'] = commit_position
+    author = details['author']
+    if (author == 'v8-autoroll@chromium.org' or
+        author.endswith('skia-buildbots.google.com.iam.gserviceaccount.com')):
+      message = commit_info['message']
+      if message:
+        m = re.search(r'TBR=([^,^\s]*)', message)
+        if m:
+          details['tbr'] = m.group(1)
     return details
 
   @classmethod
@@ -185,20 +197,6 @@ class Commit(collections.namedtuple('Commit', ('repository', 'git_hash'))):
     commits.pop(0)  # Remove commit_b from the range.
 
     return cls(commit_a.repository, commits[len(commits) / 2]['commit'])
-
-
-def _ParseReviewers(commit_message):
-  """Parses a commit message for the emails of all reviewers.
-
-  If the commit is a revert, this includes
-  all the reviewers from the original commit.
-
-  Args:
-    commit_message:: The commit message as a string.
-
-  Returns:
-    A list of reviewers."""
-  return re.findall('Reviewed-by: .+ <(.+?)>', commit_message)
 
 
 def _ParseCommitPosition(commit_message):

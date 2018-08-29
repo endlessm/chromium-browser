@@ -15,7 +15,7 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/process/process_handle.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
@@ -110,8 +110,9 @@ class WtsSessionProcessDelegate::Core
   void OnProcessLaunchDetected(base::ProcessId pid);
 
   void ReportFatalError();
-  void ReportProcessLaunched(base::win::ScopedHandle worker_process,
-                             mojo::edk::ScopedPlatformHandle server_handle);
+  void ReportProcessLaunched(
+      base::win::ScopedHandle worker_process,
+      mojo::edk::ScopedInternalPlatformHandle server_handle);
 
   // The task runner all public methods of this class should be called on.
   scoped_refptr<base::SingleThreadTaskRunner> caller_task_runner_;
@@ -148,7 +149,7 @@ class WtsSessionProcessDelegate::Core
 
   // If launching elevated, this holds the server handle after launch, until
   // the final process launches.
-  mojo::edk::ScopedPlatformHandle elevated_server_handle_;
+  mojo::edk::ScopedInternalPlatformHandle elevated_server_handle_;
 
   // If launching elevated, this is the pid of the launcher process.
   base::ProcessId elevated_launcher_pid_ = base::kNullProcessId;
@@ -211,7 +212,7 @@ bool WtsSessionProcessDelegate::Core::Initialize(uint32_t session_id) {
     // the completion port represented by |io_task_runner|. The registration has
     // to be done on the I/O thread because
     // MessageLoopForIO::RegisterJobObject() can only be called via
-    // MessageLoopForIO::current().
+    // MessageLoopCurrentForIO::Get().
     io_task_runner_->PostTask(
         FROM_HERE, base::Bind(&Core::InitializeJob, this, base::Passed(&job)));
   }
@@ -487,7 +488,8 @@ void WtsSessionProcessDelegate::Core::InitializeJob(ScopedHandle job) {
   DCHECK(io_task_runner_->BelongsToCurrentThread());
 
   // Register to receive job notifications via the I/O thread's completion port.
-  if (!base::MessageLoopForIO::current()->RegisterJobObject(job.Get(), this)) {
+  if (!base::MessageLoopCurrentForIO::Get()->RegisterJobObject(job.Get(),
+                                                               this)) {
     PLOG(ERROR) << "Failed to associate the job object with a completion port";
     return;
   }
@@ -553,7 +555,7 @@ void WtsSessionProcessDelegate::Core::ReportFatalError() {
 
 void WtsSessionProcessDelegate::Core::ReportProcessLaunched(
     base::win::ScopedHandle worker_process,
-    mojo::edk::ScopedPlatformHandle server_handle) {
+    mojo::edk::ScopedInternalPlatformHandle server_handle) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
   DCHECK(!worker_process_.IsValid());
 

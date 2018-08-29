@@ -66,6 +66,8 @@ class SurfacesInstance : public base::RefCounted<SurfacesInstance>,
   void DisplayDidDrawAndSwap() override {}
   void DisplayDidReceiveCALayerParams(
       const gfx::CALayerParams& ca_layer_params) override {}
+  void DidSwapAfterSnapshotRequestReceived(
+      const std::vector<ui::LatencyInfo>& latency_info) override {}
 
   // viz::mojom::CompositorFrameSinkClient implementation.
   void DidReceiveCompositorFrameAck(
@@ -101,8 +103,6 @@ class SurfacesInstance : public base::RefCounted<SurfacesInstance>,
   ParentOutputSurface* output_surface_;
 
   gfx::Size surface_size_;
-
-  uint64_t swap_id_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(SurfacesInstance);
 };

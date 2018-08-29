@@ -39,6 +39,7 @@
 #include "llvm/CodeGen/GCStrategy.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
+#include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -238,7 +239,6 @@ void AsmPrinter::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<MachineModuleInfo>();
   AU.addRequired<MachineOptimizationRemarkEmitterPass>();
   AU.addRequired<GCModuleInfo>();
-  AU.addRequired<MachineLoopInfo>();
 }
 
 bool AsmPrinter::doInitialization(Module &M) {
@@ -295,8 +295,7 @@ bool AsmPrinter::doInitialization(Module &M) {
 
   if (MAI->doesSupportDebugInformation()) {
     bool EmitCodeView = MMI->getModule()->getCodeViewFlag();
-    if (EmitCodeView && (TM.getTargetTriple().isKnownWindowsMSVCEnvironment() ||
-                         TM.getTargetTriple().isWindowsItaniumEnvironment())) {
+    if (EmitCodeView && TM.getTargetTriple().isOSWindows()) {
       Handlers.push_back(HandlerInfo(new CodeViewDebug(this),
                                      DbgTimerName, DbgTimerDescription,
                                      CodeViewLineTablesGroupName,
@@ -912,6 +911,30 @@ static bool emitDebugValueComment(const MachineInstr *MI, AsmPrinter &AP) {
   return true;
 }
 
+/// This method handles the target-independent form of DBG_LABEL, returning
+/// true if it was able to do so.  A false return means the target will need
+/// to handle MI in EmitInstruction.
+static bool emitDebugLabelComment(const MachineInstr *MI, AsmPrinter &AP) {
+  if (MI->getNumOperands() != 1)
+    return false;
+
+  SmallString<128> Str;
+  raw_svector_ostream OS(Str);
+  OS << "DEBUG_LABEL: ";
+
+  const DILabel *V = MI->getDebugLabel();
+  if (auto *SP = dyn_cast<DISubprogram>(V->getScope())) {
+    StringRef Name = SP->getName();
+    if (!Name.empty())
+      OS << Name << ":";
+  }
+  OS << V->getName();
+
+  // NOTE: Want this comment at start of line, don't emit with AddComment.
+  AP.OutStreamer->emitRawComment(OS.str());
+  return true;
+}
+
 AsmPrinter::CFIMoveType AsmPrinter::needsCFIMoves() const {
   if (MAI->getExceptionHandlingType() == ExceptionHandling::DwarfCFI &&
       MF->getFunction().needsUnwindTableEntry())
@@ -1009,6 +1032,24 @@ void AsmPrinter::EmitFunctionBody() {
 
   bool ShouldPrintDebugScopes = MMI->hasDebugInfo();
 
+  if (isVerbose()) {
+    // Get MachineDominatorTree or compute it on the fly if it's unavailable
+    MDT = getAnalysisIfAvailable<MachineDominatorTree>();
+    if (!MDT) {
+      OwnedMDT = make_unique<MachineDominatorTree>();
+      OwnedMDT->getBase().recalculate(*MF);
+      MDT = OwnedMDT.get();
+    }
+
+    // Get MachineLoopInfo or compute it on the fly if it's unavailable
+    MLI = getAnalysisIfAvailable<MachineLoopInfo>();
+    if (!MLI) {
+      OwnedMLI = make_unique<MachineLoopInfo>();
+      OwnedMLI->getBase().analyze(MDT->getBase());
+      MLI = OwnedMLI.get();
+    }
+  }
+
   // Print out code for the function.
   bool HasAnyRealCode = false;
   int NumInstsInFunction = 0;
@@ -1018,7 +1059,7 @@ void AsmPrinter::EmitFunctionBody() {
     for (auto &MI : MBB) {
       // Print the assembly for the instruction.
       if (!MI.isPosition() && !MI.isImplicitDef() && !MI.isKill() &&
-          !MI.isDebugValue()) {
+          !MI.isDebugInstr()) {
         HasAnyRealCode = true;
         ++NumInstsInFunction;
       }
@@ -1054,6 +1095,12 @@ void AsmPrinter::EmitFunctionBody() {
       case TargetOpcode::DBG_VALUE:
         if (isVerbose()) {
           if (!emitDebugValueComment(&MI, *this))
+            EmitInstruction(&MI);
+        }
+        break;
+      case TargetOpcode::DBG_LABEL:
+        if (isVerbose()) {
+          if (!emitDebugLabelComment(&MI, *this))
             EmitInstruction(&MI);
         }
         break;
@@ -1168,7 +1215,7 @@ void AsmPrinter::EmitFunctionBody() {
   OutStreamer->AddBlankLine();
 }
 
-/// \brief Compute the number of Global Variables that uses a Constant.
+/// Compute the number of Global Variables that uses a Constant.
 static unsigned getNumGlobalVariableUses(const Constant *C) {
   if (!C)
     return 0;
@@ -1183,7 +1230,7 @@ static unsigned getNumGlobalVariableUses(const Constant *C) {
   return NumUses;
 }
 
-/// \brief Only consider global GOT equivalents if at least one user is a
+/// Only consider global GOT equivalents if at least one user is a
 /// cstexpr inside an initializer of another global variables. Also, don't
 /// handle cstexpr inside instructions. During global variable emission,
 /// candidates are skipped and are emitted later in case at least one cstexpr
@@ -1206,7 +1253,7 @@ static bool isGOTEquivalentCandidate(const GlobalVariable *GV,
   return NumGOTEquivUsers > 0;
 }
 
-/// \brief Unnamed constant global variables solely contaning a pointer to
+/// Unnamed constant global variables solely contaning a pointer to
 /// another globals variable is equivalent to a GOT table entry; it contains the
 /// the address of another symbol. Optimize it and replace accesses to these
 /// "GOT equivalents" by using the GOT entry for the final global instead.
@@ -1227,7 +1274,7 @@ void AsmPrinter::computeGlobalGOTEquivs(Module &M) {
   }
 }
 
-/// \brief Constant expressions using GOT equivalent globals may not be eligible
+/// Constant expressions using GOT equivalent globals may not be eligible
 /// for PC relative GOT entry conversion, in such cases we need to emit such
 /// globals we previously omitted in EmitGlobalVariable.
 void AsmPrinter::emitGlobalGOTEquivs() {
@@ -1325,7 +1372,7 @@ bool AsmPrinter::doFinalization(Module &M) {
 
   const TargetLoweringObjectFile &TLOF = getObjFileLowering();
 
-  TLOF.emitModuleMetadata(*OutStreamer, M, TM);
+  TLOF.emitModuleMetadata(*OutStreamer, M);
 
   if (TM.getTargetTriple().isOSBinFormatELF()) {
     MachineModuleInfoELF &MMIELF = MMI->getObjFileInfo<MachineModuleInfoELF>();
@@ -1336,6 +1383,7 @@ bool AsmPrinter::doFinalization(Module &M) {
       OutStreamer->SwitchSection(TLOF.getDataSection());
       const DataLayout &DL = M.getDataLayout();
 
+      EmitAlignment(Log2_32(DL.getPointerSize()));
       for (const auto &Stub : Stubs) {
         OutStreamer->EmitLabel(Stub.first);
         OutStreamer->EmitSymbolValue(Stub.second.getPointer(),
@@ -1488,6 +1536,8 @@ bool AsmPrinter::doFinalization(Module &M) {
 
   OutStreamer->Finish();
   OutStreamer->reset();
+  OwnedMLI.reset();
+  OwnedMDT.reset();
 
   return false;
 }
@@ -1514,7 +1564,6 @@ void AsmPrinter::SetupMachineFunction(MachineFunction &MF) {
   }
 
   ORE = &getAnalysis<MachineOptimizationRemarkEmitterPass>().getORE();
-  LI = &getAnalysis<MachineLoopInfo>();
 
   const TargetSubtargetInfo &STI = MF.getSubtarget();
   EnablePrintSchedInfo = PrintSchedule.getNumOccurrences()
@@ -1902,20 +1951,25 @@ void AsmPrinter::EmitModuleIdents(Module &M) {
 // Emission and print routines
 //
 
-/// EmitInt8 - Emit a byte directive and value.
+/// Emit a byte directive and value.
 ///
-void AsmPrinter::EmitInt8(int Value) const {
+void AsmPrinter::emitInt8(int Value) const {
   OutStreamer->EmitIntValue(Value, 1);
 }
 
-/// EmitInt16 - Emit a short directive and value.
-void AsmPrinter::EmitInt16(int Value) const {
+/// Emit a short directive and value.
+void AsmPrinter::emitInt16(int Value) const {
   OutStreamer->EmitIntValue(Value, 2);
 }
 
-/// EmitInt32 - Emit a long directive and value.
-void AsmPrinter::EmitInt32(int Value) const {
+/// Emit a long directive and value.
+void AsmPrinter::emitInt32(int Value) const {
   OutStreamer->EmitIntValue(Value, 4);
+}
+
+/// Emit a long long directive and value.
+void AsmPrinter::emitInt64(uint64_t Value) const {
+  OutStreamer->EmitIntValue(Value, 8);
 }
 
 /// Emit something like ".long Hi-Lo" where the size in bytes of the directive
@@ -2215,6 +2269,7 @@ static void emitGlobalConstantDataSequential(const DataLayout &DL,
   unsigned Size = DL.getTypeAllocSize(CDS->getType());
   unsigned EmittedSize = DL.getTypeAllocSize(CDS->getType()->getElementType()) *
                         CDS->getNumElements();
+  assert(EmittedSize <= Size && "Size cannot be less than EmittedSize!");
   if (unsigned Padding = Size - EmittedSize)
     AP.OutStreamer->EmitZeros(Padding);
 }
@@ -2385,7 +2440,7 @@ static void emitGlobalConstantLargeInt(const ConstantInt *CI, AsmPrinter &AP) {
   }
 }
 
-/// \brief Transform a not absolute MCExpr containing a reference to a GOT
+/// Transform a not absolute MCExpr containing a reference to a GOT
 /// equivalent global, by a target specific GOT pc relative access to the
 /// final symbol.
 static void handleIndirectSymViaGOTPCRel(AsmPrinter &AP, const MCExpr **ME,
@@ -2696,13 +2751,9 @@ static void emitBasicBlockLoopComments(const MachineBasicBlock &MBB,
 void AsmPrinter::setupCodePaddingContext(const MachineBasicBlock &MBB,
                                          MCCodePaddingContext &Context) const {
   assert(MF != nullptr && "Machine function must be valid");
-  assert(LI != nullptr && "Loop info must be valid");
   Context.IsPaddingActive = !MF->hasInlineAsm() &&
                             !MF->getFunction().optForSize() &&
                             TM.getOptLevel() != CodeGenOpt::None;
-  const MachineLoop *CurrentLoop = LI->getLoopFor(&MBB);
-  Context.IsBasicBlockInsideInnermostLoop =
-      CurrentLoop != nullptr && CurrentLoop->getSubLoops().empty();
   Context.IsBasicBlockReachableViaFallthrough =
       std::find(MBB.pred_begin(), MBB.pred_end(), MBB.getPrevNode()) !=
       MBB.pred_end();
@@ -2754,7 +2805,9 @@ void AsmPrinter::EmitBasicBlockStart(const MachineBasicBlock &MBB) const {
         OutStreamer->GetCommentOS() << '\n';
       }
     }
-    emitBasicBlockLoopComments(MBB, LI, *this);
+
+    assert(MLI != nullptr && "MachineLoopInfo should has been computed");
+    emitBasicBlockLoopComments(MBB, MLI, *this);
   }
 
   // Print the main label for the block.

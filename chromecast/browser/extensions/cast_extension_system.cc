@@ -11,6 +11,7 @@
 #include "base/json/json_string_value_serializer.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
+#include "chromecast/browser/extensions/api/tts/tts_extension_api.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_details.h"
@@ -132,6 +133,11 @@ const Extension* CastExtensionSystem::LoadExtension(
   return extension.get();
 }
 
+void CastExtensionSystem::UnloadExtension(const std::string& extension_id,
+                                          UnloadedExtensionReason reason) {
+  extension_registrar_->RemoveExtension(extension_id, reason);
+}
+
 void CastExtensionSystem::PostLoadExtension(
     const scoped_refptr<extensions::Extension>& extension) {
   extension_registrar_->AddExtension(extension);
@@ -143,6 +149,9 @@ const Extension* CastExtensionSystem::LoadApp(const base::FilePath& app_dir) {
 
 void CastExtensionSystem::Init() {
   extensions::ProcessManager::Get(browser_context_);
+
+  // Prime the tts extension API.
+  extensions::TtsAPI::GetFactoryInstance();
 
   // Inform the rest of the extensions system to start.
   ready_.Signal();

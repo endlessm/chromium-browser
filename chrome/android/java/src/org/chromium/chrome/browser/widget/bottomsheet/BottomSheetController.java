@@ -108,6 +108,12 @@ public class BottomSheetController implements ApplicationStatus.ActivityStateLis
                 if (tab != tabModelSelector.getCurrentTab()) return;
                 clearRequestsAndHide();
             }
+
+            @Override
+            public void onCrash(Tab tab, boolean sadTabShown) {
+                if (tab != tabModelSelector.getCurrentTab()) return;
+                clearRequestsAndHide();
+            }
         };
 
         final TabModelObserver tabSelectionObserver = new EmptyTabModelObserver() {
@@ -158,6 +164,14 @@ public class BottomSheetController implements ApplicationStatus.ActivityStateLis
             }
         });
 
+        final BottomSheetObserver scrimAlphaSheetObserver = new EmptyBottomSheetObserver() {
+            @Override
+            public void onTransitionPeekToHalf(float transitionFraction) {
+                fadingBackgroundView.setViewAlpha(transitionFraction);
+            }
+        };
+
+        // Handles attaching the observer that controls the placement and visibility of the scrim.
         mBottomSheet.addObserver(new EmptyBottomSheetObserver() {
             /**
              * The index of the scrim in the view hierarchy prior to being moved for the bottom
@@ -166,12 +180,8 @@ public class BottomSheetController implements ApplicationStatus.ActivityStateLis
             private int mOriginalScrimIndexInParent;
 
             @Override
-            public void onTransitionPeekToHalf(float transitionFraction) {
-                fadingBackgroundView.setViewAlpha(transitionFraction);
-            }
-
-            @Override
             public void onSheetOpened(@BottomSheet.StateChangeReason int reason) {
+                mBottomSheet.addObserver(scrimAlphaSheetObserver);
                 mOriginalScrimIndexInParent = UiUtils.getChildIndexInParent(fadingBackgroundView);
                 ViewGroup parent = (ViewGroup) fadingBackgroundView.getParent();
                 UiUtils.removeViewFromParent(fadingBackgroundView);
@@ -180,14 +190,16 @@ public class BottomSheetController implements ApplicationStatus.ActivityStateLis
 
             @Override
             public void onSheetClosed(@BottomSheet.StateChangeReason int reason) {
+                mBottomSheet.removeObserver(scrimAlphaSheetObserver);
                 assert mOriginalScrimIndexInParent >= 0;
                 ViewGroup parent = (ViewGroup) fadingBackgroundView.getParent();
                 UiUtils.removeViewFromParent(fadingBackgroundView);
                 parent.addView(fadingBackgroundView, mOriginalScrimIndexInParent);
+                fadingBackgroundView.setViewAlpha(0);
             }
 
             @Override
-            public void onSheetOffsetChanged(float heightFraction) {
+            public void onSheetOffsetChanged(float heightFraction, float offsetPx) {
                 mSnackbarManager.dismissAllSnackbars();
             }
         });
@@ -387,7 +399,7 @@ public class BottomSheetController implements ApplicationStatus.ActivityStateLis
         // TODO(mdjones): Replace usages of bottom sheet with a model in line with MVC.
         // TODO(mdjones): It would probably be useful to expose an observer method that notifies
         //                objects when all content requests are cleared.
-        hideContent(mBottomSheet.getCurrentSheetContent(), true);
+        hideContent(mBottomSheet.getCurrentSheetContent(), false);
         mWasShownForCurrentTab = false;
         mIsSuppressed = false;
     }

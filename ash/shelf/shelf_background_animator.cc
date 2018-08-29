@@ -8,6 +8,7 @@
 
 #include "ash/animation/animation_change_type.h"
 #include "ash/public/cpp/ash_switches.h"
+#include "ash/public/cpp/wallpaper_types.h"
 #include "ash/session/session_controller.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_background_animator_observer.h"
@@ -111,9 +112,9 @@ ShelfBackgroundAnimator::ShelfBackgroundAnimator(
     ShelfBackgroundType background_type,
     Shelf* shelf,
     WallpaperController* wallpaper_controller)
-    : shelf_(shelf),
-      wallpaper_controller_(wallpaper_controller),
-      scoped_session_observer_(this) {
+    : shelf_(shelf), wallpaper_controller_(wallpaper_controller) {
+  if (Shell::HasInstance())  // Null in testing::Test.
+    Shell::Get()->session_controller()->AddObserver(this);
   if (wallpaper_controller_)
     wallpaper_controller_->AddObserver(this);
   if (shelf_)
@@ -129,6 +130,8 @@ ShelfBackgroundAnimator::~ShelfBackgroundAnimator() {
     wallpaper_controller_->RemoveObserver(this);
   if (shelf_)
     shelf_->RemoveObserver(this);
+  if (Shell::HasInstance())  // Null in testing::Test.
+    Shell::Get()->session_controller()->RemoveObserver(this);
 }
 
 void ShelfBackgroundAnimator::AddObserver(
@@ -175,8 +178,6 @@ int ShelfBackgroundAnimator::GetBackgroundAlphaValue(
     ShelfBackgroundType background_type) const {
   return GetTargetColorAlphaValues(background_type).first;
 }
-
-void ShelfBackgroundAnimator::OnWallpaperDataChanged() {}
 
 void ShelfBackgroundAnimator::OnWallpaperColorsChanged() {
   AnimateBackground(target_background_type_, AnimationChangeType::ANIMATE);
@@ -295,7 +296,7 @@ void ShelfBackgroundAnimator::GetTargetValues(
       wallpaper_controller_
           ? wallpaper_controller_->GetProminentColor(GetShelfColorProfile())
           : kShelfDefaultBaseColor;
-  if (target_color == WallpaperController::kInvalidColor) {
+  if (target_color == kInvalidWallpaperColor) {
     target_color = kShelfDefaultBaseColor;
   } else {
     int darkening_alpha = 0;

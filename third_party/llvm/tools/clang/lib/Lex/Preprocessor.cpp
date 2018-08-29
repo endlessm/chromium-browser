@@ -85,12 +85,14 @@ Preprocessor::Preprocessor(std::shared_ptr<PreprocessorOptions> PPOpts,
                            IdentifierInfoLookup *IILookup, bool OwnsHeaders,
                            TranslationUnitKind TUKind)
     : PPOpts(std::move(PPOpts)), Diags(&diags), LangOpts(opts),
-      FileMgr(Headers.getFileMgr()), SourceMgr(SM),
-      PCMCache(PCMCache), ScratchBuf(new ScratchBuffer(SourceMgr)),
-      HeaderInfo(Headers), TheModuleLoader(TheModuleLoader),
-      ExternalSource(nullptr), Identifiers(opts, IILookup),
-      PragmaHandlers(new PragmaNamespace(StringRef())), TUKind(TUKind),
-      SkipMainFilePreamble(0, true),
+      FileMgr(Headers.getFileMgr()), SourceMgr(SM), PCMCache(PCMCache),
+      ScratchBuf(new ScratchBuffer(SourceMgr)), HeaderInfo(Headers),
+      TheModuleLoader(TheModuleLoader), ExternalSource(nullptr),
+      // As the language options may have not been loaded yet (when
+      // deserializing an ASTUnit), adding keywords to the identifier table is
+      // deferred to Preprocessor::Initialize().
+      Identifiers(IILookup), PragmaHandlers(new PragmaNamespace(StringRef())),
+      TUKind(TUKind), SkipMainFilePreamble(0, true),
       CurSubmoduleState(&NullSubmoduleState) {
   OwnsHeaderSearch = OwnsHeaders;
   
@@ -190,6 +192,9 @@ void Preprocessor::Initialize(const TargetInfo &Target,
   // Initialize information about built-ins.
   BuiltinInfo.InitializeTarget(Target, AuxTarget);
   HeaderInfo.setTarget(Target);
+
+  // Populate the identifier table with info about keywords for the current language.
+  Identifiers.AddKeywords(LangOpts);
 }
 
 void Preprocessor::InitializeForModelFile() {
@@ -328,7 +333,7 @@ Preprocessor::macro_end(bool IncludeExternalMacros) const {
   return CurSubmoduleState->Macros.end();
 }
 
-/// \brief Compares macro tokens with a specified token value sequence.
+/// Compares macro tokens with a specified token value sequence.
 static bool MacroDefinitionEquals(const MacroInfo *MI,
                                   ArrayRef<TokenValue> Tokens) {
   return Tokens.size() == MI->getNumTokens() &&
@@ -482,6 +487,22 @@ void Preprocessor::CreateString(StringRef Str, Token &Tok,
     Tok.setLiteralData(DestPtr);
 }
 
+SourceLocation Preprocessor::SplitToken(SourceLocation Loc, unsigned Length) {
+  auto &SM = getSourceManager();
+  SourceLocation SpellingLoc = SM.getSpellingLoc(Loc);
+  std::pair<FileID, unsigned> LocInfo = SM.getDecomposedLoc(SpellingLoc);
+  bool Invalid = false;
+  StringRef Buffer = SM.getBufferData(LocInfo.first, &Invalid);
+  if (Invalid)
+    return SourceLocation();
+
+  // FIXME: We could consider re-using spelling for tokens we see repeatedly.
+  const char *DestPtr;
+  SourceLocation Spelling =
+      ScratchBuf->getToken(Buffer.data() + LocInfo.second, Length, DestPtr);
+  return SM.createTokenSplitLoc(Spelling, Loc, Loc.getLocWithOffset(Length));
+}
+
 Module *Preprocessor::getCurrentModule() {
   if (!getLangOpts().isCompilingModule())
     return nullptr;
@@ -624,7 +645,7 @@ void Preprocessor::HandlePoisonedIdentifier(Token & Identifier) {
     Diag(Identifier,it->second) << Identifier.getIdentifierInfo();
 }
 
-/// \brief Returns a diagnostic message kind for reporting a future keyword as
+/// Returns a diagnostic message kind for reporting a future keyword as
 /// appropriate for the identifier and specified language.
 static diag::kind getFutureCompatDiagKind(const IdentifierInfo &II,
                                           const LangOptions &LangOpts) {
@@ -784,7 +805,7 @@ void Preprocessor::Lex(Token &Result) {
   LastTokenWasAt = Result.is(tok::at);
 }
 
-/// \brief Lex a token following the 'import' contextual keyword.
+/// Lex a token following the 'import' contextual keyword.
 ///
 void Preprocessor::LexAfterModuleImport(Token &Result) {
   // Figure out what kind of lexer we actually have.

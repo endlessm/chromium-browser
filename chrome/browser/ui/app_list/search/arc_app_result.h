@@ -30,8 +30,7 @@ class ArcAppResult : public AppResult,
 
   // ChromeSearchResult overrides:
   void Open(int event_flags) override;
-  std::unique_ptr<ChromeSearchResult> Duplicate() const override;
-  ui::MenuModel* GetContextMenuModel() override;
+  void GetContextMenuModel(GetMenuModelCallback callback) override;
 
   // AppContextMenuDelegate overrides:
   void ExecuteLaunchCommand(int event_flags) override;
@@ -41,6 +40,9 @@ class ArcAppResult : public AppResult,
                          const gfx::ImageSkia& image) override;
 
  private:
+  // ChromeSearchResult overrides:
+  AppContextMenu* GetAppContextMenu() override;
+
   std::unique_ptr<ArcAppIconLoader> icon_loader_;
   std::unique_ptr<ArcAppContextMenu> context_menu_;
 

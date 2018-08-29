@@ -17,8 +17,9 @@
 #include "ash/system/screen_security/screen_tray_item.h"
 #include "ash/system/tray/hover_highlight_view.h"
 #include "ash/system/tray/system_tray.h"
+#include "ash/system/tray/system_tray_item_detailed_view_delegate.h"
 #include "ash/system/tray/tray_constants.h"
-#include "ash/system/tray/tray_details_view.h"
+#include "ash/system/tray/tray_detailed_view.h"
 #include "ash/system/tray/tray_item_more.h"
 #include "ash/system/tray/tray_item_view.h"
 #include "base/strings/utf_string_conversions.h"
@@ -334,9 +335,9 @@ CastTrayView::~CastTrayView() = default;
 // This view displays a list of cast receivers that can be clicked on and casted
 // to. It is activated by clicking on the chevron inside of
 // |CastSelectDefaultView|.
-class CastDetailedView : public TrayDetailsView {
+class CastDetailedView : public TrayDetailedView {
  public:
-  CastDetailedView(SystemTrayItem* owner,
+  CastDetailedView(DetailedViewDelegate* delegate,
                    const std::vector<mojom::SinkAndRoutePtr>& sinks_and_routes);
   ~CastDetailedView() override;
 
@@ -353,7 +354,7 @@ class CastDetailedView : public TrayDetailsView {
 
   void UpdateReceiverListFromCachedData();
 
-  // TrayDetailsView:
+  // TrayDetailedView:
   void HandleViewClicked(views::View* view) override;
 
   // A mapping from the receiver id to the receiver/activity data.
@@ -365,9 +366,9 @@ class CastDetailedView : public TrayDetailsView {
 };
 
 CastDetailedView::CastDetailedView(
-    SystemTrayItem* owner,
+    DetailedViewDelegate* delegate,
     const std::vector<mojom::SinkAndRoutePtr>& sinks_routes)
-    : TrayDetailsView(owner) {
+    : TrayDetailedView(delegate) {
   CreateItems();
   UpdateReceiverList(sinks_routes);
 }
@@ -447,7 +448,9 @@ void CastDetailedView::HandleViewClicked(views::View* view) {
 }  // namespace tray
 
 TrayCast::TrayCast(SystemTray* system_tray)
-    : SystemTrayItem(system_tray, UMA_CAST) {
+    : SystemTrayItem(system_tray, UMA_CAST),
+      detailed_view_delegate_(
+          std::make_unique<SystemTrayItemDetailedViewDelegate>(this)) {
   Shell::Get()->AddShellObserver(this);
   Shell::Get()->cast_config()->AddObserver(this);
   Shell::Get()->cast_config()->RequestDeviceRefresh();
@@ -478,7 +481,7 @@ const views::View* TrayCast::GetDefaultView() const {
 views::View* TrayCast::CreateTrayView(LoginStatus status) {
   CHECK(tray_ == nullptr);
   tray_ = new tray::CastTrayView(this);
-  tray_->SetVisible(HasActiveRoute());
+  tray_->SetVisible(Shell::Get()->cast_config()->HasActiveRoute());
   return tray_;
 }
 
@@ -499,7 +502,8 @@ views::View* TrayCast::CreateDetailedView(LoginStatus status) {
   Shell::Get()->metrics()->RecordUserMetricsAction(
       UMA_STATUS_AREA_DETAILED_CAST_VIEW);
   CHECK(detailed_ == nullptr);
-  detailed_ = new tray::CastDetailedView(this, sinks_and_routes_);
+  detailed_ = new tray::CastDetailedView(detailed_view_delegate_.get(),
+                                         sinks_and_routes_);
   return detailed_;
 }
 
@@ -531,7 +535,7 @@ void TrayCast::OnDevicesUpdated(std::vector<mojom::SinkAndRoutePtr> devices) {
 void TrayCast::UpdatePrimaryView() {
   if (Shell::Get()->cast_config()->Connected() && !sinks_and_routes_.empty()) {
     if (default_) {
-      if (HasActiveRoute())
+      if (Shell::Get()->cast_config()->HasActiveRoute())
         default_->ActivateCastView();
       else
         default_->ActivateSelectView();
@@ -545,15 +549,6 @@ void TrayCast::UpdatePrimaryView() {
     if (tray_)
       tray_->SetVisible(false);
   }
-}
-
-bool TrayCast::HasActiveRoute() {
-  for (const auto& sr : sinks_and_routes_) {
-    if (!sr->route->title.empty() && sr->route->is_local_source)
-      return true;
-  }
-
-  return false;
 }
 
 void TrayCast::OnCastingSessionStartedOrStopped(bool started) {

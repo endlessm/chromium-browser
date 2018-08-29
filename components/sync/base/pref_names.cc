@@ -14,6 +14,11 @@ const char kSyncLastSyncedTime[] = "sync.last_synced_time";
 // 64-bit integer serialization of the base::Time of the last sync poll.
 const char kSyncLastPollTime[] = "sync.last_poll_time";
 
+// 64-bit integer serialization of base::TimeDelta storing poll intervals
+// received by the server (in seconds).
+const char kSyncShortPollIntervalSeconds[] = "sync.short_poll_interval";
+const char kSyncLongPollIntervalSeconds[] = "sync.long_poll_interval";
+
 // Boolean specifying whether the user finished setting up sync at least once.
 const char kSyncFirstSetupComplete[] = "sync.has_setup_completed";
 
@@ -45,6 +50,7 @@ const char kSyncExtensions[] = "sync.extensions";
 const char kSyncFaviconImages[] = "sync.favicon_images";
 const char kSyncFaviconTracking[] = "sync.favicon_tracking";
 const char kSyncHistoryDeleteDirectives[] = "sync.history_delete_directives";
+const char kSyncMountainShares[] = "sync.mountain_shares";
 const char kSyncPasswords[] = "sync.passwords";
 const char kSyncPreferences[] = "sync.preferences";
 const char kSyncPrinters[] = "sync.printers";

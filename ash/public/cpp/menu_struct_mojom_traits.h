@@ -8,6 +8,7 @@
 #include "ash/public/cpp/ash_public_export.h"
 #include "ash/public/interfaces/menu.mojom-shared.h"
 #include "ui/base/models/menu_model.h"
+#include "ui/base/models/menu_separator_types.h"
 
 namespace mojo {
 
@@ -28,6 +29,8 @@ struct EnumTraits<ash::mojom::MenuItemType, ui::MenuModel::ItemType> {
         return ash::mojom::MenuItemType::COMMAND;
       case ui::MenuModel::TYPE_SUBMENU:
         return ash::mojom::MenuItemType::SUBMENU;
+      case ui::MenuModel::TYPE_ACTIONABLE_SUBMENU:
+        return ash::mojom::MenuItemType::ACTIONABLE_SUBMENU;
     }
     NOTREACHED();
     return ash::mojom::MenuItemType::COMMAND;
@@ -50,6 +53,62 @@ struct EnumTraits<ash::mojom::MenuItemType, ui::MenuModel::ItemType> {
         return true;
       case ash::mojom::MenuItemType::SUBMENU:
         *out = ui::MenuModel::TYPE_SUBMENU;
+        return true;
+      case ash::mojom::MenuItemType::ACTIONABLE_SUBMENU:
+        *out = ui::MenuModel::TYPE_ACTIONABLE_SUBMENU;
+        return true;
+    }
+    NOTREACHED();
+    return false;
+  }
+};
+
+template <>
+struct EnumTraits<ash::mojom::MenuSeparatorType, ui::MenuSeparatorType> {
+  static ash::mojom::MenuSeparatorType ToMojom(ui::MenuSeparatorType input) {
+    switch (input) {
+      case ui::MenuSeparatorType::NORMAL_SEPARATOR:
+        return ash::mojom::MenuSeparatorType::NORMAL_SEPARATOR;
+      case ui::MenuSeparatorType::DOUBLE_SEPARATOR:
+        return ash::mojom::MenuSeparatorType::DOUBLE_SEPARATOR;
+      case ui::MenuSeparatorType::UPPER_SEPARATOR:
+        return ash::mojom::MenuSeparatorType::UPPER_SEPARATOR;
+      case ui::MenuSeparatorType::LOWER_SEPARATOR:
+        return ash::mojom::MenuSeparatorType::LOWER_SEPARATOR;
+      case ui::MenuSeparatorType::SPACING_SEPARATOR:
+        return ash::mojom::MenuSeparatorType::SPACING_SEPARATOR;
+      case ui::MenuSeparatorType::VERTICAL_SEPARATOR:
+        return ash::mojom::MenuSeparatorType::VERTICAL_SEPARATOR;
+      case ui::MenuSeparatorType::PADDED_SEPARATOR:
+        return ash::mojom::MenuSeparatorType::PADDED_SEPARATOR;
+    }
+    NOTREACHED();
+    return ash::mojom::MenuSeparatorType::NORMAL_SEPARATOR;
+  }
+
+  static bool FromMojom(ash::mojom::MenuSeparatorType input,
+                        ui::MenuSeparatorType* out) {
+    switch (input) {
+      case ash::mojom::MenuSeparatorType::NORMAL_SEPARATOR:
+        *out = ui::MenuSeparatorType::NORMAL_SEPARATOR;
+        return true;
+      case ash::mojom::MenuSeparatorType::DOUBLE_SEPARATOR:
+        *out = ui::MenuSeparatorType::DOUBLE_SEPARATOR;
+        return true;
+      case ash::mojom::MenuSeparatorType::UPPER_SEPARATOR:
+        *out = ui::MenuSeparatorType::UPPER_SEPARATOR;
+        return true;
+      case ash::mojom::MenuSeparatorType::LOWER_SEPARATOR:
+        *out = ui::MenuSeparatorType::LOWER_SEPARATOR;
+        return true;
+      case ash::mojom::MenuSeparatorType::SPACING_SEPARATOR:
+        *out = ui::MenuSeparatorType::SPACING_SEPARATOR;
+        return true;
+      case ash::mojom::MenuSeparatorType::VERTICAL_SEPARATOR:
+        *out = ui::MenuSeparatorType::VERTICAL_SEPARATOR;
+        return true;
+      case ash::mojom::MenuSeparatorType::PADDED_SEPARATOR:
+        *out = ui::MenuSeparatorType::PADDED_SEPARATOR;
         return true;
     }
     NOTREACHED();

@@ -23,13 +23,13 @@
 #include "chrome/common/importer/firefox_importer_utils.h"
 #include "chrome/utility/importer/firefox_importer_unittest_utils_mac.mojom.h"
 #include "content/public/common/content_descriptors.h"
-#include "content/public/common/mojo_channel_switches.h"
 #include "mojo/edk/embedder/embedder.h"
 #include "mojo/edk/embedder/incoming_broker_client_invitation.h"
 #include "mojo/edk/embedder/outgoing_broker_client_invitation.h"
 #include "mojo/edk/embedder/platform_channel_pair.h"
 #include "mojo/edk/embedder/scoped_platform_handle.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "services/service_manager/embedder/descriptors.h"
 #include "testing/multiprocess_func_list.h"
 
 namespace {
@@ -42,7 +42,7 @@ constexpr char kMojoChannelToken[] = "mojo-channel-token";
 // |mojo_channel_token| - token for creating the Mojo pipe.
 base::Process LaunchNSSDecrypterChildProcess(
     const base::FilePath& nss_path,
-    mojo::edk::ScopedPlatformHandle mojo_handle,
+    mojo::edk::ScopedInternalPlatformHandle mojo_handle,
     const std::string& mojo_channel_token) {
   base::CommandLine cl(*base::CommandLine::ForCurrentProcess());
   cl.AppendSwitchASCII(switches::kTestChildProcess, "NSSDecrypterChildProcess");
@@ -54,8 +54,8 @@ base::Process LaunchNSSDecrypterChildProcess(
   base::LaunchOptions options;
   options.environ["DYLD_FALLBACK_LIBRARY_PATH"] = nss_path.value();
   options.fds_to_remap.push_back(std::pair<int, int>(
-      mojo_handle.get().handle,
-      kMojoIPCChannel + base::GlobalDescriptors::kBaseDescriptor));
+      mojo_handle.get().handle, service_manager::kMojoIPCChannel +
+                                    base::GlobalDescriptors::kBaseDescriptor));
 
   return base::LaunchProcess(cl.argv(), options);
 }
@@ -247,8 +247,10 @@ MULTIPROCESS_TEST_MAIN(NSSDecrypterChildProcess) {
   auto invitation = mojo::edk::IncomingBrokerClientInvitation::Accept(
       mojo::edk::ConnectionParams(
           mojo::edk::TransportProtocol::kLegacy,
-          mojo::edk::ScopedPlatformHandle(mojo::edk::PlatformHandle(
-              kMojoIPCChannel + base::GlobalDescriptors::kBaseDescriptor))));
+          mojo::edk::ScopedInternalPlatformHandle(
+              mojo::edk::InternalPlatformHandle(
+                  service_manager::kMojoIPCChannel +
+                  base::GlobalDescriptors::kBaseDescriptor))));
   mojo::ScopedMessagePipeHandle mojo_handle = invitation->ExtractMessagePipe(
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
           kMojoChannelToken));

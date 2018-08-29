@@ -533,8 +533,7 @@ class UpdateBugWithResultsTest(testing_common.TestCase):
     self.testapp.get('/update_bug_with_results')
 
     caches = layered_cache.CachedPickledString.query().fetch()
-    # Only 1 cache for bisect stats.
-    self.assertEqual(1, len(caches))
+    self.assertEqual(0, len(caches))
 
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',
@@ -637,26 +636,6 @@ class UpdateBugWithResultsTest(testing_common.TestCase):
         'Additional errors:\n'
         'The metric was not found in the test output.\n'
         'The test failed to produce parseable results.\n')
-
-  @mock.patch.object(
-      update_bug_with_results.quick_logger.QuickLogger,
-      'Log', mock.MagicMock(return_value='record_key_123'))
-  @mock.patch('logging.error')
-  def testUpdateQuickLog_WithJobResults_NoError(self, mock_logging_error):
-    job = self._AddTryJob(111, 'started', 'win_perf',
-                          results_data=_SAMPLE_BISECT_RESULTS_JSON)
-    update_bug_with_results.UpdateQuickLog(job)
-    self.assertEqual(0, mock_logging_error.call_count)
-
-  @mock.patch('logging.error')
-  @mock.patch('update_bug_with_results.quick_logger.QuickLogger.Log')
-  def testUpdateQuickLog_NoResultsData_ReportsError(
-      self, mock_log, mock_logging_error):
-    job = self._AddTryJob(111, 'started', 'win_perf')
-    update_bug_with_results.UpdateQuickLog(job)
-    self.assertEqual(0, mock_log.call_count)
-    mock_logging_error.assert_called_once_with(
-        'Bisect report returns empty for job id %s, bug_id %s.', 1, 111)
 
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',

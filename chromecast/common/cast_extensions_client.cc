@@ -7,14 +7,17 @@
 #include <memory>
 #include <string>
 
-#include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/no_destructor.h"
+#include "chromecast/common/extensions_api/cast_aliases.h"
 #include "chromecast/common/extensions_api/cast_api_features.h"
+#include "chromecast/common/extensions_api/cast_api_permissions.h"
 #include "chromecast/common/extensions_api/cast_behavior_features.h"
 #include "chromecast/common/extensions_api/cast_manifest_features.h"
 #include "chromecast/common/extensions_api/cast_permission_features.h"
 #include "chromecast/common/extensions_api/generated_schemas.h"
+#include "chromecast/common/extensions_api/tts/tts_engine_manifest_handler.h"
 #include "components/version_info/version_info.h"
 #include "content/public/common/user_agent.h"
 #include "extensions/common/api/generated_schemas.h"
@@ -25,6 +28,7 @@
 #include "extensions/common/features/manifest_feature.h"
 #include "extensions/common/features/simple_feature.h"
 #include "extensions/common/manifest_handler.h"
+#include "extensions/common/manifest_handlers/automation.h"
 #include "extensions/common/manifest_handlers/content_scripts_handler.h"
 #include "extensions/common/permissions/permission_message_provider.h"
 #include "extensions/common/permissions/permissions_info.h"
@@ -39,7 +43,9 @@ namespace {
 
 void RegisterCastManifestHandlers() {
   DCHECK(!ManifestHandler::IsRegistrationFinalized());
+  (new AutomationHandler)->Register();  // TODO(crbug/837773) De-dupe later.
   (new ContentScriptsHandler)->Register();
+  (new TtsEngineManifestHandler)->Register();
 }
 
 // TODO(jamescook): Refactor ChromePermissionsMessageProvider so we can share
@@ -55,8 +61,8 @@ class ShellPermissionMessageProvider : public PermissionMessageProvider {
     return PermissionMessages();
   }
 
-  bool IsPrivilegeIncrease(const PermissionSet& old_permissions,
-                           const PermissionSet& new_permissions,
+  bool IsPrivilegeIncrease(const PermissionSet& granted_permissions,
+                           const PermissionSet& requested_permissions,
                            Manifest::Type extension_type) const override {
     // Ensure we implement this before shipping.
     CHECK(false);
@@ -73,9 +79,6 @@ class ShellPermissionMessageProvider : public PermissionMessageProvider {
   DISALLOW_COPY_AND_ASSIGN(ShellPermissionMessageProvider);
 };
 
-base::LazyInstance<ShellPermissionMessageProvider>::DestructorAtExit
-    g_permission_message_provider = LAZY_INSTANCE_INITIALIZER;
-
 }  // namespace
 
 CastExtensionsClient::CastExtensionsClient()
@@ -91,6 +94,8 @@ void CastExtensionsClient::Initialize() {
   ManifestHandler::FinalizeRegistration();
   // TODO(jamescook): Do we need to whitelist any extensions?
 
+  PermissionsInfo::GetInstance()->AddProvider(cast_api_permissions_,
+                                              GetCastPermissionAliases());
   PermissionsInfo::GetInstance()->AddProvider(extensions_api_permissions_,
                                               GetExtensionsPermissionAliases());
 }
@@ -101,7 +106,9 @@ void CastExtensionsClient::InitializeWebStoreUrls(
 const PermissionMessageProvider&
 CastExtensionsClient::GetPermissionMessageProvider() const {
   NOTIMPLEMENTED();
-  return g_permission_message_provider.Get();
+  static base::NoDestructor<ShellPermissionMessageProvider>
+      g_permission_message_provider;
+  return *g_permission_message_provider;
 }
 
 const std::string CastExtensionsClient::GetProductName() {

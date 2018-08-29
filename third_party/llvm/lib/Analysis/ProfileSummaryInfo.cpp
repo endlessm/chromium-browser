@@ -223,6 +223,18 @@ bool ProfileSummaryInfo::isColdCount(uint64_t C) {
   return ColdCountThreshold && C <= ColdCountThreshold.getValue();
 }
 
+uint64_t ProfileSummaryInfo::getOrCompHotCountThreshold() {
+  if (!HotCountThreshold)
+    computeThresholds();
+  return HotCountThreshold && HotCountThreshold.getValue();
+}
+
+uint64_t ProfileSummaryInfo::getOrCompColdCountThreshold() {
+  if (!ColdCountThreshold)
+    computeThresholds();
+  return ColdCountThreshold && ColdCountThreshold.getValue();
+}
+
 bool ProfileSummaryInfo::isHotBB(const BasicBlock *B, BlockFrequencyInfo *BFI) {
   auto Count = BFI->getBlockProfileCount(B);
   return Count && isHotCount(*Count);
@@ -247,7 +259,7 @@ bool ProfileSummaryInfo::isColdCallSite(const CallSite &CS,
     return isColdCount(*C);
 
   // In SamplePGO, if the caller has been sampled, and there is no profile
-  // annotatedon the callsite, we consider the callsite as cold.
+  // annotated on the callsite, we consider the callsite as cold.
   // If there is no profile for the caller, and we know the profile is
   // accurate, we consider the callsite as cold.
   return (hasSampleProfile() &&

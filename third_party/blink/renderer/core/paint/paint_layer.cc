@@ -82,13 +82,13 @@
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
 #include "third_party/blink/renderer/platform/geometry/float_point_3d.h"
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
-#include "third_party/blink/renderer/platform/geometry/transform_state.h"
 #include "third_party/blink/renderer/platform/graphics/compositor_filter_operations.h"
 #include "third_party/blink/renderer/platform/graphics/filters/filter.h"
 #include "third_party/blink/renderer/platform/graphics/paint/geometry_mapper.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/length_functions.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/transforms/transform_state.h"
 #include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/partitions.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
@@ -238,9 +238,8 @@ void PaintLayer::ContentChanged(ContentChangeType change_type) {
           kCompositingUpdateAfterCompositingInputChange);
 
       // Although we're missing test coverage, we need to call
-      // GraphicsLayer::setContentsToPlatformLayer with the new platform
-      // layer for this canvas.
-      // See http://crbug.com/349195
+      // GraphicsLayer::SetContentsToCcLayer with the new cc::Layer for this
+      // canvas. See http://crbug.com/349195
       if (HasCompositedLayerMapping()) {
         GetCompositedLayerMapping()->SetNeedsGraphicsLayerUpdate(
             kGraphicsLayerUpdateSubtree);
@@ -912,7 +911,7 @@ void PaintLayer::UpdateLayerPosition() {
 
 bool PaintLayer::UpdateSize() {
   LayoutSize old_size = size_;
-  if (IsRootLayer() && RuntimeEnabledFeatures::RootLayerScrollingEnabled()) {
+  if (IsRootLayer()) {
     size_ = LayoutSize(GetLayoutObject().GetDocument().View()->Size());
   } else if (GetLayoutObject().IsInline() &&
              GetLayoutObject().IsLayoutInline()) {
@@ -928,6 +927,7 @@ bool PaintLayer::UpdateSize() {
 void PaintLayer::UpdateSizeAndScrollingAfterLayout() {
   bool did_resize = UpdateSize();
   if (RequiresScrollableArea()) {
+    DCHECK(scrollable_area_);
     scrollable_area_->UpdateAfterLayout();
     if (did_resize)
       scrollable_area_->VisibleSizeChanged();
@@ -993,7 +993,7 @@ PaintLayer* PaintLayer::ContainingLayer(const PaintLayer* ancestor,
 
   // This is a universal approach to find containing layer, but is slower than
   // the earlier code.
-  Optional<LayoutObject::AncestorSkipInfo> skip_info;
+  base::Optional<LayoutObject::AncestorSkipInfo> skip_info;
   if (skipped_ancestor)
     skip_info.emplace(&ancestor->GetLayoutObject());
   auto* object = &layout_object;
@@ -1620,8 +1620,6 @@ void PaintLayer::UpdateStackingNode() {
 }
 
 bool PaintLayer::RequiresScrollableArea() const {
-  if (!RuntimeEnabledFeatures::RootLayerScrollingEnabled() && IsRootLayer())
-    return true;
   if (!GetLayoutBox())
     return false;
   if (GetLayoutObject().HasOverflowClip())
@@ -1856,16 +1854,6 @@ scoped_refptr<HitTestingTransformState> PaintLayer::CreateLocalTransformState(
     ConvertToLayerCoords(root_layer, offset);
   }
   offset.MoveBy(translation_offset);
-  // The location of a foreignObject element is added *after* transform, not
-  // before (all SVG child elements have this behavior). Therefore, remove
-  // the offset here to avoid applying it before the transform. It will be
-  // added later.
-  // TODO(chrishtr): this ugliness can be removed if we change the code to
-  // to be based on PaintOffset rather than PaintLayer offsets, like the
-  // paint code does. This is a larger effort though, that involves using
-  // property trees to drive hit testing coordinate spaces.
-  if (GetLayoutObject().IsSVGForeignObject())
-    offset.MoveBy(-LayoutBoxLocation());
 
   LayoutObject* container_layout_object =
       container_layer ? &container_layer->GetLayoutObject() : nullptr;
@@ -1943,7 +1931,11 @@ PaintLayer* PaintLayer::HitTestLayer(
   if (result.GetHitTestRequest().IgnoreClipping())
     clip_behavior = kIgnoreOverflowClip;
 
-  bool use_transform = Transform();
+  // We can only reach an SVG foreign object's PaintLayer from
+  // LayoutSVGForeignObject::NodeAtFloatPoint (because
+  // IsReplacedNormalFlowStacking() true for LayoutSVGForeignObject),
+  // where the hit_test_rect has already been transformed to local coordinates.
+  bool use_transform = Transform() && !GetLayoutObject().IsSVGForeignObject();
 
   // Apply a transform if we have one.
   if (use_transform && !applied_transform) {
@@ -2083,10 +2075,6 @@ PaintLayer* PaintLayer::HitTestLayer(
   }
 
   LayoutPoint offset = -LayoutBoxLocation();
-  // See comment in CreateLocalTransformState. The code here is
-  // where we re-add the location.
-  if (root_layer->GetLayoutObject().IsSVGForeignObject())
-    offset.MoveBy(root_layer->LayoutBoxLocation());
 
   // Next we want to see if the mouse pos is inside the child LayoutObjects of
   // the layer. Check every fragment in reverse order.
@@ -2322,6 +2310,9 @@ PaintLayer* PaintLayer::HitTestChildren(
   if (!HasSelfPaintingLayerDescendant())
     return nullptr;
 
+  const LayoutObject* stop_node = result.GetHitTestRequest().GetStopNode();
+  PaintLayer* stop_layer = stop_node ? stop_node->PaintingLayer() : nullptr;
+
   PaintLayer* result_layer = nullptr;
   PaintLayerStackingNodeReverseIterator iterator(*stacking_node_,
                                                  childrento_visit);
@@ -2330,6 +2321,13 @@ PaintLayer* PaintLayer::HitTestChildren(
 
     if (child_layer->IsReplacedNormalFlowStacking())
       continue;
+
+    // Calling IsDescendantOf is sad (slow), but it's the only way to tell
+    // whether the child layer is a descendant of the stop node.
+    if (stop_layer == this &&
+        child_layer->GetLayoutObject().IsDescendantOf(stop_node)) {
+      continue;
+    }
 
     PaintLayer* hit_layer = nullptr;
     HitTestResult temp_result(result.GetHitTestRequest(),
@@ -2573,8 +2571,6 @@ LayoutRect PaintLayer::BoundingBoxForCompositingInternal(
     IntRect result = IntRect();
     if (LocalFrameView* frame_view = GetLayoutObject().GetFrameView())
       result = IntRect(IntPoint(), frame_view->VisibleContentSize());
-    if (!RuntimeEnabledFeatures::RootLayerScrollingEnabled() && IsRootLayer())
-      result.Unite(GetLayoutObject().View()->DocumentRect());
     return LayoutRect(result);
   }
 
@@ -2668,11 +2664,10 @@ GraphicsLayer* PaintLayer::GraphicsLayerBacking(const LayoutObject* obj) const {
 BackgroundPaintLocation PaintLayer::GetBackgroundPaintLocation(
     uint32_t* reasons) const {
   BackgroundPaintLocation location;
-  bool has_scrolling_layers =
-      scrollable_area_ && scrollable_area_->NeedsCompositedScrolling();
-  if (!ScrollsOverflow() && !has_scrolling_layers) {
+  bool may_have_scrolling_layers_without_scrolling = IsRootLayer();
+  if (!ScrollsOverflow() && !may_have_scrolling_layers_without_scrolling) {
     location = kBackgroundPaintInGraphicsLayer;
-  } else if (RuntimeEnabledFeatures::RootLayerScrollingEnabled()) {
+  } else {
     // If we care about LCD text, paint root backgrounds into scrolling contents
     // layer even if style suggests otherwise. (For non-root scrollers, we just
     // avoid compositing - see PLSA::ComputeNeedsCompositedScrolling.)
@@ -2681,10 +2676,6 @@ BackgroundPaintLocation PaintLayer::GetBackgroundPaintLocation(
       location = kBackgroundPaintInScrollingContents;
     else
       location = GetLayoutObject().GetBackgroundPaintLocation(reasons);
-  } else {
-    location = IsRootLayer()
-                   ? kBackgroundPaintInGraphicsLayer
-                   : GetLayoutObject().GetBackgroundPaintLocation(reasons);
   }
   if (!IsRootLayer()) {
     stacking_node_->UpdateLayerListsIfNeeded();
@@ -3065,8 +3056,10 @@ bool PaintLayer::AttemptDirectCompositingUpdate(
         kCompositingUpdateAfterGeometryChange);
   }
 
-  if (RequiresScrollableArea())
+  if (RequiresScrollableArea()) {
+    DCHECK(scrollable_area_);
     scrollable_area_->UpdateAfterStyleChange(old_style);
+  }
 
   return true;
 }
@@ -3079,8 +3072,10 @@ void PaintLayer::StyleDidChange(StyleDifference diff,
 
   stacking_node_->StyleDidChange(old_style);
 
-  if (RequiresScrollableArea())
+  if (RequiresScrollableArea()) {
+    DCHECK(scrollable_area_);
     scrollable_area_->UpdateAfterStyleChange(old_style);
+  }
 
   // Overlay scrollbars can make this layer self-painting so we need
   // to recompute the bit once scrollbars have been updated.
@@ -3363,10 +3358,6 @@ void PaintLayer::ClearNeedsRepaintRecursively() {
   for (PaintLayer* child = FirstChild(); child; child = child->NextSibling())
     child->ClearNeedsRepaintRecursively();
   needs_repaint_ = false;
-}
-
-bool PaintLayer::IsScrolledByFrameView() const {
-  return IsRootLayer() && !RuntimeEnabledFeatures::RootLayerScrollingEnabled();
 }
 
 DisableCompositingQueryAsserts::DisableCompositingQueryAsserts()

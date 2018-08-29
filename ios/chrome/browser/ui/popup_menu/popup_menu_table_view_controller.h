@@ -10,14 +10,7 @@
 @protocol ApplicationCommands;
 @protocol BrowserCommands;
 @protocol PopupMenuItem;
-
-// Delegate for the table view.
-@protocol PopupMenuTableViewControllerCommand
-// Adds the current page to the reading list.
-- (void)readPageLater;
-// Navigates to the page associated with |item|.
-- (void)navigateToPageForItem:(TableViewItem<PopupMenuItem>*)item;
-@end
+@protocol PopupMenuTableViewControllerCommands;
 
 // TableViewController for the popup menu.
 @interface PopupMenuTableViewController : ChromeTableViewController
@@ -28,11 +21,21 @@
 // Dispatcher.
 @property(nonatomic, weak) id<ApplicationCommands, BrowserCommands> dispatcher;
 // Command handler for this table view.
-@property(nonatomic, weak) id<PopupMenuTableViewControllerCommand>
+@property(nonatomic, weak) id<PopupMenuTableViewControllerCommands>
     commandHandler;
 // Presenting ViewController for the ViewController needing to be presented as
 // result of an interaction with the popup.
 @property(nonatomic, weak) UIViewController* baseViewController;
+// Item to be highlighted. Nil if no item should be highlighted. Must be set
+// after the popup menu items.
+@property(nonatomic, weak) TableViewItem<PopupMenuItem>* itemToHighlight;
+
+// Initializers.
+- (instancetype)init NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithTableViewStyle:(UITableViewStyle)style
+                           appBarStyle:
+                               (ChromeTableViewControllerStyle)appBarStyle
+    NS_UNAVAILABLE;
 
 // Sets the |items| to be displayed by this Table View. Removes all the
 // currently presented items.

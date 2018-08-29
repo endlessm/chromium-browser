@@ -19,11 +19,16 @@ TestBrowserThread::TestBrowserThread(BrowserThread::ID identifier)
   real_thread_->AllowBlockingForTesting();
 }
 
-TestBrowserThread::TestBrowserThread(BrowserThread::ID identifier,
-                                     base::MessageLoop* message_loop)
+TestBrowserThread::TestBrowserThread(
+    BrowserThread::ID identifier,
+    scoped_refptr<base::SingleThreadTaskRunner> thread_runner)
     : identifier_(identifier),
       fake_thread_(
-          new BrowserThreadImpl(identifier_, message_loop->task_runner())) {}
+          new BrowserThreadImpl(identifier_, std::move(thread_runner))) {}
+
+TestBrowserThread::TestBrowserThread(BrowserThread::ID identifier,
+                                     base::MessageLoop* message_loop)
+    : TestBrowserThread(identifier, message_loop->task_runner()) {}
 
 TestBrowserThread::~TestBrowserThread() {
   // The upcoming BrowserThreadImpl::ResetGlobalsForTesting() call requires that
@@ -38,8 +43,8 @@ TestBrowserThread::~TestBrowserThread() {
   // |BrowserThreadImpl::GetTaskRunnerForThread(identifier_)| will no longer
   // recognize their BrowserThreadImpl for RunsTasksInCurrentSequence(). This
   // happens most often when such verifications are made from
-  // MessageLoop::DestructionObservers. Callers that care to work around that
-  // should instead use this shutdown sequence:
+  // MessageLoopCurrent::DestructionObservers. Callers that care to work around
+  // that should instead use this shutdown sequence:
   //   1) TestBrowserThread::Stop()
   //   2) ~MessageLoop()
   //   3) ~TestBrowserThread()

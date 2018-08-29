@@ -90,7 +90,9 @@ protected:
                       const MCSubtargetInfo &STI, raw_ostream &O) {
     printMemExtend(MI, OpNum, O, SrcRegKind, Width);
   }
-
+  template <bool SignedExtend, int ExtWidth, char SrcRegKind, char Suffix>
+  void printRegWithShiftExtend(const MCInst *MI, unsigned OpNum,
+                               const MCSubtargetInfo &STI, raw_ostream &O);
   void printCondCode(const MCInst *MI, unsigned OpNum,
                      const MCSubtargetInfo &STI, raw_ostream &O);
   void printInverseCondCode(const MCInst *MI, unsigned OpNum,
@@ -121,6 +123,7 @@ protected:
   void printImmScale(const MCInst *MI, unsigned OpNum,
                      const MCSubtargetInfo &STI, raw_ostream &O);
 
+  template <bool IsSVEPrefetch = false>
   void printPrefetchOp(const MCInst *MI, unsigned OpNum,
                        const MCSubtargetInfo &STI, raw_ostream &O);
 

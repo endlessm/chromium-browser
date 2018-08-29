@@ -49,9 +49,20 @@ class ASH_EXPORT LoginDataDispatcher {
     virtual void OnPinEnabledForUserChanged(const AccountId& user,
                                             bool enabled);
 
+    // Called when auth should be enabled or disabled for |user|. By default,
+    // auth should be enabled.
+    virtual void OnAuthEnabledForUserChanged(
+        const AccountId& user,
+        bool enabled,
+        const base::Optional<base::Time>& auth_reenabled_time);
+
     // Called when the given user can click their pod to unlock.
     virtual void OnClickToUnlockEnabledForUserChanged(const AccountId& user,
                                                       bool enabled);
+
+    // Called when |user| must authenticate online (e.g. when OAuth refresh
+    // token is revoked).
+    virtual void OnForceOnlineSignInForUser(const AccountId& user);
 
     // Called when the lock screen note state changes.
     virtual void OnLockScreenNoteStateChanged(mojom::TrayActionState state);
@@ -77,14 +88,26 @@ class ASH_EXPORT LoginDataDispatcher {
     // |account_id|.
     virtual void OnPublicSessionLocalesChanged(
         const AccountId& account_id,
-        const base::ListValue& locales,
+        const std::vector<mojom::LocaleItemPtr>& locales,
         const std::string& default_locale,
         bool show_advanced_view);
+
+    // Called when public session keyboard layouts are changed for user with
+    // |account_id|.
+    virtual void OnPublicSessionKeyboardLayoutsChanged(
+        const AccountId& account_id,
+        const std::string& locale,
+        const std::vector<mojom::InputMethodItemPtr>& keyboard_layouts);
 
     // Called when the pairing status of detachable base changes - e.g. when the
     // base is attached or detached.
     virtual void OnDetachableBasePairingStatusChanged(
         DetachableBasePairingStatus pairing_status);
+
+    // Called when fingerprint unlock state changes for user with |account_id|.
+    virtual void OnFingerprintUnlockStateChanged(
+        const AccountId& account_id,
+        mojom::FingerprintUnlockState state);
   };
 
   LoginDataDispatcher();
@@ -95,7 +118,11 @@ class ASH_EXPORT LoginDataDispatcher {
 
   void NotifyUsers(const std::vector<mojom::LoginUserInfoPtr>& users);
   void SetPinEnabledForUser(const AccountId& user, bool enabled);
+  void SetAuthEnabledForUser(const AccountId& account_id,
+                             bool is_enabled,
+                             base::Optional<base::Time> auth_reenabled_time);
   void SetClickToUnlockEnabledForUser(const AccountId& user, bool enabled);
+  void SetForceOnlineSignInForUser(const AccountId& user);
   void SetLockScreenNoteState(mojom::TrayActionState state);
   void ShowEasyUnlockIcon(const AccountId& user,
                           const mojom::EasyUnlockIconOptionsPtr& icon);
@@ -105,11 +132,17 @@ class ASH_EXPORT LoginDataDispatcher {
   void SetPublicSessionDisplayName(const AccountId& account_id,
                                    const std::string& display_name);
   void SetPublicSessionLocales(const AccountId& account_id,
-                               std::unique_ptr<base::ListValue> locales,
+                               const std::vector<mojom::LocaleItemPtr>& locales,
                                const std::string& default_locale,
                                bool show_advanced_view);
+  void SetPublicSessionKeyboardLayouts(
+      const AccountId& account_id,
+      const std::string& locale,
+      const std::vector<mojom::InputMethodItemPtr>& keyboard_layouts);
   void SetDetachableBasePairingStatus(
       DetachableBasePairingStatus pairing_status);
+  void SetFingerprintUnlockState(const AccountId& account_id,
+                                 mojom::FingerprintUnlockState state);
 
  private:
   base::ObserverList<Observer> observers_;

@@ -16,6 +16,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
+#include "chrome/browser/net/reporting_permissions_checker.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_impl_io_data.h"
 #include "chrome/common/buildflags.h"
@@ -52,10 +53,6 @@ namespace policy {
 class ConfigurationPolicyProvider;
 class ProfilePolicyConnector;
 class SchemaRegistryService;
-}
-
-namespace ssl_config {
-class SSLConfigServiceManager;
 }
 
 namespace sync_preferences {
@@ -133,7 +130,6 @@ class ProfileImpl : public Profile {
   PrefService* GetReadOnlyOffTheRecordPrefs() override;
   net::URLRequestContextGetter* GetRequestContext() override;
   net::URLRequestContextGetter* GetRequestContextForExtensions() override;
-  net::SSLConfigService* GetSSLConfigService() override;
   bool IsSameProfile(Profile* profile) override;
   base::Time GetStartTime() const override;
   base::FilePath last_selected_directory() override;
@@ -191,6 +187,7 @@ class ProfileImpl : public Profile {
   void UpdateAvatarInStorage();
   void UpdateIsEphemeralInStorage();
   void UpdateCTPolicy();
+  void UpdateBlockThirdPartyCookies();
 
   void ScheduleUpdateCTPolicy();
 
@@ -241,8 +238,6 @@ class ProfileImpl : public Profile {
   scoped_refptr<ExtensionSpecialStoragePolicy>
       extension_special_storage_policy_;
 #endif
-  std::unique_ptr<ssl_config::SSLConfigServiceManager>
-      ssl_config_service_manager_;
 
   // Exit type the last time the profile was opened. This is set only once from
   // prefs.
@@ -285,6 +280,8 @@ class ProfileImpl : public Profile {
   Profile::Delegate* delegate_;
 
   chrome_browser_net::Predictor* predictor_;
+
+  ReportingPermissionsCheckerFactory reporting_permissions_checker_factory_;
 
   // Used to post schedule CT policy updates
   base::OneShotTimer ct_policy_update_timer_;

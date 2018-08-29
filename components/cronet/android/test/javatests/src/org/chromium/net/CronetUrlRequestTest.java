@@ -183,7 +183,7 @@ public class CronetUrlRequestTest {
 
     void runConnectionMigrationTest(boolean disableConnectionMigration) {
         // URLRequest load flags at net/base/load_flags_list.h.
-        int connectionMigrationLoadFlag = 1 << 17;
+        int connectionMigrationLoadFlag = nativeGetConnectionMigrationDisableLoadFlag();
         TestUrlRequestCallback callback = new TestUrlRequestCallback();
         callback.setAutoAdvance(false);
         // Create builder, start a request, and check if default load_flags are set correctly.
@@ -210,7 +210,6 @@ public class CronetUrlRequestTest {
     /**
      * Tests that disabling connection migration sets the URLRequest load flag correctly.
      */
-    @DisabledTest(message = "crbug.com/830707")
     @Test
     @SmallTest
     @Feature({"Cronet"})
@@ -2093,6 +2092,26 @@ public class CronetUrlRequestTest {
         assertEquals(1, quicException.getQuicDetailedErrorCode());
     }
 
+    @Test
+    @SmallTest
+    @Feature({"Cronet"})
+    @OnlyRunNativeCronet
+    public void testQuicErrorCodeForNetworkChanged() throws Exception {
+        TestUrlRequestCallback callback =
+                startAndWaitForComplete(MockUrlRequestJobFactory.getMockUrlWithFailure(
+                        FailurePhase.START, NetError.ERR_NETWORK_CHANGED));
+        assertNull(callback.mResponseInfo);
+        assertNotNull(callback.mError);
+        assertEquals(NetworkException.ERROR_NETWORK_CHANGED,
+                ((NetworkException) callback.mError).getErrorCode());
+        assertTrue(callback.mError instanceof QuicException);
+        QuicException quicException = (QuicException) callback.mError;
+        // QUIC_CONNECTION_MIGRATION_NO_NEW_NETWORK(83) is set in
+        // URLRequestFailedJob::PopulateNetErrorDetails for this test.
+        final int quicErrorCode = 83;
+        assertEquals(quicErrorCode, quicException.getQuicDetailedErrorCode());
+    }
+
     /**
      * Tests that legacy onFailed callback is invoked with UrlRequestException if there
      * is no onFailed callback implementation that takes CronetException.
@@ -2315,4 +2334,42 @@ public class CronetUrlRequestTest {
         callback.blockForDone();
         assertTrue(CronetTestUtil.nativeGetTaggedBytes(tag) > priorBytes);
     }
+
+    @Test
+    @SmallTest
+    @Feature({"Cronet"})
+    /**
+     * Initiate many requests concurrently to make sure neither Cronet implementation crashes.
+     * Regression test for https://crbug.com/844031.
+     */
+    public void testManyRequests() throws Exception {
+        String url = NativeTestServer.getMultiRedirectURL();
+        final int numRequests = 2000;
+        TestUrlRequestCallback callbacks[] = new TestUrlRequestCallback[numRequests];
+        UrlRequest requests[] = new UrlRequest[numRequests];
+        for (int i = 0; i < numRequests; i++) {
+            // Share the first callback's executor to avoid creating too many single-threaded
+            // executors and hence too many threads.
+            if (i == 0) {
+                callbacks[i] = new TestUrlRequestCallback();
+            } else {
+                callbacks[i] = new TestUrlRequestCallback(callbacks[0].getExecutor());
+            }
+            UrlRequest.Builder builder = mTestFramework.mCronetEngine.newUrlRequestBuilder(
+                    url, callbacks[i], callbacks[i].getExecutor());
+            requests[i] = builder.build();
+        }
+        for (UrlRequest request : requests) {
+            request.start();
+        }
+        for (UrlRequest request : requests) {
+            request.cancel();
+        }
+        for (TestUrlRequestCallback callback : callbacks) {
+            callback.blockForDone();
+        }
+    }
+
+    // Return connection migration disable load flag value.
+    private static native int nativeGetConnectionMigrationDisableLoadFlag();
 }

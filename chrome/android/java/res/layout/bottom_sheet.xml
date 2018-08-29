@@ -41,19 +41,11 @@
             <View
                 android:id="@+id/bottom_sheet_toolbar"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
+                android:layout_height="@dimen/bottom_control_container_peek_height"
                 android:background="@color/modern_primary_color" />
         </view>
 
     </FrameLayout>
-
-    <ImageView
-        android:id="@+id/bottom_sheet_toolbar_bottom_shadow"
-        android:src="@drawable/bottom_toolbar_shadow"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:scaleType="fitXY"
-        android:contentDescription="@null" />
 
     <FrameLayout
         android:id="@+id/bottom_sheet_snackbar_container"

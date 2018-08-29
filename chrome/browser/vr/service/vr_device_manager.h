@@ -27,6 +27,8 @@ class VRDeviceProvider;
 
 namespace vr {
 
+class BrowserXrDevice;
+
 // Singleton used to provide the platform's VR devices to VRServiceImpl
 // instances.
 class VRDeviceManager {
@@ -46,13 +48,14 @@ class VRDeviceManager {
   void AddService(VRServiceImpl* service);
   void RemoveService(VRServiceImpl* service);
 
-  device::VRDevice* GetDevice(unsigned int index);
-
  protected:
   using ProviderList = std::vector<std::unique_ptr<device::VRDeviceProvider>>;
 
   // Used by tests to supply providers.
   explicit VRDeviceManager(ProviderList providers);
+
+  // Used by tests to check on device state.
+  device::VRDevice* GetDevice(unsigned int index);
 
   size_t NumberOfConnectedServices();
 
@@ -66,8 +69,9 @@ class VRDeviceManager {
 
   ProviderList providers_;
 
-  // Devices are owned by their providers.
-  using DeviceMap = std::map<unsigned int, device::VRDevice*>;
+  // VRDevices are owned by their providers, each correspond to a
+  // BrowserXrDevice that is owned by VRDeviceManager.
+  using DeviceMap = std::map<unsigned int, std::unique_ptr<BrowserXrDevice>>;
   DeviceMap devices_;
 
   bool providers_initialized_ = false;

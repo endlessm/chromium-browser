@@ -74,6 +74,9 @@ class HeadlessBrowserTest : public content::BrowserTestBase {
   // Synchronously waits for a tab to finish loading.
   bool WaitForLoad(HeadlessWebContents* web_contents);
 
+  // Synchronously waits for a tab to finish loading and to gain focus.
+  void WaitForLoadAndGainFocus(HeadlessWebContents* web_contents);
+
   // Synchronously evaluates a script and returns the result.
   std::unique_ptr<runtime::EvaluateResult> EvaluateScript(
       HeadlessWebContents* web_contents,
@@ -140,9 +143,6 @@ class HeadlessAsyncDevTooledBrowserTest : public HeadlessBrowserTest,
   // Returns the protocol handlers to construct the browser with.  By default
   // the map returned is empty.
   virtual ProtocolHandlerMap GetProtocolHandlers();
-
-  // Whether to allow TabSockets when creating |web_contents_|.
-  virtual bool GetAllowTabSockets();
 
   // Whether to enable BeginFrameControl when creating |web_contents_|.
   virtual bool GetEnableBeginFrameControl();

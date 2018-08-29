@@ -11,8 +11,9 @@
 package org.webrtc;
 
 import javax.annotation.Nullable;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import org.webrtc.MediaStreamTrack;
 
 /**
@@ -72,15 +73,18 @@ public class RtpParameters {
     public Integer clockRate;
     // The number of audio channels used. Set to null for video codecs.
     public Integer numChannels;
+    // The "format specific parameters" field from the "a=fmtp" line in the SDP
+    public Map<String, String> parameters;
 
     @CalledByNative("Codec")
     Codec(int payloadType, String name, MediaStreamTrack.MediaType kind, Integer clockRate,
-        Integer numChannels) {
+        Integer numChannels, Map<String, String> parameters) {
       this.payloadType = payloadType;
       this.name = name;
       this.kind = kind;
       this.clockRate = clockRate;
       this.numChannels = numChannels;
+      this.parameters = parameters;
     }
 
     @CalledByNative("Codec")
@@ -107,7 +111,14 @@ public class RtpParameters {
     Integer getNumChannels() {
       return numChannels;
     }
+
+    @CalledByNative("Codec")
+    Map getParameters() {
+      return parameters;
+    }
   }
+
+  public final String transactionId;
 
   public final List<Encoding> encodings;
   // Codec parameters can't currently be changed between getParameters and
@@ -115,15 +126,16 @@ public class RtpParameters {
   // remove them.
   public final List<Codec> codecs;
 
-  public RtpParameters() {
-    this.encodings = new ArrayList<>();
-    this.codecs = new ArrayList<>();
+  @CalledByNative
+  RtpParameters(String transactionId, List<Encoding> encodings, List<Codec> codecs) {
+    this.transactionId = transactionId;
+    this.encodings = encodings;
+    this.codecs = codecs;
   }
 
   @CalledByNative
-  RtpParameters(List<Encoding> encodings, List<Codec> codecs) {
-    this.encodings = encodings;
-    this.codecs = codecs;
+  String getTransactionId() {
+    return transactionId;
   }
 
   @CalledByNative

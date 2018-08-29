@@ -100,7 +100,7 @@ void WKBasedNavigationManagerImpl::AddTransientItem(const GURL& url) {
   NavigationItem* last_committed_item = GetLastCommittedItem();
   transient_item_ = CreateNavigationItemWithRewriters(
       url, Referrer(), ui::PAGE_TRANSITION_CLIENT_REDIRECT,
-      NavigationInitiationType::USER_INITIATED,
+      NavigationInitiationType::BROWSER_INITIATED,
       last_committed_item ? last_committed_item->GetURL() : GURL::EmptyGURL(),
       nullptr /* use default rewriters only */);
   transient_item_->SetTimestamp(
@@ -273,7 +273,7 @@ NavigationItem* WKBasedNavigationManagerImpl::GetVisibleItem() const {
   NavigationItemImpl* pending_item = GetPendingItemImpl();
   if (pending_item) {
     bool is_user_initiated = pending_item->NavigationInitiationType() ==
-                             NavigationInitiationType::USER_INITIATED;
+                             NavigationInitiationType::BROWSER_INITIATED;
     bool safe_to_show_pending = is_user_initiated && pending_item_index_ == -1;
     if (safe_to_show_pending) {
       return pending_item;
@@ -503,7 +503,8 @@ NavigationItemImpl* WKBasedNavigationManagerImpl::GetTransientItemImpl() const {
 
 void WKBasedNavigationManagerImpl::FinishGoToIndex(
     int index,
-    NavigationInitiationType type) {
+    NavigationInitiationType type,
+    bool has_user_gesture) {
   if (!web_view_cache_.IsAttachedToWebView()) {
     // GoToIndex from detached mode is equivalent to restoring history with
     // |last_committed_item_index| updated to |index|.

@@ -26,6 +26,10 @@ namespace content {
 class WebContents;
 }
 
+namespace policy {
+class BrowserPolicyConnector;
+}
+
 namespace safe_browsing {
 
 class SafeBrowsingService;
@@ -56,10 +60,6 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   // change password card, etc) in reaction to user events.
   class Observer {
    public:
-    // Called when user clicks on the "Change Password" button on
-    // chrome://settings page.
-    virtual void OnStartingGaiaPasswordChange() = 0;
-
     // Called when user completes the Gaia password reset.
     virtual void OnGaiaPasswordChanged() = 0;
 
@@ -89,8 +89,14 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
 
   static bool ShouldShowChangePasswordSettingUI(Profile* profile);
 
+  // Called by ChromeWebUIControllerFactory class to determine if Chrome should
+  // show chrome://reset-password page.
+  static bool IsPasswordReuseProtectionConfigured(Profile* profile);
+
   void ShowModalWarning(content::WebContents* web_contents,
                         const std::string& verdict_token) override;
+
+  void ShowInterstitial(content::WebContents* web_contens) override;
 
   // Called when user interacts with password protection UIs.
   void OnUserAction(content::WebContents* web_contents,
@@ -124,11 +130,11 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   bool UserClickedThroughSBInterstitial(
       content::WebContents* web_contents) override;
 
-  // For preference of |pref_name| is not managed by enterprise policy, this
-  // function should always return PHISHING_REUSE. Otherwise, returns the
-  // specified pref value.
-  PasswordProtectionTrigger GetPasswordProtectionTriggerPref(
-      const std::string& pref_name) const override;
+  // If |prefs::kPasswordProtectionWarningTrigger| is not managed by enterprise
+  // policy, this function should always return PHISHING_REUSE. Otherwise,
+  // returns the specified pref value.
+  PasswordProtectionTrigger GetPasswordProtectionWarningTriggerPref()
+      const override;
 
   // If change password URL is specified in preference, gets the pref value,
   // otherwise, gets the GAIA change password URL based on |account_info_|.
@@ -149,8 +155,26 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   // and page info bubble.
   base::string16 GetWarningDetailText();
 
+  // If password protection trigger is configured via enterprise policy, gets
+  // the name of the organization that owns the enterprise policy. Otherwise,
+  // returns an empty string.
+  std::string GetOrganizationName();
+
+  // Triggers "safeBrowsingPrivate.OnPolicySpecifiedPasswordReuseDetected"
+  // extension API for enterprise reporting.
+  // |is_phishing_url| indicates if the password reuse happened on a phishing
+  // page.
+  void OnPolicySpecifiedPasswordReuseDetected(const GURL& url,
+                                              bool is_phishing_url) override;
+
+  // Triggers "safeBrowsingPrivate.OnPolicySpecifiedPasswordChanged" API.
+  void OnPolicySpecifiedPasswordChanged() override;
+
  protected:
   // PasswordProtectionService overrides.
+
+  const policy::BrowserPolicyConnector* GetBrowserPolicyConnector()
+      const override;
   // Obtains referrer chain of |event_url| and |event_tab_id| and add this
   // info into |frame|.
   void FillReferrerChain(const GURL& event_url,
@@ -202,8 +226,12 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
       content::WebContents* web_contents,
       PasswordProtectionService::WarningAction action);
 
+  void HandleResetPasswordOnInterstitial(
+      content::WebContents* web_contents,
+      PasswordProtectionService::WarningAction action);
+
   void SetGaiaPasswordHashForTesting(const std::string& new_password_hash) {
-    gaia_password_hash_ = new_password_hash;
+    sync_password_hash_ = new_password_hash;
   }
 
   FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceTest,
@@ -234,6 +262,9 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
  private:
   friend class MockChromePasswordProtectionService;
   friend class ChromePasswordProtectionServiceBrowserTest;
+  FRIEND_TEST_ALL_PREFIXES(
+      ChromePasswordProtectionServiceTest,
+      VerifyOnPolicySpecifiedPasswordReuseDetectedEventForPhishingReuse);
 
   // Gets prefs associated with |profile_|.
   PrefService* GetPrefs();
@@ -265,6 +296,9 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
       sync_pb::UserEventSpecifics::GaiaPasswordReuse::
           PasswordReuseDialogInteraction::InteractionResult interaction_result);
 
+  void OnModalWarningShown(content::WebContents* web_contents,
+                           const std::string& verdict_token);
+
   // Constructor used for tests only.
   ChromePasswordProtectionService(
       Profile* profile,
@@ -275,8 +309,8 @@ class ChromePasswordProtectionService : public PasswordProtectionService {
   TriggerManager* trigger_manager_;
   // Profile associated with this instance.
   Profile* profile_;
-  // Current Gaia password hash.
-  std::string gaia_password_hash_;
+  // Current sync password hash.
+  std::string sync_password_hash_;
   scoped_refptr<SafeBrowsingNavigationObserverManager>
       navigation_observer_manager_;
   base::ObserverList<Observer> observer_list_;

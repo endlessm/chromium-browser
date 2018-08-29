@@ -149,11 +149,13 @@ class BleConnectionManager : public BleScanner::Observer {
 
   // BleScanner::Observer:
   void OnReceivedAdvertisementFromDevice(
-      const cryptauth::RemoteDevice& remote_device,
+      cryptauth::RemoteDeviceRef remote_device,
       device::BluetoothDevice* bluetooth_device,
       bool is_background_advertisement) override;
 
  protected:
+  void NotifyAdvertisementReceived(const std::string& device_id,
+                                   bool is_background_advertisement);
   void NotifyMessageReceived(std::string device_id, std::string payload);
   void NotifySecureChannelStatusChanged(
       std::string device_id,

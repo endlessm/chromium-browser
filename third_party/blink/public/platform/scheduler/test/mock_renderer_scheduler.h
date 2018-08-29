@@ -43,7 +43,6 @@ class MockRendererScheduler : public WebMainThreadScheduler {
                void(const WebInputEvent&, InputEventState));
   MOCK_METHOD2(DidHandleInputEventOnMainThread,
                void(const WebInputEvent&, WebInputEventResult));
-  MOCK_METHOD0(MostRecentExpectedQueueingTime, base::TimeDelta());
   MOCK_METHOD0(DidAnimateForInputOnCompositorThread, void());
   MOCK_METHOD1(SetRendererHidden, void(bool));
   MOCK_METHOD1(SetRendererBackgrounded, void(bool));
@@ -53,21 +52,16 @@ class MockRendererScheduler : public WebMainThreadScheduler {
   MOCK_METHOD0(PauseTimersForAndroidWebView, void());
   MOCK_METHOD0(ResumeTimersForAndroidWebView, void());
 #endif
-  MOCK_METHOD1(AddPendingNavigation, void(NavigatingFrameType));
-  MOCK_METHOD1(RemovePendingNavigation, void(NavigatingFrameType));
   MOCK_METHOD0(OnNavigate, void());
   MOCK_METHOD0(IsHighPriorityWorkAnticipated, bool());
-  MOCK_CONST_METHOD0(CanExceedIdleDeadlineIfRequired, bool());
-  MOCK_METHOD0(ShouldYieldForHighPriorityWork, bool());
   MOCK_METHOD1(AddTaskObserver, void(base::MessageLoop::TaskObserver*));
   MOCK_METHOD1(RemoveTaskObserver, void(base::MessageLoop::TaskObserver*));
   MOCK_METHOD0(Shutdown, void());
   MOCK_METHOD0(VirtualTimePaused, void());
   MOCK_METHOD0(VirtualTimeResumed, void());
-  MOCK_METHOD1(SetStoppingWhenBackgroundedEnabled, void(bool));
+  MOCK_METHOD1(SetFreezingWhenBackgroundedEnabled, void(bool));
   MOCK_METHOD1(SetTopLevelBlameContext, void(base::trace_event::BlameContext*));
   MOCK_METHOD1(SetRAILModeObserver, void(RAILModeObserver*));
-  MOCK_METHOD1(MainThreadSeemsUnresponsive, bool(base::TimeDelta));
   MOCK_METHOD1(SetRendererProcessType, void(RendererProcessType));
   MOCK_METHOD2(CreateWebScopedVirtualTimePauser,
                WebScopedVirtualTimePauser(

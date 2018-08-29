@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "ash/resources/grit/ash_resources.h"
+#include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
@@ -14,7 +14,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/time_format.h"
-#include "ui/base/resource/resource_bundle.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/manager/managed_display_info.h"
@@ -44,7 +43,7 @@ struct ResolutionNotificationController::ResolutionChangeInfo {
   ResolutionChangeInfo(int64_t display_id,
                        const display::ManagedDisplayMode& old_resolution,
                        const display::ManagedDisplayMode& new_resolution,
-                       const base::Closure& accept_callback);
+                       base::OnceClosure accept_callback);
   ~ResolutionChangeInfo();
 
   // The id of the display where the resolution change happens.
@@ -61,7 +60,7 @@ struct ResolutionNotificationController::ResolutionChangeInfo {
   display::ManagedDisplayMode current_resolution;
 
   // The callback when accept is chosen.
-  const base::Closure accept_callback;
+  base::OnceClosure accept_callback;
 
   // The remaining timeout in seconds. 0 if the change does not time out.
   uint8_t timeout_count;
@@ -79,11 +78,11 @@ ResolutionNotificationController::ResolutionChangeInfo::ResolutionChangeInfo(
     int64_t display_id,
     const display::ManagedDisplayMode& old_resolution,
     const display::ManagedDisplayMode& new_resolution,
-    const base::Closure& accept_callback)
+    base::OnceClosure accept_callback)
     : display_id(display_id),
       old_resolution(old_resolution),
       new_resolution(new_resolution),
-      accept_callback(accept_callback),
+      accept_callback(std::move(accept_callback)),
       timeout_count(0) {
   display::DisplayManager* display_manager = Shell::Get()->display_manager();
   if (!display::Display::HasInternalDisplay() &&
@@ -115,7 +114,7 @@ bool ResolutionNotificationController::PrepareNotificationAndSetDisplayMode(
     int64_t display_id,
     const display::ManagedDisplayMode& old_resolution,
     const display::ManagedDisplayMode& new_resolution,
-    const base::Closure& accept_callback) {
+    base::OnceClosure accept_callback) {
   Shell::Get()->screen_layout_observer()->SetDisplayChangedFromSettingsUI(
       display_id);
   display::DisplayManager* const display_manager =
@@ -144,7 +143,7 @@ bool ResolutionNotificationController::PrepareNotificationAndSetDisplayMode(
   }
 
   change_info_ = std::make_unique<ResolutionChangeInfo>(
-      display_id, old_resolution, new_resolution, accept_callback);
+      display_id, old_resolution, new_resolution, std::move(accept_callback));
   if (!original_resolution.size().IsEmpty())
     change_info_->old_resolution = original_resolution;
 
@@ -221,17 +220,22 @@ void ResolutionNotificationController::CreateOrUpdateNotification(
                 base::UTF8ToUTF16(
                     change_info_->current_resolution.size().ToString()));
 
-  ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
-  auto notification = std::make_unique<Notification>(
-      message_center::NOTIFICATION_TYPE_SIMPLE, kNotificationId, message,
-      timeout_message, bundle.GetImageNamed(IDR_AURA_NOTIFICATION_DISPLAY),
-      base::string16() /* display_source */, GURL(),
-      message_center::NotifierId(message_center::NotifierId::SYSTEM_COMPONENT,
-                                 kNotifierDisplayResolutionChange),
-      data,
-      base::MakeRefCounted<message_center::ThunkNotificationDelegate>(
-          weak_factory_.GetWeakPtr()));
-  notification->SetSystemPriority();
+  std::unique_ptr<Notification> notification =
+      Notification::CreateSystemNotification(
+          message_center::NOTIFICATION_TYPE_SIMPLE, kNotificationId, message,
+          timeout_message, gfx::Image(),
+          base::string16(),  // display_source
+          GURL(),
+          message_center::NotifierId(
+              message_center::NotifierId::SYSTEM_COMPONENT,
+              kNotifierDisplayResolutionChange),
+          data,
+          base::MakeRefCounted<message_center::ThunkNotificationDelegate>(
+              weak_factory_.GetWeakPtr()),
+          kNotificationScreenIcon,
+          message_center::SystemNotificationWarningLevel::NORMAL);
+  notification->set_priority(message_center::SYSTEM_PRIORITY);
+
   message_center->AddNotification(std::move(notification));
 }
 
@@ -243,9 +247,9 @@ void ResolutionNotificationController::AcceptResolutionChange(
   }
   if (!change_info_)
     return;
-  base::Closure callback = change_info_->accept_callback;
+  base::OnceClosure callback = std::move(change_info_->accept_callback);
   change_info_.reset();
-  callback.Run();
+  std::move(callback).Run();
 }
 
 void ResolutionNotificationController::RevertResolutionChange(

@@ -53,9 +53,15 @@ TabLifecycleUnitSource::TabLifecycleUnitSource()
   DCHECK(BrowserList::GetInstance()->empty());
   browser_tab_strip_tracker_.Init();
   instance_ = this;
+  // TODO(chrisha): Create a ScopedPageSignalObserver helper class to clean up
+  // this manual lifetime management.
+  if (auto* page_signal_receiver = PageSignalReceiver::GetInstance())
+    page_signal_receiver->AddObserver(this);
 }
 
 TabLifecycleUnitSource::~TabLifecycleUnitSource() {
+  if (auto* page_signal_receiver = PageSignalReceiver::GetInstance())
+    page_signal_receiver->RemoveObserver(this);
   DCHECK_EQ(instance_, this);
   instance_ = nullptr;
 }
@@ -157,7 +163,8 @@ void TabLifecycleUnitSource::TabInsertedAt(TabStripModel* tab_strip_model,
 }
 
 void TabLifecycleUnitSource::TabDetachedAt(content::WebContents* contents,
-                                           int index) {
+                                           int index,
+                                           bool was_active) {
   TabLifecycleUnit* lifecycle_unit = GetTabLifecycleUnit(contents);
   DCHECK(lifecycle_unit);
   if (focused_lifecycle_unit_ == lifecycle_unit)
@@ -207,6 +214,17 @@ void TabLifecycleUnitSource::OnBrowserSetLastActive(Browser* browser) {
 
 void TabLifecycleUnitSource::OnBrowserNoLongerActive(Browser* browser) {
   UpdateFocusedTab();
+}
+
+void TabLifecycleUnitSource::OnLifecycleStateChanged(
+    content::WebContents* web_contents,
+    mojom::LifecycleState state) {
+  TabLifecycleUnit* lifecycle_unit = GetTabLifecycleUnit(web_contents);
+
+  // Some WebContents aren't attached to a tab, so there is no corresponding
+  // TabLifecycleUnit.
+  if (lifecycle_unit)
+    lifecycle_unit->UpdateLifecycleState(state);
 }
 
 }  // namespace resource_coordinator

@@ -22,6 +22,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/crx_file/id_util.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/common/previews_state.h"
 #include "content/public/test/mock_resource_context.h"
@@ -34,6 +35,7 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_protocols.h"
 #include "extensions/browser/extension_registry.h"
+#include "extensions/browser/extension_system.h"
 #include "extensions/browser/info_map.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
@@ -68,13 +70,13 @@ const RequestHandlerType kTestModes[] = {RequestHandlerType::kURLLoader,
 
 base::FilePath GetTestPath(const std::string& name) {
   base::FilePath path;
-  EXPECT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &path));
+  EXPECT_TRUE(base::PathService::Get(chrome::DIR_TEST_DATA, &path));
   return path.AppendASCII("extensions").AppendASCII(name);
 }
 
 base::FilePath GetContentVerifierTestPath() {
   base::FilePath path;
-  EXPECT_TRUE(PathService::Get(extensions::DIR_TEST_DATA, &path));
+  EXPECT_TRUE(base::PathService::Get(extensions::DIR_TEST_DATA, &path));
   return path.AppendASCII("content_hash_fetcher")
       .AppendASCII("different_sized_files");
 }
@@ -110,7 +112,7 @@ scoped_refptr<Extension> CreateWebStoreExtension() {
           .Build();
 
   base::FilePath path;
-  EXPECT_TRUE(PathService::Get(chrome::DIR_RESOURCES, &path));
+  EXPECT_TRUE(base::PathService::Get(chrome::DIR_RESOURCES, &path));
   path = path.AppendASCII("web_store");
 
   std::string error;
@@ -121,11 +123,9 @@ scoped_refptr<Extension> CreateWebStoreExtension() {
 }
 
 scoped_refptr<Extension> CreateTestResponseHeaderExtension() {
-  DictionaryBuilder web_accessible_resources;
-  web_accessible_resources.Set("web_accessible_resources",
-                               ListBuilder().Append("test.dat").Build());
   return ExtensionBuilder("An extension with web-accessible resources")
-      .MergeManifest(web_accessible_resources.Build())
+      .SetManifestKey("web_accessible_resources",
+                      ListBuilder().Append("test.dat").Build())
       .SetPath(GetTestPath("response_headers"))
       .Build();
 }
@@ -196,8 +196,7 @@ class ExtensionProtocolsTest
   void SetUp() override {
     testing::Test::SetUp();
     testing_profile_ = TestingProfile::Builder().Build();
-    contents_.reset(CreateTestWebContents());
-    extension_info_map_ = new InfoMap();
+    contents_ = CreateTestWebContents();
     old_factory_ = resource_context_.GetRequestContext()->job_factory();
 
     // Set up content verification.
@@ -208,7 +207,7 @@ class ExtensionProtocolsTest
     content_verifier_ = new ContentVerifier(
         browser_context(),
         std::make_unique<ChromeContentVerifierDelegate>(browser_context()));
-    extension_info_map_->SetContentVerifier(content_verifier_.get());
+    info_map()->SetContentVerifier(content_verifier_.get());
   }
 
   void TearDown() override {
@@ -221,12 +220,12 @@ class ExtensionProtocolsTest
     switch (request_handler()) {
       case RequestHandlerType::kURLLoader:
         loader_factory_ = extensions::CreateExtensionNavigationURLLoaderFactory(
-            main_rfh(), extension_info_map_.get());
+            browser_context(), false);
         break;
       case RequestHandlerType::kURLRequest:
         job_factory_.SetProtocolHandler(
-            kExtensionScheme, CreateExtensionProtocolHandler(
-                                  is_incognito, extension_info_map_.get()));
+            kExtensionScheme,
+            CreateExtensionProtocolHandler(is_incognito, info_map()));
         resource_context_.GetRequestContext()->set_job_factory(&job_factory_);
         break;
     }
@@ -247,9 +246,8 @@ class ExtensionProtocolsTest
   void AddExtension(const scoped_refptr<const Extension>& extension,
                     bool incognito_enabled,
                     bool notifications_disabled) {
-    extension_info_map_->AddExtension(extension.get(), base::Time::Now(),
-                                      incognito_enabled,
-                                      notifications_disabled);
+    info_map()->AddExtension(extension.get(), base::Time::Now(),
+                             incognito_enabled, notifications_disabled);
     if (request_handler() == RequestHandlerType::kURLLoader) {
       EXPECT_TRUE(extension_registry()->AddEnabled(extension));
       ExtensionPrefs::Get(browser_context())
@@ -259,7 +257,7 @@ class ExtensionProtocolsTest
 
   void RemoveExtension(const scoped_refptr<const Extension>& extension,
                        const UnloadedExtensionReason reason) {
-    extension_info_map_->RemoveExtension(extension->id(), reason);
+    info_map()->RemoveExtension(extension->id(), reason);
     if (request_handler() == RequestHandlerType::kURLLoader) {
       EXPECT_TRUE(extension_registry()->RemoveEnabled(extension->id()));
       if (reason == UnloadedExtensionReason::DISABLE)
@@ -269,10 +267,10 @@ class ExtensionProtocolsTest
 
   // Helper method to create a URL request/loader, call RequestOrLoad on it, and
   // return the result. If |extension| hasn't already been added to
-  // |extension_info_map_|, this will add it.
+  // info_map(), this will add it.
   GetResult DoRequestOrLoad(const scoped_refptr<Extension> extension,
                             const std::string& relative_path) {
-    if (!extension_info_map_->extensions().Contains(extension->id())) {
+    if (!info_map()->extensions().Contains(extension->id())) {
       AddExtension(extension.get(),
                    /*incognito_enabled=*/false,
                    /*notifications_disabled=*/false);
@@ -283,6 +281,10 @@ class ExtensionProtocolsTest
 
   ExtensionRegistry* extension_registry() {
     return ExtensionRegistry::Get(browser_context());
+  }
+
+  InfoMap* info_map() {
+    return ExtensionSystem::Get(browser_context())->info_map();
   }
 
   content::BrowserContext* browser_context() { return testing_profile_.get(); }
@@ -328,7 +330,7 @@ class ExtensionProtocolsTest
     return GetResult(std::move(request), test_delegate_.request_status());
   }
 
-  content::WebContents* CreateTestWebContents() {
+  std::unique_ptr<content::WebContents> CreateTestWebContents() {
     auto site_instance = content::SiteInstance::Create(browser_context());
     return content::WebContentsTester::CreateTestWebContents(
         browser_context(), std::move(site_instance));
@@ -352,7 +354,6 @@ class ExtensionProtocolsTest
   std::unique_ptr<TestingProfile> testing_profile_;
   net::TestDelegate test_delegate_;
   std::unique_ptr<content::WebContents> contents_;
-  scoped_refptr<InfoMap> extension_info_map_;
 };
 
 // Tests that making a chrome-extension request in an incognito context is
@@ -666,7 +667,7 @@ TEST_P(ExtensionProtocolsTest, VerifyScriptListedAsIcon) {
   base::FilePath unzipped_path = temp_dir.GetPath();
 
   base::FilePath path;
-  EXPECT_TRUE(PathService::Get(extensions::DIR_TEST_DATA, &path));
+  EXPECT_TRUE(base::PathService::Get(extensions::DIR_TEST_DATA, &path));
 
   scoped_refptr<Extension> extension =
       content_verifier_test_utils::UnzipToDirAndLoadExtension(

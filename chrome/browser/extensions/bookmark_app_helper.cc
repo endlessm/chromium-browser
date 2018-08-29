@@ -8,6 +8,7 @@
 
 #include <cctype>
 #include <string>
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/feature_list.h"
@@ -31,7 +32,6 @@
 #include "chrome/browser/installable/installable_manager.h"
 #include "chrome/browser/installable/installable_params.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/browser/ui/app_list/app_list_util.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_dialogs.h"
@@ -65,7 +65,7 @@
 #include "net/url_request/url_request.h"
 #include "skia/ext/image_operations.h"
 #include "skia/ext/platform_canvas.h"
-#include "third_party/blink/public/platform/web_display_mode.h"
+#include "third_party/blink/public/common/manifest/web_display_mode.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/canvas.h"
@@ -188,10 +188,9 @@ void GenerateIcons(
   if (generated_icon_color == SK_ColorTRANSPARENT)
     generated_icon_color = SK_ColorDKGRAY;
 
-  for (std::set<int>::const_iterator it = generate_sizes.begin();
-       it != generate_sizes.end(); ++it) {
+  for (int size : generate_sizes) {
     extensions::BookmarkAppHelper::GenerateIcon(
-        bitmap_map, *it, generated_icon_color, icon_letter);
+        bitmap_map, size, generated_icon_color, icon_letter);
   }
 }
 
@@ -251,8 +250,8 @@ class BookmarkAppInstaller : public base::RefCounted<BookmarkAppInstaller>,
     // contents for all pending synced bookmark apps. This will avoid
     // pathological cases where n renderers for n bookmark apps are spun up on
     // first sign-in to a new machine.
-    web_contents_.reset(content::WebContents::Create(
-        content::WebContents::CreateParams(service_->profile())));
+    web_contents_ = content::WebContents::Create(
+        content::WebContents::CreateParams(service_->profile()));
     Observe(web_contents_.get());
 
     // Load about:blank so that the process actually starts.
@@ -267,8 +266,9 @@ class BookmarkAppInstaller : public base::RefCounted<BookmarkAppInstaller>,
                      const GURL& validated_url) override {
     favicon_downloader_.reset(new FaviconDownloader(
         web_contents_.get(), urls_to_download_,
-        base::Bind(&BookmarkAppInstaller::OnIconsDownloaded,
-                    base::Unretained(this))));
+        "Extensions.BookmarkApp.Icon.HttpStatusCodeClassOnSync",
+        base::BindOnce(&BookmarkAppInstaller::OnIconsDownloaded,
+                       base::Unretained(this))));
 
     // Skip downloading the page favicons as everything in is the URL list.
     favicon_downloader_->SkipPageFavicons();
@@ -338,7 +338,7 @@ namespace extensions {
 
 // static
 void BookmarkAppHelper::UpdateWebAppInfoFromManifest(
-    const content::Manifest& manifest,
+    const blink::Manifest& manifest,
     WebApplicationInfo* web_app_info,
     ForInstallableSite for_installable_site) {
   if (!manifest.short_name.is_null())
@@ -362,8 +362,8 @@ void BookmarkAppHelper::UpdateWebAppInfoFromManifest(
       web_app_info->scope = manifest.start_url.Resolve(".");
   }
 
-  if (manifest.theme_color != content::Manifest::kInvalidOrMissingColor)
-    web_app_info->theme_color = static_cast<SkColor>(manifest.theme_color);
+  if (manifest.theme_color)
+    web_app_info->theme_color = *manifest.theme_color;
 
   // If any icons are specified in the manifest, they take precedence over any
   // we picked up from the web_app stuff.
@@ -385,10 +385,10 @@ BookmarkAppHelper::ConstrainBitmapsToSizes(
     const std::set<int>& sizes) {
   std::map<int, BitmapAndSource> output_bitmaps;
   std::map<int, BitmapAndSource> ordered_bitmaps;
-  for (std::vector<BitmapAndSource>::const_iterator it = bitmaps.begin();
-       it != bitmaps.end(); ++it) {
-    DCHECK(it->bitmap.width() == it->bitmap.height());
-    ordered_bitmaps[it->bitmap.width()] = *it;
+  for (const BitmapAndSource& bitmap_and_source : bitmaps) {
+    const SkBitmap& bitmap = bitmap_and_source.bitmap;
+    DCHECK(bitmap.width() == bitmap.height());
+    ordered_bitmaps[bitmap.width()] = bitmap_and_source;
   }
 
   if (ordered_bitmaps.size() > 0) {
@@ -442,14 +442,12 @@ bool BookmarkAppHelper::BookmarkOrHostedAppInstalled(
 
   // Iterate through the extensions and extract the LaunchWebUrl (bookmark apps)
   // or check the web extent (hosted apps).
-  for (extensions::ExtensionSet::const_iterator iter = extensions.begin();
-       iter != extensions.end(); ++iter) {
-    const Extension* extension = iter->get();
+  for (const scoped_refptr<const Extension>& extension : extensions) {
     if (!extension->is_hosted_app())
       continue;
 
     if (extension->web_extent().MatchesURL(url) ||
-        AppLaunchInfo::GetLaunchWebURL(extension) == url) {
+        AppLaunchInfo::GetLaunchWebURL(extension.get()) == url) {
       return true;
     }
   }
@@ -649,10 +647,11 @@ void BookmarkAppHelper::OnDidPerformInstallableCheck(
     web_app_info_.icons.push_back(primary_icon_info);
   }
 
-  favicon_downloader_.reset(
-      new FaviconDownloader(contents_, web_app_info_icon_urls,
-                            base::Bind(&BookmarkAppHelper::OnIconsDownloaded,
-                                       weak_factory_.GetWeakPtr())));
+  favicon_downloader_.reset(new FaviconDownloader(
+      contents_, web_app_info_icon_urls,
+      "Extensions.BookmarkApp.Icon.HttpStatusCodeClassOnCreate",
+      base::BindOnce(&BookmarkAppHelper::OnIconsDownloaded,
+                     weak_factory_.GetWeakPtr())));
 
   // If the manifest specified icons, don't use the page icons.
   if (!data.manifest->icons.empty())
@@ -673,28 +672,20 @@ void BookmarkAppHelper::OnIconsDownloaded(
   }
 
   std::vector<BitmapAndSource> downloaded_icons;
-  for (FaviconDownloader::FaviconMap::const_iterator map_it = bitmaps.begin();
-       map_it != bitmaps.end();
-       ++map_it) {
-    for (std::vector<SkBitmap>::const_iterator bitmap_it =
-             map_it->second.begin();
-         bitmap_it != map_it->second.end();
-         ++bitmap_it) {
-      if (bitmap_it->empty() || bitmap_it->width() != bitmap_it->height())
+  for (const std::pair<GURL, std::vector<SkBitmap>>& url_bitmap : bitmaps) {
+    for (const SkBitmap& bitmap : url_bitmap.second) {
+      if (bitmap.empty() || bitmap.width() != bitmap.height())
         continue;
 
-      downloaded_icons.push_back(BitmapAndSource(map_it->first, *bitmap_it));
+      downloaded_icons.push_back(BitmapAndSource(url_bitmap.first, bitmap));
     }
   }
 
   // Add all existing icons from WebApplicationInfo.
-  for (std::vector<WebApplicationInfo::IconInfo>::const_iterator it =
-           web_app_info_.icons.begin();
-       it != web_app_info_.icons.end();
-       ++it) {
-    const SkBitmap& icon = it->data;
+  for (const WebApplicationInfo::IconInfo& icon_info : web_app_info_.icons) {
+    const SkBitmap& icon = icon_info.data;
     if (!icon.drawsNothing() && icon.width() == icon.height()) {
-      downloaded_icons.push_back(BitmapAndSource(it->url, icon));
+      downloaded_icons.push_back(BitmapAndSource(icon_info.url, icon));
     }
   }
 

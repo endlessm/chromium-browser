@@ -9,14 +9,13 @@
 #include <vector>
 
 #include "ash/app_list/model/app_list_view_state.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/scoped_observer.h"
 #include "build/build_config.h"
-#include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_export.h"
 #include "ui/app_list/app_list_view_delegate.h"
-#include "ui/app_list/app_list_view_delegate_observer.h"
 #include "ui/display/display_observer.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -31,7 +30,6 @@ class Screen;
 
 namespace ui {
 class AnimationMetricsReporter;
-class ImplicitAnimationObserver;
 }
 
 namespace app_list {
@@ -40,7 +38,6 @@ class ApplicationDragAndDropHost;
 class AppListMainView;
 class AppListModel;
 class AppsGridView;
-class AssistantInteractionModel;
 class HideViewAnimationObserver;
 class PaginationModel;
 class SearchBoxView;
@@ -53,8 +50,7 @@ class AppListViewTestApi;
 // AppListView is the top-level view and controller of app list UI. It creates
 // and hosts a AppsGridView and passes AppListModel to it for display.
 class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
-                                    public display::DisplayObserver,
-                                    public AppListViewDelegateObserver {
+                                    public display::DisplayObserver {
  public:
   // Number of the size of shelf. Used to determine the opacity of items in the
   // app list during dragging.
@@ -89,8 +85,6 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
     // Whether the shelf alignment is on the side of the display. Used for
     // fullscreen style.
     bool is_side_shelf = false;
-    // Model for Assistant interaction. Owned by AshAssistantController.
-    AssistantInteractionModel* assistant_interaction_model = nullptr;
   };
 
   // Does not take ownership of |delegate|.
@@ -144,6 +138,9 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
 
   // Called when tablet mode starts and ends.
   void OnTabletModeChanged(bool started);
+
+  // Called when the wallpaper colors change.
+  void OnWallpaperColorsChanged();
 
   // Handles scroll events from various sources.
   bool HandleScroll(int offset, ui::EventType type);
@@ -211,6 +208,8 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
 
   bool is_tablet_mode() const { return is_tablet_mode_; }
 
+  bool is_side_shelf() const { return is_side_shelf_; }
+
   bool is_in_drag() const { return is_in_drag_; }
 
   int app_list_y_position_in_screen() const {
@@ -219,17 +218,16 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
 
   bool drag_started_from_peeking() const { return drag_started_from_peeking_; }
 
-  void SetIsIgnoringScrollEvents(bool is_ignoring);
-  bool is_ignoring_scroll_events() const { return is_ignoring_scroll_events_; }
-
   void set_onscreen_keyboard_shown(bool onscreen_keyboard_shown) {
     onscreen_keyboard_shown_ = onscreen_keyboard_shown;
   }
   bool onscreen_keyboard_shown() const { return onscreen_keyboard_shown_; }
 
-  // TODO(b/77637813): Remove when pulling Assistant out of launcher.
-  AssistantInteractionModel* assistant_interaction_model() {
-    return assistant_interaction_model_;
+  // Returns true if the home launcher is enabled in tablet mode.
+  bool IsHomeLauncherEnabledInTabletMode() const;
+
+  views::View* app_list_background_shield_for_test() {
+    return app_list_background_shield_;
   }
 
  private:
@@ -307,9 +305,6 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
   // Gets app list background opacity during dragging.
   float GetAppListBackgroundOpacityDuringDragging();
 
-  // Overridden from AppListViewDelegateObserver:
-  void OnWallpaperColorsChanged() override;
-
   void GetWallpaperProminentColors(
       AppListViewDelegate::GetWallpaperProminentColorsCallback callback);
   void SetBackgroundShieldColor();
@@ -317,6 +312,9 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
   // Records the number of folders, and the number of items in folders for UMA
   // histograms.
   void RecordFolderMetrics();
+
+  // Returns true if scroll events should be ignored.
+  bool ShouldIgnoreScrollEvents();
 
   AppListViewDelegate* delegate_;  // Weak. Owned by AppListService.
   AppListModel* const model_;      // Not Owned.
@@ -393,18 +391,11 @@ class APP_LIST_EXPORT AppListView : public views::WidgetDelegateView,
   const std::unique_ptr<ui::AnimationMetricsReporter>
       state_animation_metrics_reporter_;
 
-  // Whether to ignore the scroll events.
-  bool is_ignoring_scroll_events_ = false;
-
   // Whether the on-screen keyboard is shown.
   bool onscreen_keyboard_shown_ = false;
 
-  // Observes the completion of scroll animation.
-  std::unique_ptr<ui::ImplicitAnimationObserver> scroll_animation_observer_;
-
-  // TODO(b/77637813): Remove when pulling Assistant out of the launcher.
-  // Owned by AshAssistantController.
-  AssistantInteractionModel* assistant_interaction_model_ = nullptr;
+  // Whether the home launcher feature is enabled.
+  const bool is_home_launcher_enabled_;
 
   base::WeakPtrFactory<AppListView> weak_ptr_factory_;
 

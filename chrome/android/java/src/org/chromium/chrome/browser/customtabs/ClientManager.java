@@ -148,6 +148,7 @@ class ClientManager {
         private long mLastMayLaunchUrlTimestamp;
         private boolean mCanUseHiddenTab;
         private boolean mAllowParallelRequest;
+        private boolean mShouldGetPageLoadMetrics;
 
         public SessionParams(Context context, int uid, DisconnectCallback callback,
                 PostMessageHandler postMessageHandler) {
@@ -401,15 +402,21 @@ class ClientManager {
         SessionParams params = mSessionParams.get(session);
         if (params == null || TextUtils.isEmpty(params.getPackageName())) return false;
 
-        OriginVerificationListener listener = (packageName, verifiedOrigin, verified) -> {
+        OriginVerificationListener listener = (packageName, verifiedOrigin, verified, online) -> {
             assert origin.equals(verifiedOrigin);
 
             CustomTabsCallback callback = getCallbackForSession(session);
             if (callback != null) {
-                callback.onRelationshipValidationResult(relation, origin.uri(), verified, null);
+                Bundle extras = null;
+                if (verified && online != null) {
+                    extras = new Bundle();
+                    extras.putBoolean(CustomTabsCallback.ONLINE_EXTRAS_KEY, online);
+                }
+                callback.onRelationshipValidationResult(relation, origin.uri(), verified, extras);
             }
             if (initializePostMessageChannel) {
-                params.postMessageHandler.onOriginVerified(packageName, verifiedOrigin, verified);
+                params.postMessageHandler
+                        .onOriginVerified(packageName, verifiedOrigin, verified, online);
             }
         };
 
@@ -612,18 +619,6 @@ class ClientManager {
         }
     }
 
-    /** TODO(mattcary): remove when downstream uses are removed. **/
-    public synchronized void setPrerenderCellularForSession(
-            CustomTabsSessionToken session, boolean prerender) {
-        setSpeculateLoadOnCellularForSession(session, prerender);
-    }
-
-    /** TODO(mattcary): remove when downstream uses are removed. **/
-    public synchronized void setSpeculationModeForSession(
-            CustomTabsSessionToken session, int mode) {
-        // No-op.
-    }
-
     /**
      * Sets whether hidden tab speculation can be used.
      */
@@ -652,6 +647,17 @@ class ClientManager {
     public synchronized boolean getAllowParallelRequestForSession(CustomTabsSessionToken session) {
         SessionParams params = mSessionParams.get(session);
         return params != null ? params.mAllowParallelRequest : false;
+    }
+
+    public synchronized void setShouldGetPageLoadMetricsForSession(
+            CustomTabsSessionToken session, boolean allowed) {
+        SessionParams params = mSessionParams.get(session);
+        if (params != null) params.mShouldGetPageLoadMetrics = allowed;
+    }
+
+    public synchronized boolean shouldGetPageLoadMetrics(CustomTabsSessionToken session) {
+        SessionParams params = mSessionParams.get(session);
+        return params != null ? params.mShouldGetPageLoadMetrics : false;
     }
 
     /**

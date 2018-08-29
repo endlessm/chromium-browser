@@ -19,7 +19,9 @@
 #include "chromeos/components/proximity_auth/proximity_auth_profile_pref_manager.h"
 #include "chromeos/components/proximity_auth/proximity_monitor_observer.h"
 #include "components/cryptauth/fake_connection.h"
-#include "components/cryptauth/remote_device.h"
+#include "components/cryptauth/remote_device_ref.h"
+#include "components/cryptauth/remote_device_test_util.h"
+#include "components/cryptauth/software_feature_state.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/test/mock_bluetooth_adapter.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -35,10 +37,7 @@ namespace proximity_auth {
 namespace {
 
 const char kRemoteDeviceUserId[] = "example@gmail.com";
-const char kRemoteDevicePublicKey[] = "Remote Public Key";
 const char kRemoteDeviceName[] = "LGE Nexus 5";
-const char kBluetoothAddress[] = "AA:BB:CC:DD:EE:FF";
-const char kPersistentSymmetricKey[] = "PSK";
 
 // The proximity threshold corresponds to a RSSI of -70.
 const ProximityAuthPrefManager::ProximityThreshold
@@ -91,20 +90,16 @@ class ProximityAuthProximityMonitorImplTest : public testing::Test {
                                  "",
                                  false /* paired */,
                                  true /* connected */),
-        remote_device_(kRemoteDeviceUserId,
-                       kRemoteDeviceName,
-                       kRemoteDevicePublicKey,
-                       kBluetoothAddress,
-                       kPersistentSymmetricKey,
-                       true /* unlock_key */,
-                       true /* mobile_hotspot_supported */,
-                       0 /* last_update_time_millis */),
+        remote_device_(cryptauth::RemoteDeviceRefBuilder()
+                           .SetUserId(kRemoteDeviceUserId)
+                           .SetName(kRemoteDeviceName)
+                           .Build()),
         connection_(remote_device_),
         pref_manager_(new NiceMock<MockProximityAuthPrefManager>()),
         monitor_(&connection_, pref_manager_.get()),
         task_runner_(new base::TestSimpleTaskRunner()),
         thread_task_runner_handle_(task_runner_) {
-    ON_CALL(*bluetooth_adapter_, GetDevice(kBluetoothAddress))
+    ON_CALL(*bluetooth_adapter_, GetDevice(std::string()))
         .WillByDefault(Return(&remote_bluetooth_device_));
     ON_CALL(remote_bluetooth_device_, GetConnectionInfo(_))
         .WillByDefault(SaveArg<0>(&connection_info_callback_));
@@ -134,7 +129,7 @@ class ProximityAuthProximityMonitorImplTest : public testing::Test {
   // Mocks used for verifying interactions with the Bluetooth subsystem.
   scoped_refptr<device::MockBluetoothAdapter> bluetooth_adapter_;
   NiceMock<device::MockBluetoothDevice> remote_bluetooth_device_;
-  cryptauth::RemoteDevice remote_device_;
+  cryptauth::RemoteDeviceRef remote_device_;
   cryptauth::FakeConnection connection_;
 
   // ProximityAuthPrefManager mock.
@@ -294,7 +289,7 @@ TEST_F(ProximityAuthProximityMonitorImplTest,
   EXPECT_TRUE(monitor_.IsUnlockAllowed());
 
   // Simulate it being forgotten.
-  ON_CALL(*bluetooth_adapter_, GetDevice(kBluetoothAddress))
+  ON_CALL(*bluetooth_adapter_, GetDevice(std::string()))
       .WillByDefault(Return(nullptr));
   EXPECT_CALL(observer_, OnProximityStateChanged());
   RunPendingTasks();
@@ -356,11 +351,10 @@ TEST_F(ProximityAuthProximityMonitorImplTest,
 TEST_F(ProximityAuthProximityMonitorImplTest,
        RecordProximityMetricsOnAuthSuccess_UnknownValues) {
   // Note: A device without a recorded name will have "Unknown" as its name.
-  cryptauth::RemoteDevice unnamed_remote_device(
-      kRemoteDeviceUserId, "" /* name */, kRemoteDevicePublicKey,
-      kBluetoothAddress, kPersistentSymmetricKey, true /* unlock_key */,
-      true /* supports_mobile_hotspot */, 0 /* last_update_time_millis */);
-  cryptauth::FakeConnection connection(unnamed_remote_device);
+  cryptauth::FakeConnection connection(cryptauth::RemoteDeviceRefBuilder()
+                                           .SetUserId(kRemoteDeviceUserId)
+                                           .SetName(std::string())
+                                           .Build());
 
   ProximityMonitorImpl monitor(&connection, pref_manager_.get());
   monitor.AddObserver(&observer_);

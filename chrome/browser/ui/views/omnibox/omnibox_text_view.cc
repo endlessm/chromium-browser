@@ -9,10 +9,13 @@
 
 #include "chrome/browser/ui/views/omnibox/omnibox_text_view.h"
 
+#include "base/feature_list.h"
+#include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/omnibox/omnibox_theme.h"
 #include "chrome/browser/ui/views/harmony/chrome_typography.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
@@ -27,7 +30,7 @@ namespace {
 constexpr int kTextStyle = views::style::STYLE_PRIMARY;
 
 // Indicates to use CONTEXT_OMNIBOX_PRIMARY when picking a font size in legacy
-// codepaths.
+// code paths.
 constexpr int kInherit = INT_MIN;
 
 struct TextStyle {
@@ -126,13 +129,8 @@ const gfx::FontList& GetFontForType(int text_type) {
 
 }  // namespace
 
-OmniboxTextView::OmniboxTextView(OmniboxResultView* result_view,
-                                 const gfx::FontList& font_list)
-    : result_view_(result_view),
-      font_height_(std::max(
-          font_list.GetHeight(),
-          font_list.DeriveWithWeight(gfx::Font::Weight::BOLD).GetHeight())),
-      wrap_text_lines_(false) {}
+OmniboxTextView::OmniboxTextView(OmniboxResultView* result_view)
+    : result_view_(result_view), font_height_(0), wrap_text_lines_(false) {}
 
 OmniboxTextView::~OmniboxTextView() {}
 
@@ -155,7 +153,7 @@ int OmniboxTextView::GetHeightForWidth(int width) const {
     return 0;
   // If text wrapping is not called for we can simply return the font height.
   if (!wrap_text_lines_) {
-    return font_height_;
+    return GetLineHeight();
   }
   render_text_->SetDisplayRect(gfx::Rect(width, 0));
   gfx::Size string_size = render_text_->GetStringSize();
@@ -211,6 +209,9 @@ std::unique_ptr<gfx::RenderText> OmniboxTextView::CreateClassifiedRenderText(
 void OmniboxTextView::OnPaint(gfx::Canvas* canvas) {
   View::OnPaint(canvas);
 
+  if (!render_text_) {
+    return;
+  }
   render_text_->SetDisplayRect(GetContentsBounds());
   render_text_->Draw(canvas);
 }
@@ -224,33 +225,33 @@ void OmniboxTextView::SetText(const base::string16& text,
                               const ACMatchClassifications& classifications) {
   render_text_.reset();
   render_text_ = CreateClassifiedRenderText(text, classifications);
-  SizeToPreferredSize();
+  UpdateLineHeight();
 }
 
 void OmniboxTextView::SetText(const base::string16& text) {
   render_text_.reset();
   render_text_ = CreateRenderText(text);
-  SizeToPreferredSize();
+  UpdateLineHeight();
 }
 
 void OmniboxTextView::SetText(const SuggestionAnswer::ImageLine& line) {
   wrap_text_lines_ = line.num_text_lines() > 1;
-  // This assumes that the first text type in the line can be used to specify
-  // the font for all the text fields in the line.  For now this works but
-  // eventually it may be necessary to get RenderText to support multiple font
-  // sizes or use multiple RenderTexts.
   render_text_.reset();
-  render_text_ = CreateText(line, GetFontForType(line.text_fields()[0].type()));
-  font_height_ = render_text_->font_list().GetHeight();
-  SizeToPreferredSize();
+  render_text_ = CreateText(line);
+  UpdateLineHeight();
 }
 
 std::unique_ptr<gfx::RenderText> OmniboxTextView::CreateText(
-    const SuggestionAnswer::ImageLine& line,
-    const gfx::FontList& font_list) const {
+    const SuggestionAnswer::ImageLine& line) const {
   std::unique_ptr<gfx::RenderText> destination =
       CreateRenderText(base::string16());
-  destination->SetFontList(font_list);
+  if (!OmniboxFieldTrial::IsNewAnswerLayoutEnabled()) {
+    // This assumes that the first text type in the line can be used to specify
+    // the font for all the text fields in the line.  For now this works but
+    // eventually it may be necessary to get RenderText to support multiple font
+    // sizes or use multiple RenderTexts.
+    destination->SetFontList(GetFontForType(line.text_fields()[0].type()));
+  }
 
   for (const SuggestionAnswer::TextField& text_field : line.text_fields())
     AppendText(destination.get(), text_field.text(), text_field.type());
@@ -315,22 +316,39 @@ void OmniboxTextView::AppendTextHelper(gfx::RenderText* destination,
   int offset = destination->text().length();
   gfx::Range range(offset, offset + text.length());
   destination->AppendText(text);
-  const TextStyle& text_style = GetTextStyle(text_type);
-  // TODO(dschuyler): follow up on the problem of different font sizes within
-  // one RenderText.  Maybe with destination->SetFontList(...).
-  destination->ApplyWeight(
-      is_bold ? gfx::Font::Weight::BOLD : gfx::Font::Weight::NORMAL, range);
-  destination->ApplyColor(result_view_->GetColor(text_style.part), range);
+  if (OmniboxFieldTrial::IsNewAnswerLayoutEnabled()) {
+    destination->ApplyColor(
+        result_view_->GetColor(OmniboxPart::RESULTS_TEXT_DIMMED), range);
+  } else {
+    const TextStyle& text_style = GetTextStyle(text_type);
+    // TODO(dschuyler): follow up on the problem of different font sizes within
+    // one RenderText.  Maybe with destination->SetFontList(...).
+    destination->ApplyWeight(
+        is_bold ? gfx::Font::Weight::BOLD : gfx::Font::Weight::NORMAL, range);
+    destination->ApplyColor(result_view_->GetColor(text_style.part), range);
 
-  // Baselines are always aligned under the touch UI. Font sizes change instead.
-  if (!ui::MaterialDesignController::IsTouchOptimizedUiEnabled()) {
-    destination->ApplyBaselineStyle(text_style.baseline, range);
-  } else if (text_style.touchable_size_delta != 0) {
-    destination->ApplyFontSizeOverride(GetFontForType(text_type).GetFontSize(),
-                                       range);
+    // Baselines are always aligned under the touch UI. Font sizes change
+    // instead.
+    if (!ui::MaterialDesignController::IsTouchOptimizedUiEnabled()) {
+      destination->ApplyBaselineStyle(text_style.baseline, range);
+    } else if (text_style.touchable_size_delta != 0) {
+      destination->ApplyFontSizeOverride(
+          GetFontForType(text_type).GetFontSize(), range);
+    }
   }
 }
 
 int OmniboxTextView::GetLineHeight() const {
   return font_height_;
+}
+
+void OmniboxTextView::UpdateLineHeight() {
+  const int height_normal = render_text_->font_list().GetHeight();
+  const int height_bold =
+      ui::ResourceBundle::GetSharedInstance()
+          .GetFontListWithDelta(render_text_->font_list().GetFontSize() -
+                                    gfx::FontList().GetFontSize(),
+                                gfx::Font::NORMAL, gfx::Font::Weight::BOLD)
+          .GetHeight();
+  font_height_ = std::max(height_normal, height_bold);
 }

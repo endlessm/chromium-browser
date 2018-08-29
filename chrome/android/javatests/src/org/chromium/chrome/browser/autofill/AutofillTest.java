@@ -60,8 +60,7 @@ public class AutofillTest {
         mMockAutofillCallback = new MockAutofillCallback();
         final ChromeActivity activity = mActivityTestRule.getActivity();
         final ViewAndroidDelegate viewDelegate =
-                ViewAndroidDelegate.createBasicDelegate(
-                        activity.getCurrentContentViewCore().getContainerView());
+                ViewAndroidDelegate.createBasicDelegate(activity.getActivityTab().getContentView());
 
         ThreadUtils.runOnUiThreadBlocking(() -> {
             View anchorView = viewDelegate.acquireView();

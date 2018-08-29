@@ -75,7 +75,6 @@ enum SectionsCommandKind {
   AssignmentKind, // . = expr or <sym> = expr
   OutputSectionKind,
   InputSectionKind,
-  AssertKind, // ASSERT(expr)
   ByteKind    // BYTE(expr), SHORT(expr), LONG(expr) or QUAD(expr)
 };
 
@@ -86,10 +85,8 @@ struct BaseCommand {
 
 // This represents ". = <expr>" or "<symbol> = <expr>".
 struct SymbolAssignment : BaseCommand {
-  SymbolAssignment(StringRef Name, Expr E, std::string Loc,
-                   std::string CommandString)
-      : BaseCommand(AssignmentKind), Name(Name), Expression(E), Location(Loc),
-        CommandString(CommandString) {}
+  SymbolAssignment(StringRef Name, Expr E, std::string Loc)
+      : BaseCommand(AssignmentKind), Name(Name), Expression(E), Location(Loc) {}
 
   static bool classof(const BaseCommand *C) {
     return C->Kind == AssignmentKind;
@@ -112,11 +109,11 @@ struct SymbolAssignment : BaseCommand {
   // A string representation of this command. We use this for -Map.
   std::string CommandString;
 
-  // This is just an offset of this assignment command in the output section.
-  unsigned Offset;
+  // Address of this assignment command.
+  unsigned Addr;
 
-  // Size of this assignment command. This is usually 0, but if you move '.'
-  // or use a BYTE()-family command, this may be greater than 0."
+  // Size of this assignment command. This is usually 0, but if
+  // you move '.' this may be greater than 0.
   unsigned Size;
 };
 
@@ -179,15 +176,6 @@ struct InputSectionDescription : BaseCommand {
   std::vector<std::pair<ThunkSection *, uint32_t>> ThunkSections;
 };
 
-// Represents an ASSERT().
-struct AssertCommand : BaseCommand {
-  AssertCommand(Expr E) : BaseCommand(AssertKind), Expression(E) {}
-
-  static bool classof(const BaseCommand *C) { return C->Kind == AssertKind; }
-
-  Expr Expression;
-};
-
 // Represents BYTE(), SHORT(), LONG(), or QUAD().
 struct ByteCommand : BaseCommand {
   ByteCommand(Expr E, unsigned Size, std::string CommandString)
@@ -200,7 +188,11 @@ struct ByteCommand : BaseCommand {
   std::string CommandString;
 
   Expr Expression;
+
+  // This is just an offset of this assignment command in the output section.
   unsigned Offset;
+
+  // Size of this data command.
   unsigned Size;
 };
 

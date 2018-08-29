@@ -8,13 +8,11 @@
 #include "base/mac/scoped_nsobject.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/test/histogram_tester.h"
-#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/autofill/autofill_popup_controller.h"
 #include "chrome/browser/ui/autofill/autofill_popup_layout_model.h"
 #import "chrome/browser/ui/cocoa/autofill/credit_card_autofill_touch_bar_controller.h"
 #import "chrome/browser/ui/cocoa/test/cocoa_test_helper.h"
-#include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/browser/suggestion.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -49,6 +47,7 @@ class MockAutofillPopupController : public autofill::AutofillPopupController {
   MOCK_METHOD1(SetSelectionAtPoint, void(const gfx::Point& point));
   MOCK_METHOD0(AcceptSelectedLine, bool());
   MOCK_METHOD0(SelectionCleared, void());
+  MOCK_CONST_METHOD0(HasSelection, bool());
   MOCK_CONST_METHOD0(popup_bounds, gfx::Rect());
   MOCK_METHOD0(container_view, gfx::NativeView());
   MOCK_CONST_METHOD0(element_bounds, const gfx::RectF&());
@@ -109,7 +108,6 @@ class CreditCardAutofillTouchBarControllerUnitTest : public CocoaTest {
  public:
   void SetUp() override {
     CocoaTest::SetUp();
-    feature_list.InitAndEnableFeature(autofill::kCreditCardAutofillTouchBar);
 
     touch_bar_controller_.reset([[CreditCardAutofillTouchBarController alloc]
         initWithController:&autofill_popup_controller_]);
@@ -118,9 +116,6 @@ class CreditCardAutofillTouchBarControllerUnitTest : public CocoaTest {
   void SetLineCount(int line_count) {
     autofill_popup_controller_.set_line_count(line_count);
   }
-
-  // Used to enable the the browser window touch bar.
-  base::test::ScopedFeatureList feature_list;
 
   base::scoped_nsobject<CreditCardAutofillTouchBarController>
       touch_bar_controller_;

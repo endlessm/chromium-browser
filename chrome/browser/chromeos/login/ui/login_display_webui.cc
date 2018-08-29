@@ -15,7 +15,7 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_names.h"
@@ -241,11 +241,6 @@ void LoginDisplayWebUI::ShowEnableDebuggingScreen() {
     delegate_->OnStartEnableDebuggingScreen();
 }
 
-void LoginDisplayWebUI::ShowDemoModeSetupScreen() {
-  if (delegate_)
-    delegate_->OnStartDemoModeSetupScreen();
-}
-
 void LoginDisplayWebUI::ShowKioskEnableScreen() {
   if (delegate_)
     delegate_->OnStartKioskEnableScreen();
@@ -272,10 +267,11 @@ void LoginDisplayWebUI::SetWebUIHandler(
   SignInScreenController::Get()->SetWebUIHandler(webui_handler_);
 }
 
-void LoginDisplayWebUI::ShowSigninScreenForCreds(const std::string& username,
-                                                 const std::string& password) {
+void LoginDisplayWebUI::ShowSigninScreenForTest(const std::string& username,
+                                                const std::string& password,
+                                                const std::string& services) {
   if (webui_handler_)
-    webui_handler_->ShowSigninScreenForCreds(username, password);
+    webui_handler_->ShowSigninScreenForTest(username, password, services);
 }
 
 bool LoginDisplayWebUI::IsShowGuest() const {

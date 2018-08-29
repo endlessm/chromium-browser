@@ -114,7 +114,7 @@ def DefaultPages(base_name):
       'pixel_webgl_aa_alpha.html',
       base_name + '_WebGLGreenTriangle_AA_Alpha',
       test_rect=[0, 0, 300, 300],
-      revision=3),
+      revision=4),
 
     PixelTestPage(
       'pixel_webgl_noaa_alpha.html',
@@ -126,7 +126,7 @@ def DefaultPages(base_name):
       'pixel_webgl_aa_noalpha.html',
       base_name + '_WebGLGreenTriangle_AA_NoAlpha',
       test_rect=[0, 0, 300, 300],
-      revision=4),
+      revision=5),
 
     PixelTestPage(
       'pixel_webgl_noaa_noalpha.html',
@@ -180,7 +180,7 @@ def DefaultPages(base_name):
       'pixel_canvas2d_webgl.html',
       base_name + '_2DCanvasWebGL',
       test_rect=[0, 0, 300, 300],
-      revision=6),
+      revision=7),
 
     PixelTestPage(
       'pixel_background.html',
@@ -192,7 +192,7 @@ def DefaultPages(base_name):
       'pixel_video_mp4.html',
       base_name + '_Video_MP4',
       test_rect=[0, 0, 300, 300],
-      revision=7),
+      revision=8),
 
     PixelTestPage(
       'pixel_video_vp9.html',
@@ -395,21 +395,32 @@ def ExperimentalCanvasFeaturesPages(base_name):
   unaccelerated_args = [
     '--disable-accelerated-2d-canvas',
     '--disable-gpu-compositing']
+  browser_args_oopd = [
+    '--enable-viz-display-compositor',
+    '--enable-experimental-web-platform-features']
 
   return [
     PixelTestPage(
       'pixel_offscreenCanvas_transfer_after_style_resize.html',
       base_name + '_OffscreenCanvasTransferAfterStyleResize',
       test_rect=[0, 0, 350, 350],
-      revision=5,
+      revision=6,
       browser_args=browser_args),
 
     PixelTestPage(
       'pixel_offscreenCanvas_transfer_before_style_resize.html',
       base_name + '_OffscreenCanvasTransferBeforeStyleResize',
       test_rect=[0, 0, 350, 350],
-      revision=5,
+      revision=6,
       browser_args=browser_args),
+
+    PixelTestPage(
+      'pixel_worker_requestAnimationFrame.html',
+      base_name + '_WorkerRAF_OOPD',
+      test_rect=[0, 0, 1, 1],
+      revision=1,
+      optional_action='CrashGpuProcess',
+      browser_args=browser_args_oopd),
 
     PixelTestPage(
       'pixel_offscreenCanvas_transferToImageBitmap_main.html',
@@ -429,14 +440,14 @@ def ExperimentalCanvasFeaturesPages(base_name):
       'pixel_offscreenCanvas_webgl_commit_main.html',
       base_name + '_OffscreenCanvasWebGLDefault',
       test_rect=[0, 0, 360, 200],
-      revision=7,
+      revision=8,
       browser_args=browser_args),
 
     PixelTestPage(
       'pixel_offscreenCanvas_webgl_commit_worker.html',
       base_name + '_OffscreenCanvasWebGLDefaultWorker',
       test_rect=[0, 0, 360, 200],
-      revision=7,
+      revision=8,
       browser_args=browser_args),
 
     PixelTestPage(
@@ -506,7 +517,7 @@ def ExperimentalCanvasFeaturesPages(base_name):
       'pixel_offscreenCanvas_webgl_resize_on_worker.html',
       base_name + '_OffscreenCanvasWebglResizeOnWorker',
       test_rect=[0, 0, 200, 200],
-      revision=5,
+      revision=6,
       browser_args=browser_args),
 
     PixelTestPage(
@@ -599,8 +610,7 @@ def NoGpuProcessPages(base_name):
 # arguments.
 def MacSpecificPages(base_name):
   iosurface_2d_canvas_args = [
-    '--enable-accelerated-2d-canvas',
-    '--disable-display-list-2d-canvas']
+    '--enable-accelerated-2d-canvas']
 
   non_chromium_image_args = ['--disable-webgl-image-chromium']
 
@@ -701,6 +711,6 @@ def DirectCompositionPages(base_name):
       'pixel_video_vp9.html',
       base_name + '_DirectComposition_Video_VP9',
       test_rect=[0, 0, 300, 300],
-      revision=8,
+      revision=9,
       browser_args=browser_args),
   ]

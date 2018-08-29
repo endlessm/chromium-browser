@@ -8,7 +8,7 @@
 #include <memory>
 #include <set>
 
-#include "base/gtest_prod_util.h"
+#include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "content/public/browser/ssl_host_state_delegate.h"
@@ -20,14 +20,25 @@ class Clock;
 class DictionaryValue;
 }  //  namespace base
 
-// Tracks whether the user has allowed a certificate error exception for a
-// specific site, SSL fingerprint, and error. Based on command-line flags and
-// experimental group, remembers this decision either until end-of-session or
-// for a particular length of time.
+namespace user_prefs {
+class PrefRegistrySyncable;
+}  // namespace user_prefs
+
+// The Finch feature that controls whether a message is shown when users
+// encounter the same error multiiple times.
+extern const base::Feature kRecurrentInterstitialFeature;
+
+// Tracks state related to certificate and SSL errors. This state includes:
+// - certificate error exceptions (which are remembered for a particular length
+//   of time depending on experimental groups)
+// - mixed content exceptions
+// - when errors have recurred multiple times
 class ChromeSSLHostStateDelegate : public content::SSLHostStateDelegate {
  public:
   explicit ChromeSSLHostStateDelegate(Profile* profile);
   ~ChromeSSLHostStateDelegate() override;
+
+  static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
   // SSLHostStateDelegate:
   void AllowCert(const std::string& host,
@@ -63,15 +74,25 @@ class ChromeSSLHostStateDelegate : public content::SSLHostStateDelegate {
   // error combination exception is allowed, use QueryPolicy().
   bool HasAllowException(const std::string& host) const override;
 
- protected:
-  // SetClock takes ownership of the passed in clock.
-  void SetClock(std::unique_ptr<base::Clock> clock);
+  // Called when an error page is displayed for a given error code |error|.
+  // Tracks whether an error of interest has recurred over a threshold number of
+  // times.
+  void DidDisplayErrorPage(int error);
+
+  // Returns true if DidDisplayErrorPage() has been called over a threshold
+  // number of times for a particular error in a particular time period. Always
+  // returns false if |kRecurrentInterstitialFeature| is not enabled. The number
+  // of times and time period are controlled by the feature parameters. Only
+  // certain error codes of interest are tracked, so this may return false for
+  // an error code that has recurred.
+  bool HasSeenRecurrentErrors(int error) const;
+
+  void ResetRecurrentErrorCountForTesting();
+
+  // SetClockForTesting takes ownership of the passed in clock.
+  void SetClockForTesting(std::unique_ptr<base::Clock> clock);
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(DefaultMemorySSLHostStateDelegateTest, AfterRestart);
-  FRIEND_TEST_ALL_PREFIXES(DefaultMemorySSLHostStateDelegateTest,
-                           QueryPolicyExpired);
-
   // Used to specify whether new content setting entries should be created if
   // they don't already exist when querying the user's settings.
   enum CreateDictionaryEntriesDisposition {
@@ -147,6 +168,10 @@ class ChromeSSLHostStateDelegate : public content::SSLHostStateDelegate {
   // FORGET_SSL_EXCEPTION_DECISIONS_AT_SESSION_END groups. See
   // https://crbug.com/418631 for more details.
   const std::string current_expiration_guid_;
+
+  // Tracks how many times an error page has been shown for a given error, up
+  // to a certain threshold value.
+  std::map<int /* error code */, int /* count */> recurrent_errors_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeSSLHostStateDelegate);
 };

@@ -151,8 +151,8 @@ class MediaEngagementServiceTest : public ChromeRenderViewHostTestHarness {
 
   void TearDown() override {
     service_->Shutdown();
-    service_.reset();
     ChromeRenderViewHostTestHarness::TearDown();
+    service_.reset();
   }
 
   void AdvanceClock() {
@@ -714,8 +714,11 @@ TEST_F(MediaEngagementServiceTest, HistoryExpirationIsNoOp) {
 
     history::HistoryService* history = HistoryServiceFactory::GetForProfile(
         profile(), ServiceAccessType::IMPLICIT_ACCESS);
-    service()->OnURLsDeleted(history, false, true, history::URLRows(),
-                             std::set<GURL>());
+
+    service()->OnURLsDeleted(
+        history, history::DeletionInfo(history::DeletionTimeRange::Invalid(),
+                                       true, history::URLRows(),
+                                       std::set<GURL>(), base::nullopt));
 
     // Same as above, nothing should have changed.
     ExpectScores(origin1, 7.0 / 11.0,

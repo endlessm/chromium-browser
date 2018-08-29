@@ -316,6 +316,49 @@ RecentContentScanner.prototype.scan = function(
 };
 
 /**
+ * Shows an empty list and spinner whilst starting and mounting the
+ * crostini container.
+ *
+ * This function is only called once to start and mount the crostini
+ * container.  When FilesApp starts, the related fake root entry for
+ * crostini is shown which uses this CrostiniMounter as its ContentScanner.
+ *
+ * When the sshfs mount completes, it will show up as a disk volume.
+ * NavigationListModel.reorderNavigationItems_ will detect that crostini
+ * is mounted as a disk volume and hide the fake root item while the
+ * disk volume exists.
+ *
+ * @constructor
+ * @extends {ContentScanner}
+ */
+function CrostiniMounter() {
+  ContentScanner.call(this);
+}
+
+/**
+ * Extends ContentScanner.
+ */
+CrostiniMounter.prototype.__proto__ = ContentScanner.prototype;
+
+/**
+ * @override
+ */
+CrostiniMounter.prototype.scan = function(
+    entriesCallback, successCallback, errorCallback) {
+  chrome.fileManagerPrivate.mountCrostiniContainer(() => {
+    if (chrome.runtime.lastError) {
+      console.error(
+          'mountCrostiniContainer error: ', chrome.runtime.lastError.message);
+      errorCallback(util.createDOMError(
+          DirectoryModel.CROSTINI_CONNECT_ERR,
+          chrome.runtime.lastError.message));
+      return;
+    }
+    successCallback();
+  });
+};
+
+/**
  * This class manages filters and determines a file should be shown or not.
  * When filters are changed, a 'changed' event is fired.
  *
@@ -624,11 +667,12 @@ DirectoryContents.prototype.scan = function(refresh) {
 
   /**
    * Invoked when the scanning is finished but is not completed due to error.
+   * @param {DOMError} error error.
    * @this {DirectoryContents}
    */
-  function errorCallback() {
+  function errorCallback(error) {
     this.onScanFinished_();
-    this.onScanError_();
+    this.onScanError_(error);
   }
 
   // TODO(hidehiko,mtomasz): this scan method must be called at most once.
@@ -743,16 +787,19 @@ DirectoryContents.prototype.onScanCompleted_ = function() {
 
 /**
  * Called in case scan has failed. Should send the event.
+ * @param {DOMError} error error.
  * @private
  */
-DirectoryContents.prototype.onScanError_ = function() {
+DirectoryContents.prototype.onScanError_ = function(error) {
   if (this.scanCancelled_)
     return;
 
   this.processNewEntriesQueue_.run(function(callback) {
     // Call callback first, so isScanning() returns false in the event handlers.
     callback();
-    cr.dispatchSimpleEvent(this, 'scan-failed');
+    var event = new Event('scan-failed');
+    event.error = error;
+    this.dispatchEvent(event);
   }.bind(this));
 };
 
@@ -939,5 +986,20 @@ DirectoryContents.createForDriveMetadataSearch = function(
 DirectoryContents.createForRecent = function(context, recentRootEntry, query) {
   return new DirectoryContents(context, true, recentRootEntry, function() {
     return new RecentContentScanner(query, recentRootEntry.sourceRestriction);
+  });
+};
+
+/**
+ * Creates a DirectoryContents instance to show the sshfs crostini files.
+ *
+ * @param {FileListContext} context File list context.
+ * @param {!FakeEntry} crostiniRootEntry Fake directory entry representing the
+ *     root of recent files.
+ * @return {DirectoryContents} Created DirectoryContents instance.
+ */
+DirectoryContents.createForCrostiniMounter = function(
+    context, crostiniRootEntry) {
+  return new DirectoryContents(context, true, crostiniRootEntry, function() {
+    return new CrostiniMounter();
   });
 };

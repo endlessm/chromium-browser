@@ -18,7 +18,6 @@ import static org.junit.Assert.fail;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.media.CamcorderProfile;
-import android.media.MediaRecorder;
 import android.os.Environment;
 import java.io.File;
 import java.io.IOException;
@@ -29,7 +28,7 @@ import javax.annotation.Nullable;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.junit.runner.RunWith;
 import org.webrtc.CameraEnumerationAndroid.CaptureFormat;
-import org.webrtc.VideoRenderer.I420Frame;
+import org.webrtc.VideoFrame;
 
 class CameraVideoCapturerTestFixtures {
   static final String TAG = "CameraVideoCapturerTestFixtures";
@@ -38,21 +37,20 @@ class CameraVideoCapturerTestFixtures {
   static final int DEFAULT_HEIGHT = 480;
   static final int DEFAULT_FPS = 15;
 
-  static private class RendererCallbacks implements VideoRenderer.Callbacks {
+  static private class RendererCallbacks implements VideoSink {
     private final Object frameLock = new Object();
     private int framesRendered = 0;
     private int width = 0;
     private int height = 0;
 
     @Override
-    public void renderFrame(I420Frame frame) {
+    public void onFrame(VideoFrame frame) {
       synchronized (frameLock) {
         ++framesRendered;
-        width = frame.rotatedWidth();
-        height = frame.rotatedHeight();
+        width = frame.getRotatedWidth();
+        height = frame.getRotatedHeight();
         frameLock.notify();
       }
-      VideoRenderer.renderFrameDone(frame);
     }
 
     public int frameWidth() {
@@ -79,25 +77,26 @@ class CameraVideoCapturerTestFixtures {
     }
   }
 
-  static private class FakeAsyncRenderer implements VideoRenderer.Callbacks {
-    private final List<I420Frame> pendingFrames = new ArrayList<I420Frame>();
+  static private class FakeAsyncRenderer implements VideoSink {
+    private final List<VideoFrame> pendingFrames = new ArrayList<VideoFrame>();
 
     @Override
-    public void renderFrame(I420Frame frame) {
+    public void onFrame(VideoFrame frame) {
       synchronized (pendingFrames) {
+        frame.retain();
         pendingFrames.add(frame);
         pendingFrames.notifyAll();
       }
     }
 
     // Wait until at least one frame have been received, before returning them.
-    public List<I420Frame> waitForPendingFrames() throws InterruptedException {
+    public List<VideoFrame> waitForPendingFrames() throws InterruptedException {
       Logging.d(TAG, "Waiting for pending frames");
       synchronized (pendingFrames) {
         while (pendingFrames.isEmpty()) {
           pendingFrames.wait();
         }
-        return new ArrayList<I420Frame>(pendingFrames);
+        return new ArrayList<VideoFrame>(pendingFrames);
       }
     }
   }
@@ -337,7 +336,7 @@ class CameraVideoCapturerTestFixtures {
         PeerConnectionFactory.InitializationOptions.builder(testObjectFactory.getAppContext())
             .createInitializationOptions());
 
-    this.peerConnectionFactory = new PeerConnectionFactory(null /* options */);
+    this.peerConnectionFactory = PeerConnectionFactory.builder().createPeerConnectionFactory();
     this.testObjectFactory = testObjectFactory;
   }
 
@@ -387,13 +386,13 @@ class CameraVideoCapturerTestFixtures {
   }
 
   private VideoTrackWithRenderer createVideoTrackWithRenderer(
-      CameraVideoCapturer capturer, VideoRenderer.Callbacks rendererCallbacks) {
+      CameraVideoCapturer capturer, VideoSink rendererCallbacks) {
     VideoTrackWithRenderer videoTrackWithRenderer = new VideoTrackWithRenderer();
     videoTrackWithRenderer.source = peerConnectionFactory.createVideoSource(capturer);
     capturer.startCapture(DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_FPS);
     videoTrackWithRenderer.track =
         peerConnectionFactory.createVideoTrack("dummy", videoTrackWithRenderer.source);
-    videoTrackWithRenderer.track.addRenderer(new VideoRenderer(rendererCallbacks));
+    videoTrackWithRenderer.track.addSink(rendererCallbacks);
     return videoTrackWithRenderer;
   }
 
@@ -511,111 +510,6 @@ class CameraVideoCapturerTestFixtures {
     disposeVideoTrackWithRenderer(videoTrackWithRenderer);
   }
 
-  @TargetApi(21)
-  private static void prepareMediaRecorderForTests(
-      MediaRecorder mediaRecorder, File outputFile, boolean useSurfaceCapture) throws IOException {
-    mediaRecorder.setVideoSource(
-        useSurfaceCapture ? MediaRecorder.VideoSource.SURFACE : MediaRecorder.VideoSource.CAMERA);
-    CamcorderProfile profile = CamcorderProfile.get(CamcorderProfile.QUALITY_480P);
-    profile.videoCodec = MediaRecorder.VideoEncoder.H264;
-    profile.videoBitRate = 2500000;
-    profile.videoFrameWidth = 640;
-    profile.videoFrameHeight = 480;
-    mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-    mediaRecorder.setVideoFrameRate(profile.videoFrameRate);
-    mediaRecorder.setVideoSize(profile.videoFrameWidth, profile.videoFrameHeight);
-    mediaRecorder.setVideoEncodingBitRate(profile.videoBitRate);
-    mediaRecorder.setVideoEncoder(profile.videoCodec);
-    mediaRecorder.setOutputFile(outputFile.getPath());
-    mediaRecorder.prepare();
-  }
-
-  @TargetApi(21)
-  public void updateMediaRecorder(boolean useSurfaceCapture)
-      throws InterruptedException, IOException {
-    final CapturerInstance capturerInstance = createCapturer(false /* initialize */);
-    final VideoTrackWithRenderer videoTrackWithRenderer =
-        createVideoTrackWithRenderer(capturerInstance.capturer);
-    // Wait for the camera to start so we can add and remove MediaRecorder.
-    assertTrue(videoTrackWithRenderer.rendererCallbacks.waitForNextFrameToRender() > 0);
-
-    final String videoOutPath = Environment.getExternalStorageDirectory().getPath()
-        + "/chromium_tests_root/testmediarecorder.mp4";
-    File outputFile = new File(videoOutPath);
-
-    // Create MediaRecorder object
-    MediaRecorder mediaRecorder = new MediaRecorder();
-    if (useSurfaceCapture) {
-      // When using using surface capture, media recorder has to be prepared before adding it to the
-      // camera.
-      prepareMediaRecorderForTests(mediaRecorder, outputFile, useSurfaceCapture);
-    }
-
-    // Add MediaRecorder to camera pipeline.
-    final boolean[] addMediaRecorderSuccessful = new boolean[1];
-    final CountDownLatch addBarrier = new CountDownLatch(1);
-    CameraVideoCapturer.MediaRecorderHandler addMediaRecorderHandler =
-        new CameraVideoCapturer.MediaRecorderHandler() {
-          @Override
-          public void onMediaRecorderSuccess() {
-            addMediaRecorderSuccessful[0] = true;
-            addBarrier.countDown();
-          }
-          @Override
-          public void onMediaRecorderError(String errorDescription) {
-            Logging.e(TAG, errorDescription);
-            addMediaRecorderSuccessful[0] = false;
-            addBarrier.countDown();
-          }
-        };
-    capturerInstance.capturer.addMediaRecorderToCamera(mediaRecorder, addMediaRecorderHandler);
-    // Wait until MediaRecoder has been added.
-    addBarrier.await();
-    // Check result.
-    assertTrue(addMediaRecorderSuccessful[0]);
-
-    // Start MediaRecorder and wait for a few frames to capture.
-    if (!useSurfaceCapture) {
-      // When using using camera capture, media recorder has to be prepared after adding it to the
-      // camera.
-      prepareMediaRecorderForTests(mediaRecorder, outputFile, useSurfaceCapture);
-    }
-    mediaRecorder.start();
-    for (int i = 0; i < 5; i++) {
-      assertTrue(videoTrackWithRenderer.rendererCallbacks.waitForNextFrameToRender() > 0);
-    }
-    mediaRecorder.stop();
-
-    // Remove MediaRecorder from camera pipeline.
-    final boolean[] removeMediaRecorderSuccessful = new boolean[1];
-    final CountDownLatch removeBarrier = new CountDownLatch(1);
-    CameraVideoCapturer.MediaRecorderHandler removeMediaRecorderHandler =
-        new CameraVideoCapturer.MediaRecorderHandler() {
-          @Override
-          public void onMediaRecorderSuccess() {
-            removeMediaRecorderSuccessful[0] = true;
-            removeBarrier.countDown();
-          }
-          @Override
-          public void onMediaRecorderError(String errorDescription) {
-            removeMediaRecorderSuccessful[0] = false;
-            removeBarrier.countDown();
-          }
-        };
-    capturerInstance.capturer.removeMediaRecorderFromCamera(removeMediaRecorderHandler);
-    // Wait until MediaRecoder has been removed.
-    removeBarrier.await();
-    // Check result.
-    assertTrue(removeMediaRecorderSuccessful[0]);
-    // Ensure that frames are received after removing MediaRecorder.
-    assertTrue(videoTrackWithRenderer.rendererCallbacks.waitForNextFrameToRender() > 0);
-    // Check that recorded file contains some data.
-    assertTrue(outputFile.length() > 0);
-
-    disposeCapturer(capturerInstance);
-    disposeVideoTrackWithRenderer(videoTrackWithRenderer);
-  }
-
   public void cameraEventsInvoked() throws InterruptedException {
     final CapturerInstance capturerInstance = createCapturer(true /* initialize */);
     startCapture(capturerInstance);
@@ -727,13 +621,13 @@ class CameraVideoCapturerTestFixtures {
     disposeVideoTrackWithRenderer(videoTrackWithRenderer);
 
     // Return the frame(s), on a different thread out of spite.
-    final List<I420Frame> pendingFrames =
+    final List<VideoFrame> pendingFrames =
         videoTrackWithRenderer.fakeAsyncRenderer.waitForPendingFrames();
     final Thread returnThread = new Thread(new Runnable() {
       @Override
       public void run() {
-        for (I420Frame frame : pendingFrames) {
-          VideoRenderer.renderFrameDone(frame);
+        for (VideoFrame frame : pendingFrames) {
+          frame.release();
         }
       }
     });

@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/no_destructor.h"
 #include "content/browser/browser_url_handler_impl.h"
 #include "content/browser/frame_host/cross_process_frame_connector.h"
 #include "content/browser/frame_host/debug_urls.h"
@@ -15,6 +16,7 @@
 #include "content/browser/frame_host/navigation_handle_impl.h"
 #include "content/browser/frame_host/navigator.h"
 #include "content/browser/frame_host/navigator_impl.h"
+#include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/common/frame_messages.h"
@@ -35,15 +37,35 @@
 
 namespace content {
 
+namespace {
+
+const RenderProcessHostFactory* GetMockProcessFactory() {
+  static base::NoDestructor<MockRenderProcessHostFactory> factory;
+  return factory.get();
+}
+
+}  // namespace
+
 TestWebContents::TestWebContents(BrowserContext* browser_context)
     : WebContentsImpl(browser_context),
       delegate_view_override_(nullptr),
       expect_set_history_offset_and_length_(false),
-      expect_set_history_offset_and_length_history_length_(0) {}
+      expect_set_history_offset_and_length_history_length_(0) {
+  if (!RenderProcessHostImpl::get_render_process_host_factory_for_testing()) {
+    // Most unit tests should prefer to create a generic MockRenderProcessHost
+    // (instead of a real RenderProcessHostImpl).  Tests that need to use a
+    // specific, custom RenderProcessHostFactory should set it before creating
+    // the first TestWebContents.
+    RenderProcessHostImpl::set_render_process_host_factory_for_testing(
+        GetMockProcessFactory());
+  }
+}
 
-TestWebContents* TestWebContents::Create(BrowserContext* browser_context,
-                                         scoped_refptr<SiteInstance> instance) {
-  TestWebContents* test_web_contents = new TestWebContents(browser_context);
+std::unique_ptr<TestWebContents> TestWebContents::Create(
+    BrowserContext* browser_context,
+    scoped_refptr<SiteInstance> instance) {
+  std::unique_ptr<TestWebContents> test_web_contents(
+      new TestWebContents(browser_context));
   test_web_contents->Init(CreateParams(browser_context, std::move(instance)));
   return test_web_contents;
 }
@@ -241,8 +263,8 @@ bool TestWebContents::CreateRenderViewForRenderManager(
   return true;
 }
 
-WebContents* TestWebContents::Clone() {
-  WebContentsImpl* contents =
+std::unique_ptr<WebContents> TestWebContents::Clone() {
+  std::unique_ptr<WebContentsImpl> contents =
       Create(GetBrowserContext(), SiteInstance::Create(GetBrowserContext()));
   contents->GetController().CopyStateFrom(controller_, true);
   return contents;
@@ -327,12 +349,14 @@ void TestWebContents::SetOpener(WebContents* opener) {
       static_cast<WebContentsImpl*>(opener)->GetFrameTree()->root());
 }
 
-void TestWebContents::AddPendingContents(TestWebContents* contents) {
+void TestWebContents::AddPendingContents(
+    std::unique_ptr<WebContents> contents) {
   // This is normally only done in WebContentsImpl::CreateNewWindow.
   ProcessRoutingIdPair key(contents->GetRenderViewHost()->GetProcess()->GetID(),
                            contents->GetRenderViewHost()->GetRoutingID());
-  pending_contents_[key] = contents;
-  AddDestructionObserver(contents);
+  WebContentsImpl* raw_contents = static_cast<WebContentsImpl*>(contents.get());
+  AddDestructionObserver(raw_contents);
+  pending_contents_[key] = std::move(contents);
 }
 
 void TestWebContents::ExpectSetHistoryOffsetAndLength(int history_offset,

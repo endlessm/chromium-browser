@@ -16,8 +16,10 @@
 #include "components/image_fetcher/core/image_fetcher_impl.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/ntp_snippets/contextual/contextual_content_suggestions_service.h"
+#include "components/ntp_snippets/contextual/contextual_suggestions_debugging_reporter.h"
+#include "components/ntp_snippets/contextual/contextual_suggestions_features.h"
 #include "components/ntp_snippets/contextual/contextual_suggestions_fetcher_impl.h"
-#include "components/ntp_snippets/contextual/contextual_suggestions_metrics_reporter.h"
+#include "components/ntp_snippets/contextual/contextual_suggestions_reporter.h"
 #include "components/ntp_snippets/remote/cached_image_fetcher.h"
 #include "components/ntp_snippets/remote/remote_suggestions_database.h"
 #include "components/prefs/pref_service.h"
@@ -31,8 +33,10 @@
 #include "chrome/browser/android/chrome_feature_list.h"
 #endif
 
-using ntp_snippets::ContextualSuggestionsFetcherImpl;
-using ntp_snippets::ContextualContentSuggestionsService;
+using contextual_suggestions::ContextualSuggestionsFetcherImpl;
+using contextual_suggestions::ContextualContentSuggestionsService;
+
+using ntp_snippets::CachedImageFetcher;
 using ntp_snippets::RemoteSuggestionsDatabase;
 
 namespace {
@@ -40,7 +44,7 @@ namespace {
 bool IsContextualContentSuggestionsEnabled() {
 #if defined(OS_ANDROID)
   return base::FeatureList::IsEnabled(
-      chrome::android::kContextualSuggestionsBottomSheet);
+      contextual_suggestions::kContextualSuggestionsBottomSheet);
 #else
   return false;
 #endif  // OS_ANDROID
@@ -108,13 +112,14 @@ ContextualContentSuggestionsServiceFactory::BuildServiceInstanceFor(
               std::make_unique<suggestions::ImageDecoderImpl>(),
               request_context.get()),
           pref_service, contextual_suggestions_database.get());
-  auto metrics_reporter_provider = std::make_unique<
-      contextual_suggestions::ContextualSuggestionsMetricsReporterProvider>();
+  auto reporter_provider = std::make_unique<
+      contextual_suggestions::ContextualSuggestionsReporterProvider>(
+      std::make_unique<
+          contextual_suggestions::ContextualSuggestionsDebuggingReporter>());
   auto* service = new ContextualContentSuggestionsService(
       std::move(contextual_suggestions_fetcher),
       std::move(cached_image_fetcher),
-      std::move(contextual_suggestions_database),
-      std::move(metrics_reporter_provider));
+      std::move(contextual_suggestions_database), std::move(reporter_provider));
 
   return service;
 }

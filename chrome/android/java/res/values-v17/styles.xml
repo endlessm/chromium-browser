@@ -27,6 +27,7 @@
         <item name="android:statusBarColor" tools:targetApi="21">@android:color/black</item>
 
         <!--  Overriding AppCompat values -->
+        <!-- TODO(huayinz): Change this when the color for checkboxes are updated to modern. -->
         <item name="colorControlNormal">@color/light_normal_color</item>
         <item name="colorControlActivated">@color/light_active_color</item>
 
@@ -568,8 +569,7 @@
     </style>
     <style name="ToolbarMenuButtonPhone" parent="ToolbarButton">
         <item name="android:layout_gravity">top</item>
-        <item name="android:layout_width">42dp</item>
-        <item name="android:paddingEnd">4dp</item>
+        <item name="android:paddingEnd">8dp</item>
         <item name="android:background">@null</item>
     </style>
     <style name="ToolbarMenuButtonTablet" parent="ToolbarButton">
@@ -745,9 +745,9 @@
         <item name="android:background">@drawable/content_card_modern_background</item>
         <item name="android:foreground">@drawable/button_borderless_compat</item>
     </style>
-    <style name="SuggestionCardTitleModern" parent="BlackBodyDefault">
+    <style name="SuggestionCardTitleModern" parent="BlackTitle1">
         <item name="android:ellipsize">end</item>
-        <item name="leading">16sp</item>
+        <item name="leading">20sp</item>
     </style>
     <style name="SuggestionCardBodyModern" parent="BlackBody">
         <item name="android:layout_marginTop">8dp</item>

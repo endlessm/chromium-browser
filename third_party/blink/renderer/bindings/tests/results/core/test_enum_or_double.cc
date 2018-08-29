@@ -8,11 +8,11 @@
 // DO NOT MODIFY!
 
 // clang-format off
-#include "test_enum_or_double.h"
+#include "third_party/blink/renderer/bindings/tests/results/core/test_enum_or_double.h"
 
-#include "bindings/core/v8/idl_types.h"
-#include "bindings/core/v8/native_value_traits_impl.h"
-#include "bindings/core/v8/to_v8_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
+#include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
+#include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
 
 namespace blink {
 
@@ -49,7 +49,7 @@ void TestEnumOrDouble::SetTestEnum(const String& value) {
       "EnumValue2",
       "EnumValue3",
   };
-  if (!IsValidEnum(value, validValues, WTF_ARRAY_LENGTH(validValues), "TestEnum", exceptionState)) {
+  if (!IsValidEnum(value, validValues, arraysize(validValues), "TestEnum", exceptionState)) {
     NOTREACHED();
     return;
   }
@@ -95,7 +95,7 @@ void V8TestEnumOrDouble::ToImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Val
         "EnumValue2",
         "EnumValue3",
     };
-    if (!IsValidEnum(cppValue, validValues, WTF_ARRAY_LENGTH(validValues), "TestEnum", exceptionState))
+    if (!IsValidEnum(cppValue, validValues, arraysize(validValues), "TestEnum", exceptionState))
       return;
     impl.SetTestEnum(cppValue);
     return;

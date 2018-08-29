@@ -290,11 +290,27 @@ void PrerenderManager::CancelAllPrerenders() {
   }
 }
 
+PrerenderManager::Params::Params(NavigateParams* params,
+                                 content::WebContents* contents_being_navigated)
+    : uses_post(params->uses_post),
+      extra_headers(params->extra_headers),
+      should_replace_current_entry(params->should_replace_current_entry),
+      contents_being_navigated(contents_being_navigated) {}
+
+PrerenderManager::Params::Params(bool uses_post,
+                                 const std::string& extra_headers,
+                                 bool should_replace_current_entry,
+                                 content::WebContents* contents_being_navigated)
+    : uses_post(uses_post),
+      extra_headers(extra_headers),
+      should_replace_current_entry(should_replace_current_entry),
+      contents_being_navigated(contents_being_navigated) {}
+
 bool PrerenderManager::MaybeUsePrerenderedPage(const GURL& url,
-                                               NavigateParams* params) {
+                                               Params* params) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  WebContents* web_contents = params->target_contents;
+  WebContents* web_contents = params->contents_being_navigated;
   DCHECK(!IsWebContentsPrerendering(web_contents, nullptr));
 
   // Don't prerender if the navigation involves some special parameters that
@@ -322,21 +338,20 @@ bool PrerenderManager::MaybeUsePrerenderedPage(const GURL& url,
   if (prerender_data->contents()->prerender_mode() != FULL_PRERENDER)
     return false;
 
-  std::unique_ptr<WebContents> new_web_contents = SwapInternal(
+  WebContents* new_web_contents = SwapInternal(
       url, web_contents, prerender_data, params->should_replace_current_entry);
   if (!new_web_contents)
     return false;
 
   // Record the new target_contents for the callers.
-  params->target_contents = new_web_contents.release();
+  params->replaced_contents = new_web_contents;
   return true;
 }
 
-std::unique_ptr<WebContents> PrerenderManager::SwapInternal(
-    const GURL& url,
-    WebContents* web_contents,
-    PrerenderData* prerender_data,
-    bool should_replace_current_entry) {
+WebContents* PrerenderManager::SwapInternal(const GURL& url,
+                                            WebContents* web_contents,
+                                            PrerenderData* prerender_data,
+                                            bool should_replace_current_entry) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!IsWebContentsPrerendering(web_contents, nullptr));
 
@@ -422,25 +437,25 @@ std::unique_ptr<WebContents> PrerenderManager::SwapInternal(
 
   std::unique_ptr<WebContents> new_web_contents =
       prerender_contents->ReleasePrerenderContents();
-  std::unique_ptr<WebContents> old_web_contents(web_contents);
   DCHECK(new_web_contents);
-  DCHECK(old_web_contents);
+  DCHECK(web_contents);
 
   // Merge the browsing history.
   new_web_contents->GetController().CopyStateFromAndPrune(
-      &old_web_contents->GetController(),
-      should_replace_current_entry);
-  CoreTabHelper::FromWebContents(old_web_contents.get())
-      ->delegate()
-      ->SwapTabContents(old_web_contents.get(), new_web_contents.get(), true,
-                        prerender_contents->has_finished_loading());
-  prerender_contents->CommitHistory(new_web_contents.get());
+      &web_contents->GetController(), should_replace_current_entry);
+  WebContents* raw_new_web_contents = new_web_contents.get();
+  std::unique_ptr<content::WebContents> old_web_contents =
+      CoreTabHelper::FromWebContents(web_contents)
+          ->delegate()
+          ->SwapTabContents(web_contents, std::move(new_web_contents), true,
+                            prerender_contents->has_finished_loading());
+  prerender_contents->CommitHistory(raw_new_web_contents);
 
   // Update PPLT metrics:
   // If the tab has finished loading, record a PPLT of 0.
   // If the tab is still loading, reset its start time to the current time.
   PrerenderTabHelper* prerender_tab_helper =
-      PrerenderTabHelper::FromWebContents(new_web_contents.get());
+      PrerenderTabHelper::FromWebContents(raw_new_web_contents);
   DCHECK(prerender_tab_helper);
   prerender_tab_helper->PrerenderSwappedIn();
 
@@ -461,7 +476,7 @@ std::unique_ptr<WebContents> PrerenderManager::SwapInternal(
   //                 list, instead of deleting directly here?
   AddToHistory(prerender_contents.get());
   RecordNavigation(url);
-  return new_web_contents;
+  return raw_new_web_contents;
 }
 
 void PrerenderManager::MoveEntryToPendingDelete(PrerenderContents* entry,
@@ -1080,11 +1095,6 @@ bool PrerenderManager::DoesRateLimitAllowPrerender(Origin origin) const {
 }
 
 void PrerenderManager::DeleteOldWebContents() {
-  for (WebContents* web_contents : old_web_contents_list_) {
-    // TODO(dominich): should we use Instant Unload Handler here?
-    // Or should |old_web_contents_list_| contain unique_ptrs?
-    delete web_contents;
-  }
   old_web_contents_list_.clear();
 }
 
@@ -1134,7 +1144,7 @@ void PrerenderManager::CleanUpOldNavigations(
 void PrerenderManager::ScheduleDeleteOldWebContents(
     std::unique_ptr<WebContents> tab,
     OnCloseWebContentsDeleter* deleter) {
-  old_web_contents_list_.push_back(tab.release());
+  old_web_contents_list_.push_back(std::move(tab));
   PostCleanupTask();
 
   if (!deleter)

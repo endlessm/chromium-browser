@@ -3,10 +3,17 @@
 // found in the LICENSE file.
 
 #include "ash/login/ui/login_auth_user_view.h"
+#include "ash/login/mock_login_screen_client.h"
+#include "ash/login/ui/login_password_view.h"
+#include "ash/login/ui/login_pin_view.h"
 #include "ash/login/ui/login_test_base.h"
 #include "ash/login/ui/login_test_utils.h"
+#include "ash/login/ui/login_user_view.h"
 #include "base/bind_helpers.h"
+#include "base/run_loop.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/events/event_utils.h"
+#include "ui/events/test/event_generator.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/widget/widget.h"
 
@@ -45,8 +52,6 @@ class LoginAuthUserViewUnittest : public LoginTestBase {
   mojom::LoginUserInfoPtr user_;
   views::View* container_ = nullptr;   // Owned by test widget view hierarchy.
   LoginAuthUserView* view_ = nullptr;  // Owned by test widget view hierarchy.
-  base::Optional<int> value_;
-  bool backspace_ = false;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(LoginAuthUserViewUnittest);
@@ -83,6 +88,66 @@ TEST_F(LoginAuthUserViewUnittest, ShowingPasswordForcesOpaque) {
   EXPECT_FALSE(user_test.is_opaque());
   view_->SetAuthMethods(LoginAuthUserView::AUTH_PASSWORD);
   EXPECT_TRUE(user_test.is_opaque());
+}
+
+// Verifies that pressing return with an empty password field when tap-to-unlock
+// is enabled attempts unlock.
+TEST_F(LoginAuthUserViewUnittest, PressReturnWithTapToUnlockEnabled) {
+  std::unique_ptr<MockLoginScreenClient> client = BindMockLoginScreenClient();
+
+  ui::test::EventGenerator& generator = GetEventGenerator();
+
+  LoginAuthUserView::TestApi test_auth_user_view(view_);
+  LoginPasswordView* password_view(test_auth_user_view.password_view());
+  LoginUserView* user_view(test_auth_user_view.user_view());
+
+  SetUserCount(1);
+
+  EXPECT_CALL(
+      *client,
+      AttemptUnlock(user_view->current_user()->basic_user_info->account_id));
+  view_->SetAuthMethods(LoginAuthUserView::AUTH_PASSWORD |
+                        LoginAuthUserView::AUTH_TAP);
+  password_view->Clear();
+
+  generator.PressKey(ui::KeyboardCode::VKEY_RETURN, 0);
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(LoginAuthUserViewUnittest, OnlineSignInMessage) {
+  std::unique_ptr<MockLoginScreenClient> client = BindMockLoginScreenClient();
+  LoginAuthUserView::TestApi test_auth_user_view(view_);
+  views::Button* online_sign_in_message(
+      test_auth_user_view.online_sign_in_message());
+  LoginPasswordView* password_view(test_auth_user_view.password_view());
+  LoginPinView* pin_view(test_auth_user_view.pin_view());
+  LoginUserView* user_view(test_auth_user_view.user_view());
+
+  // When auth method is |AUTH_ONLINE_SIGN_IN|, the online sign-in message is
+  // visible. The password field and PIN keyboard are invisible.
+  view_->SetAuthMethods(LoginAuthUserView::AUTH_ONLINE_SIGN_IN);
+  EXPECT_TRUE(online_sign_in_message->visible());
+  EXPECT_FALSE(password_view->visible());
+  EXPECT_FALSE(pin_view->visible());
+
+  // Clicking the message triggers |ShowGaiaSignin|.
+  EXPECT_CALL(*client,
+              ShowGaiaSignin(static_cast<base::Optional<AccountId>>(
+                  user_view->current_user()->basic_user_info->account_id)));
+  const ui::MouseEvent event(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
+                             ui::EventTimeForNow(), 0, 0);
+  view_->ButtonPressed(online_sign_in_message, event);
+  base::RunLoop().RunUntilIdle();
+
+  // The online sign-in message is invisible for all other auth methods.
+  view_->SetAuthMethods(LoginAuthUserView::AUTH_NONE);
+  EXPECT_FALSE(online_sign_in_message->visible());
+  view_->SetAuthMethods(LoginAuthUserView::AUTH_PASSWORD);
+  EXPECT_FALSE(online_sign_in_message->visible());
+  view_->SetAuthMethods(LoginAuthUserView::AUTH_PIN);
+  EXPECT_FALSE(online_sign_in_message->visible());
+  view_->SetAuthMethods(LoginAuthUserView::AUTH_TAP);
+  EXPECT_FALSE(online_sign_in_message->visible());
 }
 
 }  // namespace ash

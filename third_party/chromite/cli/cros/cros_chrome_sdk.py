@@ -84,7 +84,7 @@ class SDKFetcher(object):
   MISC_CACHE = 'misc'
 
   TARGET_TOOLCHAIN_KEY = 'target_toolchain'
-  QEMU_BIN_KEY = 'app-emulation/qemu-2.6.0-r2.tbz2'
+  QEMU_BIN_KEY = 'app-emulation/qemu-2.6.0-r3.tbz2'
   PREBUILT_CONF_PATH = ('chromiumos/overlays/board-overlays.git/+/'
                         'master/overlay-amd64-host/prebuilt.conf')
 
@@ -206,6 +206,24 @@ class SDKFetcher(object):
       return None
     return path.strip('"')
 
+  def _GetFullVersionFromStorage(self, version_file):
+    """Cat |version_file| in google storage.
+
+    Args:
+      version_file: google storage path of the version file.
+
+    Returns:
+      Version number in the format 'R30-3929.0.0' or None.
+    """
+    try:
+       # If the version doesn't exist in google storage,
+       # which isn't unlikely, don't waste time on retries.
+      full_version = self.gs_ctx.Cat(version_file, retries=0)
+      assert full_version.startswith('R')
+      return full_version
+    except (gs.GSNoSuchKey, gs.GSCommandError):
+      return None
+
   def _GetFullVersionFromRecentLatest(self, version):
     """Gets the full version number from a recent LATEST- file.
 
@@ -229,15 +247,12 @@ class SDKFetcher(object):
     for v in xrange(version_base - 1, version_base_min, -1):
       version_file = '%s/LATEST-%d.0.0' % (self.gs_base, v)
       logging.info('Trying: %s', version_file)
-      try:
-        full_version = self.gs_ctx.Cat(version_file)
-        assert full_version.startswith('R')
+      full_version = self._GetFullVersionFromStorage(version_file)
+      if full_version is not None:
         logging.warning(
             'Using cros version from most recent LATEST file: %s -> %s',
             version_file, full_version)
         return full_version
-      except (gs.GSNoSuchKey, gs.GSCommandError):
-        pass
     logging.warning('No recent LATEST file found from %d.0.0 to %d.0.0: ',
                     version_base_min, version_base)
     return None
@@ -252,13 +267,11 @@ class SDKFetcher(object):
       Version number in the format 'R30-3929.0.0' or None.
     """
     version_file = '%s/LATEST-%s' % (self.gs_base, version)
-    try:
-      full_version = self.gs_ctx.Cat(version_file)
-      assert full_version.startswith('R')
-      return full_version
-    except (gs.GSNoSuchKey, gs.GSCommandError):
+    full_version = self._GetFullVersionFromStorage(version_file)
+    if full_version is None:
       logging.warning('No LATEST file matching SDK version %s', version)
       return self._GetFullVersionFromRecentLatest(version)
+    return full_version
 
   def GetDefaultVersion(self):
     """Get the default SDK version to use.
@@ -822,6 +835,11 @@ class ChromeSDKCommand(command.CliCommand):
     if options.sdk_path:
       os.environ[self.sdk.SDK_PATH_ENV] = options.sdk_path
     os.environ[self.sdk.SDK_VERSION_ENV] = sdk_ctx.version
+
+    # Add board and sdk version as gn args so that tests can bind them in
+    # test wrappers generated at compile time.
+    gn_args['cros_board'] = board
+    gn_args['cros_sdk_version'] = sdk_ctx.version
 
     # Export the board/version info in a more accessible way, so developers can
     # reference them in their chrome_sdk.bashrc files, as well as within the

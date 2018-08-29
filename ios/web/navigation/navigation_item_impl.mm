@@ -47,7 +47,6 @@ NavigationItemImpl::NavigationItemImpl()
       has_state_been_replaced_(false),
       is_created_from_hash_change_(false),
       should_skip_repost_form_confirmation_(false),
-      error_retry_state_(ErrorRetryState::kNoNavigationError),
       navigation_initiation_type_(web::NavigationInitiationType::NONE),
       is_unsafe_(false) {}
 
@@ -75,7 +74,7 @@ NavigationItemImpl::NavigationItemImpl(const NavigationItemImpl& item)
       should_skip_repost_form_confirmation_(
           item.should_skip_repost_form_confirmation_),
       post_data_([item.post_data_ copy]),
-      error_retry_state_(item.error_retry_state_),
+      error_retry_state_machine_(item.error_retry_state_machine_),
       navigation_initiation_type_(item.navigation_initiation_type_),
       is_unsafe_(item.is_unsafe_),
       cached_display_title_(item.cached_display_title_) {}
@@ -95,6 +94,7 @@ const GURL& NavigationItemImpl::GetOriginalRequestURL() const {
 void NavigationItemImpl::SetURL(const GURL& url) {
   url_ = url;
   cached_display_title_.clear();
+  error_retry_state_machine_.SetURL(url);
 }
 
 const GURL& NavigationItemImpl::GetURL() const {
@@ -119,6 +119,8 @@ const GURL& NavigationItemImpl::GetVirtualURL() const {
 }
 
 void NavigationItemImpl::SetTitle(const base::string16& title) {
+  if (title_ == title)
+    return;
   title_ = title;
   cached_display_title_.clear();
 }
@@ -289,41 +291,8 @@ void NavigationItemImpl::ResetForCommit() {
   SetNavigationInitiationType(web::NavigationInitiationType::NONE);
 }
 
-void NavigationItemImpl::SetErrorRetryState(ErrorRetryState state) {
-  if (state == error_retry_state_)
-    return;
-
-  switch (state) {
-    case ErrorRetryState::kNoNavigationError:
-      DCHECK_EQ(ErrorRetryState::kRetryFailedNavigationItem,
-                error_retry_state_);
-      break;
-    case ErrorRetryState::kReadyToDisplayErrorForFailedNavigation:
-      DCHECK(error_retry_state_ == ErrorRetryState::kNoNavigationError ||
-             error_retry_state_ == ErrorRetryState::kRetryFailedNavigationItem)
-          << "Got unexpected state: " << static_cast<int>(error_retry_state_);
-      break;
-    case ErrorRetryState::kDisplayingErrorForFailedNavigation:
-      DCHECK_EQ(ErrorRetryState::kReadyToDisplayErrorForFailedNavigation,
-                error_retry_state_);
-      break;
-    case ErrorRetryState::kNavigatingToFailedNavigationItem:
-      DCHECK_EQ(ErrorRetryState::kDisplayingErrorForFailedNavigation,
-                error_retry_state_);
-      break;
-    case ErrorRetryState::kRetryFailedNavigationItem:
-      DCHECK_EQ(ErrorRetryState::kNavigatingToFailedNavigationItem,
-                error_retry_state_);
-      break;
-    default:
-      NOTREACHED();
-  }
-
-  error_retry_state_ = state;
-}
-
-ErrorRetryState NavigationItemImpl::GetErrorRetryState() const {
-  return error_retry_state_;
+ErrorRetryStateMachine& NavigationItemImpl::error_retry_state_machine() {
+  return error_retry_state_machine_;
 }
 
 // static
@@ -349,13 +318,15 @@ base::string16 NavigationItemImpl::GetDisplayTitleForURL(const GURL& url) {
 NSString* NavigationItemImpl::GetDescription() const {
   return [NSString
       stringWithFormat:
-          @"url:%s originalurl:%s referrer: %s title:%s transition:%d "
+          @"url:%s virtual_url_:%s originalurl:%s referrer: %s title:%s "
+          @"transition:%d "
            "displayState:%@ userAgentType:%s is_create_from_push_state: %@ "
            "has_state_been_replaced: %@ is_created_from_hash_change: %@ "
            "navigation_initiation_type: %d",
-          url_.spec().c_str(), original_request_url_.spec().c_str(),
-          referrer_.url.spec().c_str(), base::UTF16ToUTF8(title_).c_str(),
-          transition_type_, page_display_state_.GetDescription(),
+          url_.spec().c_str(), virtual_url_.spec().c_str(),
+          original_request_url_.spec().c_str(), referrer_.url.spec().c_str(),
+          base::UTF16ToUTF8(title_).c_str(), transition_type_,
+          page_display_state_.GetDescription(),
           GetUserAgentTypeDescription(user_agent_type_).c_str(),
           is_created_from_push_state_ ? @"true" : @"false",
           has_state_been_replaced_ ? @"true" : @"false",

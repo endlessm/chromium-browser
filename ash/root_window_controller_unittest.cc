@@ -103,6 +103,11 @@ class RootWindowControllerTest : public AshTestBase {
   views::Widget* CreateTestWidget(const gfx::Rect& bounds) {
     views::Widget* widget = views::Widget::CreateWindowWithContextAndBounds(
         NULL, CurrentContext(), bounds);
+    // The initial bounds will be constrained to the screen work area or the
+    // parent. See Widget::InitialBounds() & Widget::SetBoundsConstrained().
+    // Explicitly setting the bounds here will allow the view to be positioned
+    // such that it can extend outside the screen work area.
+    widget->SetBounds(bounds);
     widget->Show();
     return widget;
   }
@@ -110,6 +115,8 @@ class RootWindowControllerTest : public AshTestBase {
   views::Widget* CreateModalWidget(const gfx::Rect& bounds) {
     views::Widget* widget = views::Widget::CreateWindowWithContextAndBounds(
         new TestDelegate(true), CurrentContext(), bounds);
+    // See the above comment.
+    widget->SetBounds(bounds);
     widget->Show();
     return widget;
   }
@@ -118,6 +125,8 @@ class RootWindowControllerTest : public AshTestBase {
                                              aura::Window* parent) {
     views::Widget* widget = views::Widget::CreateWindowWithParentAndBounds(
         new TestDelegate(true), parent, bounds);
+    // See the above comment.
+    widget->SetBounds(bounds);
     widget->Show();
     return widget;
   }
@@ -889,8 +898,7 @@ TEST_F(VirtualKeyboardRootWindowControllerTest,
   ASSERT_TRUE(vk_container_in_primary->Contains(vk_window));
   ASSERT_FALSE(vk_container_in_secondary->Contains(vk_window));
 
-  const int64_t secondary_display_id = secondary_display.id();
-  controller->ShowKeyboardInDisplay(secondary_display_id);
+  controller->ShowKeyboardInDisplay(secondary_display);
 
   EXPECT_FALSE(vk_container_in_primary->Contains(vk_window));
   EXPECT_TRUE(vk_container_in_secondary->Contains(vk_window));
@@ -1049,7 +1057,7 @@ TEST_F(VirtualKeyboardRootWindowControllerTest, EnsureCaretInWorkArea) {
       root_window->bounds(), keyboard_height));
   contents_window->Show();
 
-  ui->EnsureCaretInWorkArea();
+  ui->EnsureCaretInWorkArea(contents_window->GetBoundsInScreen());
   ASSERT_EQ(root_window->bounds().width(),
             text_input_client.caret_exclude_rect().width());
   ASSERT_EQ(keyboard_height, text_input_client.caret_exclude_rect().height());
@@ -1090,7 +1098,7 @@ TEST_F(VirtualKeyboardRootWindowControllerTest,
       primary_root_window->bounds(), keyboard_height));
   contents_window->Show();
 
-  ui->EnsureCaretInWorkArea();
+  ui->EnsureCaretInWorkArea(contents_window->GetBoundsInScreen());
   EXPECT_TRUE(primary_root_window->GetBoundsInScreen().Contains(
       text_input_client.caret_exclude_rect()));
   EXPECT_EQ(primary_root_window->GetBoundsInScreen().width(),
@@ -1100,11 +1108,11 @@ TEST_F(VirtualKeyboardRootWindowControllerTest,
 
   // Move the keyboard into the secondary display and check that the keyboard
   // doesn't cover the window on the primary screen.
-  keyboard_controller->ShowKeyboardInDisplay(secondary_display_id);
+  keyboard_controller->ShowKeyboardInDisplay(GetSecondaryDisplay());
   contents_window->SetBounds(keyboard::KeyboardBoundsFromRootBounds(
       secondary_root_window->bounds(), keyboard_height));
 
-  ui->EnsureCaretInWorkArea();
+  ui->EnsureCaretInWorkArea(contents_window->GetBoundsInScreen());
   EXPECT_FALSE(primary_root_window->GetBoundsInScreen().Contains(
       text_input_client.caret_exclude_rect()));
   EXPECT_TRUE(secondary_root_window->GetBoundsInScreen().Contains(

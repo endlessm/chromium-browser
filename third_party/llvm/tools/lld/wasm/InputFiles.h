@@ -35,6 +35,7 @@ class InputChunk;
 class InputFunction;
 class InputSegment;
 class InputGlobal;
+class InputSection;
 
 class InputFile {
 public:
@@ -94,6 +95,7 @@ public:
 
   uint32_t calcNewIndex(const WasmRelocation &Reloc) const;
   uint32_t calcNewValue(const WasmRelocation &Reloc) const;
+  uint32_t calcNewAddend(const WasmRelocation &Reloc) const;
   uint32_t calcExpectedValue(const WasmRelocation &Reloc) const;
 
   const WasmSection *CodeSection = nullptr;
@@ -108,12 +110,15 @@ public:
   std::vector<InputSegment *> Segments;
   std::vector<InputFunction *> Functions;
   std::vector<InputGlobal *> Globals;
+  std::vector<InputSection *> CustomSections;
+  llvm::DenseMap<uint32_t, InputSection *> CustomSectionsByIndex;
 
   ArrayRef<Symbol *> getSymbols() const { return Symbols; }
   Symbol *getSymbol(uint32_t Index) const { return Symbols[Index]; }
   FunctionSymbol *getFunctionSymbol(uint32_t Index) const;
   DataSymbol *getDataSymbol(uint32_t Index) const;
   GlobalSymbol *getGlobalSymbol(uint32_t Index) const;
+  SectionSymbol *getSectionSymbol(uint32_t Index) const;
 
 private:
   Symbol *createDefined(const WasmSymbol &Sym);

@@ -1,4 +1,4 @@
-# RUN: llc -simplify-mir -mtriple=aarch64--- -run-pass=machine-outliner -verify-machineinstrs %s -o - | FileCheck %s
+# RUN: llc -mtriple=aarch64--- -run-pass=prologepilog -run-pass=machine-outliner -verify-machineinstrs %s -o - | FileCheck %s
 --- |
   define void @baz() #0 {
     ret void
@@ -56,7 +56,6 @@ body:             |
 
 # CHECK: name:            OUTLINED_FUNCTION_0
 # CHECK-DAG: bb.0:
-# CHECK-NEXT: liveins: $lr
 # CHECK-DAG: frame-setup CFI_INSTRUCTION def_cfa_offset -16
 # CHECK-NEXT: frame-setup CFI_INSTRUCTION offset $w30, 16
 # CHECK-NEXT: early-clobber $sp = STRXpre $lr, $sp, -16

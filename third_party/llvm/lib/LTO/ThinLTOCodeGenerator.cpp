@@ -23,7 +23,7 @@
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/Bitcode/BitcodeWriterPass.h"
-#include "llvm/ExecutionEngine/ObjectMemoryBuffer.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/LLVMContext.h"
@@ -39,6 +39,7 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/SHA1.h"
+#include "llvm/Support/SmallVectorMemoryBuffer.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/Threading.h"
@@ -274,7 +275,7 @@ std::unique_ptr<MemoryBuffer> codegenModule(Module &TheModule,
     // Run codegen now. resulting binary is in OutputBuffer.
     PM.run(TheModule);
   }
-  return make_unique<ObjectMemoryBuffer>(std::move(OutputBuffer));
+  return make_unique<SmallVectorMemoryBuffer>(std::move(OutputBuffer));
 }
 
 /// Manage caching for a single Module.
@@ -400,9 +401,12 @@ public:
 
     // Write to a temporary to avoid race condition
     SmallString<128> TempFilename;
+    SmallString<128> CachePath(EntryPath);
     int TempFD;
-    std::error_code EC =
-        sys::fs::createTemporaryFile("Thin", "tmp.o", TempFD, TempFilename);
+    llvm::sys::path::remove_filename(CachePath);
+    sys::path::append(TempFilename, CachePath, "Thin-%%%%%%.tmp.o");
+    std::error_code EC = 
+      sys::fs::createUniqueFile(TempFilename, TempFD, TempFilename);
     if (EC) {
       errs() << "Error: " << EC.message() << "\n";
       report_fatal_error("ThinLTO: Can't get a temporary file");
@@ -411,16 +415,10 @@ public:
       raw_fd_ostream OS(TempFD, /* ShouldClose */ true);
       OS << OutputBuffer.getBuffer();
     }
-    // Rename to final destination (hopefully race condition won't matter here)
+    // Rename temp file to final destination; rename is atomic 
     EC = sys::fs::rename(TempFilename, EntryPath);
-    if (EC) {
+    if (EC)
       sys::fs::remove(TempFilename);
-      raw_fd_ostream OS(EntryPath, EC, sys::fs::F_None);
-      if (EC)
-        report_fatal_error(Twine("Failed to open ") + EntryPath +
-                           " to save cached entry\n");
-      OS << OutputBuffer.getBuffer();
-    }
   }
 };
 
@@ -478,7 +476,7 @@ ProcessThinLTOModule(Module &TheModule, ModuleSummaryIndex &Index,
       auto Index = buildModuleSummaryIndex(TheModule, nullptr, &PSI);
       WriteBitcodeToFile(TheModule, OS, true, &Index);
     }
-    return make_unique<ObjectMemoryBuffer>(std::move(OutputBuffer));
+    return make_unique<SmallVectorMemoryBuffer>(std::move(OutputBuffer));
   }
 
   return codegenModule(TheModule, TM);
@@ -950,12 +948,12 @@ void ThinLTOCodeGenerator::run() {
   std::vector<int> ModulesOrdering;
   ModulesOrdering.resize(Modules.size());
   std::iota(ModulesOrdering.begin(), ModulesOrdering.end(), 0);
-  std::sort(ModulesOrdering.begin(), ModulesOrdering.end(),
-            [&](int LeftIndex, int RightIndex) {
-              auto LSize = Modules[LeftIndex].getBuffer().size();
-              auto RSize = Modules[RightIndex].getBuffer().size();
-              return LSize > RSize;
-            });
+  llvm::sort(ModulesOrdering.begin(), ModulesOrdering.end(),
+             [&](int LeftIndex, int RightIndex) {
+               auto LSize = Modules[LeftIndex].getBuffer().size();
+               auto RSize = Modules[RightIndex].getBuffer().size();
+               return LSize > RSize;
+             });
 
   // Parallel optimizer + codegen
   {
@@ -978,9 +976,9 @@ void ThinLTOCodeGenerator::run() {
 
         {
           auto ErrOrBuffer = CacheEntry.tryLoadingBuffer();
-          DEBUG(dbgs() << "Cache " << (ErrOrBuffer ? "hit" : "miss") << " '"
-                       << CacheEntryPath << "' for buffer " << count << " "
-                       << ModuleIdentifier << "\n");
+          LLVM_DEBUG(dbgs() << "Cache " << (ErrOrBuffer ? "hit" : "miss")
+                            << " '" << CacheEntryPath << "' for buffer "
+                            << count << " " << ModuleIdentifier << "\n");
 
           if (ErrOrBuffer) {
             // Cache Hit!
@@ -1027,15 +1025,15 @@ void ThinLTOCodeGenerator::run() {
         if (SavedObjectsDirectoryPath.empty()) {
           // We need to generated a memory buffer for the linker.
           if (!CacheEntryPath.empty()) {
-            // Cache is enabled, reload from the cache
-            // We do this to lower memory pressuree: the buffer is on the heap
-            // and releasing it frees memory that can be used for the next input
-            // file. The final binary link will read from the VFS cache
-            // (hopefully!) or from disk if the memory pressure wasn't too high.
+            // When cache is enabled, reload from the cache if possible. 
+            // Releasing the buffer from the heap and reloading it from the
+            // cache file with mmap helps us to lower memory pressure. 
+            // The freed memory can be used for the next input file. 
+            // The final binary link will read from the VFS cache (hopefully!)
+            // or from disk (if the memory pressure was too high).
             auto ReloadedBufferOrErr = CacheEntry.tryLoadingBuffer();
             if (auto EC = ReloadedBufferOrErr.getError()) {
-              // On error, keeping the preexisting buffer and printing a
-              // diagnostic is more friendly than just crashing.
+              // On error, keep the preexisting buffer and print a diagnostic.
               errs() << "error: can't reload cached file '" << CacheEntryPath
                      << "': " << EC.message() << "\n";
             } else {

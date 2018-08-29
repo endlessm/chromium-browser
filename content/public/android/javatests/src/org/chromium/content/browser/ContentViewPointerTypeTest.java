@@ -84,8 +84,10 @@ public class ContentViewPointerTypeTest {
                 SystemClock.uptimeMillis() + 1, MotionEvent.ACTION_HOVER_MOVE, 1, pointerProperties,
                 pointerCoords, 0, 0, 1.0f, 1.0f, 0, 0, InputDevice.SOURCE_MOUSE, 0);
         cursorMoveEvent.setSource(InputDevice.SOURCE_MOUSE);
-        mActivityTestRule.getContentViewCore().getContainerView().dispatchGenericMotionEvent(
-                cursorMoveEvent);
+        mActivityTestRule.getWebContents()
+                .getViewAndroidDelegate()
+                .getContainerView()
+                .dispatchGenericMotionEvent(cursorMoveEvent);
     }
 
     private void checkPointerTypeForNode(final String nodeId, final int type) throws Throwable {
@@ -96,7 +98,7 @@ public class ContentViewPointerTypeTest {
         mActivityTestRule.runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                RenderCoordinates coord = mActivityTestRule.getRenderCoordinates();
+                RenderCoordinatesImpl coord = mActivityTestRule.getRenderCoordinates();
                 float x = coord.fromLocalCssToPix((float) (rect.left + rect.right) / 2.0f);
                 float y = coord.fromLocalCssToPix((float) (rect.top + rect.bottom) / 2.0f);
                 moveCursor(x, y);

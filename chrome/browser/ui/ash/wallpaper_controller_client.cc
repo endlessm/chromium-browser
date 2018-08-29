@@ -5,7 +5,6 @@
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 
 #include "ash/public/interfaces/constants.mojom.h"
-#include "ash/wallpaper/wallpaper_controller.h"
 #include "base/path_service.h"
 #include "base/sha1.h"
 #include "base/strings/string_number_conversions.h"
@@ -193,17 +192,33 @@ void WallpaperControllerClient::SetCustomWallpaper(
                                             layout, image, preview_mode);
 }
 
-void WallpaperControllerClient::SetOnlineWallpaper(const AccountId& account_id,
-                                                   const gfx::ImageSkia& image,
-                                                   const std::string& url,
-                                                   ash::WallpaperLayout layout,
-                                                   bool preview_mode) {
+void WallpaperControllerClient::SetOnlineWallpaperIfExists(
+    const AccountId& account_id,
+    const std::string& url,
+    ash::WallpaperLayout layout,
+    bool preview_mode,
+    ash::mojom::WallpaperController::SetOnlineWallpaperIfExistsCallback
+        callback) {
   ash::mojom::WallpaperUserInfoPtr user_info =
       AccountIdToWallpaperUserInfo(account_id);
   if (!user_info)
     return;
-  wallpaper_controller_->SetOnlineWallpaper(std::move(user_info), image, url,
-                                            layout, preview_mode);
+  wallpaper_controller_->SetOnlineWallpaperIfExists(
+      std::move(user_info), url, layout, preview_mode, std::move(callback));
+}
+
+void WallpaperControllerClient::SetOnlineWallpaperFromData(
+    const AccountId& account_id,
+    const std::string& image_data,
+    const std::string& url,
+    ash::WallpaperLayout layout,
+    bool preview_mode) {
+  ash::mojom::WallpaperUserInfoPtr user_info =
+      AccountIdToWallpaperUserInfo(account_id);
+  if (!user_info)
+    return;
+  wallpaper_controller_->SetOnlineWallpaperFromData(
+      std::move(user_info), image_data, url, layout, preview_mode);
 }
 
 void WallpaperControllerClient::SetDefaultWallpaper(const AccountId& account_id,
@@ -350,6 +365,11 @@ void WallpaperControllerClient::RemovePolicyWallpaper(
                                                GetFilesId(account_id));
 }
 
+void WallpaperControllerClient::GetOfflineWallpaperList(
+    ash::mojom::WallpaperController::GetOfflineWallpaperListCallback callback) {
+  wallpaper_controller_->GetOfflineWallpaperList(std::move(callback));
+}
+
 void WallpaperControllerClient::SetAnimationDuration(
     const base::TimeDelta& animation_duration) {
   wallpaper_controller_->SetAnimationDuration(animation_duration);
@@ -382,6 +402,11 @@ void WallpaperControllerClient::GetWallpaperImage(
 void WallpaperControllerClient::GetWallpaperColors(
     ash::mojom::WallpaperController::GetWallpaperColorsCallback callback) {
   wallpaper_controller_->GetWallpaperColors(std::move(callback));
+}
+
+void WallpaperControllerClient::IsWallpaperBlurred(
+    ash::mojom::WallpaperController::IsWallpaperBlurredCallback callback) {
+  wallpaper_controller_->IsWallpaperBlurred(std::move(callback));
 }
 
 void WallpaperControllerClient::IsActiveUserWallpaperControlledByPolicy(
@@ -425,13 +450,13 @@ void WallpaperControllerClient::BindAndSetClient() {
 
   // Get the paths of wallpaper directories.
   base::FilePath user_data_path;
-  CHECK(PathService::Get(chrome::DIR_USER_DATA, &user_data_path));
+  CHECK(base::PathService::Get(chrome::DIR_USER_DATA, &user_data_path));
   base::FilePath chromeos_wallpapers_path;
-  CHECK(PathService::Get(chrome::DIR_CHROMEOS_WALLPAPERS,
-                         &chromeos_wallpapers_path));
+  CHECK(base::PathService::Get(chrome::DIR_CHROMEOS_WALLPAPERS,
+                               &chromeos_wallpapers_path));
   base::FilePath chromeos_custom_wallpapers_path;
-  CHECK(PathService::Get(chrome::DIR_CHROMEOS_CUSTOM_WALLPAPERS,
-                         &chromeos_custom_wallpapers_path));
+  CHECK(base::PathService::Get(chrome::DIR_CHROMEOS_CUSTOM_WALLPAPERS,
+                               &chromeos_custom_wallpapers_path));
 
   wallpaper_controller_->Init(
       std::move(client), user_data_path, chromeos_wallpapers_path,
@@ -480,22 +505,21 @@ void WallpaperControllerClient::OpenWallpaperPicker() {
 }
 
 void WallpaperControllerClient::OnReadyToSetWallpaper() {
-  // TODO(crbug.com/776464, 784495): Consider deprecating this method after
-  // views-based login is enabled. It should be fast enough to request the first
-  // wallpaper so that there's no visible delay. In other scenarios such as
-  // restart after crash, user manager should request the wallpaper.
+  // TODO(wzang|784495): Consider deprecating this method after views-based
+  // login is enabled. It should be fast enough to request the first wallpaper
+  // so that there's no visible delay. In other scenarios such as restart after
+  // crash, user manager should request the wallpaper.
 
   // Apply device customization.
   namespace util = chromeos::customization_wallpaper_util;
   if (util::ShouldUseCustomizedDefaultWallpaper()) {
-    base::FilePath customized_default_small_path =
-        util::GetCustomizedDefaultWallpaperPath(
-            ash::WallpaperController::kSmallWallpaperSuffix);
-    base::FilePath customized_default_large_path =
-        util::GetCustomizedDefaultWallpaperPath(
-            ash::WallpaperController::kLargeWallpaperSuffix);
-    wallpaper_controller_->SetCustomizedDefaultWallpaperPaths(
-        customized_default_small_path, customized_default_large_path);
+    base::FilePath customized_default_small_path;
+    base::FilePath customized_default_large_path;
+    if (util::GetCustomizedDefaultWallpaperPaths(
+            &customized_default_small_path, &customized_default_large_path)) {
+      wallpaper_controller_->SetCustomizedDefaultWallpaperPaths(
+          customized_default_small_path, customized_default_large_path);
+    }
   }
 
   // Guest wallpaper should be initialized when guest logs in.

@@ -44,7 +44,7 @@ const int styleCount = 2;
 // Omnibox background.
 const CGFloat kOmniboxBackgroundHeight = 38;
 const CGFloat kOmniboxBackgroundCornerRadius = 13;
-const CGFloat kOmniboxBackgroundAlpha = 0.05;
+const CGFloat kOmniboxButtonBackgroundAlphaFactor = 0.5;
 }  // namespace
 
 @implementation ToolbarButtonFactory
@@ -346,7 +346,7 @@ const CGFloat kOmniboxBackgroundAlpha = 0.05;
     bookmarkButton = [ToolbarButton
         toolbarButtonWithImage:[UIImage imageNamed:@"toolbar_bookmark"]];
     [bookmarkButton setImage:[UIImage imageNamed:@"toolbar_bookmark_active"]
-                    forState:UIControlStateHighlighted];
+                    forState:ControlStateSpotlighted];
     [self configureButton:bookmarkButton width:kAdaptiveToolbarButtonWidth];
   } else {
     bookmarkButton = [ToolbarButton
@@ -397,6 +397,8 @@ const CGFloat kOmniboxBackgroundAlpha = 0.05;
                                                imageNamed:collapsePressedName]
                      imageForDisabledState:nil];
   contractButton.accessibilityLabel = l10n_util::GetNSString(IDS_CANCEL);
+  contractButton.accessibilityIdentifier =
+      kToolbarCancelOmniboxEditButtonIdentifier;
   contractButton.alpha = 0;
   contractButton.hidden = YES;
   [self configureButton:contractButton width:kToolbarButtonWidth];
@@ -417,13 +419,16 @@ const CGFloat kOmniboxBackgroundAlpha = 0.05;
   [omniboxButton addTarget:self.dispatcher
                     action:@selector(focusOmniboxFromSearchButton)
           forControlEvents:UIControlEventTouchUpInside];
+  omniboxButton.accessibilityLabel =
+      l10n_util::GetNSString(IDS_IOS_TOOLBAR_SEARCH);
   omniboxButton.accessibilityIdentifier = kToolbarOmniboxButtonIdentifier;
 
   UIView* background = [[UIView alloc] init];
   background.translatesAutoresizingMaskIntoConstraints = NO;
   background.userInteractionEnabled = NO;
   background.backgroundColor =
-      [UIColor colorWithWhite:0 alpha:kOmniboxBackgroundAlpha];
+      [self.toolbarConfiguration locationBarBackgroundColorWithVisibility:
+                                     kOmniboxButtonBackgroundAlphaFactor];
   background.layer.cornerRadius = kOmniboxBackgroundCornerRadius;
   [omniboxButton addSubview:background];
   AddSameCenterConstraints(omniboxButton, background);
@@ -485,13 +490,13 @@ const CGFloat kOmniboxBackgroundAlpha = 0.05;
 // there is a conflict when the buttons are hidden as the stack view is setting
 // their width to 0. Setting the priority to UILayoutPriorityDefaultHigh doesn't
 // work as they would have a lower priority than other elements.
-- (void)configureButton:(UIView*)button width:(CGFloat)width {
+- (void)configureButton:(ToolbarButton*)button width:(CGFloat)width {
   NSLayoutConstraint* constraint =
       [button.widthAnchor constraintEqualToConstant:width];
   constraint.priority = UILayoutPriorityRequired - 1;
   constraint.active = YES;
   if (IsUIRefreshPhase1Enabled()) {
-    button.tintColor = self.toolbarConfiguration.buttonsTintColor;
+    button.configuration = self.toolbarConfiguration;
   }
 }
 

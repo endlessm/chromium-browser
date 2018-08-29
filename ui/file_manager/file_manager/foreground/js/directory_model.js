@@ -116,7 +116,7 @@ DirectoryModel.prototype.getEmptyFileList = function() {
 };
 
 /**
- * @return {!cr.ui.ListSelectionModel|!cr.ui.ListSingleSelectionModel} Selection
+ * @return {!FileListSelectionModel|!FileListSingleSelectionModel} Selection
  * in the fileList.
  */
 DirectoryModel.prototype.getFileListSelection = function() {
@@ -268,10 +268,11 @@ DirectoryModel.prototype.onWatcherDirectoryChanged_ = function(event) {
 
   if (!this.ignoreCurrentDirectoryDeletion_) {
     // If the change is deletion of currentDir, move up to its parent directory.
-    directoryEntry.getDirectory(directoryEntry.fullPath, {create: false},
-        function() {},
+    directoryEntry.getDirectory(
+        directoryEntry.fullPath, {create: false}, function() {},
         function() {
-          var volumeInfo = this.volumeManager_.getVolumeInfo(directoryEntry);
+          var volumeInfo =
+              this.volumeManager_.getVolumeInfo(assert(directoryEntry));
           if (volumeInfo) {
             volumeInfo.resolveDisplayRoot().then(function(displayRoot) {
               this.changeDirectoryEntry(displayRoot);
@@ -519,11 +520,14 @@ DirectoryModel.prototype.clearAndScan_ = function(newDirContents,
     callback(true);
   }.bind(this);
 
-  var onFailed = function() {
+  /** @param {DOMError} error error. */
+  var onFailed = function(error) {
     if (cancelled)
       return;
 
-    cr.dispatchSimpleEvent(this, 'scan-failed');
+    var event = new Event('scan-failed');
+    event.error = error;
+    this.dispatchEvent(event);
     callback(false);
   }.bind(this);
 
@@ -625,7 +629,7 @@ DirectoryModel.prototype.partialUpdate_ =
  * @param {boolean} refresh True to refresh metadata, or false to use cached
  *     one.
  * @param {function()} successCallback Callback on success.
- * @param {function()} failureCallback Callback on failure.
+ * @param {function(DOMError)} failureCallback Callback on failure.
  * @param {function()} updatedCallback Callback on update. Only on the last
  *     update, {@code successCallback} is called instead of this.
  * @param {function()} cancelledCallback Callback on cancel.
@@ -680,14 +684,18 @@ DirectoryModel.prototype.scan_ = function(
     maybeRunPendingRescan();
   }.bind(this);
 
-  var onFailure = function() {
+  var onFailure = function(event) {
     onFinished();
 
     this.runningScan_ = null;
     this.scanFailures_++;
-    failureCallback();
+    failureCallback(event.error);
 
     if (maybeRunPendingRescan())
+      return;
+
+    // Do not rescan for crostini errors.
+    if (event.error.name === DirectoryModel.CROSTINI_CONNECT_ERR)
       return;
 
     if (this.scanFailures_ <= 1)
@@ -1156,20 +1164,23 @@ DirectoryModel.prototype.onVolumeInfoListUpdated_ = function(event) {
   // When the volume where we are is unmounted, fallback to the default volume's
   // root. If current directory path is empty, stop the fallback
   // since the current directory is initializing now.
-  if (this.getCurrentDirEntry() &&
-      !this.volumeManager_.getVolumeInfo(this.getCurrentDirEntry())) {
+  var entry = this.getCurrentDirEntry();
+  if (entry && !this.volumeManager_.getVolumeInfo(entry)) {
     this.volumeManager_.getDefaultDisplayRoot(function(displayRoot) {
       this.changeDirectoryEntry(displayRoot);
     }.bind(this));
   }
 
-  // If a new file backed provided volume is mounted, then redirect to it in
-  // the focused window. Note, that this is a temporary solution for
-  // crbug.com/427776.
-  if (window.isFocused() &&
-      event.added.length === 1 &&
-      event.added[0].volumeType === VolumeManagerCommon.VolumeType.PROVIDED &&
-      event.added[0].source === VolumeManagerCommon.Source.FILE) {
+  // If a new file backed provided volume is mounted,
+  // then redirect to it in the focused window.
+  // If crostini is mounted, redirect even if window is not focussed.
+  // Note, that this is a temporary solution for https://crbug.com/427776.
+  if (event.added.length !== 1)
+    return;
+  if ((window.isFocused() &&
+       event.added[0].volumeType === VolumeManagerCommon.VolumeType.PROVIDED &&
+       event.added[0].source === VolumeManagerCommon.Source.FILE) ||
+      event.added[0].volumeType === VolumeManagerCommon.VolumeType.CROSTINI) {
     event.added[0].resolveDisplayRoot().then(function(displayRoot) {
       // Resolving a display root on FSP volumes is instant, despite the
       // asynchronous call.
@@ -1198,6 +1209,10 @@ DirectoryModel.prototype.createDirectoryContents_ =
   if (entry.rootType == VolumeManagerCommon.RootType.RECENT) {
     return DirectoryContents.createForRecent(
         context, /** @type {!FakeEntry} */ (entry), query);
+  }
+  if (entry.rootType == VolumeManagerCommon.RootType.CROSTINI) {
+    return DirectoryContents.createForCrostiniMounter(
+        context, /** @type {!FakeEntry} */ (entry));
   }
   if (query && canUseDriveSearch) {
     // Drive search.
@@ -1336,3 +1351,9 @@ DirectoryModel.prototype.clearSearch_ = function() {
     this.onClearSearch_ = null;
   }
 };
+
+/**
+ * DOMError type for crostini connection failure.
+ * @const {string}
+ */
+DirectoryModel.CROSTINI_CONNECT_ERR = 'CrostiniConnectErr';

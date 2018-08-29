@@ -37,9 +37,10 @@ class AvSettings {
     DTS_HD = 1 << 2,
     EAC3 = 1 << 3,
     LPCM = 1 << 4,
+    MPEG_H_AUDIO = 1 << 5,
 
     // All known audio codecs.
-    ALL = AC3 | DTS | DTS_HD | EAC3 | LPCM
+    ALL = AC3 | DTS | DTS_HD | EAC3 | LPCM | MPEG_H_AUDIO
   };
 
   // Defines the type of audio volume control of the device.
@@ -135,6 +136,9 @@ class AvSettings {
 
     // This event should be fired when an HDMI error occurs.
     HDMI_ERROR = 102,
+
+    // This event should be fired when the display brightness is changed.
+    DISPLAY_BRIGHTNESS_CHANGED = 200,
   };
 
   // Delegate to inform the caller events. As a subclass of TaskRunner,

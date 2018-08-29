@@ -5,12 +5,15 @@
 #ifndef CHROME_BROWSER_UI_OMNIBOX_CHROME_OMNIBOX_CLIENT_H_
 #define CHROME_BROWSER_UI_OMNIBOX_CHROME_OMNIBOX_CLIENT_H_
 
+#include <memory>
+#include <vector>
+
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
 #include "chrome/browser/bitmap_fetcher/bitmap_fetcher_service.h"
-#include "chrome/browser/ui/omnibox/favicon_cache.h"
 #include "chrome/common/search/instant_types.h"
+#include "components/omnibox/browser/favicon_cache.h"
 #include "components/omnibox/browser/omnibox_client.h"
 
 class ChromeOmniboxEditController;
@@ -62,12 +65,13 @@ class ChromeOmniboxClient : public OmniboxClient {
   gfx::Image GetFaviconForPageUrl(
       const GURL& page_url,
       FaviconFetchedCallback on_favicon_fetched) override;
+  gfx::Image GetFaviconForDefaultSearchProvider(
+      FaviconFetchedCallback on_favicon_fetched) override;
   void OnCurrentMatchChanged(const AutocompleteMatch& match) override;
   void OnTextChanged(const AutocompleteMatch& current_match,
                      bool user_input_in_progress,
                      const base::string16& user_text,
                      const AutocompleteResult& result,
-                     bool is_popup_open,
                      bool has_focus) override;
   void OnRevert() override;
   void OnURLOpenedFromOmnibox(OmniboxLog* log) override;
@@ -82,12 +86,13 @@ class ChromeOmniboxClient : public OmniboxClient {
   void DoPreconnect(const AutocompleteMatch& match);
 
   void OnBitmapFetched(const BitmapFetchedCallback& callback,
+                       int result_index,
                        const SkBitmap& bitmap);
 
   ChromeOmniboxEditController* controller_;
   Profile* profile_;
   ChromeAutocompleteSchemeClassifier scheme_classifier_;
-  BitmapFetcherService::RequestId request_id_;
+  std::vector<BitmapFetcherService::RequestId> request_ids_;
   FaviconCache favicon_cache_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeOmniboxClient);

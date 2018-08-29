@@ -21,13 +21,15 @@ AnswerCardResult::AnswerCardResult(Profile* profile,
       list_controller_(list_controller),
       contents_(contents) {
   DCHECK(!stripped_result_url.empty());
-  set_display_type(ash::SearchResultDisplayType::kCard);
+  SetDisplayType(ash::SearchResultDisplayType::kCard);
+  SetResultType(ash::SearchResultType::kAnswerCard);
   set_id(result_url);
   set_comparable_id(stripped_result_url);
   set_relevance(1);
-  set_answer_card_contents_token(contents ? contents->GetToken()
-                                          : base::UnguessableToken());
-  set_title(result_title);
+  SetAnswerCardContentsToken(contents ? contents->GetToken()
+                                      : base::UnguessableToken());
+  SetAnswerCardSize(contents ? contents->GetPreferredSize() : gfx::Size());
+  SetTitle(result_title);
 
   if (contents)
     contents->RegisterResult(this);
@@ -40,11 +42,6 @@ AnswerCardResult::~AnswerCardResult() {
 
 void AnswerCardResult::OnContentsDestroying() {
   contents_ = nullptr;
-}
-
-std::unique_ptr<ChromeSearchResult> AnswerCardResult::Duplicate() const {
-  return std::make_unique<AnswerCardResult>(
-      profile_, list_controller_, id(), comparable_id(), title(), contents_);
 }
 
 void AnswerCardResult::Open(int event_flags) {

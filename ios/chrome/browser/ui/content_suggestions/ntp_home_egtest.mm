@@ -260,7 +260,7 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   // it for all screen scale.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
                                           FakeOmniboxAccessibilityID())]
-      assertWithMatcher:OmniboxWidthBetween(collectionWidth + 1, 1)];
+      assertWithMatcher:OmniboxWidthBetween(collectionWidth + 1, 2)];
 
   [EarlGrey rotateDeviceToOrientation:UIDeviceOrientationLandscapeLeft
                            errorOrNil:nil];
@@ -273,7 +273,7 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
                                           FakeOmniboxAccessibilityID())]
       assertWithMatcher:OmniboxWidthBetween(collectionWidthAfterRotation + 1,
-                                            1)];
+                                            2)];
 }
 
 // Tests that the promo is correctly displayed and removed once tapped.
@@ -417,7 +417,7 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   // Swizzle the method that needs to be called for correct logging.
   __block BOOL tapped = NO;
   ScopedBlockSwizzler swizzler([LocationBarLegacyCoordinator class],
-                               @selector(focusOmniboxFromFakebox), ^() {
+                               @selector(focusOmniboxFromFakebox), ^{
                                  tapped = YES;
                                });
 
@@ -434,7 +434,7 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
 // It is important for ranking algorithm of omnibox that requests from the
 // search button and real omnibox are marked appropriately.
 - (void)testTapOmniboxSearchButtonLogsCorrectly {
-  if (!IsUIRefreshPhase1Enabled() ||
+  if (!IsUIRefreshPhase1Enabled() || !IsRefreshLocationBarEnabled() ||
       content_suggestions::IsRegularXRegularSizeClass()) {
     // This logging only happens on iPhone, since on iPad there's no secondary
     // toolbar.
@@ -444,7 +444,7 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   // Swizzle the method that needs to be called for correct logging.
   __block BOOL tapped = NO;
   ScopedBlockSwizzler swizzler([LocationBarCoordinator class],
-                               @selector(focusOmniboxFromSearchButton), ^() {
+                               @selector(focusOmniboxFromSearchButton), ^{
                                  tapped = YES;
                                });
 
@@ -492,7 +492,11 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
                                           FakeOmniboxAccessibilityID())]
       assertWithMatcher:grey_not(grey_sufficientlyVisible())];
-  GREYAssertTrue(offsetAfterTap.y >= origin.y + headerHeight - 60,
+  // TODO(crbug.com/826369) This should use collectionView.safeAreaInsets.top
+  // instead of -StatusBarHeight once iOS10 is dropped and the NTP is out of
+  // native content.
+  CGFloat top = IsUIRefreshPhase1Enabled() ? StatusBarHeight() : 0;
+  GREYAssertTrue(offsetAfterTap.y >= origin.y + headerHeight - (60 + top),
                  @"The collection has not moved.");
 
   // Unfocus the omnibox.

@@ -73,6 +73,11 @@ bool PowerButtonControllerTestApi::MenuHasSignOutItem() const {
   return IsMenuOpened() && GetPowerButtonMenuView()->sign_out_item_for_test();
 }
 
+bool PowerButtonControllerTestApi::MenuHasLockScreenItem() const {
+  return IsMenuOpened() &&
+         GetPowerButtonMenuView()->lock_screen_item_for_test();
+}
+
 PowerButtonScreenshotController*
 PowerButtonControllerTestApi::GetScreenshotController() {
   return controller_->screenshot_controller_.get();
@@ -91,11 +96,6 @@ void PowerButtonControllerTestApi::SetTickClock(
   controller_->display_controller_ =
       std::make_unique<PowerButtonDisplayController>(
           controller_->backlights_forced_off_setter_, controller_->tick_clock_);
-}
-
-void PowerButtonControllerTestApi::SetTurnScreenOffForTap(
-    bool turn_screen_off_for_tap) {
-  controller_->default_turn_screen_off_for_tap_ = turn_screen_off_for_tap;
 }
 
 void PowerButtonControllerTestApi::SetShowMenuAnimationDone(

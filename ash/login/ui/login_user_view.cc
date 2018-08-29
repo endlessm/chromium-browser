@@ -6,7 +6,6 @@
 
 #include <memory>
 
-#include "ash/ash_constants.h"
 #include "ash/login/ui/animated_rounded_image_view.h"
 #include "ash/login/ui/hover_notifier.h"
 #include "ash/login/ui/image_parser.h"
@@ -15,6 +14,7 @@
 #include "ash/login/ui/login_button.h"
 #include "ash/login/ui/non_accessible_view.h"
 #include "ash/login/ui/user_switch_flip_animation.h"
+#include "ash/public/cpp/ash_constants.h"
 #include "ash/public/cpp/login_constants.h"
 #include "ash/public/interfaces/user_info.mojom.h"
 #include "ash/resources/vector_icons/vector_icons.h"
@@ -23,12 +23,12 @@
 #include "base/memory/weak_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/user_manager/user_type.h"
-#include "mojo/common/values_struct_traits.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer_animation_sequence.h"
 #include "ui/compositor/layer_animator.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/gfx/text_elider.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
@@ -71,8 +71,7 @@ constexpr char kLoginUserLabelClassName[] = "LoginUserLabel";
 constexpr char kLoginUserDomainClassName[] = "LoginUserDomain";
 
 // Color of the user domain text.
-constexpr SkColor kDomainTextColor =
-    SkColorSetARGBMacro(0xAB, 0xFF, 0xFF, 0xFF);
+constexpr SkColor kDomainTextColor = SkColorSetARGB(0xAB, 0xFF, 0xFF, 0xFF);
 constexpr int kEnterpriseIconSizeDp = 12;
 constexpr int kBetweenEnterpriseIconAndDomainDp = 8;
 constexpr int kVerticalSpacingBetweenUserNameAndDomainDp = 14;
@@ -115,13 +114,13 @@ class LoginUserView::UserImage : public NonAccessibleView {
     // Set the initial image from |avatar| since we already have it available.
     // Then, decode the bytes via blink's PNG decoder and play any animated
     // frames if they are available.
-    if (!user->basic_user_info->avatar.isNull())
-      image_->SetImage(user->basic_user_info->avatar);
+    if (!user->basic_user_info->avatar->image.isNull())
+      image_->SetImage(user->basic_user_info->avatar->image);
 
     // Decode the avatar using blink, as blink's PNG decoder supports APNG,
     // which is the format used for the animated avators.
-    if (!user->basic_user_info->avatar_bytes.empty()) {
-      DecodeAnimation(user->basic_user_info->avatar_bytes,
+    if (!user->basic_user_info->avatar->bytes.empty()) {
+      DecodeAnimation(user->basic_user_info->avatar->bytes,
                       base::Bind(&LoginUserView::UserImage::OnImageDecoded,
                                  weak_factory_.GetWeakPtr()));
     }
@@ -151,8 +150,8 @@ class LoginUserView::UserImage : public NonAccessibleView {
 // Shows the user's name.
 class LoginUserView::UserLabel : public NonAccessibleView {
  public:
-  UserLabel(LoginDisplayStyle style)
-      : NonAccessibleView(kLoginUserLabelClassName) {
+  UserLabel(LoginDisplayStyle style, int label_width)
+      : NonAccessibleView(kLoginUserLabelClassName), label_width_(label_width) {
     SetLayoutManager(std::make_unique<views::FillLayout>());
 
     user_name_ = new views::Label();
@@ -188,13 +187,17 @@ class LoginUserView::UserLabel : public NonAccessibleView {
     // display_name can be empty in debug builds with stub users.
     if (display_name.empty())
       display_name = user->basic_user_info->display_email;
-    user_name_->SetText(base::UTF8ToUTF16(display_name));
+
+    user_name_->SetText(gfx::ElideText(base::UTF8ToUTF16(display_name),
+                                       user_name_->font_list(), label_width_,
+                                       gfx::ElideBehavior::ELIDE_TAIL));
   }
 
   const base::string16& displayed_name() const { return user_name_->text(); }
 
  private:
   views::Label* user_name_ = nullptr;
+  const int label_width_;
 
   DISALLOW_COPY_AND_ASSIGN(UserLabel);
 };
@@ -342,7 +345,10 @@ LoginUserView::LoginUserView(
   DCHECK(show_dropdown == !!on_remove);
 
   user_image_ = new UserImage(GetImageSize(style));
-  user_label_ = new UserLabel(style);
+  int label_width =
+      WidthForLayoutStyle(style) -
+      2 * (kDistanceBetweenUsernameAndDropdownDp + kDropdownIconSizeDp);
+  user_label_ = new UserLabel(style, label_width);
   if (show_dropdown) {
     user_dropdown_ = new LoginButton(this);
     user_dropdown_->set_has_ink_drop_action_on_click(false);

@@ -39,13 +39,10 @@ class ChromeResourceDispatcherHostDelegate;
 class DevToolsAutoOpener;
 class RemoteDebuggingServer;
 class PrefRegistrySimple;
+class WebRtcEventLogManager;
 
 #if BUILDFLAG(ENABLE_PLUGINS)
 class PluginsResourceService;
-#endif
-
-#if BUILDFLAG(ENABLE_WEBRTC)
-class WebRtcEventLogManager;
 #endif
 
 namespace base {
@@ -160,15 +157,12 @@ class BrowserProcessImpl : public BrowserProcess,
   component_updater::SupervisedUserWhitelistInstaller*
   supervised_user_whitelist_installer() override;
   MediaFileSystemRegistry* media_file_system_registry() override;
-#if BUILDFLAG(ENABLE_WEBRTC)
   WebRtcLogUploader* webrtc_log_uploader() override;
-#endif
   network_time::NetworkTimeTracker* network_time_tracker() override;
   gcm::GCMDriver* gcm_driver() override;
   resource_coordinator::TabManager* GetTabManager() override;
   shell_integration::DefaultWebClientState CachedDefaultWebClientState()
       override;
-  physical_web::PhysicalWebDataSource* GetPhysicalWebDataSource() override;
   prefs::InProcessPrefServiceFactory* pref_service_factory() const override;
 
   static void RegisterPrefs(PrefRegistrySimple* registry);
@@ -273,7 +267,10 @@ class BrowserProcessImpl : public BrowserProcess,
 
   std::unique_ptr<StatusTray> status_tray_;
 
+#if BUILDFLAG(ENABLE_NATIVE_NOTIFICATIONS)
   bool created_notification_bridge_ = false;
+#endif
+
   std::unique_ptr<NotificationPlatformBridge> notification_bridge_;
 
 #if BUILDFLAG(ENABLE_BACKGROUND_MODE)
@@ -349,7 +346,6 @@ class BrowserProcessImpl : public BrowserProcess,
   // the callstack which released the final module reference count.
   base::debug::StackTrace release_last_reference_callstack_;
 
-#if BUILDFLAG(ENABLE_WEBRTC)
   // Lazily initialized.
   std::unique_ptr<WebRtcLogUploader> webrtc_log_uploader_;
 
@@ -358,7 +354,6 @@ class BrowserProcessImpl : public BrowserProcess,
   // safely post base::Unretained(this) references to an internally owned task
   // queue, since after ~BrowserProcessImpl(), those tasks would no longer run.
   std::unique_ptr<WebRtcEventLogManager> webrtc_event_log_manager_;
-#endif
 
   std::unique_ptr<network_time::NetworkTimeTracker> network_time_tracker_;
 
@@ -378,9 +373,6 @@ class BrowserProcessImpl : public BrowserProcess,
 
   shell_integration::DefaultWebClientState cached_default_web_client_state_ =
       shell_integration::UNKNOWN_DEFAULT;
-
-  std::unique_ptr<physical_web::PhysicalWebDataSource>
-      physical_web_data_source_;
 
   std::unique_ptr<prefs::InProcessPrefServiceFactory> pref_service_factory_;
 

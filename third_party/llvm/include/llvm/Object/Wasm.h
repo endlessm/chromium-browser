@@ -21,6 +21,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/BinaryFormat/Wasm.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/Error.h"
@@ -53,6 +54,10 @@ public:
     return Info.Kind == wasm::WASM_SYMBOL_TYPE_GLOBAL;
   }
 
+  bool isTypeSection() const {
+    return Info.Kind == wasm::WASM_SYMBOL_TYPE_SECTION;
+  }
+
   bool isDefined() const { return !isUndefined(); }
 
   bool isUndefined() const {
@@ -83,20 +88,10 @@ public:
     return Info.Flags & wasm::WASM_SYMBOL_VISIBILITY_MASK;
   }
 
-  void print(raw_ostream &Out) const {
-    Out << "Name=" << Info.Name << ", Kind=" << Info.Kind
-        << ", Flags=" << Info.Flags;
-    if (!isTypeData()) {
-      Out << ", ElemIndex=" << Info.ElementIndex;
-    } else if (isDefined()) {
-      Out << ", Segment=" << Info.DataRef.Segment;
-      Out << ", Offset=" << Info.DataRef.Offset;
-      Out << ", Size=" << Info.DataRef.Size;
-    }
-  }
+  void print(raw_ostream &Out) const;
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
-  LLVM_DUMP_METHOD void dump() const { print(dbgs()); }
+  LLVM_DUMP_METHOD void dump() const;
 #endif
 };
 
@@ -206,14 +201,12 @@ private:
   bool isValidFunctionSymbol(uint32_t Index) const;
   bool isValidGlobalSymbol(uint32_t Index) const;
   bool isValidDataSymbol(uint32_t Index) const;
+  bool isValidSectionSymbol(uint32_t Index) const;
   wasm::WasmFunction &getDefinedFunction(uint32_t Index);
   wasm::WasmGlobal &getDefinedGlobal(uint32_t Index);
 
   const WasmSection &getWasmSection(DataRefImpl Ref) const;
   const wasm::WasmRelocation &getWasmRelocation(DataRefImpl Ref) const;
-
-  WasmSection* findCustomSectionByName(StringRef Name);
-  WasmSection* findSectionByType(uint32_t Type);
 
   const uint8_t *getPtr(size_t Offset) const;
   Error parseSection(WasmSection &Sec);

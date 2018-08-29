@@ -35,11 +35,6 @@ ui::PageTransition
   return ui::PAGE_TRANSITION_LINK;
 }
 
-bool TestBrowserWindow::TestLocationBar::ShowPageInfoDialog(
-    content::WebContents* contents) {
-  return true;
-}
-
 const OmniboxView* TestBrowserWindow::TestLocationBar::GetOmniboxView() const {
   return NULL;
 }
@@ -118,6 +113,10 @@ bool TestBrowserWindow::IsVisible() const {
 
 LocationBar* TestBrowserWindow::GetLocationBar() const {
   return const_cast<TestLocationBar*>(&location_bar_);
+}
+
+PageActionIconContainer* TestBrowserWindow::GetPageActionIconContainer() {
+  return nullptr;
 }
 
 ToolbarActionsBar* TestBrowserWindow::GetToolbarActionsBar() {

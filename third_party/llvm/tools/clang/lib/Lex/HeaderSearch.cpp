@@ -124,7 +124,7 @@ const HeaderMap *HeaderSearch::CreateHeaderMap(const FileEntry *FE) {
   return nullptr;
 }
 
-/// \brief Get filenames for all registered header maps.
+/// Get filenames for all registered header maps.
 void HeaderSearch::getHeaderMapFileNames(
     SmallVectorImpl<std::string> &Names) const {
   for (auto &HM : HeaderMaps)
@@ -211,7 +211,7 @@ Module *HeaderSearch::lookupModule(StringRef ModuleName, bool AllowSearch) {
   // module.private.modulemap that are supposed to define private submodules --
   // may have different flavors of names: FooPrivate, Foo_Private and Foo.Private.
   //
-  // Foo.Private is now depracated in favor of Foo_Private. Users of FooPrivate
+  // Foo.Private is now deprecated in favor of Foo_Private. Users of FooPrivate
   // should also rename to Foo_Private. Representing private as submodules
   // could force building unwanted dependencies into the parent module and cause
   // dependency cycles.
@@ -404,7 +404,7 @@ const FileEntry *DirectoryLookup::LookupFile(
   return Result;
 }
 
-/// \brief Given a framework directory, find the top-most framework directory.
+/// Given a framework directory, find the top-most framework directory.
 ///
 /// \param FileMgr The file manager to use for directory lookups.
 /// \param DirName The name of the framework directory.
@@ -600,7 +600,7 @@ void HeaderSearch::setTarget(const TargetInfo &Target) {
 // Header File Location.
 //===----------------------------------------------------------------------===//
 
-/// \brief Return true with a diagnostic if the file that MSVC would have found
+/// Return true with a diagnostic if the file that MSVC would have found
 /// fails to match the one that Clang would have found with MSVC header search
 /// disabled.
 static bool checkMSVCHeaderSearch(DiagnosticsEngine &Diags,
@@ -996,7 +996,7 @@ LookupSubframeworkHeader(StringRef Filename,
 // File Info Management.
 //===----------------------------------------------------------------------===//
 
-/// \brief Merge the header file info provided by \p OtherHFI into the current
+/// Merge the header file info provided by \p OtherHFI into the current
 /// header file info (\p HFI)
 static void mergeHeaderFileInfo(HeaderFileInfo &HFI, 
                                 const HeaderFileInfo &OtherHFI) {

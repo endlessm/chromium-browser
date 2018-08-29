@@ -18,9 +18,9 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chromecast/media/cma/backend/mixer_input.h"
-#include "chromecast/media/cma/backend/mixer_output_stream.h"
 #include "chromecast/media/cma/backend/mock_mixer_source.h"
 #include "chromecast/media/cma/backend/post_processing_pipeline.h"
+#include "chromecast/public/media/mixer_output_stream.h"
 #include "chromecast/public/volume_control.h"
 #include "media/audio/audio_device_description.h"
 #include "media/base/audio_bus.h"
@@ -443,13 +443,13 @@ class StreamMixerTest : public testing::Test {
     mixer_ = std::make_unique<StreamMixer>(std::move(output), nullptr,
                                            base::ThreadTaskRunnerHandle::Get());
     mixer_->SetVolume(AudioContentType::kMedia, 1.0f);
-
     std::string test_pipeline_json = base::StringPrintf(
         kTestPipelineJsonTemplate, kDelayModuleSolib, kDefaultProcessorDelay,
         kDelayModuleSolib, kTtsProcessorDelay, kDelayModuleSolib,
         kMixProcessorDelay, kDelayModuleSolib, kLinearizeProcessorDelay);
     auto factory = std::make_unique<MockPostProcessorFactory>();
     pp_factory_ = factory.get();
+    mixer_->SetNumOutputChannelsForTest(2);
     mixer_->ResetPostProcessorsForTest(std::move(factory), test_pipeline_json);
     CHECK_EQ(pp_factory_->instances.size(),
              static_cast<size_t>(kNumPostProcessors));

@@ -14,7 +14,7 @@
 
 #include "sanitizer_platform.h"
 
-#if SANITIZER_FREEBSD || SANITIZER_LINUX || SANITIZER_NETBSD ||                \
+#if SANITIZER_FREEBSD || SANITIZER_LINUX || SANITIZER_NETBSD || \
     SANITIZER_OPENBSD || SANITIZER_SOLARIS
 
 #include "sanitizer_common.h"
@@ -26,8 +26,6 @@
 #include "sanitizer_mutex.h"
 #include "sanitizer_placement_new.h"
 #include "sanitizer_procmaps.h"
-#include "sanitizer_stacktrace.h"
-#include "sanitizer_symbolizer.h"
 
 #if SANITIZER_LINUX
 #include <asm/param.h>
@@ -140,6 +138,9 @@ extern void internal_sigreturn();
 }
 #endif
 
+// Note : FreeBSD had implemented both
+// Linux and OpenBSD apis, available from
+// future 12.x version most likely
 #if SANITIZER_LINUX && defined(__NR_getrandom)
 # if !defined(GRND_NONBLOCK)
 #  define GRND_NONBLOCK 1
@@ -148,6 +149,12 @@ extern void internal_sigreturn();
 #else
 # define SANITIZER_USE_GETRANDOM 0
 #endif  // SANITIZER_LINUX && defined(__NR_getrandom)
+
+#if SANITIZER_OPENBSD
+# define SANITIZER_USE_GETENTROPY 1
+#else
+# define SANITIZER_USE_GETENTROPY 0
+#endif // SANITIZER_USE_GETENTROPY
 
 namespace __sanitizer {
 
@@ -898,71 +905,90 @@ bool internal_sigismember(__sanitizer_sigset_t *set, int signum) {
 #endif // !SANITIZER_SOLARIS
 
 // ThreadLister implementation.
-ThreadLister::ThreadLister(int pid)
-  : pid_(pid),
-    descriptor_(-1),
-    buffer_(4096),
-    error_(true),
-    entry_((struct linux_dirent *)buffer_.data()),
-    bytes_read_(0) {
+ThreadLister::ThreadLister(pid_t pid) : pid_(pid), buffer_(4096) {
   char task_directory_path[80];
   internal_snprintf(task_directory_path, sizeof(task_directory_path),
                     "/proc/%d/task/", pid);
-  uptr openrv = internal_open(task_directory_path, O_RDONLY | O_DIRECTORY);
-  if (internal_iserror(openrv)) {
-    error_ = true;
+  descriptor_ = internal_open(task_directory_path, O_RDONLY | O_DIRECTORY);
+  if (internal_iserror(descriptor_)) {
     Report("Can't open /proc/%d/task for reading.\n", pid);
-  } else {
-    error_ = false;
-    descriptor_ = openrv;
   }
 }
 
-int ThreadLister::GetNextTID() {
-  int tid = -1;
-  do {
-    if (error_)
-      return -1;
-    if ((char *)entry_ >= &buffer_[bytes_read_] && !GetDirectoryEntries())
-      return -1;
-    if (entry_->d_ino != 0 && entry_->d_name[0] >= '0' &&
-        entry_->d_name[0] <= '9') {
-      // Found a valid tid.
-      tid = (int)internal_atoll(entry_->d_name);
+ThreadLister::Result ThreadLister::ListThreads(
+    InternalMmapVector<tid_t> *threads) {
+  if (internal_iserror(descriptor_))
+    return Error;
+  internal_lseek(descriptor_, 0, SEEK_SET);
+  threads->clear();
+
+  Result result = Ok;
+  for (bool first_read = true;; first_read = false) {
+    // Resize to max capacity if it was downsized by IsAlive.
+    buffer_.resize(buffer_.capacity());
+    CHECK_GE(buffer_.size(), 4096);
+    uptr read = internal_getdents(
+        descriptor_, (struct linux_dirent *)buffer_.data(), buffer_.size());
+    if (!read)
+      return result;
+    if (internal_iserror(read)) {
+      Report("Can't read directory entries from /proc/%d/task.\n", pid_);
+      return Error;
     }
-    entry_ = (struct linux_dirent *)(((char *)entry_) + entry_->d_reclen);
-  } while (tid < 0);
-  return tid;
+
+    for (uptr begin = (uptr)buffer_.data(), end = begin + read; begin < end;) {
+      struct linux_dirent *entry = (struct linux_dirent *)begin;
+      begin += entry->d_reclen;
+      if (entry->d_ino == 1) {
+        // Inode 1 is for bad blocks and also can be a reason for early return.
+        // Should be emitted if kernel tried to output terminating thread.
+        // See proc_task_readdir implementation in Linux.
+        result = Incomplete;
+      }
+      if (entry->d_ino && *entry->d_name >= '0' && *entry->d_name <= '9')
+        threads->push_back(internal_atoll(entry->d_name));
+    }
+
+    // Now we are going to detect short-read or early EOF. In such cases Linux
+    // can return inconsistent list with missing alive threads.
+    // Code will just remember that the list can be incomplete but it will
+    // continue reads to return as much as possible.
+    if (!first_read) {
+      // The first one was a short-read by definition.
+      result = Incomplete;
+    } else if (read > buffer_.size() - 1024) {
+      // Read was close to the buffer size. So double the size and assume the
+      // worst.
+      buffer_.resize(buffer_.size() * 2);
+      result = Incomplete;
+    } else if (!threads->empty() && !IsAlive(threads->back())) {
+      // Maybe Linux early returned from read on terminated thread (!pid_alive)
+      // and failed to restore read position.
+      // See next_tid and proc_task_instantiate in Linux.
+      result = Incomplete;
+    }
+  }
 }
 
-void ThreadLister::Reset() {
-  if (error_ || descriptor_ < 0)
-    return;
-  internal_lseek(descriptor_, 0, SEEK_SET);
+bool ThreadLister::IsAlive(int tid) {
+  // /proc/%d/task/%d/status uses same call to detect alive threads as
+  // proc_task_readdir. See task_state implementation in Linux.
+  char path[80];
+  internal_snprintf(path, sizeof(path), "/proc/%d/task/%d/status", pid_, tid);
+  if (!ReadFileToBuffer(path, &buffer_) || buffer_.empty())
+    return false;
+  buffer_.push_back(0);
+  static const char kPrefix[] = "\nPPid:";
+  const char *field = internal_strstr(buffer_.data(), kPrefix);
+  if (!field)
+    return false;
+  field += internal_strlen(kPrefix);
+  return (int)internal_atoll(field) != 0;
 }
 
 ThreadLister::~ThreadLister() {
-  if (descriptor_ >= 0)
+  if (!internal_iserror(descriptor_))
     internal_close(descriptor_);
-}
-
-bool ThreadLister::error() { return error_; }
-
-bool ThreadLister::GetDirectoryEntries() {
-  CHECK_GE(descriptor_, 0);
-  CHECK_NE(error_, true);
-  bytes_read_ = internal_getdents(descriptor_,
-                                  (struct linux_dirent *)buffer_.data(),
-                                  buffer_.size());
-  if (internal_iserror(bytes_read_)) {
-    Report("Can't read directory entries from /proc/%d/task.\n", pid_);
-    error_ = true;
-    return false;
-  } else if (bytes_read_ == 0) {
-    return false;
-  }
-  entry_ = (struct linux_dirent *)buffer_.data();
-  return true;
 }
 
 #if SANITIZER_WORDSIZE == 32
@@ -1729,6 +1755,55 @@ SignalContext::WriteFlag SignalContext::GetWriteFlag() const {
   uptr err = ucontext->uc_mcontext.gregs[REG_ERR];
 #endif // SANITIZER_FREEBSD
   return err & PF_WRITE ? WRITE : READ;
+#elif defined(__mips__)
+  uint32_t *exception_source;
+  uint32_t faulty_instruction;
+  uint32_t op_code;
+
+  exception_source = (uint32_t *)ucontext->uc_mcontext.pc;
+  faulty_instruction = (uint32_t)(*exception_source);
+
+  op_code = (faulty_instruction >> 26) & 0x3f;
+
+  // FIXME: Add support for FPU, microMIPS, DSP, MSA memory instructions.
+  switch (op_code) {
+    case 0x28:  // sb
+    case 0x29:  // sh
+    case 0x2b:  // sw
+    case 0x3f:  // sd
+#if __mips_isa_rev < 6
+    case 0x2c:  // sdl
+    case 0x2d:  // sdr
+    case 0x2a:  // swl
+    case 0x2e:  // swr
+#endif
+      return SignalContext::WRITE;
+
+    case 0x20:  // lb
+    case 0x24:  // lbu
+    case 0x21:  // lh
+    case 0x25:  // lhu
+    case 0x23:  // lw
+    case 0x27:  // lwu
+    case 0x37:  // ld
+#if __mips_isa_rev < 6
+    case 0x1a:  // ldl
+    case 0x1b:  // ldr
+    case 0x22:  // lwl
+    case 0x26:  // lwr
+#endif
+      return SignalContext::READ;
+#if __mips_isa_rev == 6
+    case 0x3b:  // pcrel
+      op_code = (faulty_instruction >> 19) & 0x3;
+      switch (op_code) {
+        case 0x1:  // lwpc
+        case 0x2:  // lwupc
+          return SignalContext::READ;
+      }
+#endif
+  }
+  return SignalContext::UNKNOWN;
 #elif defined(__arm__)
   static const uptr FSR_WRITE = 1U << 11;
   uptr fsr = ucontext->uc_mcontext.error_code;
@@ -1906,6 +1981,15 @@ uptr FindAvailableMemoryRange(uptr size, uptr alignment, uptr left_padding,
 bool GetRandom(void *buffer, uptr length, bool blocking) {
   if (!buffer || !length || length > 256)
     return false;
+#if SANITIZER_USE_GETENTROPY
+  uptr rnd = getentropy(buffer, length);
+  int rverrno = 0;
+  if (internal_iserror(rnd, &rverrno) && rverrno == EFAULT)
+    return false;
+  else if (rnd == 0)
+    return true;
+#endif // SANITIZER_USE_GETENTROPY
+
 #if SANITIZER_USE_GETRANDOM
   static atomic_uint8_t skip_getrandom_syscall;
   if (!atomic_load_relaxed(&skip_getrandom_syscall)) {
@@ -1918,7 +2002,7 @@ bool GetRandom(void *buffer, uptr length, bool blocking) {
     else if (res == length)
       return true;
   }
-#endif  // SANITIZER_USE_GETRANDOM
+#endif // SANITIZER_USE_GETRANDOM
   // Up to 256 bytes, a read off /dev/urandom will not be interrupted.
   // blocking is moot here, O_NONBLOCK has no effect when opening /dev/urandom.
   uptr fd = internal_open("/dev/urandom", O_RDONLY);

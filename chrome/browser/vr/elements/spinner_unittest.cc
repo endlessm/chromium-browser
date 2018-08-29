@@ -11,7 +11,6 @@
 #include "chrome/browser/vr/elements/ui_texture.h"
 #include "chrome/browser/vr/test/animation_utils.h"
 #include "chrome/browser/vr/test/constants.h"
-#include "chrome/browser/vr/test/fake_ui_element_renderer.h"
 #include "chrome/browser/vr/ui_scene.h"
 
 namespace vr {
@@ -45,6 +44,7 @@ void CheckArc(UiTexture* texture, float start_angle, float sweep_angle) {
 
 TEST(Spinner, Animation) {
   UiScene scene;
+  scene.RunFirstFrameForTest();
   auto spinner_element = std::make_unique<TestSpinner>(kMaximumWidth);
   UiTexture* texture = spinner_element->GetTexture();
   scene.AddUiElement(kRoot, std::move(spinner_element));

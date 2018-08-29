@@ -297,10 +297,7 @@ class SiteEngagementService : public KeyedService,
 
   // Overridden from history::HistoryServiceObserver:
   void OnURLsDeleted(history::HistoryService* history_service,
-                     bool all_history,
-                     bool expired,
-                     const history::URLRows& deleted_rows,
-                     const std::set<GURL>& favicon_urls) override;
+                     const history::DeletionInfo& deletion_info) override;
 
   // Returns the number of origins with maximum daily and total engagement
   // respectively.
@@ -308,10 +305,8 @@ class SiteEngagementService : public KeyedService,
   int OriginsWithMaxEngagement(
       const std::vector<mojom::SiteEngagementDetails>& details) const;
 
-  // Callback for the history service when it is asked for a map of origins to
-  // how many URLs corresponding to that origin remain in history.
-  void GetCountsAndLastVisitForOriginsComplete(
-      history::HistoryService* history_service,
+  // Update site engagement scores after a history deletion.
+  void UpdateEngagementScores(
       const std::multiset<GURL>& deleted_url_origins,
       bool expired,
       const history::OriginCountAndLastVisitMap& remaining_origin_counts);

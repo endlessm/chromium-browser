@@ -214,7 +214,7 @@ TestingBrowserProcess::browser_policy_connector() {
     // If a test needs to place a file in this directory in the future, we could
     // create a temporary directory and make its path available to tests.
     base::FilePath local_policy_path("/tmp/non/existing/directory");
-    EXPECT_TRUE(PathService::OverrideAndCreateIfNeeded(
+    EXPECT_TRUE(base::PathService::OverrideAndCreateIfNeeded(
         chrome::DIR_POLICY_FILES, local_policy_path, true, false));
 #endif
 
@@ -397,11 +397,9 @@ MediaFileSystemRegistry* TestingBrowserProcess::media_file_system_registry() {
 #endif
 }
 
-#if BUILDFLAG(ENABLE_WEBRTC)
 WebRtcLogUploader* TestingBrowserProcess::webrtc_log_uploader() {
   return nullptr;
 }
-#endif
 
 network_time::NetworkTimeTracker*
 TestingBrowserProcess::network_time_tracker() {
@@ -436,11 +434,6 @@ resource_coordinator::TabManager* TestingBrowserProcess::GetTabManager() {
 shell_integration::DefaultWebClientState
 TestingBrowserProcess::CachedDefaultWebClientState() {
   return shell_integration::UNKNOWN_DEFAULT;
-}
-
-physical_web::PhysicalWebDataSource*
-TestingBrowserProcess::GetPhysicalWebDataSource() {
-  return nullptr;
 }
 
 prefs::InProcessPrefServiceFactory*

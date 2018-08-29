@@ -46,6 +46,15 @@ Panel.ModeInfo = {
   search: {title: 'panel_title', location: '#focus'}
 };
 
+Panel.ACTION_TO_MSG_ID = {
+  decrement: 'action_decrement_description',
+  doDefault: 'perform_default_action',
+  increment: 'action_increment_description',
+  scrollBackward: 'action_scroll_backward_description',
+  scrollForward: 'action_scroll_forward_description',
+  showContextMenu: 'show_context_menu'
+};
+
 /**
  * A callback function to be executed to perform the action from selecting
  * a menu item after the menu has been closed and focus has been restored
@@ -58,70 +67,55 @@ Panel.setPendingCallback = function(callback) {
 };
 
 /**
+ * @private {string}
+ */
+Panel.lastMenu_ = '';
+
+/**
  * Initialize the panel.
  */
 Panel.init = function() {
   /** @type {Element} @private */
-  this.speechContainer_ = $('speech-container');
+  Panel.speechContainer_ = $('speech-container');
 
   /** @type {Element} @private */
-  this.speechElement_ = $('speech');
+  Panel.speechElement_ = $('speech');
 
   /** @type {Element} @private */
-  this.brailleContainer_ = $('braille-container');
+  Panel.brailleContainer_ = $('braille-container');
 
   /** @type {Element} @private */
-  this.searchContainer_ = $('search-container');
+  Panel.searchContainer_ = $('search-container');
 
   /** @type {Element} @private */
-  this.searchInput_ = $('search');
+  Panel.searchInput_ = $('search');
 
   /** @type {Element} @private */
-  this.brailleTableElement_ = $('braille-table');
-  this.brailleTableElement2_ = $('braille-table2');
+  Panel.brailleTableElement_ = $('braille-table');
+  Panel.brailleTableElement2_ = $('braille-table2');
 
   /** @type {Panel.Mode} @private */
-  this.mode_ = Panel.Mode.COLLAPSED;
-
-  var blockedSessionQuery =
-      location.search.match(/[?&]?blockedUserSession=(true|false)/);
-  /**
-   * Whether the panel is loaded for blocked user session - e.g. on sign-in or
-   * lock screen.
-   * @type {boolean}
-   * @private @const
-   */
-  this.isUserSessionBlocked_ =
-      !!blockedSessionQuery && blockedSessionQuery[1] == 'true';
+  Panel.mode_ = Panel.Mode.COLLAPSED;
 
   /**
    * The array of top-level menus.
    * @type {!Array<PanelMenu>}
    * @private
    */
-  this.menus_ = [];
+  Panel.menus_ = [];
 
   /**
    * The currently active menu, if any.
    * @type {PanelMenu}
    * @private
    */
-  this.activeMenu_ = null;
-
-  /**
-   * True if the menu button in the panel is enabled at all. It's disabled if
-   * ChromeVox Next is not active.
-   * @type {boolean}
-   * @private
-   */
-  this.menusEnabled_ =
-      !this.isUserSessionBlocked_ && localStorage['useClassic'] == 'false';
+  Panel.activeMenu_ = null;
 
   /**
    * @type {Tutorial}
    * @private
    */
-  this.tutorial_ = new Tutorial();
+  Panel.tutorial_ = new Tutorial();
 
   Panel.setPendingCallback(null);
   Panel.updateFromPrefs();
@@ -139,7 +133,7 @@ Panel.init = function() {
     Panel.exec(/** @type {PanelCommand} */ (command));
   }, false);
 
-  if (this.isUserSessionBlocked_) {
+  if (Panel.isUserSessionBlocked_) {
     $('menus_button').disabled = true;
     $('triangle').hidden = true;
 
@@ -174,22 +168,22 @@ Panel.init = function() {
  */
 Panel.updateFromPrefs = function() {
   if (Panel.mode_ == Panel.Mode.SEARCH) {
-    this.speechContainer_.hidden = true;
-    this.brailleContainer_.hidden = true;
-    this.searchContainer_.hidden = false;
+    Panel.speechContainer_.hidden = true;
+    Panel.brailleContainer_.hidden = true;
+    Panel.searchContainer_.hidden = false;
     return;
   }
 
-  this.speechContainer_.hidden = false;
-  this.brailleContainer_.hidden = false;
-  this.searchContainer_.hidden = true;
+  Panel.speechContainer_.hidden = false;
+  Panel.brailleContainer_.hidden = false;
+  Panel.searchContainer_.hidden = true;
 
   if (localStorage['brailleCaptions'] === String(true)) {
-    this.speechContainer_.style.visibility = 'hidden';
-    this.brailleContainer_.style.visibility = 'visible';
+    Panel.speechContainer_.style.visibility = 'hidden';
+    Panel.brailleContainer_.style.visibility = 'visible';
   } else {
-    this.speechContainer_.style.visibility = 'visible';
-    this.brailleContainer_.style.visibility = 'hidden';
+    Panel.speechContainer_.style.visibility = 'visible';
+    Panel.brailleContainer_.style.visibility = 'hidden';
   }
 };
 
@@ -216,32 +210,29 @@ Panel.exec = function(command) {
 
   switch (command.type) {
     case PanelCommandType.CLEAR_SPEECH:
-      this.speechElement_.innerHTML = '';
+      Panel.speechElement_.innerHTML = '';
       break;
     case PanelCommandType.ADD_NORMAL_SPEECH:
-      if (this.speechElement_.innerHTML != '') {
-        this.speechElement_.innerHTML += '&nbsp;&nbsp;';
+      if (Panel.speechElement_.innerHTML != '') {
+        Panel.speechElement_.innerHTML += '&nbsp;&nbsp;';
       }
-      this.speechElement_.innerHTML +=
+      Panel.speechElement_.innerHTML +=
           '<span class="usertext">' + escapeForHtml(command.data) + '</span>';
       break;
     case PanelCommandType.ADD_ANNOTATION_SPEECH:
-      if (this.speechElement_.innerHTML != '') {
-        this.speechElement_.innerHTML += '&nbsp;&nbsp;';
+      if (Panel.speechElement_.innerHTML != '') {
+        Panel.speechElement_.innerHTML += '&nbsp;&nbsp;';
       }
-      this.speechElement_.innerHTML += escapeForHtml(command.data);
+      Panel.speechElement_.innerHTML += escapeForHtml(command.data);
       break;
     case PanelCommandType.UPDATE_BRAILLE:
       Panel.onUpdateBraille(command.data);
       break;
-    case PanelCommandType.ENABLE_MENUS:
-      Panel.onEnableMenus();
-      break;
-    case PanelCommandType.DISABLE_MENUS:
-      Panel.onDisableMenus();
-      break;
     case PanelCommandType.OPEN_MENUS:
       Panel.onOpenMenus(undefined, command.data);
+      break;
+    case PanelCommandType.OPEN_MENUS_MOST_RECENT:
+      Panel.onOpenMenus(undefined, Panel.lastMenu_);
       break;
     case PanelCommandType.SEARCH:
       Panel.onSearch();
@@ -256,52 +247,30 @@ Panel.exec = function(command) {
 };
 
 /**
- * Enable the ChromeVox Menus.
- */
-Panel.onEnableMenus = function() {
-  if (this.isUserSessionBlocked_)
-    return;
-  Panel.menusEnabled_ = true;
-  $('menus_button').disabled = false;
-  $('triangle').hidden = false;
-};
-
-/**
- * Disable the ChromeVox Menus.
- */
-Panel.onDisableMenus = function() {
-  if (this.isUserSessionBlocked_)
-    return;
-  Panel.menusEnabled_ = false;
-  $('menus_button').disabled = true;
-  $('triangle').hidden = true;
-};
-
-/**
  * Sets the mode, which determines the size of the panel and what objects
  *     are shown or hidden.
  * @param {Panel.Mode} mode The new mode.
  */
 Panel.setMode = function(mode) {
-  if (this.mode_ == mode)
+  if (Panel.mode_ == mode)
     return;
 
-  if (this.isUserSessionBlocked_ && mode != Panel.Mode.COLLAPSED &&
+  if (Panel.isUserSessionBlocked_ && mode != Panel.Mode.COLLAPSED &&
       mode != Panel.Mode.FOCUSED)
     return;
-  this.mode_ = mode;
+  Panel.mode_ = mode;
 
-  document.title = Msgs.getMsg(Panel.ModeInfo[this.mode_].title);
+  document.title = Msgs.getMsg(Panel.ModeInfo[Panel.mode_].title);
 
   // Fully qualify the path here because this function might be called with a
   // window object belonging to the background page.
   Panel.ownerWindow.location =
       chrome.extension.getURL('cvox2/background/panel.html') +
-      Panel.ModeInfo[this.mode_].location;
+      Panel.ModeInfo[Panel.mode_].location;
 
-  $('main').hidden = (this.mode_ == Panel.Mode.FULLSCREEN_TUTORIAL);
-  $('menus_background').hidden = (this.mode_ != Panel.Mode.FULLSCREEN_MENUS);
-  $('tutorial').hidden = (this.mode_ != Panel.Mode.FULLSCREEN_TUTORIAL);
+  $('main').hidden = (Panel.mode_ == Panel.Mode.FULLSCREEN_TUTORIAL);
+  $('menus_background').hidden = (Panel.mode_ != Panel.Mode.FULLSCREEN_MENUS);
+  $('tutorial').hidden = (Panel.mode_ != Panel.Mode.FULLSCREEN_TUTORIAL);
 
   Panel.updateFromPrefs();
 };
@@ -312,11 +281,6 @@ Panel.setMode = function(mode) {
  * @param {*=} opt_activateMenuTitle Title msg id of menu to open.
  */
 Panel.onOpenMenus = function(opt_event, opt_activateMenuTitle) {
-  // Don't open the menu if it's not enabled, such as when ChromeVox Next
-  // is not active.
-  if (!Panel.menusEnabled_)
-    return;
-
   // Eat the event so that a mousedown isn't turned into a drag, allowing
   // users to click-drag-release to select a menu item.
   if (opt_event) {
@@ -335,6 +299,7 @@ Panel.onOpenMenus = function(opt_event, opt_activateMenuTitle) {
   var speechMenu = Panel.addMenu('panel_menu_speech');
   var tabsMenu = Panel.addMenu('panel_menu_tabs');
   var chromevoxMenu = Panel.addMenu('panel_menu_chromevox');
+  var actionsMenu = Panel.addMenu('panel_menu_actions');
 
   // Create a mapping between categories from CommandStore, and our
   // top-level menus. Some categories aren't mapped to any menu.
@@ -347,6 +312,7 @@ Panel.onOpenMenus = function(opt_event, opt_activateMenuTitle) {
     'information': speechMenu,
     'modifier_keys': chromevoxMenu,
     'help_commands': chromevoxMenu,
+    'actions': actionsMenu,
 
     'braille': null,
     'developer': null
@@ -447,13 +413,25 @@ Panel.onOpenMenus = function(opt_event, opt_activateMenuTitle) {
     Panel.addNodeMenu(menuTitle, node, predicate, async);
   }
 
-  // Add actions menu if there are custom actions.
-  if (node.customActions && node.customActions.length > 0) {
-    var actionsMenu = Panel.addMenu('panel_menu_actions');
+  if (node.standardActions) {
+    for (var i = 0; i < node.standardActions.length; i++) {
+      var standardAction = node.standardActions[i];
+      var actionMsg = Panel.ACTION_TO_MSG_ID[standardAction];
+      if (!actionMsg)
+        continue;
+      var actionDesc = Msgs.getMsg(actionMsg);
+      actionsMenu.addMenuItem(
+          actionDesc, '' /* menuItemShortcut */, '' /* menuItemBraille */,
+          node.performStandardAction.bind(node, standardAction));
+    }
+  }
+
+  if (node.customActions) {
     for (var i = 0; i < node.customActions.length; i++) {
       var customAction = node.customActions[i];
-      actionsMenu.addMenuItem(customAction.description,
-          '' /* menuItemShortcut */, '' /* menuItemBraille */,
+      actionsMenu.addMenuItem(
+          customAction.description, '' /* menuItemShortcut */,
+          '' /* menuItemBraille */,
           node.performCustomAction.bind(node, customAction.id));
     }
   }
@@ -461,8 +439,8 @@ Panel.onOpenMenus = function(opt_event, opt_activateMenuTitle) {
   // Activate either the specified menu or the first menu.
   var selectedMenu = Panel.menus_[0];
   for (var i = 0; i < Panel.menus_.length; i++) {
-    if (this.menus_[i].menuMsg == opt_activateMenuTitle)
-      selectedMenu = this.menus_[i];
+    if (Panel.menus_[i].menuMsg == opt_activateMenuTitle)
+      selectedMenu = Panel.menus_[i];
   }
   Panel.activateMenu(selectedMenu);
 };
@@ -482,12 +460,14 @@ Panel.onSearch = function() {
  * menus are opened.
  */
 Panel.clearMenus = function() {
-  while (this.menus_.length) {
-    var menu = this.menus_.pop();
+  while (Panel.menus_.length) {
+    var menu = Panel.menus_.pop();
     $('menu-bar').removeChild(menu.menuBarItemElement);
     $('menus_background').removeChild(menu.menuContainerElement);
   }
-  this.activeMenu_ = null;
+  if (Panel.activeMenu_)
+    Panel.lastMenu_ = Panel.activeMenu_.menuMsg;
+  Panel.activeMenu_ = null;
 };
 
 /**
@@ -503,7 +483,7 @@ Panel.addMenu = function(menuMsg) {
   }, false);
 
   $('menus_background').appendChild(menu.menuContainerElement);
-  this.menus_.push(menu);
+  Panel.menus_.push(menu);
   return menu;
 };
 
@@ -541,17 +521,17 @@ Panel.onUpdateBraille = function(data) {
     }
   };
 
-  this.brailleContainer_.addEventListener('mouseover', addBorders);
-  this.brailleContainer_.addEventListener('mouseout', removeBorders);
+  Panel.brailleContainer_.addEventListener('mouseover', addBorders);
+  Panel.brailleContainer_.addEventListener('mouseout', removeBorders);
 
   // Clear the tables.
-  var rowCount = this.brailleTableElement_.rows.length;
+  var rowCount = Panel.brailleTableElement_.rows.length;
   for (var i = 0; i < rowCount; i++) {
-    this.brailleTableElement_.deleteRow(0);
+    Panel.brailleTableElement_.deleteRow(0);
   }
-  rowCount = this.brailleTableElement2_.rows.length;
+  rowCount = Panel.brailleTableElement2_.rows.length;
   for (var i = 0; i < rowCount; i++) {
-    this.brailleTableElement2_.deleteRow(0);
+    Panel.brailleTableElement2_.deleteRow(0);
   }
 
   var row1, row2;
@@ -566,13 +546,13 @@ Panel.onUpdateBraille = function(data) {
       if (rowCount == rows)
         break;
       rowCount++;
-      row1 = this.brailleTableElement_.insertRow(-1);
+      row1 = Panel.brailleTableElement_.insertRow(-1);
       if (sideBySide) {
         // Side by side.
-        row2 = this.brailleTableElement2_.insertRow(-1);
+        row2 = Panel.brailleTableElement2_.insertRow(-1);
       } else {
         // Interleaved.
-        row2 = this.brailleTableElement_.insertRow(-1);
+        row2 = Panel.brailleTableElement_.insertRow(-1);
       }
     }
 
@@ -597,13 +577,13 @@ Panel.onUpdateBraille = function(data) {
         if (rowCount == rows)
           break;
         rowCount++;
-        row1 = this.brailleTableElement_.insertRow(-1);
+        row1 = Panel.brailleTableElement_.insertRow(-1);
         if (sideBySide) {
           // Side by side.
-          row2 = this.brailleTableElement2_.insertRow(-1);
+          row2 = Panel.brailleTableElement2_.insertRow(-1);
         } else {
           // Interleaved.
-          row2 = this.brailleTableElement_.insertRow(-1);
+          row2 = Panel.brailleTableElement_.insertRow(-1);
         }
         var bottomCell2 = row2.insertCell(-1);
         bottomCell2.id = i + '-brailleCell2';
@@ -650,7 +630,7 @@ Panel.addNodeMenu = function(menuMsg, node, pred, defer) {
   }, false);
 
   $('menus_background').appendChild(menu.menuContainerElement);
-  this.menus_.push(menu);
+  Panel.menus_.push(menu);
   return menu;
 };
 
@@ -659,19 +639,19 @@ Panel.addNodeMenu = function(menuMsg, node, pred, defer) {
  * @param {PanelMenu} menu The new menu to activate.
  */
 Panel.activateMenu = function(menu) {
-  if (menu == this.activeMenu_)
+  if (menu == Panel.activeMenu_)
     return;
 
-  if (this.activeMenu_) {
-    this.activeMenu_.deactivate();
-    this.activeMenu_ = null;
+  if (Panel.activeMenu_) {
+    Panel.activeMenu_.deactivate();
+    Panel.activeMenu_ = null;
   }
 
-  this.activeMenu_ = menu;
-  this.pendingCallback_ = null;
+  Panel.activeMenu_ = menu;
+  Panel.pendingCallback_ = null;
 
-  if (this.activeMenu_) {
-    this.activeMenu_.activate();
+  if (Panel.activeMenu_) {
+    Panel.activeMenu_.activate();
   }
 };
 
@@ -679,14 +659,14 @@ Panel.activateMenu = function(menu) {
  * Sets the index of the current active menu to be 0.
  */
 Panel.scrollToTop = function() {
-  this.activeMenu_.scrollToTop();
+  Panel.activeMenu_.scrollToTop();
 };
 
 /**
  * Sets the index of the current active menu to be the last index.
  */
 Panel.scrollToBottom = function() {
-  this.activeMenu_.scrollToBottom();
+  Panel.activeMenu_.scrollToBottom();
 };
 
 /**
@@ -695,8 +675,8 @@ Panel.scrollToBottom = function() {
  */
 Panel.advanceActiveMenuBy = function(delta) {
   var activeIndex = -1;
-  for (var i = 0; i < this.menus_.length; i++) {
-    if (this.activeMenu_ == this.menus_[i]) {
+  for (var i = 0; i < Panel.menus_.length; i++) {
+    if (Panel.activeMenu_ == Panel.menus_[i]) {
       activeIndex = i;
       break;
     }
@@ -704,14 +684,14 @@ Panel.advanceActiveMenuBy = function(delta) {
 
   if (activeIndex >= 0) {
     activeIndex += delta;
-    activeIndex = (activeIndex + this.menus_.length) % this.menus_.length;
+    activeIndex = (activeIndex + Panel.menus_.length) % Panel.menus_.length;
   } else {
     if (delta >= 0)
       activeIndex = 0;
     else
-      activeIndex = this.menus_.length - 1;
+      activeIndex = Panel.menus_.length - 1;
   }
-  Panel.activateMenu(this.menus_[activeIndex]);
+  Panel.activateMenu(Panel.menus_[activeIndex]);
 };
 
 /**
@@ -719,8 +699,8 @@ Panel.advanceActiveMenuBy = function(delta) {
  * @param {number} delta The number to add to the active menu item index.
  */
 Panel.advanceItemBy = function(delta) {
-  if (this.activeMenu_)
-    this.activeMenu_.advanceItemBy(delta);
+  if (Panel.activeMenu_)
+    Panel.activeMenu_.advanceItemBy(delta);
 };
 
 /**
@@ -838,8 +818,8 @@ Panel.onClose = function() {
  * @return {Function} The callback for the current item.
  */
 Panel.getCallbackForCurrentItem = function() {
-  if (this.activeMenu_)
-    return this.activeMenu_.getCallbackForCurrentItem();
+  if (Panel.activeMenu_)
+    return Panel.activeMenu_.getCallbackForCurrentItem();
   return null;
 };
 
@@ -848,23 +828,32 @@ Panel.getCallbackForCurrentItem = function() {
  * was queued, execute it once focus is restored.
  */
 Panel.closeMenusAndRestoreFocus = function() {
-  // Watch for the next focus event.
-  var onFocus = function(desktop, evt) {
-    desktop.removeEventListener(chrome.automation.EventType.FOCUS, onFocus);
-    if (Panel.pendingCallback_) {
-      // Clear it before calling it, in case the callback itself triggers
-      // another pending callback.
-      var pendingCallback = Panel.pendingCallback_;
-      Panel.pendingCallback_ = null;
-      pendingCallback();
-    }
-  }.bind(this);
-
   var bkgnd = chrome.extension.getBackgroundPage();
   bkgnd.chrome.automation.getDesktop(function(desktop) {
-    onFocus = /** @type {function(chrome.automation.AutomationEvent)} */ (
-        onFocus.bind(this, desktop));
-    desktop.addEventListener(chrome.automation.EventType.FOCUS, onFocus, true);
+    // Watch for a blur on the panel, then a focus on the page.
+    var onFocus = function(evt) {
+      desktop.removeEventListener(
+          chrome.automation.EventType.FOCUS, onFocus, true);
+      if (Panel.pendingCallback_) {
+        // Clear it before calling it, in case the callback itself triggers
+        // another pending callback.
+        var pendingCallback = Panel.pendingCallback_;
+        Panel.pendingCallback_ = null;
+        pendingCallback();
+      }
+    };
+
+    var onBlur = function(evt) {
+      if (evt.target.docUrl != location.href)
+        return;
+
+      desktop.removeEventListener(
+          chrome.automation.EventType.BLUR, onBlur, true);
+      desktop.addEventListener(
+          chrome.automation.EventType.FOCUS, onFocus, true);
+    };
+
+    desktop.addEventListener(chrome.automation.EventType.BLUR, onBlur, true);
 
     // Make sure all menus are cleared to avoid bogous output when we re-open.
     Panel.clearMenus();
@@ -872,7 +861,7 @@ Panel.closeMenusAndRestoreFocus = function() {
     // Make sure we're not in full-screen mode.
     Panel.setMode(Panel.Mode.COLLAPSED);
 
-    this.activeMenu_ = null;
+    Panel.activeMenu_ = null;
   });
 };
 
@@ -926,9 +915,9 @@ window.addEventListener('load', function() {
 
 window.addEventListener('hashchange', function() {
   if (location.hash == '#fullscreen' || location.hash == '#focus') {
-    this.originalStickyState_ = cvox.ChromeVox.isStickyPrefOn;
+    Panel.originalStickyState_ = cvox.ChromeVox.isStickyPrefOn;
     cvox.ChromeVox.isStickyPrefOn = false;
   } else {
-    cvox.ChromeVox.isStickyPrefOn = this.originalStickyState_;
+    cvox.ChromeVox.isStickyPrefOn = Panel.originalStickyState_;
   }
 }, false);

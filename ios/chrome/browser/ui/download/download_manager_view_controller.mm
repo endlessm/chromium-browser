@@ -10,7 +10,7 @@
 #include "ios/chrome/browser/ui/download/download_manager_animation_constants.h"
 #import "ios/chrome/browser/ui/download/download_manager_state_view.h"
 #import "ios/chrome/browser/ui/download/radial_progress_view.h"
-#import "ios/chrome/browser/ui/util/named_guide.h"
+#import "ios/chrome/browser/ui/util/constraints_ui_util.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
 #import "ios/public/provider/chrome/browser/images/branded_image_provider.h"
@@ -23,8 +23,6 @@
 #endif
 
 namespace {
-// Layout Guide name for action button UILayoutGuide.
-GuideName* const kActionButtonGuide = @"kDownloadManagerActionButtonGuide";
 
 // Additional left margin for close button.
 const CGFloat kCloseButtonLeftMargin = 17;
@@ -79,11 +77,11 @@ NSString* GetSizeString(long long size_in_bytes) {
 // Grey line which separates downloadControlsRow and installDriveControlsRow.
 @property(nonatomic, readonly) UIView* horizontalLine;
 
-// Represents constraint for self.view.bottomAnchor, which can either be
+// Represents constraint for kBottomMarginGuide's topAnchor, which can either be
 // constrained to installDriveControlsRow's bottomAnchor or to
 // downloadControlsRow's bottomAnchor. Stored in a property to allow
 // deactivating the old constraint.
-@property(nonatomic) NSLayoutConstraint* bottomConstraint;
+@property(nonatomic) NSLayoutConstraint* bottomMarginGuideTopConstraint;
 
 // Represents constraint for self.view.widthAnchor, which is anchored to
 // superview with different multipliers depending on size class. Stored in a
@@ -102,16 +100,23 @@ NSString* GetSizeString(long long size_in_bytes) {
 // self.closeButton or to self.actionButton (when visible).
 @property(nonatomic) NSLayoutConstraint* statusLabelTrailingConstraint;
 
+// UILayoutGuide for action button. Used in delegate callbacks.
+@property(nonatomic) UILayoutGuide* actionButtonGuide;
+
+// UILayoutGuide for adding bottom margin to Download Manager view.
+@property(nonatomic) UILayoutGuide* bottomMarginGuide;
+
 @end
 
 @implementation DownloadManagerViewController
 
 @synthesize delegate = _delegate;
+@synthesize bottomMarginHeightAnchor = _bottomMarginHeightAnchor;
 @synthesize background = _background;
 @synthesize downloadControlsRow = _downloadControlsRow;
 @synthesize installDriveControlsRow = _installDriveControlsRow;
 @synthesize horizontalLine = _horizontalLine;
-@synthesize bottomConstraint = _bottomConstraint;
+@synthesize bottomMarginGuideTopConstraint = _bottomMarginGuideTopConstraint;
 @synthesize viewWidthConstraint = _viewWidthConstraint;
 @synthesize downloadControlsRowLeadingConstraint =
     _downloadControlsRowLeadingConstraint;
@@ -122,6 +127,8 @@ NSString* GetSizeString(long long size_in_bytes) {
 @synthesize installDriveControlsRowTrailingConstraint =
     _installDriveControlsRowTrailingConstraint;
 @synthesize statusLabelTrailingConstraint = _statusLabelTrailingConstraint;
+@synthesize actionButtonGuide = _actionButtonGuide;
+@synthesize bottomMarginGuide = _bottomMarginGuide;
 
 #pragma mark - UIViewController overrides
 
@@ -141,10 +148,10 @@ NSString* GetSizeString(long long size_in_bytes) {
   [self.installDriveControlsRow addSubview:self.installDriveLabel];
   [self.installDriveControlsRow addSubview:self.horizontalLine];
 
-  NamedGuide* actionButtonGuide =
-      [[NamedGuide alloc] initWithName:kActionButtonGuide];
-  [self.view addLayoutGuide:actionButtonGuide];
-  actionButtonGuide.constrainedView = self.actionButton;
+  self.actionButtonGuide = [[UILayoutGuide alloc] init];
+  [self.view addLayoutGuide:self.actionButtonGuide];
+  self.bottomMarginGuide = [[UILayoutGuide alloc] init];
+  [self.view addLayoutGuide:self.bottomMarginGuide];
 }
 
 - (void)updateViewConstraints {
@@ -155,7 +162,11 @@ NSString* GetSizeString(long long size_in_bytes) {
 
   // self.view constraints.
   UIView* view = self.view;
-  [self updateBottomConstraints];
+  UILayoutGuide* bottomMarginGuide = self.bottomMarginGuide;
+  [NSLayoutConstraint activateConstraints:@[
+    [view.bottomAnchor constraintEqualToAnchor:bottomMarginGuide.bottomAnchor],
+  ]];
+  [self updateBottomMarginGuideTopConstraint];
 
   // background constraints.
   UIView* background = self.background;
@@ -197,6 +208,18 @@ NSString* GetSizeString(long long size_in_bytes) {
         constraintEqualToAnchor:horizontalLine.bottomAnchor],
     [installDriveRow.heightAnchor constraintEqualToConstant:kRowHeight],
   ]];
+
+  // bottom margin row constraints.
+  if (_bottomMarginHeightAnchor) {
+    [NSLayoutConstraint activateConstraints:@[
+      [bottomMarginGuide.heightAnchor
+          constraintEqualToAnchor:_bottomMarginHeightAnchor],
+    ]];
+  } else {
+    [NSLayoutConstraint activateConstraints:@[
+      [bottomMarginGuide.heightAnchor constraintEqualToConstant:0],
+    ]];
+  }
 
   // close button constraints.
   [NSLayoutConstraint activateConstraints:@[
@@ -286,6 +309,9 @@ NSString* GetSizeString(long long size_in_bytes) {
         constraintEqualToAnchor:installDriveRow.trailingAnchor],
   ]];
 
+  // constraint actionButtonGuide to action button.
+  AddSameConstraints(self.actionButtonGuide, actionButton);
+
   [self updateConstraintsForTraitCollection:self.traitCollection];
 
   _addedConstraints = YES;
@@ -353,7 +379,7 @@ NSString* GetSizeString(long long size_in_bytes) {
                    animations:^{
                      DownloadManagerViewController* strongSelf = weakSelf;
                      [strongSelf updateInstallDriveControlsRow];
-                     [strongSelf updateBottomConstraints];
+                     [strongSelf updateBottomMarginGuideTopConstraint];
                      [strongSelf.view.superview layoutIfNeeded];
                    }];
 }
@@ -537,10 +563,8 @@ NSString* GetSizeString(long long size_in_bytes) {
       SEL selector = @selector
           (downloadManagerViewController:presentOpenInMenuWithLayoutGuide:);
       if ([_delegate respondsToSelector:selector]) {
-        UILayoutGuide* guide =
-            [NamedGuide guideWithName:kActionButtonGuide view:self.view];
         [_delegate downloadManagerViewController:self
-                presentOpenInMenuWithLayoutGuide:guide];
+                presentOpenInMenuWithLayoutGuide:self.actionButtonGuide];
       }
       break;
     }
@@ -563,22 +587,26 @@ NSString* GetSizeString(long long size_in_bytes) {
 
 #pragma mark - UI Updates
 
-// Updates and activates self.bottomConstraint. self.bottomConstraint
-// constraints self.view.bottomAnchor to installDriveControlsRow's bottom
-// if |_installDriveButtonVisible| is set to YES, otherwise
-// self.view.bottomAnchor is constrained to downloadControlsRow's botttom. This
-// resizes self.view to show or hide installDriveControlsRow view.
-- (void)updateBottomConstraints {
-  self.bottomConstraint.active = NO;
-
-  NSLayoutYAxisAnchor* firstAnchor = self.view.layoutMarginsGuide.bottomAnchor;
+// Updates and activates self.bottomMarginGuideTopConstraint.
+// self.bottomMarginGuideTopConstraint constraints kBottomMarginGuide's
+// topAnchor to installDriveControlsRow's bottom if |_installDriveButtonVisible|
+// is set to YES, otherwise self.view.bottomAnchor is constrained to
+// downloadControlsRow's bottom. This resizes self.view to show or hide
+// installDriveControlsRow view.
+- (void)updateBottomMarginGuideTopConstraint {
+  if (!self.viewLoaded) {
+    // This method will be called again when the view is loaded.
+    return;
+  }
+  self.bottomMarginGuideTopConstraint.active = NO;
   NSLayoutYAxisAnchor* secondAnchor =
       _installDriveButtonVisible ? self.installDriveControlsRow.bottomAnchor
                                  : self.downloadControlsRow.bottomAnchor;
 
-  self.bottomConstraint = [firstAnchor constraintEqualToAnchor:secondAnchor];
+  self.bottomMarginGuideTopConstraint =
+      [self.bottomMarginGuide.topAnchor constraintEqualToAnchor:secondAnchor];
 
-  self.bottomConstraint.active = YES;
+  self.bottomMarginGuideTopConstraint.active = YES;
 }
 
 // Updates background image for the given UITraitCollection.

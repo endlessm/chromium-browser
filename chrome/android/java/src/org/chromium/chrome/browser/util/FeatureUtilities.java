@@ -47,6 +47,7 @@ public class FeatureUtilities {
     private static Boolean sIsSoleEnabled;
     private static Boolean sIsChromeModernDesignEnabled;
     private static Boolean sIsHomePageButtonForceEnabled;
+    private static Boolean sIsNewTabPageButtonEnabled;
 
     /**
      * Determines whether or not the {@link RecognizerIntent#ACTION_WEB_SEARCH} {@link Intent}
@@ -154,6 +155,7 @@ public class FeatureUtilities {
         FirstRunUtils.cacheFirstRunPrefs();
         cacheChromeModernDesignEnabled();
         cacheHomePageButtonForceEnabled();
+        cacheNewTabPageButtonEnabled();
 
         // Propagate DONT_PREFETCH_LIBRARIES feature value to LibraryLoader. This can't
         // be done in LibraryLoader itself because it lives in //base and can't depend
@@ -217,6 +219,29 @@ public class FeatureUtilities {
     }
 
     /**
+     * Cache whether or not the new tab page button is enabled so on next startup, the value can
+     * be made available immediately.
+     */
+    public static void cacheNewTabPageButtonEnabled() {
+        ChromePreferenceManager.getInstance().setNewTabPageButtonEnabled(
+                ChromeFeatureList.isEnabled(ChromeFeatureList.NTP_BUTTON));
+    }
+
+    /**
+     * @return Whether or not the new tab page button is enabled.
+     */
+    public static boolean isNewTabPageButtonEnabled() {
+        if (sIsNewTabPageButtonEnabled == null) {
+            ChromePreferenceManager prefManager = ChromePreferenceManager.getInstance();
+
+            try (StrictModeContext unused = StrictModeContext.allowDiskReads()) {
+                sIsNewTabPageButtonEnabled = prefManager.isNewTabPageButtonEnabled();
+            }
+        }
+        return sIsNewTabPageButtonEnabled;
+    }
+
+    /**
      * DEPRECATED: DO NOT USE.
      *
      * Cache whether or not Chrome Home and related features are enabled. If this method is called
@@ -245,6 +270,13 @@ public class FeatureUtilities {
      */
     public static boolean isChromeHomeEnabled() {
         return false;
+    }
+
+    /**
+     * @return Whether or not the download progress infobar is enabled.
+     */
+    public static boolean isDownloadProgressInfoBarEnabled() {
+        return ChromeFeatureList.isEnabled(ChromeFeatureList.DOWNLOAD_PROGRESS_INFOBAR);
     }
 
     /**

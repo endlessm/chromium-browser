@@ -17,16 +17,18 @@
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/blocked_content/list_item_position.h"
 #include "chrome/browser/ui/blocked_content/popup_opener_tab_helper.h"
 #include "chrome/common/pref_names.h"
+#include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/content_settings/core/common/content_settings.h"
+#include "components/content_settings/core/common/content_settings_types.h"
 #include "components/pref_registry/pref_registry_syncable.h"
-#include "components/prefs/pref_service.h"
 #include "components/ukm/content/source_url_recorder.h"
-#include "components/user_prefs/user_prefs.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
@@ -34,6 +36,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/console_message_level.h"
+#include "extensions/common/constants.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
@@ -114,13 +117,6 @@ const base::Feature TabUnderNavigationThrottle::kBlockTabUnders{
     "BlockTabUnders", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // static
-void TabUnderNavigationThrottle::RegisterProfilePrefs(
-    user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterBooleanPref(prefs::kTabUnderAllowed,
-                                false /* default_value */);
-}
-
-// static
 std::unique_ptr<content::NavigationThrottle>
 TabUnderNavigationThrottle::MaybeCreate(content::NavigationHandle* handle) {
   if (handle->IsInMainFrame())
@@ -139,16 +135,14 @@ TabUnderNavigationThrottle::TabUnderNavigationThrottle(
                                                  0 /* default_value */)),
       off_the_record_(
           handle->GetWebContents()->GetBrowserContext()->IsOffTheRecord()),
-      block_(base::FeatureList::IsEnabled(kBlockTabUnders) &&
-             !user_prefs::UserPrefs::Get(
-                  handle->GetWebContents()->GetBrowserContext())
-                  ->GetBoolean(prefs::kTabUnderAllowed)),
+      block_(base::FeatureList::IsEnabled(kBlockTabUnders)),
       has_opened_popup_since_last_user_gesture_at_start_(
           HasOpenedPopupSinceLastUserGesture()),
       started_in_foreground_(handle->GetWebContents()->GetVisibility() ==
                              content::Visibility::VISIBLE) {}
 
 bool TabUnderNavigationThrottle::IsSuspiciousClientRedirect() const {
+  DCHECK(!navigation_handle()->HasCommitted());
   // Some browser initiated navigations have HasUserGesture set to false. This
   // should eventually be fixed in crbug.com/617904. In the meantime, just dont
   // block browser initiated ones.
@@ -162,10 +156,7 @@ bool TabUnderNavigationThrottle::IsSuspiciousClientRedirect() const {
   // out because we're primarily interested in sites which navigate themselves
   // away while in the background.
   content::WebContents* contents = navigation_handle()->GetWebContents();
-  const GURL& previous_main_frame_url =
-      navigation_handle()->HasCommitted()
-          ? navigation_handle()->GetPreviousURL()
-          : contents->GetLastCommittedURL();
+  const GURL& previous_main_frame_url = contents->GetLastCommittedURL();
   if (previous_main_frame_url.is_empty())
     return false;
 
@@ -174,6 +165,15 @@ bool TabUnderNavigationThrottle::IsSuspiciousClientRedirect() const {
   if (net::registry_controlled_domains::SameDomainOrHost(
           previous_main_frame_url, target_url,
           net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES)) {
+    return false;
+  }
+
+  // Exempt navigating to or from extension URLs, as they will redirect pages in
+  // the background. By exempting in both directions, extensions can always
+  // round-trip a page through an extension URL in order to perform arbitrary
+  // redirections with content scripts.
+  if (target_url.SchemeIs(extensions::kExtensionScheme) ||
+      previous_main_frame_url.SchemeIs(extensions::kExtensionScheme)) {
     return false;
   }
 
@@ -207,7 +207,7 @@ TabUnderNavigationThrottle::MaybeBlockNavigation() {
 
   LogTabUnderAttempt(navigation_handle(), off_the_record_);
 
-  if (block_) {
+  if (block_ && !TabUndersAllowedBySettings()) {
     const std::string error =
         base::StringPrintf(kBlockTabUnderFormatMessage,
                            navigation_handle()->GetURL().spec().c_str());
@@ -243,6 +243,18 @@ bool TabUnderNavigationThrottle::HasOpenedPopupSinceLastUserGesture() const {
   auto* popup_opener = PopupOpenerTabHelper::FromWebContents(contents);
   return popup_opener &&
          popup_opener->has_opened_popup_since_last_user_gesture();
+}
+
+bool TabUnderNavigationThrottle::TabUndersAllowedBySettings() const {
+  content::WebContents* contents = navigation_handle()->GetWebContents();
+  HostContentSettingsMap* settings_map =
+      HostContentSettingsMapFactory::GetForProfile(
+          Profile::FromBrowserContext(contents->GetBrowserContext()));
+  DCHECK(settings_map);
+  return settings_map->GetContentSetting(contents->GetLastCommittedURL(),
+                                         GURL(), CONTENT_SETTINGS_TYPE_POPUPS,
+                                         std::string()) ==
+         CONTENT_SETTING_ALLOW;
 }
 
 content::NavigationThrottle::ThrottleCheckResult

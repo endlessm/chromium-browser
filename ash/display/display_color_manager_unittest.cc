@@ -17,9 +17,9 @@
 #include "components/quirks/quirks_manager.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/display/manager/chromeos/test/action_logger_util.h"
-#include "ui/display/manager/chromeos/test/test_native_display_delegate.h"
 #include "ui/display/manager/fake_display_snapshot.h"
+#include "ui/display/manager/test/action_logger_util.h"
+#include "ui/display/manager/test/test_native_display_delegate.h"
 
 namespace ash {
 
@@ -36,7 +36,7 @@ class DisplayColorManagerForTest : public DisplayColorManager {
  public:
   explicit DisplayColorManagerForTest(
       display::DisplayConfigurator* configurator)
-      : DisplayColorManager(configurator) {}
+      : DisplayColorManager(configurator, nullptr /* display_to_observe */) {}
 
   void SetOnFinishedForTest(base::Closure on_finished_for_test) {
     on_finished_for_test_ = on_finished_for_test;
@@ -115,7 +115,7 @@ class DisplayColorManagerTest : public testing::Test {
     color_manager_ =
         std::make_unique<DisplayColorManagerForTest>(&configurator_);
 
-    EXPECT_TRUE(PathService::Get(base::DIR_SOURCE_ROOT, &color_path_));
+    EXPECT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &color_path_));
 
     color_path_ = color_path_.Append(FILE_PATH_LITERAL("ash"))
                       .Append(FILE_PATH_LITERAL("display"))
@@ -172,8 +172,8 @@ TEST_F(DisplayColorManagerTest, VCGTOnly) {
 
   configurator_.OnConfigurationChanged();
   EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
-  EXPECT_TRUE(
-      base::MatchPattern(log_->GetActionsAndClear(), kResetGammaAction));
+  // Clear initial configuration log.
+  log_->GetActionsAndClear();
 
   WaitOnColorCalibration();
   EXPECT_TRUE(base::MatchPattern(log_->GetActionsAndClear(), kSetGammaAction));
@@ -195,8 +195,8 @@ TEST_F(DisplayColorManagerTest, VCGTOnlyWithPlatformCTM) {
   log_->GetActionsAndClear();
   configurator_.OnConfigurationChanged();
   EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
-  EXPECT_TRUE(
-      base::MatchPattern(log_->GetActionsAndClear(), kResetGammaAction));
+  // Clear initial configuration log.
+  log_->GetActionsAndClear();
 
   WaitOnColorCalibration();
   EXPECT_TRUE(base::MatchPattern(log_->GetActionsAndClear(), kSetGammaAction));
@@ -217,12 +217,184 @@ TEST_F(DisplayColorManagerTest, FullWithPlatformCTM) {
 
   configurator_.OnConfigurationChanged();
   EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
-  EXPECT_TRUE(
-      base::MatchPattern(log_->GetActionsAndClear(), kResetGammaAction));
+  // Clear initial configuration log.
+  log_->GetActionsAndClear();
 
   WaitOnColorCalibration();
   EXPECT_TRUE(
       base::MatchPattern(log_->GetActionsAndClear(), kSetFullCTMAction));
+}
+
+TEST_F(DisplayColorManagerTest, SetDisplayColorMatrixNoCTMSupport) {
+  constexpr int64_t kDisplayId = 123;
+  std::unique_ptr<display::DisplaySnapshot> snapshot =
+      display::FakeDisplaySnapshot::Builder()
+          .SetId(kDisplayId)
+          .SetNativeMode(kDisplaySize)
+          .SetCurrentMode(kDisplaySize)
+          .SetType(display::DISPLAY_CONNECTION_TYPE_INTERNAL)
+          .SetHasColorCorrectionMatrix(false)
+          .SetProductCode(0x4c834a42)
+          .Build();
+  std::vector<display::DisplaySnapshot*> outputs({snapshot.get()});
+  native_display_delegate_->set_outputs(outputs);
+
+  configurator_.OnConfigurationChanged();
+  EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
+  WaitOnColorCalibration();
+  // DisplayColorManager::ResetDisplayColorCalibration() will be called since
+  // this display has no CTM support.
+  EXPECT_TRUE(
+      base::MatchPattern(log_->GetActionsAndClear(), kResetGammaAction));
+
+  // Attempt to set a color matrix.
+  SkMatrix44 matrix(SkMatrix44::kIdentity_Constructor);
+  matrix.set(1, 1, 0.7);
+  matrix.set(2, 2, 0.3);
+  EXPECT_FALSE(color_manager_->SetDisplayColorMatrix(kDisplayId, matrix));
+  EXPECT_EQ(color_manager_->displays_ctm_support(),
+            DisplayColorManager::DisplayCtmSupport::kNone);
+  EXPECT_STREQ("", log_->GetActionsAndClear().c_str());
+}
+
+TEST_F(DisplayColorManagerTest,
+       SetDisplayColorMatrixWithCTMSupportNoCalibration) {
+  constexpr int64_t kDisplayId = 123;
+  std::unique_ptr<display::DisplaySnapshot> snapshot =
+      display::FakeDisplaySnapshot::Builder()
+          .SetId(kDisplayId)
+          .SetNativeMode(kDisplaySize)
+          .SetCurrentMode(kDisplaySize)
+          .SetType(display::DISPLAY_CONNECTION_TYPE_INTERNAL)
+          .SetHasColorCorrectionMatrix(true)
+          .SetProductCode(0x0)  // Non-existent product code.
+          .Build();
+  std::vector<display::DisplaySnapshot*> outputs({snapshot.get()});
+  native_display_delegate_->set_outputs(outputs);
+
+  configurator_.OnConfigurationChanged();
+  EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
+
+  // No need to wait for calibration here, this display doesn't have an icc
+  // file.
+  log_->GetActionsAndClear();
+
+  // Attempt to set a color matrix.
+  SkMatrix44 matrix(SkMatrix44::kIdentity_Constructor);
+  matrix.set(1, 1, 0.7);
+  matrix.set(2, 2, 0.3);
+  EXPECT_TRUE(color_manager_->SetDisplayColorMatrix(kDisplayId, matrix));
+  EXPECT_EQ(color_manager_->displays_ctm_support(),
+            DisplayColorManager::DisplayCtmSupport::kAll);
+  // This display has no color calibration data. Gamma/degamma won't be
+  // affected. Color matrix is applied as is.
+  EXPECT_TRUE(base::MatchPattern(
+      log_->GetActionsAndClear(),
+      "set_color_correction(id=123,ctm[0]=1*ctm[4]=0.7*ctm[8]=0.3*)"));
+
+  // Reconfiguring with the same displays snapshots will reapply the matrix.
+  native_display_delegate_->set_outputs(outputs);
+  configurator_.OnConfigurationChanged();
+  EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
+  EXPECT_TRUE(base::MatchPattern(
+      log_->GetActionsAndClear(),
+      "*set_color_correction(id=123,ctm[0]=1*ctm[4]=0.7*ctm[8]=0.3*)"));
+}
+
+TEST_F(DisplayColorManagerTest, SetDisplayColorMatrixWithMixedCTMSupport) {
+  constexpr int64_t kDisplayWithCtmId = 123;
+  std::unique_ptr<display::DisplaySnapshot> snapshot1 =
+      display::FakeDisplaySnapshot::Builder()
+          .SetId(kDisplayWithCtmId)
+          .SetNativeMode(kDisplaySize)
+          .SetCurrentMode(kDisplaySize)
+          .SetType(display::DISPLAY_CONNECTION_TYPE_INTERNAL)
+          .SetHasColorCorrectionMatrix(true)
+          .SetProductCode(0x0)  // Non-existent product code.
+          .Build();
+  constexpr int64_t kDisplayNoCtmId = 456;
+  std::unique_ptr<display::DisplaySnapshot> snapshot2 =
+      display::FakeDisplaySnapshot::Builder()
+          .SetId(kDisplayNoCtmId)
+          .SetNativeMode(kDisplaySize)
+          .SetCurrentMode(kDisplaySize)
+          .SetType(display::DISPLAY_CONNECTION_TYPE_HDMI)
+          .SetHasColorCorrectionMatrix(false)
+          .SetProductCode(0x0)  // Non-existent product code.
+          .Build();
+
+  std::vector<display::DisplaySnapshot*> outputs(
+      {snapshot1.get(), snapshot2.get()});
+  native_display_delegate_->set_outputs(outputs);
+
+  configurator_.OnConfigurationChanged();
+  EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
+
+  // No need to wait for calibration here, these displays don't have icc files.
+  log_->GetActionsAndClear();
+
+  EXPECT_EQ(color_manager_->displays_ctm_support(),
+            DisplayColorManager::DisplayCtmSupport::kMixed);
+
+  // Attempt to set a color matrix.
+  SkMatrix44 matrix(SkMatrix44::kIdentity_Constructor);
+  matrix.set(1, 1, 0.7);
+  matrix.set(2, 2, 0.3);
+  EXPECT_TRUE(color_manager_->SetDisplayColorMatrix(kDisplayWithCtmId, matrix));
+  // This display has no color calibration data. Gamma/degamma won't be
+  // affected. Color matrix is applied as is.
+  EXPECT_TRUE(base::MatchPattern(
+      log_->GetActionsAndClear(),
+      "set_color_correction(id=123,ctm[0]=1*ctm[4]=0.7*ctm[8]=0.3*)"));
+
+  // No matrix will be applied to this display.
+  EXPECT_FALSE(color_manager_->SetDisplayColorMatrix(kDisplayNoCtmId, matrix));
+  EXPECT_STREQ("", log_->GetActionsAndClear().c_str());
+}
+
+TEST_F(DisplayColorManagerTest,
+       SetDisplayColorMatrixWithCTMSupportWithCalibration) {
+  constexpr int64_t kDisplayId = 123;
+  std::unique_ptr<display::DisplaySnapshot> snapshot =
+      display::FakeDisplaySnapshot::Builder()
+          .SetId(kDisplayId)
+          .SetNativeMode(kDisplaySize)
+          .SetCurrentMode(kDisplaySize)
+          .SetType(display::DISPLAY_CONNECTION_TYPE_INTERNAL)
+          .SetHasColorCorrectionMatrix(true)
+          .SetProductCode(0x4c834a42)
+          .Build();
+  std::vector<display::DisplaySnapshot*> outputs({snapshot.get()});
+  native_display_delegate_->set_outputs(outputs);
+
+  configurator_.OnConfigurationChanged();
+  EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
+
+  WaitOnColorCalibration();
+  log_->GetActionsAndClear();
+
+  // Attempt to set a color matrix.
+  SkMatrix44 matrix(SkMatrix44::kIdentity_Constructor);
+  matrix.set(1, 1, 0.7);
+  matrix.set(2, 2, 0.3);
+  EXPECT_TRUE(color_manager_->SetDisplayColorMatrix(kDisplayId, matrix));
+  EXPECT_EQ(color_manager_->displays_ctm_support(),
+            DisplayColorManager::DisplayCtmSupport::kAll);
+  // The applied matrix is the combination of this color matrix and the color
+  // calibration matrix. Gamma/degamma won't be affected.
+  EXPECT_TRUE(base::MatchPattern(
+      log_->GetActionsAndClear(),
+      "set_color_correction(id=123,ctm[0]=0.01*ctm[4]=0.5*ctm[8]=0.04*)"));
+
+  // Reconfiguring with the same displays snapshots will reapply the same
+  // product matrix as well as gamma/degamma from the calibration data.
+  native_display_delegate_->set_outputs(outputs);
+  configurator_.OnConfigurationChanged();
+  EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
+  EXPECT_TRUE(
+      base::MatchPattern(log_->GetActionsAndClear(),
+                         "*set_color_correction(id=123,degamma[0]*gamma[0]*,"
+                         "ctm[0]=0.01*ctm[4]=0.5*ctm[8]=0.04*)"));
 }
 
 TEST_F(DisplayColorManagerTest, FullWithoutPlatformCTM) {
@@ -240,11 +412,12 @@ TEST_F(DisplayColorManagerTest, FullWithoutPlatformCTM) {
 
   configurator_.OnConfigurationChanged();
   EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
-  EXPECT_TRUE(
-      base::MatchPattern(log_->GetActionsAndClear(), kResetGammaAction));
+  // Clear initial configuration log.
+  log_->GetActionsAndClear();
 
   WaitOnColorCalibration();
-  EXPECT_STREQ("", log_->GetActionsAndClear().c_str());
+  EXPECT_TRUE(
+      base::MatchPattern(log_->GetActionsAndClear(), kResetGammaAction));
 }
 
 TEST_F(DisplayColorManagerTest, NoMatchProductID) {
@@ -262,11 +435,13 @@ TEST_F(DisplayColorManagerTest, NoMatchProductID) {
 
   configurator_.OnConfigurationChanged();
   EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
+  // DisplayColorManager::ResetDisplayColorCalibration() will be called since
+  // the product code is invalid.
   EXPECT_TRUE(
       base::MatchPattern(log_->GetActionsAndClear(), kResetGammaAction));
 
-  // NOTE: If product_id == 0, there is no thread switching in Quirks or Display
-  // code, so we shouldn't call WaitOnColorCalibration().
+  // NOTE: If product_code == 0, there is no thread switching in Quirks or
+  // Display code, so we shouldn't call WaitOnColorCalibration().
   EXPECT_STREQ("", log_->GetActionsAndClear().c_str());
 }
 
@@ -285,11 +460,14 @@ TEST_F(DisplayColorManagerTest, NoVCGT) {
 
   configurator_.OnConfigurationChanged();
   EXPECT_TRUE(test_api_.TriggerConfigureTimeout());
-  EXPECT_TRUE(
-      base::MatchPattern(log_->GetActionsAndClear(), kResetGammaAction));
+  // Clear initial configuration log.
+  log_->GetActionsAndClear();
 
   WaitOnColorCalibration();
-  EXPECT_STREQ("", log_->GetActionsAndClear().c_str());
+  // DisplayColorManager::ResetDisplayColorCalibration() will be called since
+  // there is no vcgt table.
+  EXPECT_TRUE(
+      base::MatchPattern(log_->GetActionsAndClear(), kResetGammaAction));
 }
 
 }  // namespace ash

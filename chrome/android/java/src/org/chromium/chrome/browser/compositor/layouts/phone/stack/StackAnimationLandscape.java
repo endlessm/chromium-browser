@@ -21,7 +21,6 @@ import static org.chromium.chrome.browser.compositor.layouts.phone.stack.StackTa
 import org.chromium.chrome.browser.compositor.layouts.ChromeAnimation;
 import org.chromium.chrome.browser.compositor.layouts.ChromeAnimation.Animatable;
 import org.chromium.chrome.browser.compositor.layouts.components.LayoutTab;
-import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.browser.util.MathUtils;
 import org.chromium.ui.base.LocalizationUtils;
 
@@ -30,28 +29,28 @@ class StackAnimationLandscape extends StackAnimation {
      * Only Constructor.
      */
     public StackAnimationLandscape(Stack stack, float width, float height,
-            float heightMinusBrowserControls, float borderFramePaddingTop,
+            float topBrowserControlsHeight, float borderFramePaddingTop,
             float borderFramePaddingTopOpaque, float borderFramePaddingLeft) {
-        super(stack, width, height, heightMinusBrowserControls, borderFramePaddingTop,
+        super(stack, width, height, topBrowserControlsHeight, borderFramePaddingTop,
                 borderFramePaddingTopOpaque, borderFramePaddingLeft);
     }
 
     @Override
     protected ChromeAnimation<?> createEnterStackAnimatorSet(
-            StackTab[] tabs, int focusIndex, int spacing, float warpSize) {
+            StackTab[] tabs, int focusIndex, int spacing) {
         ChromeAnimation<Animatable<?>> set = new ChromeAnimation<Animatable<?>>();
-        final float initialScrollOffset = StackTab.screenToScroll(0, warpSize);
+        final float initialScrollOffset = mStack.screenToScroll(0);
 
         for (int i = 0; i < tabs.length; ++i) {
             StackTab tab = tabs[i];
 
             tab.resetOffset();
-            tab.setScale(SCALE_AMOUNT);
+            tab.setScale(mStack.getScaleAmount());
             tab.setAlpha(1.f);
             tab.getLayoutTab().setToolbarAlpha(0.f);
             tab.getLayoutTab().setBorderScale(1.f);
 
-            final float scrollOffset = StackTab.screenToScroll(i * spacing, warpSize);
+            final float scrollOffset = mStack.screenToScroll(i * spacing);
 
             addAnimation(set, tab.getLayoutTab(), MAX_CONTENT_HEIGHT,
                     tab.getLayoutTab().getUnclampedOriginalContentHeight(),
@@ -68,8 +67,8 @@ class StackAnimationLandscape extends StackAnimation {
                 tab.setScrollOffset(scrollOffset);
                 addAnimation(set, tab, X_IN_STACK_INFLUENCE, 0.0f, 1.0f,
                         ENTER_STACK_BORDER_ALPHA_DURATION, 0);
-                addAnimation(
-                        set, tab, SCALE, 1.0f, SCALE_AMOUNT, ENTER_STACK_BORDER_ALPHA_DURATION, 0);
+                addAnimation(set, tab, SCALE, 1.0f, mStack.getScaleAmount(),
+                        ENTER_STACK_BORDER_ALPHA_DURATION, 0);
                 addAnimation(set, tab.getLayoutTab(), TOOLBAR_ALPHA, 1.f, 0.f,
                         ENTER_STACK_TOOLBAR_ALPHA_DURATION, ENTER_STACK_TOOLBAR_ALPHA_DELAY);
                 addAnimation(set, tab.getLayoutTab(), TOOLBAR_Y_OFFSET, 0.f,
@@ -85,7 +84,7 @@ class StackAnimationLandscape extends StackAnimation {
 
     @Override
     protected ChromeAnimation<?> createTabFocusedAnimatorSet(
-            StackTab[] tabs, int focusIndex, int spacing, float warpSize) {
+            StackTab[] tabs, int focusIndex, int spacing) {
         ChromeAnimation<Animatable<?>> set = new ChromeAnimation<Animatable<?>>();
         for (int i = 0; i < tabs.length; ++i) {
             StackTab tab = tabs[i];
@@ -123,17 +122,17 @@ class StackAnimationLandscape extends StackAnimation {
                 tab.setYOutOfStack(0.0f);
                 layoutTab.setBorderScale(1.f);
 
-                addAnimation(set, tab, SCROLL_OFFSET, tab.getScrollOffset(),
-                        StackTab.screenToScroll(0, warpSize), TAB_FOCUSED_ANIMATION_DURATION, 0);
+                if (!isHorizontalTabSwitcherFlagEnabled()) {
+                    addAnimation(set, tab, SCROLL_OFFSET, tab.getScrollOffset(),
+                            mStack.screenToScroll(0), TAB_FOCUSED_ANIMATION_DURATION, 0);
+                }
+
                 addAnimation(
                         set, tab, SCALE, tab.getScale(), 1.0f, TAB_FOCUSED_ANIMATION_DURATION, 0);
                 addAnimation(set, tab, X_IN_STACK_INFLUENCE, tab.getXInStackInfluence(), 0.0f,
                         TAB_FOCUSED_ANIMATION_DURATION, 0);
-                int tabYInfluenceDuration = FeatureUtilities.isChromeHomeEnabled()
-                        ? TAB_FOCUSED_ANIMATION_DURATION
-                        : TAB_FOCUSED_Y_STACK_DURATION;
                 addAnimation(set, tab, Y_IN_STACK_INFLUENCE, tab.getYInStackInfluence(), 0.0f,
-                        tabYInfluenceDuration, 0);
+                        TAB_FOCUSED_Y_STACK_DURATION, 0);
 
                 addAnimation(set, tab.getLayoutTab(), MAX_CONTENT_HEIGHT,
                         tab.getLayoutTab().getMaxContentHeight(),
@@ -178,7 +177,7 @@ class StackAnimationLandscape extends StackAnimation {
     }
 
     @Override
-    protected ChromeAnimation<?> createReachTopAnimatorSet(StackTab[] tabs, float warpSize) {
+    protected ChromeAnimation<?> createReachTopAnimatorSet(StackTab[] tabs) {
         ChromeAnimation<Animatable<?>> set = new ChromeAnimation<Animatable<?>>();
 
         float screenTarget = 0.0f;
@@ -187,8 +186,7 @@ class StackAnimationLandscape extends StackAnimation {
                 break;
             }
             addAnimation(set, tabs[i], SCROLL_OFFSET, tabs[i].getScrollOffset(),
-                    StackTab.screenToScroll(screenTarget, warpSize), REACH_TOP_ANIMATION_DURATION,
-                    0);
+                    mStack.screenToScroll(screenTarget), REACH_TOP_ANIMATION_DURATION, 0);
             screenTarget += tabs[i].getLayoutTab().getScaledContentWidth();
         }
 

@@ -1,9 +1,9 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-toggle-button/paper-toggle-button.html">
+
+<link rel="import" href="chrome://resources/cr_elements/cr_toggle/cr_toggle.html">
 
 <dom-module id="oobe-a11y-option">
   <template>
-    <link rel="stylesheet" href="oobe_toggle_button.css">
     <link rel="stylesheet" href="oobe_flex_layout.css">
     <link rel="stylesheet" href="oobe_a11y_option.css">
     <div id="elementBox" class="layout horizontal">
@@ -18,9 +18,9 @@
           <content select=".unchecked-value"></content>
         </div>
       </div>
-      <paper-toggle-button id="button" checked="{{checked}}"
+      <cr-toggle id="button" checked="{{checked}}"
           aria-label$="[[labelForAria]]">
-      </paper-toggle-button>
+      </cr-toggle>
     </div>
   </template>
 </dom-module>

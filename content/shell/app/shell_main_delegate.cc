@@ -4,6 +4,8 @@
 
 #include "content/shell/app/shell_main_delegate.h"
 
+#include <iostream>
+
 #include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/cpu.h"
@@ -16,6 +18,7 @@
 #include "build/build_config.h"
 #include "cc/base/switches.h"
 #include "components/crash/core/common/crash_key.h"
+#include "components/viz/common/switches.h"
 #include "content/common/content_constants_internal.h"
 #include "content/public/browser/browser_main_runner.h"
 #include "content/public/common/content_switches.h"
@@ -42,6 +45,7 @@
 #include "net/cookies/cookie_monster.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "services/network/public/cpp/network_switches.h"
+#include "services/service_manager/embedder/switches.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_paths.h"
 #include "ui/base/ui_base_switches.h"
@@ -112,13 +116,15 @@ const GUID kContentShellProviderName = {
 #endif
 
 void InitLogging(const base::CommandLine& command_line) {
-  base::FilePath log_filename;
-  std::string filename = command_line.GetSwitchValueASCII(switches::kLogFile);
-  if (filename.empty()) {
-    PathService::Get(base::DIR_EXE, &log_filename);
+  base::FilePath log_filename =
+      command_line.GetSwitchValuePath(switches::kLogFile);
+  if (log_filename.empty()) {
+#if defined(OS_FUCHSIA)
+    base::PathService::Get(base::DIR_TEMP, &log_filename);
+#else
+    base::PathService::Get(base::DIR_EXE, &log_filename);
+#endif
     log_filename = log_filename.AppendASCII("content_shell.log");
-  } else {
-    log_filename = base::FilePath::FromUTF8Unsafe(filename);
   }
 
   logging::LoggingSettings settings;
@@ -176,7 +182,15 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
     }
   }
 
-  if (command_line.HasSwitch(switches::kRunLayoutTest)) {
+  if (command_line.HasSwitch("run-layout-test")) {
+    std::cerr << std::string(79, '*') << "\n"
+              << "* The flag --run-layout-test is obsolete. Please use --"
+              << switches::kRunWebTests << " instead. *\n"
+              << std::string(79, '*') << "\n";
+    command_line.AppendSwitch(switches::kRunWebTests);
+  }
+
+  if (command_line.HasSwitch(switches::kRunWebTests)) {
     EnableBrowserLayoutTestMode();
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -218,6 +232,15 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
       command_line.AppendSwitch(cc::switches::kDisableThreadedAnimation);
     }
 
+    // If we're doing a display compositor pixel dump we ensure that
+    // we complete all stages of compositing before draw. We also can't have
+    // checker imaging, since it's imcompatible with single threaded compositor
+    // and display compositor pixel dumps.
+    if (command_line.HasSwitch(switches::kEnableDisplayCompositorPixelDump)) {
+      command_line.AppendSwitch(switches::kRunAllCompositorStagesBeforeDraw);
+      command_line.AppendSwitch(cc::switches::kDisableCheckerImaging);
+    }
+
     command_line.AppendSwitch(switches::kEnableInbandTextTracks);
     command_line.AppendSwitch(switches::kMuteAudio);
 
@@ -253,8 +276,7 @@ bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
     }
   }
 
-  content_client_.reset(base::CommandLine::ForCurrentProcess()->HasSwitch(
-                            switches::kRunLayoutTest)
+  content_client_.reset(switches::IsRunWebTestsSwitchPresent()
                             ? new LayoutTestContentClient
                             : new ShellContentClient);
   SetContentClient(content_client_.get());
@@ -283,7 +305,7 @@ void ShellMainDelegate::PreSandboxStartup() {
     crash_reporter::InitializeCrashpad(process_type.empty(), process_type);
 #elif defined(OS_LINUX)
     // Reporting for sub-processes will be initialized in ZygoteForked.
-    if (process_type != switches::kZygoteProcess)
+    if (process_type != service_manager::switches::kZygoteProcess)
       breakpad::InitCrashReporter(process_type);
 #elif defined(OS_ANDROID)
     if (process_type.empty())
@@ -317,7 +339,7 @@ int ShellMainDelegate::RunProcess(
 
   browser_runner_.reset(BrowserMainRunner::Create());
   base::CommandLine& command_line = *base::CommandLine::ForCurrentProcess();
-  return command_line.HasSwitch(switches::kRunLayoutTest) ||
+  return command_line.HasSwitch(switches::kRunWebTests) ||
                  command_line.HasSwitch(switches::kCheckLayoutTestSysDeps)
              ? LayoutTestBrowserMain(main_function_params, browser_runner_)
              : ShellBrowserMain(main_function_params, browser_runner_);
@@ -350,7 +372,7 @@ void ShellMainDelegate::InitializeResourceBundle() {
     // Loaded from disk for browsertests.
     if (pak_fd < 0) {
       base::FilePath pak_file;
-      bool r = PathService::Get(base::DIR_ANDROID_APP_DATA, &pak_file);
+      bool r = base::PathService::Get(base::DIR_ANDROID_APP_DATA, &pak_file);
       DCHECK(r);
       pak_file = pak_file.Append(FILE_PATH_LITERAL("paks"));
       pak_file = pak_file.Append(FILE_PATH_LITERAL("content_shell.pak"));
@@ -370,7 +392,7 @@ void ShellMainDelegate::InitializeResourceBundle() {
   ui::ResourceBundle::InitSharedInstanceWithPakPath(GetResourcesPakFilePath());
 #else
   base::FilePath pak_file;
-  bool r = PathService::Get(base::DIR_ASSETS, &pak_file);
+  bool r = base::PathService::Get(base::DIR_ASSETS, &pak_file);
   DCHECK(r);
   pak_file = pak_file.Append(FILE_PATH_LITERAL("content_shell.pak"));
   ui::ResourceBundle::InitSharedInstanceWithPakPath(pak_file);
@@ -378,8 +400,7 @@ void ShellMainDelegate::InitializeResourceBundle() {
 }
 
 ContentBrowserClient* ShellMainDelegate::CreateContentBrowserClient() {
-  browser_client_.reset(base::CommandLine::ForCurrentProcess()->HasSwitch(
-                            switches::kRunLayoutTest)
+  browser_client_.reset(switches::IsRunWebTestsSwitchPresent()
                             ? new LayoutTestContentBrowserClient
                             : new ShellContentBrowserClient);
 
@@ -392,8 +413,7 @@ ContentGpuClient* ShellMainDelegate::CreateContentGpuClient() {
 }
 
 ContentRendererClient* ShellMainDelegate::CreateContentRendererClient() {
-  renderer_client_.reset(base::CommandLine::ForCurrentProcess()->HasSwitch(
-                             switches::kRunLayoutTest)
+  renderer_client_.reset(switches::IsRunWebTestsSwitchPresent()
                              ? new LayoutTestContentRendererClient
                              : new ShellContentRendererClient);
 

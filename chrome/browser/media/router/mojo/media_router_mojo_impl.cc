@@ -27,7 +27,6 @@
 #include "chrome/browser/media/router/route_message_observer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/media_router/media_source_helper.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
@@ -48,6 +47,42 @@ void RunRouteRequestCallbacks(
     std::vector<MediaRouteResponseCallback> callbacks) {
   for (MediaRouteResponseCallback& callback : callbacks)
     std::move(callback).Run(*result);
+}
+
+// TODO(crbug.com/831416): Delete temporary code once we can use
+// presentation.mojom types here.
+blink::mojom::PresentationConnectionCloseReason
+PresentationConnectionCloseReasonToBlink(
+    mojom::MediaRouter::PresentationConnectionCloseReason reason) {
+  switch (reason) {
+    case mojom::MediaRouter::PresentationConnectionCloseReason::
+        CONNECTION_ERROR:
+      return blink::mojom::PresentationConnectionCloseReason::CONNECTION_ERROR;
+    case mojom::MediaRouter::PresentationConnectionCloseReason::CLOSED:
+      return blink::mojom::PresentationConnectionCloseReason::CLOSED;
+    case mojom::MediaRouter::PresentationConnectionCloseReason::WENT_AWAY:
+      return blink::mojom::PresentationConnectionCloseReason::WENT_AWAY;
+  }
+  NOTREACHED() << "Unknown PresentationConnectionCloseReason " << reason;
+  return blink::mojom::PresentationConnectionCloseReason::CONNECTION_ERROR;
+}
+
+// TODO(crbug.com/831416): Delete temporary code once we can use
+// presentation.mojom types here.
+blink::mojom::PresentationConnectionState PresentationConnectionStateToBlink(
+    mojom::MediaRouter::PresentationConnectionState state) {
+  switch (state) {
+    case mojom::MediaRouter::PresentationConnectionState::CONNECTING:
+      return blink::mojom::PresentationConnectionState::CONNECTING;
+    case mojom::MediaRouter::PresentationConnectionState::CONNECTED:
+      return blink::mojom::PresentationConnectionState::CONNECTED;
+    case mojom::MediaRouter::PresentationConnectionState::CLOSED:
+      return blink::mojom::PresentationConnectionState::CLOSED;
+    case mojom::MediaRouter::PresentationConnectionState::TERMINATED:
+      return blink::mojom::PresentationConnectionState::TERMINATED;
+  }
+  NOTREACHED() << "Unknown PresentationConnectionState " << state;
+  return blink::mojom::PresentationConnectionState::CONNECTING;
 }
 
 }  // namespace
@@ -208,7 +243,8 @@ void MediaRouterMojoImpl::CreateRoute(
   // TODO(https://crbug.com/808720): Remove check for DIAL when in-browser DIAL
   // MRP is fully implemented.
   if (provider_id == MediaRouteProviderId::CAST ||
-      provider_id == MediaRouteProviderId::DIAL) {
+      (provider_id == MediaRouteProviderId::DIAL &&
+       !DialMediaRouteProviderEnabled())) {
     provider_id = MediaRouteProviderId::EXTENSION;
   }
 
@@ -399,11 +435,8 @@ scoped_refptr<MediaRouteController> MediaRouterMojoImpl::GetRouteController(
           new HangoutsMediaRouteController(route_id, context_, this);
       break;
     case RouteControllerType::kMirroring:
-      // TODO(imcheng): Remove this check when remoting is default enabled.
       route_controller =
-          base::FeatureList::IsEnabled(features::kMediaRemoting)
-              ? new MirroringMediaRouteController(route_id, context_, this)
-              : new MediaRouteController(route_id, context_, this);
+          new MirroringMediaRouteController(route_id, context_, this);
       break;
   }
   DCHECK(route_controller);
@@ -811,15 +844,17 @@ void MediaRouterMojoImpl::OnSinkAvailabilityUpdated(
 
 void MediaRouterMojoImpl::OnPresentationConnectionStateChanged(
     const std::string& route_id,
-    content::PresentationConnectionState state) {
-  NotifyPresentationConnectionStateChange(route_id, state);
+    media_router::mojom::MediaRouter::PresentationConnectionState state) {
+  NotifyPresentationConnectionStateChange(
+      route_id, PresentationConnectionStateToBlink(state));
 }
 
 void MediaRouterMojoImpl::OnPresentationConnectionClosed(
     const std::string& route_id,
-    content::PresentationConnectionCloseReason reason,
+    media_router::mojom::MediaRouter::PresentationConnectionCloseReason reason,
     const std::string& message) {
-  NotifyPresentationConnectionClose(route_id, reason, message);
+  NotifyPresentationConnectionClose(
+      route_id, PresentationConnectionCloseReasonToBlink(reason), message);
 }
 
 void MediaRouterMojoImpl::OnTerminateRouteResult(

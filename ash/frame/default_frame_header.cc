@@ -4,28 +4,19 @@
 
 #include "ash/frame/default_frame_header.h"
 
-#include "ash/ash_layout_constants.h"
 #include "ash/frame/caption_buttons/caption_button_model.h"
-#include "ash/frame/caption_buttons/frame_caption_button.h"
 #include "ash/frame/caption_buttons/frame_caption_button_container_view.h"
 #include "ash/frame/frame_header_util.h"
+#include "ash/public/cpp/ash_constants.h"
+#include "ash/public/cpp/ash_layout_constants.h"
 #include "ash/public/cpp/vector_icons/vector_icons.h"
-#include "ash/resources/grit/ash_resources.h"
 #include "ash/resources/vector_icons/vector_icons.h"
-#include "ash/shell.h"
-#include "ash/wm/tablet_mode/tablet_mode_controller.h"
-#include "base/debug/leak_annotations.h"
 #include "base/logging.h"  // DCHECK
 #include "third_party/skia/include/core/SkPath.h"
-#include "ui/base/resource/resource_bundle.h"
-#include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_utils.h"
-#include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/rect.h"
-#include "ui/gfx/image/image.h"
 #include "ui/gfx/scoped_canvas.h"
-#include "ui/gfx/skia_util.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/native_widget_aura.h"
 #include "ui/views/widget/widget.h"
@@ -38,15 +29,6 @@ namespace {
 // Color for the window title text.
 const SkColor kTitleTextColor = SkColorSetRGB(40, 40, 40);
 const SkColor kLightTitleTextColor = SK_ColorWHITE;
-// Color of the active window header/content separator line.
-const SkColor kHeaderContentSeparatorColor = SkColorSetRGB(150, 150, 152);
-// Color of the inactive window header/content separator line.
-const SkColor kHeaderContentSeparatorInactiveColor =
-    SkColorSetRGB(180, 180, 182);
-// The default color of the frame.
-const SkColor kDefaultFrameColor = SkColorSetRGB(242, 242, 242);
-// Duration of crossfade animation for activating and deactivating frame.
-const int kActivationCrossfadeDurationMs = 200;
 
 // Tiles an image into an area, rounding the top corners.
 void TileRoundRect(gfx::Canvas* canvas,
@@ -76,173 +58,78 @@ namespace ash {
 // DefaultFrameHeader, public:
 
 DefaultFrameHeader::DefaultFrameHeader(
-    views::Widget* frame,
+    views::Widget* target_widget,
     views::View* header_view,
-    FrameCaptionButtonContainerView* caption_button_container,
-    mojom::WindowStyle window_style)
-    : window_style_(window_style),
-      frame_(frame),
-      view_(header_view),
-      back_button_(nullptr),
-      left_header_view_(nullptr),
+    FrameCaptionButtonContainerView* caption_button_container)
+    : FrameHeader(target_widget, header_view),
       active_frame_color_(kDefaultFrameColor),
-      inactive_frame_color_(kDefaultFrameColor),
-      caption_button_container_(caption_button_container),
-      painted_height_(0),
-      mode_(MODE_INACTIVE),
-      initial_paint_(true),
-      activation_animation_(new gfx::SlideAnimation(this)) {
-  DCHECK(frame);
-  DCHECK(header_view);
+      inactive_frame_color_(kDefaultFrameColor) {
   DCHECK(caption_button_container);
-  caption_button_container_->SetButtonSize(
-      GetAshLayoutSize(AshLayoutSize::kNonBrowserCaption));
-  UpdateAllButtonImages();
+  SetCaptionButtonContainer(caption_button_container);
 }
 
 DefaultFrameHeader::~DefaultFrameHeader() = default;
 
-int DefaultFrameHeader::GetMinimumHeaderWidth() const {
-  // Ensure we have enough space for the window icon and buttons. We allow
-  // the title string to collapse to zero width.
-  return GetAvailableTitleBounds().x() +
-         caption_button_container_->GetMinimumSize().width();
-}
-
-void DefaultFrameHeader::PaintHeader(gfx::Canvas* canvas, Mode mode) {
-  Mode old_mode = mode_;
-  mode_ = mode;
-
-  if (mode_ != old_mode) {
-    UpdateAllButtonImages();
-    if (!initial_paint_ && FrameHeaderUtil::CanAnimateActivation(frame_)) {
-      activation_animation_->SetSlideDuration(kActivationCrossfadeDurationMs);
-      if (mode_ == MODE_ACTIVE)
-        activation_animation_->Show();
-      else
-        activation_animation_->Hide();
-    } else {
-      if (mode_ == MODE_ACTIVE)
-        activation_animation_->Reset(1);
-      else
-        activation_animation_->Reset(0);
-    }
-    initial_paint_ = false;
-  }
-
-  int corner_radius = (frame_->IsMaximized() || frame_->IsFullscreen())
-                          ? 0
-                          : FrameHeaderUtil::GetTopCornerRadiusWhenRestored();
-
-  cc::PaintFlags flags;
-  int active_alpha = activation_animation_->CurrentValueBetween(0, 255);
-  flags.setColor(color_utils::AlphaBlend(active_frame_color_,
-                                         inactive_frame_color_, active_alpha));
-  flags.setAntiAlias(true);
-  TileRoundRect(canvas, flags, GetLocalBounds(), corner_radius);
-
-  if (!frame_->IsMaximized() && !frame_->IsFullscreen() &&
-      mode_ == MODE_INACTIVE && !UsesCustomFrameColors()) {
-    PaintHighlightForInactiveRestoredWindow(canvas);
-  }
-  if (frame_->widget_delegate()->ShouldShowWindowTitle() && !title_.empty())
-    PaintTitleBar(canvas);
-  if (!UsesCustomFrameColors())
-    PaintHeaderContentSeparator(canvas);
-}
-
-void DefaultFrameHeader::LayoutHeader() {
-  // TODO(sky): this needs to reset images as well.
-  if (window_style_ == mojom::WindowStyle::BROWSER) {
-    const bool is_in_tablet_mode = Shell::Get()
-                                       ->tablet_mode_controller()
-                                       ->IsTabletModeWindowManagerEnabled();
-    const bool use_maximized_size =
-        frame_->IsMaximized() || frame_->IsFullscreen() || is_in_tablet_mode;
-    const gfx::Size button_size(GetAshLayoutSize(
-        use_maximized_size ? AshLayoutSize::kBrowserCaptionMaximized
-                           : AshLayoutSize::kBrowserCaptionRestored));
-    caption_button_container_->SetButtonSize(button_size);
-  }
-
-  caption_button_container_->SetBackgroundColor(GetCurrentFrameColor());
-  caption_button_container_->SetColorMode(button_color_mode_);
-  UpdateSizeButtonImages();
-
-  gfx::Size caption_button_container_size =
-      caption_button_container_->GetPreferredSize();
-  caption_button_container_->SetBounds(
-      view_->width() - caption_button_container_size.width(), 0,
-      caption_button_container_size.width(),
-      caption_button_container_size.height());
-
-  int origin = 0;
-  if (back_button_) {
-    back_button_->set_background_color(GetCurrentFrameColor());
-    back_button_->set_color_mode(button_color_mode_);
-    gfx::Size size = back_button_->GetPreferredSize();
-    back_button_->SetBounds(0, 0, size.width(),
-                            caption_button_container_size.height());
-    origin = back_button_->bounds().right();
-  }
-
-  if (left_header_view_) {
-    // Vertically center the left header view with respect to the caption button
-    // container.
-    // Floor when computing the center of |caption_button_container_|.
-    gfx::Size size = left_header_view_->GetPreferredSize();
-    int icon_offset_y =
-        caption_button_container_->height() / 2 - size.height() / 2;
-    left_header_view_->SetBounds(FrameHeaderUtil::GetLeftViewXInset() + origin,
-                                 icon_offset_y, size.width(), size.height());
-  }
-
-  // The header/content separator line overlays the caption buttons.
-  SetHeaderHeightForPainting(caption_button_container_->height());
-}
-
-int DefaultFrameHeader::GetHeaderHeight() const {
-  return caption_button_container_->height();
-}
-
-int DefaultFrameHeader::GetHeaderHeightForPainting() const {
-  return painted_height_;
-}
-
-void DefaultFrameHeader::SetHeaderHeightForPainting(int height) {
-  painted_height_ = height;
-}
-
-void DefaultFrameHeader::SchedulePaintForTitle() {
-  view_->SchedulePaintInRect(GetAvailableTitleBounds());
-}
-
-void DefaultFrameHeader::SetPaintAsActive(bool paint_as_active) {
-  caption_button_container_->SetPaintAsActive(paint_as_active);
-  if (back_button_)
-    back_button_->set_paint_as_active(paint_as_active);
-}
-
-void DefaultFrameHeader::OnShowStateChanged(ui::WindowShowState show_state) {
-  if (show_state == ui::SHOW_STATE_MINIMIZED)
-    return;
-  LayoutHeader();
-}
-
-void DefaultFrameHeader::SetFrameColors(SkColor active_frame_color,
-                                        SkColor inactive_frame_color) {
-  button_color_mode_ = FrameCaptionButton::ColorMode::kDefault;
-  SetFrameColorsImpl(active_frame_color, inactive_frame_color);
-}
-
 void DefaultFrameHeader::SetThemeColor(SkColor theme_color) {
-  button_color_mode_ = FrameCaptionButton::ColorMode::kThemed;
+  set_button_color_mode(FrameCaptionButton::ColorMode::kThemed);
   SetFrameColorsImpl(theme_color, theme_color);
 }
 
-SkColor DefaultFrameHeader::GetCurrentFrameColor() const {
-  return mode_ == MODE_ACTIVE ? active_frame_color_ : inactive_frame_color_;
+void DefaultFrameHeader::SetWidthInPixels(int width_in_pixels) {
+  if (width_in_pixels_ == width_in_pixels)
+    return;
+  width_in_pixels_ = width_in_pixels;
+  SchedulePaintForTitle();
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// DefaultFrameHeader, protected:
+
+void DefaultFrameHeader::DoPaintHeader(gfx::Canvas* canvas) {
+  int corner_radius =
+      (target_widget()->IsMaximized() || target_widget()->IsFullscreen())
+          ? 0
+          : FrameHeaderUtil::GetTopCornerRadiusWhenRestored();
+
+  cc::PaintFlags flags;
+  int active_alpha = activation_animation().CurrentValueBetween(0, 255);
+  flags.setColor(color_utils::AlphaBlend(active_frame_color_,
+                                         inactive_frame_color_, active_alpha));
+  flags.setAntiAlias(true);
+  if (width_in_pixels_ > 0) {
+    canvas->Save();
+    float layer_scale =
+        target_widget()->GetNativeWindow()->layer()->device_scale_factor();
+    float canvas_scale = canvas->UndoDeviceScaleFactor();
+    gfx::Rect rect =
+        ScaleToEnclosingRect(GetPaintedBounds(), canvas_scale, canvas_scale);
+    rect.set_width(width_in_pixels_ * canvas_scale / layer_scale);
+    TileRoundRect(canvas, flags, rect,
+                  static_cast<int>(corner_radius * canvas_scale));
+    canvas->Restore();
+  } else {
+    TileRoundRect(canvas, flags, GetPaintedBounds(), corner_radius);
+  }
+  PaintTitleBar(canvas);
+}
+
+void DefaultFrameHeader::DoSetFrameColors(SkColor active_frame_color,
+                                          SkColor inactive_frame_color) {
+  set_button_color_mode(FrameCaptionButton::ColorMode::kDefault);
+  SetFrameColorsImpl(active_frame_color, inactive_frame_color);
+}
+
+AshLayoutSize DefaultFrameHeader::GetButtonLayoutSize() const {
+  return AshLayoutSize::kNonBrowserCaption;
+}
+
+SkColor DefaultFrameHeader::GetTitleColor() const {
+  return color_utils::IsDark(GetCurrentFrameColor()) ? kLightTitleTextColor
+                                                     : kTitleTextColor;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// DefaultFrameHeader, private:
 
 void DefaultFrameHeader::SetFrameColorsImpl(SkColor active_frame_color,
                                             SkColor inactive_frame_color) {
@@ -257,141 +144,13 @@ void DefaultFrameHeader::SetFrameColorsImpl(SkColor active_frame_color,
   }
 
   if (updated) {
-    UpdateAllButtonImages();
-    view_->SchedulePaint();
+    UpdateCaptionButtonColors();
+    view()->SchedulePaint();
   }
 }
 
-SkColor DefaultFrameHeader::GetActiveFrameColor() const {
-  return active_frame_color_;
-}
-
-SkColor DefaultFrameHeader::GetInactiveFrameColor() const {
-  return inactive_frame_color_;
-}
-
-SkColor DefaultFrameHeader::GetTitleColor() const {
-  return color_utils::IsDark(GetCurrentFrameColor()) ? kLightTitleTextColor
-                                                     : kTitleTextColor;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// gfx::AnimationDelegate overrides:
-
-void DefaultFrameHeader::AnimationProgressed(const gfx::Animation* animation) {
-  view_->SchedulePaintInRect(GetLocalBounds());
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// DefaultFrameHeader, private:
-
-void DefaultFrameHeader::PaintHighlightForInactiveRestoredWindow(
-    gfx::Canvas* canvas) {
-  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-  gfx::ImageSkia top_edge =
-      *rb.GetImageSkiaNamed(IDR_AURA_WINDOW_HEADER_SHADE_INACTIVE_TOP);
-  gfx::ImageSkia left_edge =
-      *rb.GetImageSkiaNamed(IDR_AURA_WINDOW_HEADER_SHADE_INACTIVE_LEFT);
-  gfx::ImageSkia right_edge =
-      *rb.GetImageSkiaNamed(IDR_AURA_WINDOW_HEADER_SHADE_INACTIVE_RIGHT);
-  gfx::ImageSkia bottom_edge =
-      *rb.GetImageSkiaNamed(IDR_AURA_WINDOW_HEADER_SHADE_INACTIVE_BOTTOM);
-
-  int left_edge_width = left_edge.width();
-  int right_edge_width = right_edge.width();
-  canvas->DrawImageInt(left_edge, 0, 0);
-  canvas->DrawImageInt(right_edge, view_->width() - right_edge_width, 0);
-  canvas->TileImageInt(top_edge, left_edge_width, 0,
-                       view_->width() - left_edge_width - right_edge_width,
-                       top_edge.height());
-
-  DCHECK_EQ(left_edge.height(), right_edge.height());
-  int bottom = left_edge.height();
-  int bottom_height = bottom_edge.height();
-  canvas->TileImageInt(bottom_edge, left_edge_width, bottom - bottom_height,
-                       view_->width() - left_edge_width - right_edge_width,
-                       bottom_height);
-}
-
-void DefaultFrameHeader::PaintTitleBar(gfx::Canvas* canvas) {
-  // The window icon is painted by its own views::View.
-  gfx::Rect title_bounds = GetAvailableTitleBounds();
-  title_bounds.set_x(view_->GetMirroredXForRect(title_bounds));
-  canvas->DrawStringRect(title_,
-                         views::NativeWidgetAura::GetWindowTitleFontList(),
-                         GetTitleColor(), title_bounds);
-}
-
-void DefaultFrameHeader::PaintHeaderContentSeparator(gfx::Canvas* canvas) {
-  gfx::ScopedCanvas scoped_canvas(canvas);
-  const float scale = canvas->UndoDeviceScaleFactor();
-  gfx::RectF rect(0, painted_height_ * scale - 1, view_->width() * scale, 1);
-  cc::PaintFlags flags;
-  flags.setColor((mode_ == MODE_ACTIVE) ? kHeaderContentSeparatorColor
-                                        : kHeaderContentSeparatorInactiveColor);
-  canvas->sk_canvas()->drawRect(gfx::RectFToSkRect(rect), flags);
-}
-
-void DefaultFrameHeader::UpdateAllButtonImages() {
-  caption_button_container_->SetBackgroundColor(GetCurrentFrameColor());
-  caption_button_container_->SetColorMode(button_color_mode_);
-  if (back_button_) {
-    back_button_->set_background_color(GetCurrentFrameColor());
-    back_button_->set_color_mode(button_color_mode_);
-    back_button_->SetImage(CAPTION_BUTTON_ICON_BACK,
-                           FrameCaptionButton::ANIMATE_NO,
-                           kWindowControlBackIcon);
-  }
-
-  caption_button_container_->SetButtonImage(CAPTION_BUTTON_ICON_MINIMIZE,
-                                            kWindowControlMinimizeIcon);
-
-  UpdateSizeButtonImages();
-
-  caption_button_container_->SetButtonImage(CAPTION_BUTTON_ICON_MENU,
-                                            kWindowControlMenuIcon);
-
-  caption_button_container_->SetButtonImage(CAPTION_BUTTON_ICON_CLOSE,
-                                            kWindowControlCloseIcon);
-
-  caption_button_container_->SetButtonImage(CAPTION_BUTTON_ICON_LEFT_SNAPPED,
-                                            kWindowControlLeftSnappedIcon);
-
-  caption_button_container_->SetButtonImage(CAPTION_BUTTON_ICON_RIGHT_SNAPPED,
-                                            kWindowControlRightSnappedIcon);
-}
-
-void DefaultFrameHeader::UpdateSizeButtonImages() {
-  // When |frame_| minimized, avoid tablet mode toggling to update caption
-  // buttons as it would cause mismatch beteen window state and size button.
-  if (frame_->IsMinimized())
-    return;
-  bool use_zoom_icons = caption_button_container_->model()->InZoomMode();
-  const gfx::VectorIcon& restore_icon =
-      use_zoom_icons ? kWindowControlDezoomIcon : kWindowControlRestoreIcon;
-  const gfx::VectorIcon& maximize_icon =
-      use_zoom_icons ? kWindowControlZoomIcon : kWindowControlMaximizeIcon;
-  const gfx::VectorIcon& icon = frame_->IsMaximized() || frame_->IsFullscreen()
-                                    ? restore_icon
-                                    : maximize_icon;
-  caption_button_container_->SetButtonImage(
-      CAPTION_BUTTON_ICON_MAXIMIZE_RESTORE, icon);
-}
-
-gfx::Rect DefaultFrameHeader::GetLocalBounds() const {
-  return gfx::Rect(view_->width(), painted_height_);
-}
-
-gfx::Rect DefaultFrameHeader::GetAvailableTitleBounds() const {
-  views::View* left_view = left_header_view_ ? left_header_view_ : back_button_;
-  return FrameHeaderUtil::GetAvailableTitleBounds(
-      left_view, caption_button_container_,
-      views::NativeWidgetAura::GetWindowTitleFontList(), GetHeaderHeight());
-}
-
-bool DefaultFrameHeader::UsesCustomFrameColors() const {
-  return active_frame_color_ != kDefaultFrameColor ||
-         inactive_frame_color_ != kDefaultFrameColor;
+SkColor DefaultFrameHeader::GetCurrentFrameColor() const {
+  return mode() == MODE_ACTIVE ? active_frame_color_ : inactive_frame_color_;
 }
 
 }  // namespace ash

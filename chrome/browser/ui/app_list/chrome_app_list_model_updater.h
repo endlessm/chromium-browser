@@ -10,17 +10,8 @@
 #include <string>
 #include <vector>
 
-#include "ash/public/interfaces/app_list.mojom.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/app_list/app_list_model_updater.h"
-
-namespace app_list {
-class SearchModel;
-}  // namespace app_list
-
-namespace ui {
-class MenuModel;
-}  // namespace ui
 
 class ChromeAppListItem;
 
@@ -50,7 +41,7 @@ class ChromeAppListModelUpdater : public AppListModelUpdater {
   void UpdateSearchBox(const base::string16& text,
                        bool initiated_by_user) override;
   void PublishSearchResults(
-      std::vector<std::unique_ptr<ChromeSearchResult>> results) override;
+      const std::vector<ChromeSearchResult*>& results) override;
 
   // Methods only used by ChromeAppListItem that talk to ash directly.
   void SetItemIcon(const std::string& id, const gfx::ImageSkia& icon) override;
@@ -65,6 +56,16 @@ class ChromeAppListModelUpdater : public AppListModelUpdater {
   void SetItemIsInstalling(const std::string& id, bool is_installing) override;
   void SetItemPercentDownloaded(const std::string& id,
                                 int32_t percent_downloaded) override;
+
+  // Methods only used by ChromeSearchResult that talk to ash directly.
+  void SetSearchResultMetadata(
+      const std::string& id,
+      ash::mojom::SearchResultMetadataPtr metadata) override;
+  void SetSearchResultIsInstalling(const std::string& id,
+                                   bool is_installing) override;
+  void SetSearchResultPercentDownloaded(const std::string& id,
+                                        int percent_downloaded) override;
+  void NotifySearchResultItemInstalled(const std::string& id) override;
 
   // Methods only for visiting Chrome items that never talk to ash.
   void ActivateChromeItem(const std::string& id, int event_flags) override;
@@ -82,12 +83,11 @@ class ChromeAppListModelUpdater : public AppListModelUpdater {
   bool SearchEngineIsGoogle() override;
   void GetIdToAppListIndexMap(GetIdToAppListIndexMapCallback callback) override;
   size_t BadgedItemCount() override;
-  ui::MenuModel* GetContextMenuModel(const std::string& id) override;
+  void GetContextMenuModel(const std::string& id,
+                           GetMenuModelCallback callback) override;
   void ContextMenuItemSelected(const std::string& id,
                                int command_id,
                                int event_flags) override;
-  ChromeSearchResult* FindSearchResult(const std::string& result_id) override;
-  ChromeSearchResult* GetResultByTitle(const std::string& title) override;
 
   // Methods for AppListSyncableService:
   void AddItemToOemFolder(
@@ -111,7 +111,6 @@ class ChromeAppListModelUpdater : public AppListModelUpdater {
   void SetDelegate(AppListModelUpdaterDelegate* delegate) override;
 
  private:
-  app_list::SearchModel* search_model_ = nullptr;
   // A map from a ChromeAppListItem's id to its unique pointer. This item set
   // matches the one in AppListModel.
   std::map<std::string, std::unique_ptr<ChromeAppListItem>> items_;

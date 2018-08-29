@@ -71,6 +71,10 @@ static cl::opt<unsigned> ImportInstrLimit(
     "import-instr-limit", cl::init(100), cl::Hidden, cl::value_desc("N"),
     cl::desc("Only import functions with less than N instructions"));
 
+static cl::opt<int> ImportCutoff(
+    "import-cutoff", cl::init(-1), cl::Hidden, cl::value_desc("N"),
+    cl::desc("Only import first N functions if N>=0 (default -1)"));
+
 static cl::opt<float>
     ImportInstrFactor("import-instr-evolution-factor", cl::init(0.7),
                       cl::Hidden, cl::value_desc("x"),
@@ -132,7 +136,7 @@ static cl::opt<bool>
 static std::unique_ptr<Module> loadFile(const std::string &FileName,
                                         LLVMContext &Context) {
   SMDiagnostic Err;
-  DEBUG(dbgs() << "Loading '" << FileName << "'\n");
+  LLVM_DEBUG(dbgs() << "Loading '" << FileName << "'\n");
   // Metadata isn't loaded until functions are imported, to minimize
   // the memory overhead.
   std::unique_ptr<Module> Result =
@@ -245,11 +249,12 @@ static void computeImportForReferencedGlobals(
     StringMap<FunctionImporter::ExportSetTy> *ExportLists) {
   for (auto &VI : Summary.refs()) {
     if (DefinedGVSummaries.count(VI.getGUID())) {
-      DEBUG(dbgs() << "Ref ignored! Target already in destination module.\n");
+      LLVM_DEBUG(
+          dbgs() << "Ref ignored! Target already in destination module.\n");
       continue;
     }
 
-    DEBUG(dbgs() << " ref -> " << VI.getGUID() << "\n");
+    LLVM_DEBUG(dbgs() << " ref -> " << VI.getGUID() << "\n");
 
     for (auto &RefSummary : VI.getSummaryList())
       if (RefSummary->getSummaryKind() == GlobalValueSummary::GlobalVarKind &&
@@ -276,17 +281,24 @@ static void computeImportForFunction(
     StringMap<FunctionImporter::ExportSetTy> *ExportLists = nullptr) {
   computeImportForReferencedGlobals(Summary, DefinedGVSummaries, ImportList,
                                     ExportLists);
+  static int ImportCount = 0;
   for (auto &Edge : Summary.calls()) {
     ValueInfo VI = Edge.first;
-    DEBUG(dbgs() << " edge -> " << VI.getGUID() << " Threshold:" << Threshold
-                 << "\n");
+    LLVM_DEBUG(dbgs() << " edge -> " << VI.getGUID()
+                      << " Threshold:" << Threshold << "\n");
+
+    if (ImportCutoff >= 0 && ImportCount >= ImportCutoff) {
+      LLVM_DEBUG(dbgs() << "ignored! import-cutoff value of " << ImportCutoff
+                        << " reached.\n");
+      continue;
+    }
 
     VI = updateValueInfoForIndirectCalls(Index, VI);
     if (!VI)
       continue;
 
     if (DefinedGVSummaries.count(VI.getGUID())) {
-      DEBUG(dbgs() << "ignored! Target already in destination module.\n");
+      LLVM_DEBUG(dbgs() << "ignored! Target already in destination module.\n");
       continue;
     }
 
@@ -306,7 +318,8 @@ static void computeImportForFunction(
     auto *CalleeSummary = selectCallee(Index, VI.getSummaryList(), NewThreshold,
                                        Summary.modulePath());
     if (!CalleeSummary) {
-      DEBUG(dbgs() << "ignored! No qualifying callee with summary found.\n");
+      LLVM_DEBUG(
+          dbgs() << "ignored! No qualifying callee with summary found.\n");
       continue;
     }
 
@@ -335,13 +348,15 @@ static void computeImportForFunction(
     /// a second time with a higher threshold. In this case, it is added back to
     /// the worklist with the new threshold.
     if (ProcessedThreshold && ProcessedThreshold >= AdjThreshold) {
-      DEBUG(dbgs() << "ignored! Target was already seen with Threshold "
-                   << ProcessedThreshold << "\n");
+      LLVM_DEBUG(dbgs() << "ignored! Target was already seen with Threshold "
+                        << ProcessedThreshold << "\n");
       continue;
     }
     bool PreviouslyImported = ProcessedThreshold != 0;
     // Mark this function as imported in this module, with the current Threshold
     ProcessedThreshold = AdjThreshold;
+
+    ImportCount++;
 
     // Make exports in the source module.
     if (ExportLists) {
@@ -385,7 +400,7 @@ static void ComputeImportForModule(
   // module
   for (auto &GVSummary : DefinedGVSummaries) {
     if (!Index.isGlobalValueLive(GVSummary.second)) {
-      DEBUG(dbgs() << "Ignores Dead GUID: " << GVSummary.first << "\n");
+      LLVM_DEBUG(dbgs() << "Ignores Dead GUID: " << GVSummary.first << "\n");
       continue;
     }
     auto *FuncSummary =
@@ -393,7 +408,7 @@ static void ComputeImportForModule(
     if (!FuncSummary)
       // Skip import for global variables
       continue;
-    DEBUG(dbgs() << "Initialize import for " << GVSummary.first << "\n");
+    LLVM_DEBUG(dbgs() << "Initialize import for " << GVSummary.first << "\n");
     computeImportForFunction(*FuncSummary, Index, ImportInstrLimit,
                              DefinedGVSummaries, Worklist, ImportList,
                              ExportLists);
@@ -437,7 +452,8 @@ getGUID(const std::pair<const GlobalValue::GUID, unsigned> &P) {
 }
 
 template <class T>
-unsigned numGlobalVarSummaries(const ModuleSummaryIndex &Index, T &Cont) {
+static unsigned numGlobalVarSummaries(const ModuleSummaryIndex &Index,
+                                      T &Cont) {
   unsigned NumGVS = 0;
   for (auto &V : Cont)
     if (isGlobalVarSummary(Index, getGUID(V)))
@@ -455,8 +471,8 @@ void llvm::ComputeCrossModuleImport(
   // For each module that has function defined, compute the import/export lists.
   for (auto &DefinedGVSummaries : ModuleToDefinedGVSummaries) {
     auto &ImportList = ImportLists[DefinedGVSummaries.first()];
-    DEBUG(dbgs() << "Computing import for Module '"
-                 << DefinedGVSummaries.first() << "'\n");
+    LLVM_DEBUG(dbgs() << "Computing import for Module '"
+                      << DefinedGVSummaries.first() << "'\n");
     ComputeImportForModule(DefinedGVSummaries.second, Index, ImportList,
                            &ExportLists);
   }
@@ -478,23 +494,23 @@ void llvm::ComputeCrossModuleImport(
   }
 
 #ifndef NDEBUG
-  DEBUG(dbgs() << "Import/Export lists for " << ImportLists.size()
-               << " modules:\n");
+  LLVM_DEBUG(dbgs() << "Import/Export lists for " << ImportLists.size()
+                    << " modules:\n");
   for (auto &ModuleImports : ImportLists) {
     auto ModName = ModuleImports.first();
     auto &Exports = ExportLists[ModName];
     unsigned NumGVS = numGlobalVarSummaries(Index, Exports);
-        DEBUG(dbgs() << "* Module " << ModName << " exports "
-                     << Exports.size() - NumGVS << " functions and " << NumGVS
-                     << " vars. Imports from "
-                     << ModuleImports.second.size() << " modules.\n");
+    LLVM_DEBUG(dbgs() << "* Module " << ModName << " exports "
+                      << Exports.size() - NumGVS << " functions and " << NumGVS
+                      << " vars. Imports from " << ModuleImports.second.size()
+                      << " modules.\n");
     for (auto &Src : ModuleImports.second) {
       auto SrcModName = Src.first();
       unsigned NumGVSPerMod = numGlobalVarSummaries(Index, Src.second);
-      DEBUG(dbgs() << " - " << Src.second.size() - NumGVSPerMod
-                   << " functions imported from " << SrcModName << "\n");
-      DEBUG(dbgs() << " - " << NumGVSPerMod << " global vars imported from "
-                   << SrcModName << "\n");
+      LLVM_DEBUG(dbgs() << " - " << Src.second.size() - NumGVSPerMod
+                        << " functions imported from " << SrcModName << "\n");
+      LLVM_DEBUG(dbgs() << " - " << NumGVSPerMod
+                        << " global vars imported from " << SrcModName << "\n");
     }
   }
 #endif
@@ -504,15 +520,15 @@ void llvm::ComputeCrossModuleImport(
 static void dumpImportListForModule(const ModuleSummaryIndex &Index,
                                     StringRef ModulePath,
                                     FunctionImporter::ImportMapTy &ImportList) {
-  DEBUG(dbgs() << "* Module " << ModulePath << " imports from "
-               << ImportList.size() << " modules.\n");
+  LLVM_DEBUG(dbgs() << "* Module " << ModulePath << " imports from "
+                    << ImportList.size() << " modules.\n");
   for (auto &Src : ImportList) {
     auto SrcModName = Src.first();
     unsigned NumGVSPerMod = numGlobalVarSummaries(Index, Src.second);
-    DEBUG(dbgs() << " - " << Src.second.size() - NumGVSPerMod
-                 << " functions imported from " << SrcModName << "\n");
-    DEBUG(dbgs() << " - " << NumGVSPerMod << " vars imported from "
-                 << SrcModName << "\n");
+    LLVM_DEBUG(dbgs() << " - " << Src.second.size() - NumGVSPerMod
+                      << " functions imported from " << SrcModName << "\n");
+    LLVM_DEBUG(dbgs() << " - " << NumGVSPerMod << " vars imported from "
+                      << SrcModName << "\n");
   }
 }
 #endif
@@ -527,7 +543,7 @@ void llvm::ComputeCrossModuleImportForModule(
   Index.collectDefinedFunctionsForModule(ModulePath, FunctionSummaryMap);
 
   // Compute the import list for this module.
-  DEBUG(dbgs() << "Computing import for Module '" << ModulePath << "'\n");
+  LLVM_DEBUG(dbgs() << "Computing import for Module '" << ModulePath << "'\n");
   ComputeImportForModule(FunctionSummaryMap, Index, ImportList);
 
 #ifndef NDEBUG
@@ -587,7 +603,7 @@ void llvm::computeDeadSymbols(
   for (const auto &Entry : Index)
     for (auto &S : Entry.second.SummaryList)
       if (S->isLive()) {
-        DEBUG(dbgs() << "Live root: " << Entry.first << "\n");
+        LLVM_DEBUG(dbgs() << "Live root: " << Entry.first << "\n");
         Worklist.push_back(ValueInfo(/*IsAnalysis=*/false, &Entry));
         ++LiveSymbols;
         break;
@@ -653,8 +669,8 @@ void llvm::computeDeadSymbols(
   Index.setWithGlobalValueDeadStripping();
 
   unsigned DeadSymbols = Index.size() - LiveSymbols;
-  DEBUG(dbgs() << LiveSymbols << " symbols Live, and " << DeadSymbols
-               << " symbols Dead \n");
+  LLVM_DEBUG(dbgs() << LiveSymbols << " symbols Live, and " << DeadSymbols
+                    << " symbols Dead \n");
   NumDeadSymbols += DeadSymbols;
   NumLiveSymbols += LiveSymbols;
 }
@@ -697,7 +713,8 @@ llvm::EmitImportsFiles(StringRef ModulePath, StringRef OutputFilename,
 }
 
 bool llvm::convertToDeclaration(GlobalValue &GV) {
-  DEBUG(dbgs() << "Converting to a declaration: `" << GV.getName() << "\n");
+  LLVM_DEBUG(dbgs() << "Converting to a declaration: `" << GV.getName()
+                    << "\n");
   if (Function *F = dyn_cast<Function>(&GV)) {
     F->deleteBody();
     F->clearMetadata();
@@ -773,8 +790,9 @@ void llvm::thinLTOResolveWeakForLinkerModule(
           NewLinkage == GlobalValue::WeakODRLinkage)
         GV.setVisibility(GlobalValue::HiddenVisibility);
 
-      DEBUG(dbgs() << "ODR fixing up linkage for `" << GV.getName() << "` from "
-                   << GV.getLinkage() << " to " << NewLinkage << "\n");
+      LLVM_DEBUG(dbgs() << "ODR fixing up linkage for `" << GV.getName()
+                        << "` from " << GV.getLinkage() << " to " << NewLinkage
+                        << "\n");
       GV.setLinkage(NewLinkage);
     }
     // Remove declarations from comdats, including available_externally
@@ -851,8 +869,8 @@ static Function *replaceAliasWithAliasee(Module *SrcModule, GlobalAlias *GA) {
 // index.
 Expected<bool> FunctionImporter::importFunctions(
     Module &DestModule, const FunctionImporter::ImportMapTy &ImportList) {
-  DEBUG(dbgs() << "Starting import for Module "
-               << DestModule.getModuleIdentifier() << "\n");
+  LLVM_DEBUG(dbgs() << "Starting import for Module "
+                    << DestModule.getModuleIdentifier() << "\n");
   unsigned ImportedCount = 0, ImportedGVCount = 0;
 
   IRMover Mover(DestModule);
@@ -885,9 +903,9 @@ Expected<bool> FunctionImporter::importFunctions(
         continue;
       auto GUID = F.getGUID();
       auto Import = ImportGUIDs.count(GUID);
-      DEBUG(dbgs() << (Import ? "Is" : "Not") << " importing function " << GUID
-                   << " " << F.getName() << " from "
-                   << SrcModule->getSourceFileName() << "\n");
+      LLVM_DEBUG(dbgs() << (Import ? "Is" : "Not") << " importing function "
+                        << GUID << " " << F.getName() << " from "
+                        << SrcModule->getSourceFileName() << "\n");
       if (Import) {
         if (Error Err = F.materialize())
           return std::move(Err);
@@ -907,9 +925,9 @@ Expected<bool> FunctionImporter::importFunctions(
         continue;
       auto GUID = GV.getGUID();
       auto Import = ImportGUIDs.count(GUID);
-      DEBUG(dbgs() << (Import ? "Is" : "Not") << " importing global " << GUID
-                   << " " << GV.getName() << " from "
-                   << SrcModule->getSourceFileName() << "\n");
+      LLVM_DEBUG(dbgs() << (Import ? "Is" : "Not") << " importing global "
+                        << GUID << " " << GV.getName() << " from "
+                        << SrcModule->getSourceFileName() << "\n");
       if (Import) {
         if (Error Err = GV.materialize())
           return std::move(Err);
@@ -921,9 +939,9 @@ Expected<bool> FunctionImporter::importFunctions(
         continue;
       auto GUID = GA.getGUID();
       auto Import = ImportGUIDs.count(GUID);
-      DEBUG(dbgs() << (Import ? "Is" : "Not") << " importing alias " << GUID
-                   << " " << GA.getName() << " from "
-                   << SrcModule->getSourceFileName() << "\n");
+      LLVM_DEBUG(dbgs() << (Import ? "Is" : "Not") << " importing alias "
+                        << GUID << " " << GA.getName() << " from "
+                        << SrcModule->getSourceFileName() << "\n");
       if (Import) {
         if (Error Err = GA.materialize())
           return std::move(Err);
@@ -932,9 +950,9 @@ Expected<bool> FunctionImporter::importFunctions(
         if (Error Err = Base->materialize())
           return std::move(Err);
         auto *Fn = replaceAliasWithAliasee(SrcModule.get(), &GA);
-        DEBUG(dbgs() << "Is importing aliasee fn " << Base->getGUID()
-              << " " << Base->getName() << " from "
-              << SrcModule->getSourceFileName() << "\n");
+        LLVM_DEBUG(dbgs() << "Is importing aliasee fn " << Base->getGUID()
+                          << " " << Base->getName() << " from "
+                          << SrcModule->getSourceFileName() << "\n");
         if (EnableImportMetadata) {
           // Add 'thinlto_src_module' metadata for statistics and debugging.
           Fn->setMetadata(
@@ -973,12 +991,12 @@ Expected<bool> FunctionImporter::importFunctions(
   NumImportedFunctions += (ImportedCount - ImportedGVCount);
   NumImportedGlobalVars += ImportedGVCount;
 
-  DEBUG(dbgs() << "Imported " << ImportedCount - ImportedGVCount
-               << " functions for Module " << DestModule.getModuleIdentifier()
-               << "\n");
-  DEBUG(dbgs() << "Imported " << ImportedGVCount
-               << " global variables for Module "
-               << DestModule.getModuleIdentifier() << "\n");
+  LLVM_DEBUG(dbgs() << "Imported " << ImportedCount - ImportedGVCount
+                    << " functions for Module "
+                    << DestModule.getModuleIdentifier() << "\n");
+  LLVM_DEBUG(dbgs() << "Imported " << ImportedGVCount
+                    << " global variables for Module "
+                    << DestModule.getModuleIdentifier() << "\n");
   return ImportedCount;
 }
 

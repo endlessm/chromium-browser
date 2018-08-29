@@ -9,6 +9,7 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
@@ -18,7 +19,6 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
-#include "content/public/common/result_codes.h"
 #include "content/public/common/url_constants.h"
 #include "content/shell/android/shell_descriptors.h"
 #include "content/shell/browser/shell.h"
@@ -30,12 +30,12 @@
 #include "net/base/filename_util.h"
 #include "net/base/net_module.h"
 #include "net/grit/net_resources.h"
+#include "services/service_manager/embedder/result_codes.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "url/gurl.h"
 
 #if defined(OS_ANDROID)
-#include "base/message_loop/message_loop.h"
 #include "components/crash/content/browser/child_process_crash_observer_android.h"
 #include "components/crash/content/browser/crash_dump_observer_android.h"
 #include "net/android/network_change_notifier_factory_android.h"
@@ -115,7 +115,7 @@ void ShellBrowserMainParts::PreMainMessageLoopStart() {
 
 void ShellBrowserMainParts::PostMainMessageLoopStart() {
 #if defined(OS_ANDROID)
-  base::MessageLoopForUI::current()->Start();
+  base::MessageLoopCurrentForUI::Get()->Start();
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -140,7 +140,7 @@ int ShellBrowserMainParts::PreEarlyInitialization() {
       new net::NetworkChangeNotifierFactoryAndroid());
 #endif
   SetupFieldTrials();
-  return RESULT_CODE_NORMAL_EXIT;
+  return service_manager::RESULT_CODE_NORMAL_EXIT;
 }
 
 void ShellBrowserMainParts::InitializeBrowserContexts() {
@@ -187,11 +187,12 @@ int ShellBrowserMainParts::PreCreateThreads() {
             crash_dumps_dir, kAndroidMinidumpDescriptor));
   }
 #endif
+
+  net_log_ = std::make_unique<ShellNetLog>("content_shell");
   return 0;
 }
 
 void ShellBrowserMainParts::PreMainMessageLoopRun() {
-  net_log_.reset(new ShellNetLog("content_shell"));
   InitializeBrowserContexts();
   Shell::Initialize();
   net::NetModule::SetResourceProvider(PlatformResourceProvider);

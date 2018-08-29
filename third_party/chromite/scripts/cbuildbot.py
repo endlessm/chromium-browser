@@ -555,6 +555,10 @@ def _CreateParser():
                                'method of MasterSlaveSyncCompletionStage, by '
                                'specifying a file with a pickle of the result '
                                'to be returned.')
+  group.add_option('--previous-build-state', type='string', default='',
+                   api=constants.REEXEC_API_PREVIOUS_BUILD_STATE,
+                   help='A base64-encoded BuildSummary object describing the '
+                        'previous build run on the same build machine.')
 
   parser.add_argument_group(group)
 
@@ -959,10 +963,6 @@ def main(argv):
     # ensures that sudo bits cannot outlive cbuildbot, that anything
     # cgroups would kill gets killed, etc.
     stack.Add(critical_section.ForkWatchdog)
-
-    if not options.buildbot:
-      build_config = config_lib.OverrideConfigForTrybot(
-          build_config, options)
 
     if options.mock_tree_status is not None:
       stack.Add(_ObjectMethodPatcher, tree_status, '_GetStatus',

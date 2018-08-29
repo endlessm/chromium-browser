@@ -13,6 +13,7 @@ import org.chromium.base.Callback;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.ui.OverscrollRefreshHandler;
 import org.chromium.ui.base.EventForwarder;
+import org.chromium.ui.base.ViewAndroidDelegate;
 import org.chromium.ui.base.WindowAndroid;
 
 /**
@@ -97,6 +98,20 @@ public interface WebContents extends Parcelable {
      */
     WindowAndroid getTopLevelNativeWindow();
 
+    /*
+     * Updates the native {@link WebContents} with a new window. This moves the NativeView and
+     * attached it to the new NativeWindow linked with the given {@link WindowAndroid}.
+     * TODO(jinsukkim): This should happen through view android tree instead.
+     * @param windowAndroid The new {@link WindowAndroid} for this {@link WebContents}.
+     */
+    void setTopLevelNativeWindow(WindowAndroid windowAndroid);
+
+    /**
+     * @return The {@link ViewAndroidDelegate} from which to get the container view.
+     *         This can be null.
+     */
+    ViewAndroidDelegate getViewAndroidDelegate();
+
     /**
      * Deletes the Web Contents object.
      */
@@ -171,9 +186,10 @@ public interface WebContents extends Parcelable {
 
     /**
      * ChildProcessImportance on Android allows controls of the renderer process bindings
-     * independent of visibility.
+     * independent of visibility. Note this does not affect importance of subframe processes.
+     * @param mainFrameImportance importance of the main frame process.
      */
-    void setImportance(@ChildProcessImportance int importance);
+    void setImportance(@ChildProcessImportance int mainFrameImportance);
 
     /**
      * Suspends all media players for this WebContents.  Note: There may still
@@ -193,16 +209,6 @@ public interface WebContents extends Parcelable {
      * Get the Background color from underlying RenderWidgetHost for this WebContent.
      */
     int getBackgroundColor();
-
-    /**
-     * Shows an interstitial page driven by the passed in delegate.
-     *
-     * @param url The URL being blocked by the interstitial.
-     * @param interstitialPageDelegateAndroid The delegate handling the interstitial.
-     */
-    @VisibleForTesting
-    void showInterstitialPage(
-            String url, long interstitialPageDelegateAndroid);
 
     /**
      * @return Whether the page is currently showing an interstitial, such as a bad HTTPS page.
@@ -457,6 +463,12 @@ public interface WebContents extends Parcelable {
      *                        (e.g. renderer for the currently selected tab)
      */
     void simulateRendererKilledForTesting(boolean wasOomProtected);
+
+    /**
+     * @return {@code true} if select popup is being shown.
+     */
+    @VisibleForTesting
+    boolean isSelectPopupVisibleForTesting();
 
     /**
      * Notifies the WebContents about the new persistent video status. It should be called whenever

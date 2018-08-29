@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "base/time/time.h"
 #include "chromeos/login/auth/key.h"
 
@@ -15,12 +16,7 @@ class PrefRegistrySimple;
 class PrefService;
 
 namespace chromeos {
-
-class PinStoragePrefsTestApi;
-
 namespace quick_unlock {
-
-class QuickUnlockStorage;
 
 class PinStoragePrefs {
  public:
@@ -36,7 +32,7 @@ class PinStoragePrefs {
 
   // Add a PIN unlock attempt count.
   void AddUnlockAttempt();
-  // Reset the number of unlock attempts to 0.
+  // Reset the unlock attempt count to 0. Not applicable to all implementations.
   void ResetUnlockAttemptCount();
   // Returns the number of unlock attempts.
   int unlock_attempt_count() const { return unlock_attempt_count_; }
@@ -48,21 +44,18 @@ class PinStoragePrefs {
   // Removes the pin; IsPinSet will return false.
   void RemovePin();
 
- private:
-  friend class chromeos::PinStoragePrefsTestApi;
-  friend class QuickUnlockStorage;
-
   // Is PIN entry currently available?
   bool IsPinAuthenticationAvailable() const;
 
   // Tries to authenticate the given pin. This will consume an unlock attempt.
   // This always returns false if IsPinAuthenticationAvailable returns false.
-  bool TryAuthenticatePin(const std::string& pin, Key::KeyType key_type);
+  bool TryAuthenticatePin(const Key& key);
 
   // Return the stored salt/secret. This is fetched directly from pref_service_.
   std::string PinSalt() const;
   std::string PinSecret() const;
 
+ private:
   PrefService* pref_service_;
   int unlock_attempt_count_ = 0;
 

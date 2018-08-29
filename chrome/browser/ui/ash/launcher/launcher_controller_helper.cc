@@ -10,6 +10,9 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/arc/arc_session_manager.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
+#include "chrome/browser/chromeos/crostini/crostini_registry_service.h"
+#include "chrome/browser/chromeos/crostini/crostini_registry_service_factory.h"
+#include "chrome/browser/chromeos/crostini/crostini_util.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/launch_util.h"
@@ -17,6 +20,7 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
+#include "chrome/browser/ui/app_list/internal_app/internal_app_metadata.h"
 #include "chrome/browser/ui/ash/launcher/arc_app_shelf_id.h"
 #include "chrome/browser/ui/ash/launcher/arc_app_window_launcher_controller.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -121,9 +125,23 @@ base::string16 LauncherControllerHelper::GetAppTitle(
       return base::UTF8ToUTF16(app_info->name);
   }
 
+  crostini::CrostiniRegistryService* registry_service =
+      crostini::CrostiniRegistryServiceFactory::GetForProfile(profile);
+  if (registry_service && registry_service->IsCrostiniShelfAppId(app_id)) {
+    std::unique_ptr<crostini::CrostiniRegistryService::Registration>
+        registration = registry_service->GetRegistration(app_id);
+    if (!registration)
+      return base::string16();
+    return base::UTF8ToUTF16(registration->Localize(registration->name));
+  }
+
   const extensions::Extension* extension = GetExtensionByID(profile, app_id);
   if (extension)
     return base::UTF8ToUTF16(extension->name());
+
+  if (app_list::IsInternalApp(app_id))
+    return app_list::GetInternalAppNameById(app_id);
+
   return base::string16();
 }
 
@@ -152,6 +170,14 @@ bool LauncherControllerHelper::IsValidIDForCurrentUser(
   if (arc_prefs && arc_prefs->IsRegistered(id))
     return true;
 
+  crostini::CrostiniRegistryService* registry_service =
+      crostini::CrostiniRegistryServiceFactory::GetForProfile(profile_);
+  if (registry_service && registry_service->IsCrostiniShelfAppId(id))
+    return registry_service->GetRegistration(id) != nullptr;
+
+  if (app_list::IsInternalApp(id))
+    return true;
+
   if (!GetExtensionByID(profile_, id))
     return false;
   if (id == arc::kPlayStoreAppId) {
@@ -178,6 +204,21 @@ void LauncherControllerHelper::LaunchApp(const ash::ShelfID& id,
   const ArcAppListPrefs* arc_prefs = GetArcAppListPrefs();
   if (arc_prefs && arc_prefs->IsRegistered(app_id)) {
     arc::LaunchApp(profile_, app_id, event_flags, display_id);
+    return;
+  }
+
+  crostini::CrostiniRegistryService* registry_service =
+      crostini::CrostiniRegistryServiceFactory::GetForProfile(profile_);
+  if (registry_service && registry_service->IsCrostiniShelfAppId(app_id)) {
+    // This expects a valid app list id, which is fine as we only get here for
+    // shelf entries associated with an actual app and not arbitrary Crostini
+    // windows.
+    LaunchCrostiniApp(profile_, app_id);
+    return;
+  }
+
+  if (app_list::IsInternalApp(app_id)) {
+    app_list::OpenInternalApp(app_id, profile_);
     return;
   }
 

@@ -19,10 +19,14 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <GLES3/gl3.h>
+#include <GL/glcorearb.h>
+#include <GL/glext.h>
 
 #if defined(_WIN32)
 #include <Windows.h>
 #endif
+
+#include <string.h>
 
 #define EXPECT_GLENUM_EQ(expected, actual) EXPECT_EQ(static_cast<GLenum>(expected), static_cast<GLenum>(actual))
 
@@ -204,10 +208,11 @@ protected:
 		EXPECT_EQ((EGLBoolean)EGL_TRUE, success);
 	}
 
-	struct ProgramHandles {
+	struct ProgramHandles
+	{
 		GLuint program;
-		GLuint vsShader;
-		GLuint fsShader;
+		GLuint vertexShader;
+		GLuint fragmentShader;
 	};
 
 	ProgramHandles createProgram(const std::string& vs, const std::string& fs)
@@ -216,34 +221,38 @@ protected:
 		ph.program = glCreateProgram();
 		EXPECT_GLENUM_EQ(GL_NONE, glGetError());
 
-		ph.vsShader = glCreateShader(GL_VERTEX_SHADER);
+		ph.vertexShader = glCreateShader(GL_VERTEX_SHADER);
 		const char* vsSource[1] = { vs.c_str() };
-		glShaderSource(ph.vsShader, 1, vsSource, nullptr);
-		glCompileShader(ph.vsShader);
+		glShaderSource(ph.vertexShader, 1, vsSource, nullptr);
+		glCompileShader(ph.vertexShader);
 		EXPECT_GLENUM_EQ(GL_NONE, glGetError());
 
-		ph.fsShader = glCreateShader(GL_FRAGMENT_SHADER);
+		ph.fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
 		const char* fsSource[1] = { fs.c_str() };
-		glShaderSource(ph.fsShader, 1, fsSource, nullptr);
-		glCompileShader(ph.fsShader);
+		glShaderSource(ph.fragmentShader, 1, fsSource, nullptr);
+		glCompileShader(ph.fragmentShader);
 		EXPECT_GLENUM_EQ(GL_NONE, glGetError());
 
-		glAttachShader(ph.program, ph.vsShader);
-		glAttachShader(ph.program, ph.fsShader);
+		glAttachShader(ph.program, ph.vertexShader);
+		glAttachShader(ph.program, ph.fragmentShader);
 		glLinkProgram(ph.program);
 		EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+		GLint linkStatus = 0;
+		glGetProgramiv(ph.program, GL_LINK_STATUS, &linkStatus);
+		EXPECT_NE(linkStatus, 0);
 
 		return ph;
 	}
 
 	void deleteProgram(const ProgramHandles& ph)
 	{
-		glDeleteShader(ph.fsShader);
-		glDeleteShader(ph.vsShader);
+		glDeleteShader(ph.fragmentShader);
+		glDeleteShader(ph.vertexShader);
 		glDeleteProgram(ph.program);
 	}
 
-	void drawQuad(GLuint program)
+	void drawQuad(GLuint program, const char* textureName = nullptr)
 	{
 		GLint prevProgram = 0;
 		glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
@@ -254,9 +263,12 @@ protected:
 		GLint posLoc = glGetAttribLocation(program, "position");
 		EXPECT_GLENUM_EQ(GL_NONE, glGetError());
 
-		GLint location = glGetUniformLocation(program, "tex");
-		ASSERT_NE(-1, location);
-		glUniform1i(location, 0);
+		if(textureName)
+		{
+			GLint location = glGetUniformLocation(program, textureName);
+			ASSERT_NE(-1, location);
+			glUniform1i(location, 0);
+		}
 
 		float vertices[18] = { -1.0f,  1.0f, 0.5f,
 		                       -1.0f, -1.0f, 0.5f,
@@ -280,6 +292,7 @@ protected:
 	EGLConfig getConfig() const { return config; }
 	EGLSurface getSurface() const { return surface; }
 	EGLContext getContext() const { return context; }
+
 private:
 	EGLDisplay display;
 	EGLConfig config;
@@ -306,28 +319,324 @@ TEST_F(SwiftShaderTest, Initalization)
 	Uninitialize();
 }
 
-// Note: GL_ARB_texture_rectangle is part of gl2extchromium.h in the Chromium repo
-// GL_ARB_texture_rectangle
-#ifndef GL_ARB_texture_rectangle
-#define GL_ARB_texture_rectangle 1
+// Test unrolling of a loop
+TEST_F(SwiftShaderTest, UnrollLoop)
+{
+	Initialize(3, false);
 
-#ifndef GL_SAMPLER_2D_RECT_ARB
-#define GL_SAMPLER_2D_RECT_ARB 0x8B63
-#endif
+	unsigned char green[4] = { 0, 255, 0, 255 };
 
-#ifndef GL_TEXTURE_BINDING_RECTANGLE_ARB
-#define GL_TEXTURE_BINDING_RECTANGLE_ARB 0x84F6
-#endif
+	const std::string vs =
+		"#version 300 es\n"
+		"in vec4 position;\n"
+		"out vec4 color;\n"
+		"void main()\n"
+		"{\n"
+		"   for(int i = 0; i < 4; i++)\n"
+		"   {\n"
+		"       color[i] = (i % 2 == 0) ? 0.0 : 1.0;\n"
+		"   }\n"
+		"	gl_Position = vec4(position.xy, 0.0, 1.0);\n"
+		"}\n";
 
-#ifndef GL_TEXTURE_RECTANGLE_ARB
-#define GL_TEXTURE_RECTANGLE_ARB 0x84F5
-#endif
+	const std::string fs =
+		"#version 300 es\n"
+		"precision mediump float;\n"
+		"in vec4 color;\n"
+		"out vec4 fragColor;\n"
+		"void main()\n"
+		"{\n"
+		"	fragColor = color;\n"
+		"}\n";
 
-#ifndef GL_MAX_RECTANGLE_TEXTURE_SIZE_ARB
-#define GL_MAX_RECTANGLE_TEXTURE_SIZE_ARB 0x84F8
-#endif
+	const ProgramHandles ph = createProgram(vs, fs);
 
-#endif  // GL_ARB_texture_rectangle
+	// Expect the info log to contain "unrolled". This is not a spec requirement.
+	GLsizei length = 0;
+	glGetShaderiv(ph.vertexShader, GL_INFO_LOG_LENGTH, &length);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+	EXPECT_NE(length, 0);
+	char *log = new char[length];
+	GLsizei written = 0;
+	glGetShaderInfoLog(ph.vertexShader, length, &written, log);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+	EXPECT_EQ(length, written + 1);
+	EXPECT_NE(strstr(log, "unrolled"), nullptr);
+	delete[] log;
+
+	glUseProgram(ph.program);
+
+	glClearColor(0.0, 0.0, 0.0, 0.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	drawQuad(ph.program);
+
+	deleteProgram(ph);
+
+	compareColor(green);
+
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	Uninitialize();
+}
+
+// Test non-canonical or non-deterministic loops do not get unrolled
+TEST_F(SwiftShaderTest, DynamicLoop)
+{
+	Initialize(3, false);
+
+	unsigned char green[4] = { 0, 255, 0, 255 };
+
+	const std::string vs =
+		"#version 300 es\n"
+		"in vec4 position;\n"
+		"out vec4 color;\n"
+		"void main()\n"
+		"{\n"
+		"   for(int i = 0; i < 4; )\n"
+		"   {\n"
+		"       color[i] = (i % 2 == 0) ? 0.0 : 1.0;\n"
+		"       i++;"
+		"   }\n"
+		"	gl_Position = vec4(position.xy, 0.0, 1.0);\n"
+		"}\n";
+
+	const std::string fs =
+		"#version 300 es\n"
+		"precision mediump float;\n"
+		"in vec4 color;\n"
+		"out vec4 fragColor;\n"
+		"void main()\n"
+		"{\n"
+		"   vec4 temp;"
+		"   for(int i = 0; i < 4; i++)\n"
+		"   {\n"
+		"       if(color.x < 0.0) return;"
+		"       temp[i] = color[i];\n"
+		"   }\n"
+		"	fragColor = vec4(temp[0], temp[1], temp[2], temp[3]);\n"
+		"}\n";
+
+	const ProgramHandles ph = createProgram(vs, fs);
+
+	// Expect the info logs to be empty. This is not a spec requirement.
+	GLsizei length = 0;
+	glGetShaderiv(ph.vertexShader, GL_INFO_LOG_LENGTH, &length);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+	EXPECT_EQ(length, 0);
+	glGetShaderiv(ph.fragmentShader, GL_INFO_LOG_LENGTH, &length);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+	EXPECT_EQ(length, 0);
+
+	glUseProgram(ph.program);
+
+	glClearColor(0.0, 0.0, 0.0, 0.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	drawQuad(ph.program);
+
+	deleteProgram(ph);
+
+	compareColor(green);
+
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	Uninitialize();
+}
+
+// Test dynamic indexing
+TEST_F(SwiftShaderTest, DynamicIndexing)
+{
+	Initialize(3, false);
+
+	unsigned char green[4] = { 0, 255, 0, 255 };
+
+	const std::string vs =
+		"#version 300 es\n"
+		"in vec4 position;\n"
+		"out float color[4];\n"
+		"void main()\n"
+		"{\n"
+		"   for(int i = 0; i < 4; )\n"
+		"   {\n"
+		"       int j = (gl_VertexID + i) % 4;\n"
+		"       color[j] = (j % 2 == 0) ? 0.0 : 1.0;\n"
+		"       i++;"
+		"   }\n"
+		"	gl_Position = vec4(position.xy, 0.0, 1.0);\n"
+		"}\n";
+
+	const std::string fs =
+		"#version 300 es\n"
+		"precision mediump float;\n"
+		"in float color[4];\n"
+		"out vec4 fragColor;\n"
+		"void main()\n"
+		"{\n"
+		"   float temp[4];"
+		"   for(int i = 0; i < 4; )\n"
+		"   {\n"
+		"       temp[i] = color[i];\n"
+		"       i++;"
+		"   }\n"
+		"	fragColor = vec4(temp[0], temp[1], temp[2], temp[3]);\n"
+		"}\n";
+
+	const ProgramHandles ph = createProgram(vs, fs);
+
+	glUseProgram(ph.program);
+
+	glClearColor(0.0, 0.0, 0.0, 0.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	drawQuad(ph.program);
+
+	deleteProgram(ph);
+
+	compareColor(green);
+
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	Uninitialize();
+}
+
+// Test sampling from a sampler in a struct as a function argument
+TEST_F(SwiftShaderTest, SamplerArrayInStructArrayAsFunctionArg)
+{
+	Initialize(3, false);
+
+	GLuint tex = 1;
+	glBindTexture(GL_TEXTURE_2D, tex);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	unsigned char green[4] = { 0, 255, 0, 255 };
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, green);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	const std::string vs =
+		"#version 300 es\n"
+		"in vec4 position;\n"
+		"void main()\n"
+		"{\n"
+		"	gl_Position = vec4(position.xy, 0.0, 1.0);\n"
+		"}\n";
+
+	const std::string fs =
+		"#version 300 es\n"
+		"precision mediump float;\n"
+		"struct SamplerStruct{ sampler2D tex[2]; };\n"
+		"vec4 doSample(in SamplerStruct s[2])\n"
+		"{\n"
+		"	return texture(s[1].tex[1], vec2(0.0));\n"
+		"}\n"
+		"uniform SamplerStruct samplerStruct[2];\n"
+		"out vec4 fragColor;\n"
+		"void main()\n"
+		"{\n"
+		"	fragColor = doSample(samplerStruct);\n"
+		"}\n";
+
+	const ProgramHandles ph = createProgram(vs, fs);
+
+	glUseProgram(ph.program);
+	GLint location = glGetUniformLocation(ph.program, "samplerStruct[1].tex[1]");
+	ASSERT_NE(-1, location);
+	glUniform1i(location, 0);
+
+	glClearColor(0.0, 0.0, 0.0, 0.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	drawQuad(ph.program, "samplerStruct[1].tex[1]");
+
+	deleteProgram(ph);
+
+	compareColor(green);
+
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	Uninitialize();
+}
+
+// Test sampling from a sampler in a struct as a function argument
+TEST_F(SwiftShaderTest, AtanCornerCases)
+{
+	Initialize(3, false);
+
+	const std::string vs =
+		"#version 300 es\n"
+		"in vec4 position;\n"
+		"void main()\n"
+		"{\n"
+		"	gl_Position = vec4(position.xy, 0.0, 1.0);\n"
+		"}\n";
+
+	const std::string fs =
+		"#version 300 es\n"
+		"precision mediump float;\n"
+		"const float kPI = 3.14159265358979323846;"
+		"uniform float positive_value;\n"
+		"uniform float negative_value;\n"
+		"out vec4 fragColor;\n"
+		"void main()\n"
+		"{\n"
+		"	// Should yield vec4(0, pi, pi/2, -pi/2)\n"
+		"	vec4 result = atan(vec4(0.0, 0.0, positive_value, negative_value),\n"
+		"	                   vec4(positive_value, negative_value, 0.0, 0.0));\n"
+		"	fragColor = (result / vec4(kPI)) + vec4(0.5, -0.5, 0.0, 1.0) + vec4(0.5 / 255.0);\n"
+		"}\n";
+
+	const ProgramHandles ph = createProgram(vs, fs);
+
+	glUseProgram(ph.program);
+	GLint positive_value = glGetUniformLocation(ph.program, "positive_value");
+	ASSERT_NE(-1, positive_value);
+	GLint negative_value = glGetUniformLocation(ph.program, "negative_value");
+	ASSERT_NE(-1, negative_value);
+	glUniform1f(positive_value,  1.0);
+	glUniform1f(negative_value, -1.0);
+
+	glClearColor(0.0, 0.0, 0.0, 0.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	drawQuad(ph.program, nullptr);
+
+	deleteProgram(ph);
+
+	unsigned char grey[4] = { 128, 128, 128, 128 };
+	compareColor(grey);
+
+	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
+
+	Uninitialize();
+}
+
+// Test conditions that should result in a GL_OUT_OF_MEMORY and not crash
+TEST_F(SwiftShaderTest, OutOfMemory)
+{
+	// Image sizes are assumed to fit in a 32-bit signed integer by the renderer,
+	// so test that we can't create a 2+ GiB image.
+	{
+		Initialize(3, false);
+
+		GLuint tex = 1;
+		glBindTexture(GL_TEXTURE_3D, tex);
+
+		const int width = 0xC2;
+		const int height = 0x541;
+		const int depth = 0x404;
+		glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA32F, width, height, depth, 0, GL_RGBA, GL_FLOAT, nullptr);
+		EXPECT_GLENUM_EQ(GL_OUT_OF_MEMORY, glGetError());
+
+		// The spec states that the GL is in an undefined state when GL_OUT_OF_MEMORY
+		// is returned, and the context must be recreated before attempting more rendering.
+		Uninitialize();
+	}
+}
 
 // Test using TexImage2D to define a rectangle texture
 
@@ -558,7 +867,7 @@ TEST_F(SwiftShaderTest, TextureRectangle_SamplingFromRectangle)
 	glClear(GL_COLOR_BUFFER_BIT);
 	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
 
-	drawQuad(ph.program);
+	drawQuad(ph.program, "tex");
 
 	deleteProgram(ph);
 
@@ -612,7 +921,7 @@ TEST_F(SwiftShaderTest, TextureRectangle_SamplingFromRectangleESSL3)
 	glClear(GL_COLOR_BUFFER_BIT);
 	EXPECT_GLENUM_EQ(GL_NONE, glGetError());
 
-	drawQuad(ph.program);
+	drawQuad(ph.program, "tex");
 
 	deleteProgram(ph);
 
@@ -976,7 +1285,7 @@ protected:
 
 		const ProgramHandles ph = createProgram(vs, fs);
 
-		drawQuad(ph.program);
+		drawQuad(ph.program, "tex");
 
 		deleteProgram(ph);
 

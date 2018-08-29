@@ -587,7 +587,9 @@ public:
   const SCEV *getUMaxExpr(const SCEV *LHS, const SCEV *RHS);
   const SCEV *getUMaxExpr(SmallVectorImpl<const SCEV *> &Operands);
   const SCEV *getSMinExpr(const SCEV *LHS, const SCEV *RHS);
+  const SCEV *getSMinExpr(SmallVectorImpl<const SCEV *> &Operands);
   const SCEV *getUMinExpr(const SCEV *LHS, const SCEV *RHS);
+  const SCEV *getUMinExpr(SmallVectorImpl<const SCEV *> &Operands);
   const SCEV *getUnknown(Value *V);
   const SCEV *getCouldNotCompute();
 
@@ -649,6 +651,10 @@ public:
   /// Promote the operands to the wider of the types using zero-extension, and
   /// then perform a umin operation with them.
   const SCEV *getUMinFromMismatchedTypes(const SCEV *LHS, const SCEV *RHS);
+
+  /// Promote the operands to the wider of the types using zero-extension, and
+  /// then perform a umin operation with them. N-ary function.
+  const SCEV *getUMinFromMismatchedTypes(SmallVectorImpl<const SCEV *> &Ops);
 
   /// Transitively follow the chain of pointer-type operands until reaching a
   /// SCEV that does not have a single pointer operand. This returns a
@@ -763,6 +769,12 @@ public:
   /// or if the loop is deleted.  This call is potentially expensive for large
   /// loop bodies.
   void forgetLoop(const Loop *L);
+
+  // This method invokes forgetLoop for the outermost loop of the given loop
+  // \p L, making ScalarEvolution forget about all this subtree. This needs to
+  // be done whenever we make a transform that may affect the parameters of the
+  // outer loop, such as exit counts for branches.
+  void forgetTopmostLoop(const Loop *L);
 
   /// This method should be called by the client when it has changed a value
   /// in a way that may effect its value, or which may disconnect it from a
@@ -1085,7 +1097,7 @@ private:
   /// The target library information for the target we are targeting.
   TargetLibraryInfo &TLI;
 
-  /// The tracker for @llvm.assume intrinsics in this function.
+  /// The tracker for \@llvm.assume intrinsics in this function.
   AssumptionCache &AC;
 
   /// The dominator tree.
@@ -1141,6 +1153,9 @@ private:
 
   /// Mark SCEVUnknown Phis currently being processed by getRangeRef.
   SmallPtrSet<const PHINode *, 6> PendingPhiRanges;
+
+  // Mark SCEVUnknown Phis currently being processed by isImpliedViaMerge.
+  SmallPtrSet<const PHINode *, 6> PendingMerges;
 
   /// Set to true by isLoopBackedgeGuardedByCond when we're walking the set of
   /// conditions dominating the backedge of a loop.
@@ -1666,6 +1681,18 @@ private:
                                           const SCEV *LHS, const SCEV *RHS,
                                           const SCEV *FoundLHS,
                                           const SCEV *FoundRHS);
+
+  /// Test whether the condition described by Pred, LHS, and RHS is true
+  /// whenever the condition described by Pred, FoundLHS, and FoundRHS is
+  /// true.
+  ///
+  /// This routine tries to figure out predicate for Phis which are SCEVUnknown
+  /// if it is true for every possible incoming value from their respective
+  /// basic blocks.
+  bool isImpliedViaMerge(ICmpInst::Predicate Pred,
+                         const SCEV *LHS, const SCEV *RHS,
+                         const SCEV *FoundLHS, const SCEV *FoundRHS,
+                         unsigned Depth);
 
   /// If we know that the specified Phi is in the header of its containing
   /// loop, we know the loop executes a constant number of times, and the PHI

@@ -142,6 +142,7 @@ private:
   bool HasSpilledSGPRs = false;
   bool HasSpilledVGPRs = false;
   bool HasNonSpillStackObjects = false;
+  bool IsStackRealigned = false;
 
   unsigned NumSpilledSGPRs = 0;
   unsigned NumSpilledVGPRs = 0;
@@ -425,7 +426,7 @@ public:
     return ArgInfo.PrivateSegmentWaveByteOffset.getRegister();
   }
 
-  /// \brief Returns the physical register reserved for use as the resource
+  /// Returns the physical register reserved for use as the resource
   /// descriptor for scratch accesses.
   unsigned getScratchRSrcReg() const {
     return ScratchRSrcReg;
@@ -493,6 +494,14 @@ public:
 
   void setHasNonSpillStackObjects(bool StackObject = true) {
     HasNonSpillStackObjects = StackObject;
+  }
+
+  bool isStackRealigned() const {
+    return IsStackRealigned;
+  }
+
+  void setIsStackRealigned(bool Realigned = true) {
+    IsStackRealigned = Realigned;
   }
 
   unsigned getNumSpilledSGPRs() const {
@@ -577,7 +586,7 @@ public:
     return DebuggerWorkGroupIDStackObjectIndices[Dim];
   }
 
-  /// \brief Sets stack object index for \p Dim's work group ID to \p ObjectIdx.
+  /// Sets stack object index for \p Dim's work group ID to \p ObjectIdx.
   void setDebuggerWorkGroupIDStackObjectIndex(unsigned Dim, int ObjectIdx) {
     assert(Dim < 3);
     DebuggerWorkGroupIDStackObjectIndices[Dim] = ObjectIdx;
@@ -589,7 +598,7 @@ public:
     return DebuggerWorkItemIDStackObjectIndices[Dim];
   }
 
-  /// \brief Sets stack object index for \p Dim's work item ID to \p ObjectIdx.
+  /// Sets stack object index for \p Dim's work item ID to \p ObjectIdx.
   void setDebuggerWorkItemIDStackObjectIndex(unsigned Dim, int ObjectIdx) {
     assert(Dim < 3);
     DebuggerWorkItemIDStackObjectIndices[Dim] = ObjectIdx;

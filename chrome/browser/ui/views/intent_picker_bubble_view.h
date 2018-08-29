@@ -75,6 +75,8 @@ class IntentPickerBubbleView : public LocationBarBubbleDelegateView,
   }
   static void CloseCurrentBubble();
 
+  const std::vector<AppInfo>& GetAppInfoForTesting() const { return app_info_; }
+
   // LocationBarBubbleDelegateView overrides:
   bool Accept() override;
   bool Cancel() override;
@@ -138,6 +140,9 @@ class IntentPickerBubbleView : public LocationBarBubbleDelegateView,
 
   // Calculate the next app to select given the current selection and |delta|.
   size_t CalculateNextAppIndex(int delta);
+
+  // Updates whether the persistence checkbox is enabled or not.
+  void UpdateCheckboxState();
 
   gfx::ImageSkia GetAppImageForTesting(size_t index);
   views::InkDropState GetInkDropStateForTesting(size_t);

@@ -27,6 +27,7 @@ class CheckKeyRequest;
 class FlushAndSignBootAttributesRequest;
 class GetBootAttributeRequest;
 class GetKeyDataRequest;
+class GetSupportedKeyPoliciesRequest;
 class MigrateToDircryptoRequest;
 class MountRequest;
 class RemoveFirmwareManagementParametersRequest;
@@ -285,6 +286,13 @@ class CHROMEOS_EXPORT CryptohomeClient : public DBusClient {
   // Calls the TpmAttestationIsPrepared dbus method.  The callback is called
   // when the operation completes.
   virtual void TpmAttestationIsPrepared(DBusMethodCallback<bool> callback) = 0;
+
+  // Requests the device's enrollment identifier (EID). The |callback| will be
+  // called with the EID. If |ignore_cache| is true, the EID is calculated
+  // even if the attestation database already contains a cached version.
+  virtual void TpmAttestationGetEnrollmentId(
+      bool ignore_cache,
+      DBusMethodCallback<TpmAttestationDataResult> callback) = 0;
 
   // Calls the TpmAttestationIsEnrolled dbus method.  The callback is called
   // when the operation completes.
@@ -578,6 +586,11 @@ class CHROMEOS_EXPORT CryptohomeClient : public DBusClient {
   virtual void NeedsDircryptoMigration(
       const cryptohome::Identification& cryptohome_id,
       DBusMethodCallback<bool> callback) = 0;
+
+  // Calls GetSupportedKeyPolicies to determine which type of keys can be added.
+  virtual void GetSupportedKeyPolicies(
+      const cryptohome::GetSupportedKeyPoliciesRequest& request,
+      DBusMethodCallback<cryptohome::BaseReply> callback) = 0;
 
  protected:
   // Create() should be used instead.

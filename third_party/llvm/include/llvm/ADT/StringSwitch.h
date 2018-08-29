@@ -20,7 +20,7 @@
 
 namespace llvm {
 
-/// \brief A switch()-like statement whose cases are string literals.
+/// A switch()-like statement whose cases are string literals.
 ///
 /// The StringSwitch class is a simple form of a switch() statement that
 /// determines whether the given string matches one of the given string
@@ -41,10 +41,10 @@ namespace llvm {
 /// \endcode
 template<typename T, typename R = T>
 class StringSwitch {
-  /// \brief The string we are matching.
+  /// The string we are matching.
   const StringRef Str;
 
-  /// \brief The pointer to the result of this switch statement, once known,
+  /// The pointer to the result of this switch statement, once known,
   /// null before that.
   Optional<T> Result;
 
@@ -55,16 +55,13 @@ public:
 
   // StringSwitch is not copyable.
   StringSwitch(const StringSwitch &) = delete;
-  void operator=(const StringSwitch &) = delete;
 
-  StringSwitch(StringSwitch &&other) {
-    *this = std::move(other);
-  }
-  StringSwitch &operator=(StringSwitch &&other) {
-    Str = std::move(other.Str);
-    Result = std::move(other.Result);
-    return *this;
-  }
+  // StringSwitch is not assignable due to 'Str' being 'const'.
+  void operator=(const StringSwitch &) = delete;
+  void operator=(StringSwitch &&other) = delete;
+
+  StringSwitch(StringSwitch &&other)
+    : Str(other.Str), Result(std::move(other.Result)) { }
 
   ~StringSwitch() = default;
 

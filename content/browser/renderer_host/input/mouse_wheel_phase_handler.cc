@@ -4,6 +4,7 @@
 
 #include "content/browser/renderer_host/input/mouse_wheel_phase_handler.h"
 
+#include "base/trace_event/trace_event.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_input_event_router.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
@@ -14,7 +15,7 @@ MouseWheelPhaseHandler::MouseWheelPhaseHandler(
     RenderWidgetHostViewBase* const host_view)
     : host_view_(host_view),
       mouse_wheel_end_dispatch_timeout_(kDefaultMouseWheelLatchingTransaction),
-      scroll_phase_state_(SCROLL_STATE_UNKNOWN) {}
+      touchpad_scroll_phase_state_(TOUCHPAD_SCROLL_STATE_UNKNOWN) {}
 
 void MouseWheelPhaseHandler::AddPhaseIfNeededAndScheduleEndEvent(
     blink::WebMouseWheelEvent& mouse_wheel_event,
@@ -23,6 +24,11 @@ void MouseWheelPhaseHandler::AddPhaseIfNeededAndScheduleEndEvent(
   bool has_phase =
       mouse_wheel_event.phase != blink::WebMouseWheelEvent::kPhaseNone ||
       mouse_wheel_event.momentum_phase != blink::WebMouseWheelEvent::kPhaseNone;
+  TRACE_EVENT2("input",
+               "MouseWheelPhaseHandler::AddPhaseIfNeededAndScheduleEndEvent",
+               "has_phase", has_phase, "touchpad_scroll_phase_state",
+               touchpad_scroll_phase_state_);
+
   if (has_phase) {
     if (mouse_wheel_event.phase == blink::WebMouseWheelEvent::kPhaseEnded) {
       // Don't send the wheel end event immediately, start a timer instead to
@@ -43,8 +49,8 @@ void MouseWheelPhaseHandler::AddPhaseIfNeededAndScheduleEndEvent(
       IgnorePendingWheelEndEvent();
     }
   } else {  // !has_phase
-    switch (scroll_phase_state_) {
-      case SCROLL_STATE_UNKNOWN: {
+    switch (touchpad_scroll_phase_state_) {
+      case TOUCHPAD_SCROLL_STATE_UNKNOWN: {
         mouse_wheel_event.has_synthetic_phase = true;
         // Break the latching when the location difference between the current
         // and the initial wheel event positions exceeds the maximum allowed
@@ -75,11 +81,11 @@ void MouseWheelPhaseHandler::AddPhaseIfNeededAndScheduleEndEvent(
         }
         break;
       }
-      case SCROLL_MAY_BEGIN:
+      case TOUCHPAD_SCROLL_MAY_BEGIN:
         mouse_wheel_event.phase = blink::WebMouseWheelEvent::kPhaseBegan;
-        scroll_phase_state_ = SCROLL_IN_PROGRESS;
+        touchpad_scroll_phase_state_ = TOUCHPAD_SCROLL_IN_PROGRESS;
         break;
-      case SCROLL_IN_PROGRESS:
+      case TOUCHPAD_SCROLL_IN_PROGRESS:
         mouse_wheel_event.phase = blink::WebMouseWheelEvent::kPhaseChanged;
         break;
       default:
@@ -94,44 +100,65 @@ void MouseWheelPhaseHandler::DispatchPendingWheelEndEvent() {
   if (!mouse_wheel_end_dispatch_timer_.IsRunning())
     return;
 
+  TRACE_EVENT_INSTANT0("input", "MouseWheelPhaseHandler Dispatched",
+                       TRACE_EVENT_SCOPE_THREAD);
   base::Closure task = mouse_wheel_end_dispatch_timer_.user_task();
   mouse_wheel_end_dispatch_timer_.Stop();
   std::move(task).Run();
 }
 
 void MouseWheelPhaseHandler::IgnorePendingWheelEndEvent() {
+  if (!mouse_wheel_end_dispatch_timer_.IsRunning())
+    return;
+
+  TRACE_EVENT_INSTANT0("input", "MouseWheelPhaseHandler Ignored",
+                       TRACE_EVENT_SCOPE_THREAD);
   mouse_wheel_end_dispatch_timer_.Stop();
 }
 
-void MouseWheelPhaseHandler::ResetScrollSequence() {
-  scroll_phase_state_ = SCROLL_STATE_UNKNOWN;
+void MouseWheelPhaseHandler::ResetTouchpadScrollSequence() {
+  TRACE_EVENT_INSTANT0("input", "MouseWheelPhaseHandler Reset",
+                       TRACE_EVENT_SCOPE_THREAD);
+  touchpad_scroll_phase_state_ = TOUCHPAD_SCROLL_STATE_UNKNOWN;
 }
 
-void MouseWheelPhaseHandler::SendWheelEndIfNeeded() {
-  if (scroll_phase_state_ == SCROLL_IN_PROGRESS) {
+void MouseWheelPhaseHandler::SendWheelEndForTouchpadScrollingIfNeeded() {
+  if (touchpad_scroll_phase_state_ == TOUCHPAD_SCROLL_IN_PROGRESS) {
     RenderWidgetHostImpl* widget_host = host_view_->host();
     if (!widget_host) {
-      ResetScrollSequence();
+      ResetTouchpadScrollSequence();
       return;
     }
 
     bool should_route_event = widget_host->delegate() &&
                               widget_host->delegate()->GetInputEventRouter();
+    TRACE_EVENT_INSTANT0("input", "MouseWheelPhaseHandler Sent touchpad end",
+                         TRACE_EVENT_SCOPE_THREAD);
     SendSyntheticWheelEventWithPhaseEnded(should_route_event);
   }
 
-  ResetScrollSequence();
+  ResetTouchpadScrollSequence();
 }
 
-void MouseWheelPhaseHandler::ScrollingMayBegin() {
-  scroll_phase_state_ = SCROLL_MAY_BEGIN;
+void MouseWheelPhaseHandler::TouchpadScrollingMayBegin() {
+  // End the timer-based wheel scroll sequence before starting a touchpad scroll
+  // sequence.
+  if (mouse_wheel_end_dispatch_timer_.IsRunning()) {
+    DCHECK_EQ(TOUCHPAD_SCROLL_STATE_UNKNOWN, touchpad_scroll_phase_state_);
+    DispatchPendingWheelEndEvent();
+  }
+
+  TRACE_EVENT_INSTANT0("input", "MouseWheelPhaseHandler May Begin",
+                       TRACE_EVENT_SCOPE_THREAD);
+  touchpad_scroll_phase_state_ = TOUCHPAD_SCROLL_MAY_BEGIN;
 }
 
 void MouseWheelPhaseHandler::SendSyntheticWheelEventWithPhaseEnded(
     bool should_route_event) {
+  TRACE_EVENT0("input",
+               "MouseWheelPhaseHandler::SendSyntheticWheelEventWithPhaseEnded");
   DCHECK(host_view_->wheel_scroll_latching_enabled());
-  last_mouse_wheel_event_.SetTimeStampSeconds(
-      ui::EventTimeStampToSeconds(ui::EventTimeForNow()));
+  last_mouse_wheel_event_.SetTimeStamp(ui::EventTimeForNow());
   last_mouse_wheel_event_.delta_x = 0;
   last_mouse_wheel_event_.delta_y = 0;
   last_mouse_wheel_event_.wheel_ticks_x = 0;
@@ -158,6 +185,8 @@ void MouseWheelPhaseHandler::SendSyntheticWheelEventWithPhaseEnded(
 void MouseWheelPhaseHandler::ScheduleMouseWheelEndDispatching(
     bool should_route_event,
     const base::TimeDelta timeout) {
+  TRACE_EVENT_INSTANT0("input", "MouseWheelPhaseHandler timer started",
+                       TRACE_EVENT_SCOPE_THREAD);
   mouse_wheel_end_dispatch_timer_.Start(
       FROM_HERE, timeout,
       base::Bind(&MouseWheelPhaseHandler::SendSyntheticWheelEventWithPhaseEnded,
@@ -169,7 +198,7 @@ bool MouseWheelPhaseHandler::IsWithinSlopRegion(
   // This function is called to check if breaking timer-based wheel scroll
   // latching sequence is needed or not, and timer-based wheel scroll latching
   // happens only when scroll state is unknown.
-  DCHECK(scroll_phase_state_ == SCROLL_STATE_UNKNOWN);
+  DCHECK(touchpad_scroll_phase_state_ == TOUCHPAD_SCROLL_STATE_UNKNOWN);
   gfx::Vector2dF current_wheel_location(wheel_event.PositionInWidget().x,
                                         wheel_event.PositionInWidget().y);
   return (current_wheel_location - first_wheel_location_).LengthSquared() <
@@ -181,7 +210,7 @@ bool MouseWheelPhaseHandler::HasDifferentModifiers(
   // This function is called to check if breaking timer-based wheel scroll
   // latching sequence is needed or not, and timer-based wheel scroll latching
   // happens only when scroll state is unknown.
-  DCHECK(scroll_phase_state_ == SCROLL_STATE_UNKNOWN);
+  DCHECK(touchpad_scroll_phase_state_ == TOUCHPAD_SCROLL_STATE_UNKNOWN);
   return wheel_event.GetModifiers() != initial_wheel_event_.GetModifiers();
 }
 
@@ -190,7 +219,7 @@ bool MouseWheelPhaseHandler::ShouldBreakLatchingDueToDirectionChange(
   // This function is called to check if breaking timer-based wheel scroll
   // latching sequence is needed or not, and timer-based wheel scroll latching
   // happens only when scroll state is unknown.
-  DCHECK(scroll_phase_state_ == SCROLL_STATE_UNKNOWN);
+  DCHECK(touchpad_scroll_phase_state_ == TOUCHPAD_SCROLL_STATE_UNKNOWN);
   if (first_scroll_update_ack_state_ != FirstScrollUpdateAckState::kNotConsumed)
     return false;
 

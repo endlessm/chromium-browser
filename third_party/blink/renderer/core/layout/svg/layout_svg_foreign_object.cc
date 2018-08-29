@@ -133,12 +133,25 @@ bool LayoutSVGForeignObject::NodeAtFloatPoint(HitTestResult& result,
     return false;
 
   FloatPoint local_point = local_transform.Inverse().MapPoint(point_in_parent);
-
   if (RuntimeEnabledFeatures::SlimmingPaintV175Enabled()) {
+    LayoutPoint point_in_foreign_object(local_point);
+    // |local_point| already includes the offset of the <foreignObject> element,
+    // but PaintLayer::HitTestLayer assumes it has not been.
+    point_in_foreign_object.MoveBy(-Layer()->LayoutBoxLocation());
     HitTestResult layer_result(result.GetHitTestRequest(),
-                               LayoutPoint(local_point));
+                               point_in_foreign_object);
     bool retval = Layer()->HitTest(layer_result);
+
+    // Preserve the "point in inner node frame" from the original request,
+    // since |layer_result| is a hit test rooted at the <foreignObject> element,
+    // not the frame, due to the constructor above using
+    // |point_in_foreign_object| as its "point in inner node frame".
+    // TODO(chrishtr): refactor the PaintLayer and HitTestResults code around
+    // this, to better support hit tests that don't start at frame boundaries.
+    LayoutPoint original_point_in_inner_node_frame =
+        result.PointInInnerNodeFrame();
     result = layer_result;
+    result.SetPointInInnerNodeFrame(original_point_in_inner_node_frame);
     return retval;
   }
 

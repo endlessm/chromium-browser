@@ -16,35 +16,23 @@
 
 namespace ntp_snippets {
 
-namespace {
-
-bool IsPhysicalWebEnabled() {
+// All platforms proxy for whether the simplified NTP is enabled.
+bool IsSimplifiedNtpEnabled() {
 #if defined(OS_ANDROID)
-  return base::FeatureList::IsEnabled(chrome::android::kPhysicalWebFeature);
-#else
-  return false;
-#endif  // OS_ANDROID
-}
-
-}  // namespace
-
-// All platforms proxy for whether NTP shortcuts are enabled.
-bool AreNtpShortcutsEnabled() {
-#if defined(OS_ANDROID)
-  return base::FeatureList::IsEnabled(chrome::android::kNTPShortcuts);
+  return base::FeatureList::IsEnabled(chrome::android::kSimplifiedNTP);
 #else
   return false;
 #endif  // OS_ANDROID
 }
 
 bool AreAssetDownloadsEnabled() {
-  return !AreNtpShortcutsEnabled() &&
+  return !IsSimplifiedNtpEnabled() &&
          base::FeatureList::IsEnabled(
              features::kAssetDownloadSuggestionsFeature);
 }
 
 bool AreOfflinePageDownloadsEnabled() {
-  return !AreNtpShortcutsEnabled() &&
+  return !IsSimplifiedNtpEnabled() &&
          base::FeatureList::IsEnabled(
              features::kOfflinePageDownloadSuggestionsFeature);
 }
@@ -53,28 +41,13 @@ bool IsDownloadsProviderEnabled() {
 }
 
 bool IsBookmarkProviderEnabled() {
-  return !AreNtpShortcutsEnabled() &&
+  return !IsSimplifiedNtpEnabled() &&
          base::FeatureList::IsEnabled(
              ntp_snippets::kBookmarkSuggestionsFeature);
 }
 
-bool IsRecentTabProviderEnabled() {
-  return !AreNtpShortcutsEnabled() &&
-         base::FeatureList::IsEnabled(
-             ntp_snippets::kRecentOfflineTabSuggestionsFeature) &&
-         base::FeatureList::IsEnabled(
-             offline_pages::kOffliningRecentPagesFeature);
-}
-
-bool IsPhysicalWebPageProviderEnabled() {
-  return !AreNtpShortcutsEnabled() &&
-         base::FeatureList::IsEnabled(
-             ntp_snippets::kPhysicalWebPageSuggestionsFeature) &&
-         IsPhysicalWebEnabled();
-}
-
 bool IsForeignSessionsProviderEnabled() {
-  return !AreNtpShortcutsEnabled() &&
+  return !IsSimplifiedNtpEnabled() &&
          base::FeatureList::IsEnabled(
              ntp_snippets::kForeignSessionsSuggestionsFeature);
 }

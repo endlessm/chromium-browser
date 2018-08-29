@@ -53,6 +53,7 @@ static Attribute::AttrKind parseAttrKind(StringRef Kind) {
       .Case("argmemonly", Attribute::ArgMemOnly)
       .Case("returns_twice", Attribute::ReturnsTwice)
       .Case("safestack", Attribute::SafeStack)
+      .Case("shadowcallstack", Attribute::ShadowCallStack)
       .Case("sanitize_address", Attribute::SanitizeAddress)
       .Case("sanitize_hwaddress", Attribute::SanitizeHWAddress)
       .Case("sanitize_memory", Attribute::SanitizeMemory)
@@ -74,8 +75,8 @@ static void addForcedAttributes(Function &F) {
 
     auto Kind = parseAttrKind(KV.second);
     if (Kind == Attribute::None) {
-      DEBUG(dbgs() << "ForcedAttribute: " << KV.second
-                   << " unknown or not handled!\n");
+      LLVM_DEBUG(dbgs() << "ForcedAttribute: " << KV.second
+                        << " unknown or not handled!\n");
       continue;
     }
     if (F.hasFnAttribute(Kind))

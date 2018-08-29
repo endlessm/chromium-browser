@@ -237,7 +237,7 @@ DeleteResult DeleteEmptyDir(const base::FilePath& path) {
 // Get the user data directory.
 base::FilePath GetUserDataDir(const Product& product) {
   base::FilePath path;
-  if (!PathService::Get(chrome::DIR_USER_DATA, &path))
+  if (!base::PathService::Get(chrome::DIR_USER_DATA, &path))
     return base::FilePath();
   return path;
 }
@@ -300,7 +300,7 @@ bool MoveSetupOutOfInstallFolder(const InstallerState& installer_state,
 
   base::FilePath tmp_dir;
   base::FilePath temp_file;
-  if (!PathService::Get(base::DIR_TEMP, &tmp_dir)) {
+  if (!base::PathService::Get(base::DIR_TEMP, &tmp_dir)) {
     NOTREACHED();
     return false;
   }
@@ -393,7 +393,7 @@ DeleteResult DeleteChromeFilesAndFolders(const InstallerState& installer_state,
 InstallStatus IsChromeActiveOrUserCancelled(
     const InstallerState& installer_state,
     const Product& product) {
-  int32_t exit_code = content::RESULT_CODE_NORMAL_EXIT;
+  int32_t exit_code = service_manager::RESULT_CODE_NORMAL_EXIT;
   base::CommandLine options(base::CommandLine::NO_PROGRAM);
   options.AppendSwitch(installer::switches::kUninstall);
 

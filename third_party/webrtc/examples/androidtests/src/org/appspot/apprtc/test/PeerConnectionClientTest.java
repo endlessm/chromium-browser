@@ -35,6 +35,7 @@ import org.junit.runner.RunWith;
 import org.webrtc.Camera1Enumerator;
 import org.webrtc.Camera2Enumerator;
 import org.webrtc.CameraEnumerator;
+import org.webrtc.EglBase;
 import org.webrtc.IceCandidate;
 import org.webrtc.MediaCodecVideoEncoder;
 import org.webrtc.PeerConnection;
@@ -43,7 +44,6 @@ import org.webrtc.SessionDescription;
 import org.webrtc.StatsReport;
 import org.webrtc.VideoCapturer;
 import org.webrtc.VideoFrame;
-import org.webrtc.VideoRenderer;
 import org.webrtc.VideoSink;
 
 @RunWith(AndroidJUnit4.class)
@@ -86,7 +86,7 @@ public class PeerConnectionClientTest implements PeerConnectionEvents {
   private final Object closeEvent = new Object();
 
   // Mock renderer implementation.
-  private static class MockRenderer implements VideoRenderer.Callbacks {
+  private static class MockRenderer implements VideoSink {
     // These are protected by 'this' since we gets called from worker threads.
     private String rendererName;
     private boolean renderFrameCalled = false;
@@ -110,17 +110,17 @@ public class PeerConnectionClientTest implements PeerConnectionEvents {
     @Override
     // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
     @SuppressWarnings("NoSynchronizedMethodCheck")
-    public synchronized void renderFrame(VideoRenderer.I420Frame frame) {
+    public synchronized void onFrame(VideoFrame frame) {
       if (!renderFrameCalled) {
         if (rendererName != null) {
-          Log.d(TAG, rendererName + " render frame: " + frame.rotatedWidth() + " x "
-                  + frame.rotatedHeight());
+          Log.d(TAG,
+              rendererName + " render frame: " + frame.getRotatedWidth() + " x "
+                  + frame.getRotatedHeight());
         } else {
-          Log.d(TAG, "Render frame: " + frame.rotatedWidth() + " x " + frame.rotatedHeight());
+          Log.d(TAG, "Render frame: " + frame.getRotatedWidth() + " x " + frame.getRotatedHeight());
         }
       }
       renderFrameCalled = true;
-      VideoRenderer.renderFrameDone(frame);
       doneRendering.countDown();
     }
 
@@ -315,13 +315,14 @@ public class PeerConnectionClientTest implements PeerConnectionEvents {
             null, null, null, // clientId, wssUrl, wssPostUrl.
             null, null); // offerSdp, iceCandidates.
 
+    final EglBase eglBase = EglBase.create();
     PeerConnectionClient client =
-        new PeerConnectionClient(InstrumentationRegistry.getTargetContext());
+        new PeerConnectionClient(InstrumentationRegistry.getTargetContext(), eglBase,
+            peerConnectionParameters, this /* PeerConnectionEvents */);
     PeerConnectionFactory.Options options = new PeerConnectionFactory.Options();
     options.networkIgnoreMask = 0;
     options.disableNetworkMonitor = true;
-    client.setPeerConnectionFactoryOptions(options);
-    client.createPeerConnectionFactory(peerConnectionParameters, this);
+    client.createPeerConnectionFactory(options);
     client.createPeerConnection(localRenderer, remoteRenderer, videoCapturer, signalingParameters);
     client.createOffer();
     return client;

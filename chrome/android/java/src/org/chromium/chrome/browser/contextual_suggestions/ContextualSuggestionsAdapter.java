@@ -39,9 +39,7 @@ class ContextualSuggestionsAdapter
                     return new ContextualSuggestionCardViewHolder(mRecyclerView,
                             mContextMenuManager, mUiDelegate, mUiConfig,
                             OfflinePageBridge.getForProfile(mProfile));
-                case ItemViewType.FOOTER:
-                    return new ContextualSuggestionsFooter.ViewHolder(
-                            mRecyclerView, mUiDelegate.getNavigationDelegate());
+
                 default:
                     assert false;
                     return null;
@@ -76,7 +74,7 @@ class ContextualSuggestionsAdapter
     ContextualSuggestionsAdapter(Context context, Profile profile, UiConfig uiConfig,
             SuggestionsUiDelegate uiDelegate, ContextualSuggestionsModel model,
             ContextMenuManager contextMenuManager) {
-        super(model.mClusterListObservable);
+        super(model.mClusterListObservable, null);
 
         setViewBinder(new ContextualSuggestionsViewBinder());
 

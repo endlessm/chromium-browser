@@ -10,6 +10,7 @@
 #include "MCTargetDesc/RISCVBaseInfo.h"
 #include "MCTargetDesc/RISCVMCExpr.h"
 #include "MCTargetDesc/RISCVMCTargetDesc.h"
+#include "MCTargetDesc/RISCVTargetStreamer.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/MCContext.h"
@@ -26,12 +27,21 @@
 
 using namespace llvm;
 
+// Include the auto-generated portion of the compress emitter.
+#define GEN_COMPRESS_INSTR
+#include "RISCVGenCompressInstEmitter.inc"
+
 namespace {
 struct RISCVOperand;
 
 class RISCVAsmParser : public MCTargetAsmParser {
   SMLoc getLoc() const { return getParser().getTok().getLoc(); }
   bool isRV64() const { return getSTI().hasFeature(RISCV::Feature64Bit); }
+
+  RISCVTargetStreamer &getTargetStreamer() {
+    MCTargetStreamer &TS = *getParser().getStreamer().getTargetStreamer();
+    return static_cast<RISCVTargetStreamer &>(TS);
+  }
 
   unsigned validateTargetOperandClass(MCParsedAsmOperand &Op,
                                       unsigned Kind) override;
@@ -61,8 +71,25 @@ class RISCVAsmParser : public MCTargetAsmParser {
   OperandMatchResultTy parseMemOpBaseReg(OperandVector &Operands);
   OperandMatchResultTy parseOperandWithModifier(OperandVector &Operands);
 
-  bool parseOperand(OperandVector &Operands);
+  bool parseOperand(OperandVector &Operands, bool ForceImmediate);
 
+  bool parseDirectiveOption();
+
+  void setFeatureBits(uint64_t Feature, StringRef FeatureString) {
+    if (!(getSTI().getFeatureBits()[Feature])) {
+      MCSubtargetInfo &STI = copySTI();
+      setAvailableFeatures(
+          ComputeAvailableFeatures(STI.ToggleFeature(FeatureString)));
+    }
+  }
+
+  void clearFeatureBits(uint64_t Feature, StringRef FeatureString) {
+    if (getSTI().getFeatureBits()[Feature]) {
+      MCSubtargetInfo &STI = copySTI();
+      setAvailableFeatures(
+          ComputeAvailableFeatures(STI.ToggleFeature(FeatureString)));
+    }
+  }
 public:
   enum RISCVMatchResultTy {
     Match_Dummy = FIRST_TARGET_MATCH_RESULT_TY,
@@ -78,6 +105,10 @@ public:
   RISCVAsmParser(const MCSubtargetInfo &STI, MCAsmParser &Parser,
                  const MCInstrInfo &MII, const MCTargetOptions &Options)
       : MCTargetAsmParser(Options, STI, MII) {
+    Parser.addAliasForDirective(".half", ".2byte");
+    Parser.addAliasForDirective(".hword", ".2byte");
+    Parser.addAliasForDirective(".word", ".4byte");
+    Parser.addAliasForDirective(".dword", ".8byte");
     setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
   }
 };
@@ -166,6 +197,16 @@ public:
   }
 
   // Predicate methods for AsmOperands defined in RISCVInstrInfo.td
+
+  bool isBareSymbol() const {
+    int64_t Imm;
+    RISCVMCExpr::VariantKind VK;
+    // Must be of 'immediate' type but not a constant.
+    if (!isImm() || evaluateConstantImm(Imm, VK))
+      return false;
+    return RISCVAsmParser::classifySymbolRef(getImm(), VK, Imm) &&
+           VK == RISCVMCExpr::VK_RISCV_None;
+  }
 
   /// Return true if the operand is a valid for the fence instruction e.g.
   /// ('iorw').
@@ -595,10 +636,14 @@ bool RISCVAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   switch (MatchInstructionImpl(Operands, Inst, ErrorInfo, MatchingInlineAsm)) {
   default:
     break;
-  case Match_Success:
+  case Match_Success: {
+    MCInst CInst;
+    bool Res = compressInst(CInst, Inst, getSTI(), Out.getContext());
+    CInst.setLoc(IDLoc);
     Inst.setLoc(IDLoc);
-    Out.EmitInstruction(Inst, getSTI());
+    Out.EmitInstruction((Res ? CInst : Inst), getSTI());
     return false;
+  }
   case Match_MissingFeature:
     return Error(IDLoc, "instruction use requires an option to be enabled");
   case Match_MnemonicFail:
@@ -694,6 +739,10 @@ bool RISCVAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     return Error(
         ErrorLoc,
         "operand must be a valid floating point rounding mode mnemonic");
+  }
+  case Match_InvalidBareSymbol: {
+    SMLoc ErrorLoc = ((RISCVOperand &)*Operands[ErrorInfo]).getStartLoc();
+    return Error(ErrorLoc, "operand must be a bare symbol name");
   }
   }
 
@@ -859,12 +908,15 @@ RISCVAsmParser::parseMemOpBaseReg(OperandVector &Operands) {
   return MatchOperand_Success;
 }
 
-/// Looks at a token type and creates the relevant operand
-/// from this information, adding to Operands.
-/// If operand was parsed, returns false, else true.
-bool RISCVAsmParser::parseOperand(OperandVector &Operands) {
-  // Attempt to parse token as register
-  if (parseRegister(Operands, true) == MatchOperand_Success)
+/// Looks at a token type and creates the relevant operand from this
+/// information, adding to Operands. If operand was parsed, returns false, else
+/// true. If ForceImmediate is true, no attempt will be made to parse the
+/// operand as a register, which is needed for pseudoinstructions such as
+/// call.
+bool RISCVAsmParser::parseOperand(OperandVector &Operands,
+                                  bool ForceImmediate) {
+  // Attempt to parse token as register, unless ForceImmediate.
+  if (!ForceImmediate && parseRegister(Operands, true) == MatchOperand_Success)
     return false;
 
   // Attempt to parse token as an immediate
@@ -891,7 +943,8 @@ bool RISCVAsmParser::ParseInstruction(ParseInstructionInfo &Info,
     return false;
 
   // Parse first operand
-  if (parseOperand(Operands))
+  bool ForceImmediate = (Name == "call" || Name == "tail");
+  if (parseOperand(Operands, ForceImmediate))
     return true;
 
   // Parse until end of statement, consuming commas between operands
@@ -900,7 +953,7 @@ bool RISCVAsmParser::ParseInstruction(ParseInstructionInfo &Info,
     getLexer().Lex();
 
     // Parse next operand
-    if (parseOperand(Operands))
+    if (parseOperand(Operands, false))
       return true;
   }
 
@@ -945,7 +998,7 @@ bool RISCVAsmParser::classifySymbolRef(const MCExpr *Expr,
       isa<MCSymbolRefExpr>(BE->getRHS()))
     return true;
 
-  // See if the addend is is a constant, otherwise there's more going
+  // See if the addend is a constant, otherwise there's more going
   // on here than we can deal with.
   auto AddendExpr = dyn_cast<MCConstantExpr>(BE->getRHS());
   if (!AddendExpr)
@@ -959,7 +1012,60 @@ bool RISCVAsmParser::classifySymbolRef(const MCExpr *Expr,
   return Kind != RISCVMCExpr::VK_RISCV_Invalid;
 }
 
-bool RISCVAsmParser::ParseDirective(AsmToken DirectiveID) { return true; }
+bool RISCVAsmParser::ParseDirective(AsmToken DirectiveID) {
+  // This returns false if this function recognizes the directive
+  // regardless of whether it is successfully handles or reports an
+  // error. Otherwise it returns true to give the generic parser a
+  // chance at recognizing it.
+  StringRef IDVal = DirectiveID.getString();
+
+  if (IDVal == ".option")
+    return parseDirectiveOption();
+
+  return true;
+}
+
+bool RISCVAsmParser::parseDirectiveOption() {
+  MCAsmParser &Parser = getParser();
+  // Get the option token.
+  AsmToken Tok = Parser.getTok();
+  // At the moment only identifiers are supported.
+  if (Tok.isNot(AsmToken::Identifier))
+    return Error(Parser.getTok().getLoc(),
+                 "unexpected token, expected identifier");
+
+  StringRef Option = Tok.getIdentifier();
+
+  if (Option == "rvc") {
+    getTargetStreamer().emitDirectiveOptionRVC();
+
+    Parser.Lex();
+    if (Parser.getTok().isNot(AsmToken::EndOfStatement))
+      return Error(Parser.getTok().getLoc(),
+                   "unexpected token, expected end of statement");
+
+    setFeatureBits(RISCV::FeatureStdExtC, "c");
+    return false;
+  }
+
+  if (Option == "norvc") {
+    getTargetStreamer().emitDirectiveOptionNoRVC();
+
+    Parser.Lex();
+    if (Parser.getTok().isNot(AsmToken::EndOfStatement))
+      return Error(Parser.getTok().getLoc(),
+                   "unexpected token, expected end of statement");
+
+    clearFeatureBits(RISCV::FeatureStdExtC, "c");
+    return false;
+  }
+
+  // Unknown option.
+  Warning(Parser.getTok().getLoc(),
+          "unknown option, expected 'rvc' or 'norvc'");
+  Parser.eatToEndOfStatement();
+  return false;
+}
 
 extern "C" void LLVMInitializeRISCVAsmParser() {
   RegisterMCAsmParser<RISCVAsmParser> X(getTheRISCV32Target());

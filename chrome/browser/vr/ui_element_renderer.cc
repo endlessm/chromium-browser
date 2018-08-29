@@ -13,8 +13,9 @@
 #include "chrome/browser/vr/renderers/base_quad_renderer.h"
 #include "chrome/browser/vr/renderers/base_renderer.h"
 #include "chrome/browser/vr/renderers/external_textured_quad_renderer.h"
-#include "chrome/browser/vr/renderers/gradient_quad_renderer.h"
+#include "chrome/browser/vr/renderers/radial_gradient_quad_renderer.h"
 #include "chrome/browser/vr/renderers/textured_quad_renderer.h"
+#include "chrome/browser/vr/renderers/transparent_quad_renderer.h"
 #include "chrome/browser/vr/renderers/web_vr_renderer.h"
 #include "chrome/browser/vr/vr_gl_util.h"
 #include "ui/gfx/geometry/point3_f.h"
@@ -38,8 +39,10 @@ UiElementRenderer::~UiElementRenderer() = default;
 void UiElementRenderer::Init() {
   external_textured_quad_renderer_ =
       std::make_unique<ExternalTexturedQuadRenderer>();
+  transparent_quad_renderer_ = std::make_unique<TransparentQuadRenderer>();
   textured_quad_renderer_ = std::make_unique<TexturedQuadRenderer>();
-  gradient_quad_renderer_ = std::make_unique<GradientQuadRenderer>();
+  radial_gradient_quad_renderer_ =
+      std::make_unique<RadialGradientQuadRenderer>();
   webvr_renderer_ = std::make_unique<WebVrRenderer>();
   reticle_renderer_ = std::make_unique<Reticle::Renderer>();
   laser_renderer_ = std::make_unique<Laser::Renderer>();
@@ -56,10 +59,11 @@ void UiElementRenderer::DrawTexturedQuad(
     int overlay_texture_data_handle,
     TextureLocation texture_location,
     const gfx::Transform& model_view_proj_matrix,
-    const gfx::RectF& copy_rect,
+    const gfx::RectF& clip_rect,
     float opacity,
     const gfx::SizeF& element_size,
-    float corner_radius) {
+    float corner_radius,
+    bool blend) {
   TRACE_EVENT0("gpu", "UiElementRenderer::DrawTexturedQuad");
   // TODO(vollick): handle drawing this degenerate situation crbug.com/768922
   if (corner_radius * 2.0 > element_size.width() ||
@@ -69,37 +73,41 @@ void UiElementRenderer::DrawTexturedQuad(
   TexturedQuadRenderer* renderer = texture_location == kTextureLocationExternal
                                        ? external_textured_quad_renderer_.get()
                                        : textured_quad_renderer_.get();
+  if (!texture_data_handle && !overlay_texture_data_handle) {
+    // If we're blending, why are we even drawing a transparent quad?
+    DCHECK(!blend);
+    renderer = transparent_quad_renderer_.get();
+  }
   FlushIfNecessary(renderer);
   renderer->AddQuad(texture_data_handle, overlay_texture_data_handle,
-                    model_view_proj_matrix, copy_rect, opacity, element_size,
-                    corner_radius);
+                    model_view_proj_matrix, clip_rect, opacity, element_size,
+                    corner_radius, blend);
 }
 
-void UiElementRenderer::DrawGradientQuad(
+void UiElementRenderer::DrawRadialGradientQuad(
     const gfx::Transform& model_view_proj_matrix,
     const SkColor edge_color,
     const SkColor center_color,
+    const gfx::RectF& clip_rect,
     float opacity,
     const gfx::SizeF& element_size,
     const CornerRadii& radii) {
-  TRACE_EVENT0("gpu", "UiElementRenderer::DrawGradientQuad");
-  FlushIfNecessary(gradient_quad_renderer_.get());
-  gradient_quad_renderer_->Draw(model_view_proj_matrix, edge_color,
-                                center_color, opacity, element_size, radii);
+  TRACE_EVENT0("gpu", "UiElementRenderer::DrawRadialGradientQuad");
+  FlushIfNecessary(radial_gradient_quad_renderer_.get());
+  radial_gradient_quad_renderer_->Draw(model_view_proj_matrix, edge_color,
+                                       center_color, clip_rect, opacity,
+                                       element_size, radii);
 }
 
 void UiElementRenderer::DrawGradientGridQuad(
     const gfx::Transform& model_view_proj_matrix,
-    const SkColor edge_color,
-    const SkColor center_color,
     const SkColor grid_color,
     int gridline_count,
     float opacity) {
   TRACE_EVENT0("gpu", "UiElementRenderer::DrawGradientGridQuad");
   FlushIfNecessary(gradient_grid_renderer_.get());
-  gradient_grid_renderer_->Draw(model_view_proj_matrix, edge_color,
-                                center_color, grid_color, gridline_count,
-                                opacity);
+  gradient_grid_renderer_->Draw(model_view_proj_matrix, grid_color,
+                                gridline_count, opacity);
 }
 
 void UiElementRenderer::DrawController(
@@ -126,9 +134,12 @@ void UiElementRenderer::DrawReticle(
   reticle_renderer_->Draw(opacity, model_view_proj_matrix);
 }
 
-void UiElementRenderer::DrawWebVr(int texture_data_handle, float y_sign) {
+void UiElementRenderer::DrawWebVr(int texture_data_handle,
+                                  const float (&uv_transform)[16],
+                                  float xborder,
+                                  float yborder) {
   FlushIfNecessary(webvr_renderer_.get());
-  webvr_renderer_->Draw(texture_data_handle, y_sign);
+  webvr_renderer_->Draw(texture_data_handle, uv_transform, xborder, yborder);
 }
 
 void UiElementRenderer::DrawShadow(const gfx::Transform& model_view_proj_matrix,

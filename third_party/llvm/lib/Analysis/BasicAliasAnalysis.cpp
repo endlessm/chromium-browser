@@ -132,7 +132,18 @@ static bool isNonEscapingLocalObject(const Value *V) {
 /// Returns true if the pointer is one which would have been considered an
 /// escape by isNonEscapingLocalObject.
 static bool isEscapeSource(const Value *V) {
-  if (isa<CallInst>(V) || isa<InvokeInst>(V) || isa<Argument>(V))
+  if (auto CS = ImmutableCallSite(V)) {
+    // launder_invariant_group captures its argument only by returning it,
+    // so it might not be considered an escape by isNonEscapingLocalObject.
+    // Note that adding similar special cases for intrinsics in CaptureTracking
+    // requires handling them here too.
+    if (CS.getIntrinsicID() == Intrinsic::launder_invariant_group)
+      return false;
+
+    return true;
+  }
+
+  if (isa<Argument>(V))
     return true;
 
   // The load case works because isNonEscapingLocalObject considers all
@@ -985,8 +996,8 @@ static AliasResult aliasSameBasePointerGEPs(const GEPOperator *GEP1,
                                             const GEPOperator *GEP2,
                                             uint64_t V2Size,
                                             const DataLayout &DL) {
-  assert(GEP1->getPointerOperand()->stripPointerCastsAndBarriers() ==
-             GEP2->getPointerOperand()->stripPointerCastsAndBarriers() &&
+  assert(GEP1->getPointerOperand()->stripPointerCastsAndInvariantGroups() ==
+             GEP2->getPointerOperand()->stripPointerCastsAndInvariantGroups() &&
          GEP1->getPointerOperandType() == GEP2->getPointerOperandType() &&
          "Expected GEPs with the same pointer operand");
 
@@ -1176,13 +1187,13 @@ bool BasicAAResult::isGEPBaseAtNegativeOffset(const GEPOperator *GEPOp,
                              DecompObject.OtherOffset;
 
   // If the GEP has no variable indices, we know the precise offset
-  // from the base, then use it. If the GEP has variable indices, we're in
-  // a bit more trouble: we can't count on the constant offsets that come
-  // from non-struct sources, since these can be "rewound" by a negative
-  // variable offset. So use only offsets that came from structs.
+  // from the base, then use it. If the GEP has variable indices,
+  // we can't get exact GEP offset to identify pointer alias. So return
+  // false in that case.
+  if (!DecompGEP.VarIndices.empty())
+    return false;
   int64_t GEPBaseOffset = DecompGEP.StructOffset;
-  if (DecompGEP.VarIndices.empty())
-    GEPBaseOffset += DecompGEP.OtherOffset;
+  GEPBaseOffset += DecompGEP.OtherOffset;
 
   return (GEPBaseOffset >= ObjectBaseOffset + (int64_t)ObjectAccessSize);
 }
@@ -1264,8 +1275,8 @@ AliasResult BasicAAResult::aliasGEP(const GEPOperator *GEP1, uint64_t V1Size,
     // If we know the two GEPs are based off of the exact same pointer (and not
     // just the same underlying object), see if that tells us anything about
     // the resulting pointers.
-    if (GEP1->getPointerOperand()->stripPointerCastsAndBarriers() ==
-            GEP2->getPointerOperand()->stripPointerCastsAndBarriers() &&
+    if (GEP1->getPointerOperand()->stripPointerCastsAndInvariantGroups() ==
+            GEP2->getPointerOperand()->stripPointerCastsAndInvariantGroups() &&
         GEP1->getPointerOperandType() == GEP2->getPointerOperandType()) {
       AliasResult R = aliasSameBasePointerGEPs(GEP1, V1Size, GEP2, V2Size, DL);
       // If we couldn't find anything interesting, don't abandon just yet.
@@ -1578,8 +1589,8 @@ AliasResult BasicAAResult::aliasCheck(const Value *V1, uint64_t V1Size,
     return NoAlias;
 
   // Strip off any casts if they exist.
-  V1 = V1->stripPointerCastsAndBarriers();
-  V2 = V2->stripPointerCastsAndBarriers();
+  V1 = V1->stripPointerCastsAndInvariantGroups();
+  V2 = V2->stripPointerCastsAndInvariantGroups();
 
   // If V1 or V2 is undef, the result is NoAlias because we can always pick a
   // value for undef that aliases nothing in the program.

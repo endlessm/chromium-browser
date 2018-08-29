@@ -34,6 +34,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Value.h"
+#include "llvm/Support/ScopedPrinter.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -63,13 +64,6 @@ public:
   bool classifyReturnType(CGFunctionInfo &FI) const override;
 
   bool passClassIndirect(const CXXRecordDecl *RD) const {
-    // Clang <= 4 used the pre-C++11 rule, which ignores move operations.
-    // The PS4 platform ABI follows the behavior of Clang 3.2.
-    if (CGM.getCodeGenOpts().getClangABICompat() <=
-            CodeGenOptions::ClangABI::Ver4 ||
-        CGM.getTriple().getOS() == llvm::Triple::PS4)
-      return RD->hasNonTrivialDestructorForCall() ||
-             RD->hasNonTrivialCopyConstructorForCall();
     return !canCopyArgument(RD);
   }
 
@@ -831,7 +825,6 @@ ItaniumCXXABI::EmitMemberFunctionPointer(const CXXMethodDecl *MD) {
 llvm::Constant *ItaniumCXXABI::BuildMemberPointer(const CXXMethodDecl *MD,
                                                   CharUnits ThisAdjustment) {
   assert(MD->isInstance() && "Member function must not be static!");
-  MD = MD->getCanonicalDecl();
 
   CodeGenTypes &Types = CGM.getTypes();
 
@@ -1177,7 +1170,7 @@ static llvm::Constant *getBadCastFn(CodeGenFunction &CGF) {
   return CGF.CGM.CreateRuntimeFunction(FTy, "__cxa_bad_cast");
 }
 
-/// \brief Compute the src2dst_offset hint as described in the
+/// Compute the src2dst_offset hint as described in the
 /// Itanium C++ ABI [2.9.7]
 static CharUnits computeOffsetHint(ASTContext &Context,
                                    const CXXRecordDecl *Src,
@@ -1443,7 +1436,7 @@ void ItaniumCXXABI::EmitInstanceFunctionProlog(CodeGenFunction &CGF) {
     return;
 
   /// Initialize the 'this' slot. In the Itanium C++ ABI, no prologue
-  /// adjustments are required, becuase they are all handled by thunks.
+  /// adjustments are required, because they are all handled by thunks.
   setCXXABIThisValue(CGF, loadIncomingCXXThis(CGF));
 
   /// Initialize the 'vtt' slot if needed.
@@ -1646,7 +1639,6 @@ CGCallee ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
                                                   Address This,
                                                   llvm::Type *Ty,
                                                   SourceLocation Loc) {
-  GD = GD.getCanonicalDecl();
   Ty = Ty->getPointerTo()->getPointerTo();
   auto *MethodDecl = cast<CXXMethodDecl>(GD.getDecl());
   llvm::Value *VTable = CGF.GetVTablePtr(This, Ty, MethodDecl->getParent());
@@ -1680,7 +1672,7 @@ CGCallee ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
     VFunc = VFuncLoad;
   }
 
-  CGCallee Callee(MethodDecl, VFunc);
+  CGCallee Callee(MethodDecl->getCanonicalDecl(), VFunc);
   return Callee;
 }
 
@@ -2202,12 +2194,61 @@ static void emitGlobalDtorWithCXAAtExit(CodeGenFunction &CGF,
   auto *GV = cast<llvm::GlobalValue>(handle->stripPointerCasts());
   GV->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
+  if (!addr)
+    // addr is null when we are trying to register a dtor annotated with
+    // __attribute__((destructor)) in a constructor function. Using null here is
+    // okay because this argument is just passed back to the destructor
+    // function.
+    addr = llvm::Constant::getNullValue(CGF.Int8PtrTy);
+
   llvm::Value *args[] = {
     llvm::ConstantExpr::getBitCast(dtor, dtorTy),
     llvm::ConstantExpr::getBitCast(addr, CGF.Int8PtrTy),
     handle
   };
   CGF.EmitNounwindRuntimeCall(atexit, args);
+}
+
+void CodeGenModule::registerGlobalDtorsWithAtExit() {
+  for (const auto I : DtorsUsingAtExit) {
+    int Priority = I.first;
+    const llvm::TinyPtrVector<llvm::Function *> &Dtors = I.second;
+
+    // Create a function that registers destructors that have the same priority.
+    //
+    // Since constructor functions are run in non-descending order of their
+    // priorities, destructors are registered in non-descending order of their
+    // priorities, and since destructor functions are run in the reverse order
+    // of their registration, destructor functions are run in non-ascending
+    // order of their priorities.
+    CodeGenFunction CGF(*this);
+    std::string GlobalInitFnName =
+        std::string("__GLOBAL_init_") + llvm::to_string(Priority);
+    llvm::FunctionType *FTy = llvm::FunctionType::get(VoidTy, false);
+    llvm::Function *GlobalInitFn = CreateGlobalInitOrDestructFunction(
+        FTy, GlobalInitFnName, getTypes().arrangeNullaryFunction(),
+        SourceLocation());
+    ASTContext &Ctx = getContext();
+    FunctionDecl *FD = FunctionDecl::Create(
+        Ctx, Ctx.getTranslationUnitDecl(), SourceLocation(), SourceLocation(),
+        &Ctx.Idents.get(GlobalInitFnName), Ctx.VoidTy, nullptr, SC_Static,
+        false, false);
+    CGF.StartFunction(GlobalDecl(FD), getContext().VoidTy, GlobalInitFn,
+                      getTypes().arrangeNullaryFunction(), FunctionArgList(),
+                      SourceLocation(), SourceLocation());
+
+    for (auto *Dtor : Dtors) {
+      // Register the destructor function calling __cxa_atexit if it is
+      // available. Otherwise fall back on calling atexit.
+      if (getCodeGenOpts().CXAAtExit)
+        emitGlobalDtorWithCXAAtExit(CGF, Dtor, nullptr, false);
+      else
+        CGF.registerGlobalDtorWithAtExit(Dtor);
+    }
+
+    CGF.FinishFunction();
+    AddGlobalCtor(GlobalInitFn, Priority, nullptr);
+  }
 }
 
 /// Register a global destructor as best as we know how.
@@ -2663,6 +2704,7 @@ static bool TypeInfoIsInStandardLibrary(const BuiltinType *Ty) {
     case BuiltinType::LongDouble:
     case BuiltinType::Float16:
     case BuiltinType::Float128:
+    case BuiltinType::Char8:
     case BuiltinType::Char16:
     case BuiltinType::Char32:
     case BuiltinType::Int128:
@@ -2962,10 +3004,48 @@ void ItaniumRTTIBuilder::BuildVTablePointer(const Type *Ty) {
   Fields.push_back(VTable);
 }
 
-/// \brief Return the linkage that the type info and type info name constants
+/// Return the linkage that the type info and type info name constants
 /// should have for the given type.
-static llvm::GlobalVariable::LinkageTypes getTypeInfoLinkage(CodeGenModule &CGM,
-                                                             QualType Ty) {
+static std::pair<llvm::GlobalVariable::LinkageTypes,
+                 llvm::GlobalVariable::LinkageTypes>
+getTypeInfoLinkage(CodeGenModule &CGM, QualType Ty) {
+  llvm::GlobalValue::LinkageTypes TypeLinkage = [&]() {
+    switch (Ty->getLinkage()) {
+    case NoLinkage:
+    case InternalLinkage:
+    case UniqueExternalLinkage:
+      return llvm::GlobalValue::InternalLinkage;
+
+    case VisibleNoLinkage:
+    case ModuleInternalLinkage:
+    case ModuleLinkage:
+    case ExternalLinkage:
+      // RTTI is not enabled, which means that this type info struct is going
+      // to be used for exception handling. Give it linkonce_odr linkage.
+      if (!CGM.getLangOpts().RTTI)
+        return llvm::GlobalValue::LinkOnceODRLinkage;
+
+      if (const RecordType *Record = dyn_cast<RecordType>(Ty)) {
+        const CXXRecordDecl *RD = cast<CXXRecordDecl>(Record->getDecl());
+        if (RD->hasAttr<WeakAttr>())
+          return llvm::GlobalValue::WeakODRLinkage;
+        if (CGM.getTriple().isWindowsItaniumEnvironment())
+          if (RD->hasAttr<DLLImportAttr>() &&
+              ShouldUseExternalRTTIDescriptor(CGM, Ty))
+            return llvm::GlobalValue::ExternalLinkage;
+        // MinGW always uses LinkOnceODRLinkage for type info.
+        if (RD->isCompleteDefinition() && RD->isDynamicClass() &&
+            !CGM.getContext()
+                 .getTargetInfo()
+                 .getTriple()
+                 .isWindowsGNUEnvironment())
+          return CGM.getVTableLinkage(RD);
+      }
+
+      return llvm::GlobalValue::LinkOnceODRLinkage;
+    }
+    llvm_unreachable("Invalid linkage!");
+  }();
   // Itanium C++ ABI 2.9.5p7:
   //   In addition, it and all of the intermediate abi::__pointer_type_info
   //   structs in the chain down to the abi::__class_type_info for the
@@ -2976,44 +3056,8 @@ static llvm::GlobalVariable::LinkageTypes getTypeInfoLinkage(CodeGenModule &CGM,
   //   complete class RTTI (because the latter need not exist), possibly by
   //   making it a local static object.
   if (ContainsIncompleteClassType(Ty))
-    return llvm::GlobalValue::InternalLinkage;
-
-  switch (Ty->getLinkage()) {
-  case NoLinkage:
-  case InternalLinkage:
-  case UniqueExternalLinkage:
-    return llvm::GlobalValue::InternalLinkage;
-
-  case VisibleNoLinkage:
-  case ModuleInternalLinkage:
-  case ModuleLinkage:
-  case ExternalLinkage:
-    // RTTI is not enabled, which means that this type info struct is going
-    // to be used for exception handling. Give it linkonce_odr linkage.
-    if (!CGM.getLangOpts().RTTI)
-      return llvm::GlobalValue::LinkOnceODRLinkage;
-
-    if (const RecordType *Record = dyn_cast<RecordType>(Ty)) {
-      const CXXRecordDecl *RD = cast<CXXRecordDecl>(Record->getDecl());
-      if (RD->hasAttr<WeakAttr>())
-        return llvm::GlobalValue::WeakODRLinkage;
-      if (CGM.getTriple().isWindowsItaniumEnvironment())
-        if (RD->hasAttr<DLLImportAttr>() &&
-            ShouldUseExternalRTTIDescriptor(CGM, Ty))
-          return llvm::GlobalValue::ExternalLinkage;
-      // MinGW always uses LinkOnceODRLinkage for type info.
-      if (RD->isDynamicClass() &&
-          !CGM.getContext()
-               .getTargetInfo()
-               .getTriple()
-               .isWindowsGNUEnvironment())
-        return CGM.getVTableLinkage(RD);
-    }
-
-    return llvm::GlobalValue::LinkOnceODRLinkage;
-  }
-
-  llvm_unreachable("Invalid linkage!");
+    return {llvm::GlobalValue::InternalLinkage, TypeLinkage};
+  return {TypeLinkage, TypeLinkage};
 }
 
 llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force,
@@ -3040,23 +3084,25 @@ llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force,
     return GetAddrOfExternalRTTIDescriptor(Ty);
 
   // Emit the standard library with external linkage.
-  llvm::GlobalVariable::LinkageTypes Linkage;
+  llvm::GlobalVariable::LinkageTypes InfoLinkage, NameLinkage;
   if (IsStdLib)
-    Linkage = llvm::GlobalValue::ExternalLinkage;
-  else
-    Linkage = getTypeInfoLinkage(CGM, Ty);
-
+    InfoLinkage = NameLinkage = llvm::GlobalValue::ExternalLinkage;
+  else {
+    auto LinkagePair = getTypeInfoLinkage(CGM, Ty);
+    InfoLinkage = LinkagePair.first;
+    NameLinkage = LinkagePair.second;
+  }
   // Add the vtable pointer.
   BuildVTablePointer(cast<Type>(Ty));
 
   // And the name.
-  llvm::GlobalVariable *TypeName = GetAddrOfTypeName(Ty, Linkage);
+  llvm::GlobalVariable *TypeName = GetAddrOfTypeName(Ty, NameLinkage);
   llvm::Constant *TypeNameField;
 
   // If we're supposed to demote the visibility, be sure to set a flag
   // to use a string comparison for type_info comparisons.
   ItaniumCXXABI::RTTIUniquenessKind RTTIUniqueness =
-      CXXABI.classifyRTTIUniqueness(Ty, Linkage);
+      CXXABI.classifyRTTIUniqueness(Ty, NameLinkage);
   if (RTTIUniqueness != ItaniumCXXABI::RUK_Unique) {
     // The flag is the sign bit, which on ARM64 is defined to be clear
     // for global pointers.  This is very ARM64-specific.
@@ -3162,7 +3208,7 @@ llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force,
   llvm::Module &M = CGM.getModule();
   llvm::GlobalVariable *GV =
       new llvm::GlobalVariable(M, Init->getType(),
-                               /*Constant=*/true, Linkage, Init, Name);
+                               /*Constant=*/true, InfoLinkage, Init, Name);
 
   // If there's already an old global variable, replace it with the new one.
   if (OldGV) {
@@ -3193,19 +3239,20 @@ llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force,
 
   // Give the type_info object and name the formal visibility of the
   // type itself.
-  llvm::GlobalValue::VisibilityTypes llvmVisibility;
-  if (llvm::GlobalValue::isLocalLinkage(Linkage))
-    // If the linkage is local, only default visibility makes sense.
-    llvmVisibility = llvm::GlobalValue::DefaultVisibility;
-  else if (RTTIUniqueness == ItaniumCXXABI::RUK_NonUniqueHidden)
-    llvmVisibility = llvm::GlobalValue::HiddenVisibility;
-  else
-    llvmVisibility = CodeGenModule::GetLLVMVisibility(Ty->getVisibility());
+  auto computeVisibility = [&](llvm::GlobalValue::LinkageTypes Linkage) {
+    if (llvm::GlobalValue::isLocalLinkage(Linkage))
+      // If the linkage is local, only default visibility makes sense.
+      return llvm::GlobalValue::DefaultVisibility;
+    else if (RTTIUniqueness == ItaniumCXXABI::RUK_NonUniqueHidden)
+      return llvm::GlobalValue::HiddenVisibility;
+    else
+      return CodeGenModule::GetLLVMVisibility(Ty->getVisibility());
+  };
 
-  TypeName->setVisibility(llvmVisibility);
+  TypeName->setVisibility(computeVisibility(NameLinkage));
   CGM.setDSOLocal(TypeName);
 
-  GV->setVisibility(llvmVisibility);
+  GV->setVisibility(computeVisibility(InfoLinkage));
   CGM.setDSOLocal(GV);
 
   if (CGM.getTriple().isWindowsItaniumEnvironment()) {
@@ -3432,7 +3479,7 @@ static unsigned extractPBaseFlags(ASTContext &Ctx, QualType &Type) {
     Flags |= ItaniumRTTIBuilder::PTI_Incomplete;
 
   if (auto *Proto = Type->getAs<FunctionProtoType>()) {
-    if (Proto->isNothrow(Ctx)) {
+    if (Proto->isNothrow()) {
       Flags |= ItaniumRTTIBuilder::PTI_Noexcept;
       Type = Ctx.getFunctionTypeWithExceptionSpec(Type, EST_None);
     }
@@ -3524,7 +3571,8 @@ void ItaniumCXXABI::EmitFundamentalRTTIDescriptors(bool DLLExport) {
       getContext().UnsignedInt128Ty,   getContext().HalfTy,
       getContext().FloatTy,            getContext().DoubleTy,
       getContext().LongDoubleTy,       getContext().Float128Ty,
-      getContext().Char16Ty,           getContext().Char32Ty
+      getContext().Char8Ty,            getContext().Char16Ty,
+      getContext().Char32Ty
   };
   for (const QualType &FundamentalType : FundamentalTypes)
     EmitFundamentalRTTIDescriptor(FundamentalType, DLLExport);
@@ -3903,7 +3951,7 @@ static void InitCatchParam(CodeGenFunction &CGF,
                         caughtExnAlignment);
     LValue Dest = CGF.MakeAddrLValue(ParamAddr, CatchType);
     LValue Src = CGF.MakeAddrLValue(adjustedExn, CatchType);
-    CGF.EmitAggregateCopy(Dest, Src, CatchType);
+    CGF.EmitAggregateCopy(Dest, Src, CatchType, AggValueSlot::DoesNotOverlap);
     return;
   }
 
@@ -3930,7 +3978,8 @@ static void InitCatchParam(CodeGenFunction &CGF,
                   AggValueSlot::forAddr(ParamAddr, Qualifiers(),
                                         AggValueSlot::IsNotDestructed,
                                         AggValueSlot::DoesNotNeedGCBarriers,
-                                        AggValueSlot::IsNotAliased));
+                                        AggValueSlot::IsNotAliased,
+                                        AggValueSlot::DoesNotOverlap));
 
   // Leave the terminate scope.
   CGF.EHStack.popTerminate();

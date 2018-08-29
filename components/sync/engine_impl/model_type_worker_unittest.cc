@@ -320,9 +320,10 @@ class ModelTypeWorkerTest : public ::testing::Test {
 
   void TriggerTypeRootUpdateFromServer() {
     SyncEntity entity = server()->TypeRootUpdate();
-    worker()->ProcessGetUpdatesResponse(
-        server()->GetProgress(), server()->GetContext(), {&entity}, nullptr);
-    worker()->PassiveApplyUpdates(nullptr);
+    worker()->ProcessGetUpdatesResponse(server()->GetProgress(),
+                                        server()->GetContext(), {&entity},
+                                        &status_controller_);
+    worker()->PassiveApplyUpdates(&status_controller_);
   }
 
   void TriggerPartialUpdateFromServer(int64_t version_offset,
@@ -336,15 +337,16 @@ class ModelTypeWorkerTest : public ::testing::Test {
                     entity.mutable_specifics());
     }
 
-    worker()->ProcessGetUpdatesResponse(
-        server()->GetProgress(), server()->GetContext(), {&entity}, nullptr);
+    worker()->ProcessGetUpdatesResponse(server()->GetProgress(),
+                                        server()->GetContext(), {&entity},
+                                        &status_controller_);
   }
 
   void TriggerUpdateFromServer(int64_t version_offset,
                                const std::string& tag,
                                const std::string& value) {
     TriggerPartialUpdateFromServer(version_offset, tag, value);
-    worker()->ApplyUpdates(nullptr);
+    worker()->ApplyUpdates(&status_controller_);
   }
 
   void TriggerTombstoneFromServer(int64_t version_offset,
@@ -357,14 +359,15 @@ class ModelTypeWorkerTest : public ::testing::Test {
                     entity.mutable_specifics());
     }
 
-    worker()->ProcessGetUpdatesResponse(
-        server()->GetProgress(), server()->GetContext(), {&entity}, nullptr);
-    worker()->ApplyUpdates(nullptr);
+    worker()->ProcessGetUpdatesResponse(server()->GetProgress(),
+                                        server()->GetContext(), {&entity},
+                                        &status_controller_);
+    worker()->ApplyUpdates(&status_controller_);
   }
 
   // Simulates the end of a GU sync cycle and tells the worker to flush changes
   // to the processor.
-  void ApplyUpdates() { worker()->ApplyUpdates(nullptr); }
+  void ApplyUpdates() { worker()->ApplyUpdates(&status_controller_); }
 
   // Delivers specified protos as updates.
   //
@@ -373,8 +376,9 @@ class ModelTypeWorkerTest : public ::testing::Test {
   // protocol. Try to use the other, higher level methods if possible.
   void DeliverRawUpdates(const SyncEntityList& list) {
     worker()->ProcessGetUpdatesResponse(server()->GetProgress(),
-                                        server()->GetContext(), list, nullptr);
-    worker()->ApplyUpdates(nullptr);
+                                        server()->GetContext(), list,
+                                        &status_controller_);
+    worker()->ApplyUpdates(&status_controller_);
   }
 
   // By default, this harness behaves as if all tasks posted to the model
@@ -419,7 +423,7 @@ class ModelTypeWorkerTest : public ::testing::Test {
     sync_pb::ClientToServerResponse response =
         server()->DoSuccessfulCommit(message);
 
-    contribution->ProcessCommitResponse(response, nullptr);
+    contribution->ProcessCommitResponse(response, &status_controller_);
     contribution->CleanUp();
   }
 
@@ -487,6 +491,8 @@ class ModelTypeWorkerTest : public ::testing::Test {
   base::ObserverList<TypeDebugInfoObserver> type_observers_;
 
   std::unique_ptr<NonBlockingTypeDebugInfoEmitter> emitter_;
+
+  StatusController status_controller_;
 };
 
 // Requests a commit and verifies the messages sent to the client and server as
@@ -612,8 +618,8 @@ TEST_F(ModelTypeWorkerTest, SendInitialSyncDone) {
   // "initial sync done". This triggers a model thread update, too.
   EXPECT_EQ(1U, processor()->GetNumUpdateResponses());
 
-  // The update contains no entities.
-  EXPECT_EQ(0U, processor()->GetNthUpdateResponse(0).size());
+  // The update contains one entity for the root node.
+  EXPECT_EQ(1U, processor()->GetNthUpdateResponse(0).size());
 
   const ModelTypeState& state = processor()->GetNthUpdateState(0);
   EXPECT_FALSE(state.progress_marker().token().empty());
@@ -1155,7 +1161,8 @@ TEST_F(ModelTypeWorkerTest, PopulateUpdateResponseData) {
   entity.set_folder(false);
   entity.mutable_unique_position()->set_custom_compressed_v1("POSITION");
   entity.set_version(1);
-  entity.set_client_defined_unique_tag("TAG");
+  entity.set_client_defined_unique_tag("CLIENT_TAG");
+  entity.set_server_defined_unique_tag("SERVER_TAG");
   entity.set_deleted(false);
   entity.mutable_specifics()->CopyFrom(GenerateSpecifics(kTag1, kValue1));
   UpdateResponseData response_data;
@@ -1171,7 +1178,8 @@ TEST_F(ModelTypeWorkerTest, PopulateUpdateResponseData) {
   EXPECT_FALSE(data.parent_id.empty());
   EXPECT_FALSE(data.is_folder);
   EXPECT_TRUE(data.unique_position.has_custom_compressed_v1());
-  EXPECT_EQ("TAG", data.client_tag_hash);
+  EXPECT_EQ("CLIENT_TAG", data.client_tag_hash);
+  EXPECT_EQ("SERVER_TAG", data.server_defined_unique_tag);
   EXPECT_FALSE(data.is_deleted());
   EXPECT_EQ(kTag1, data.specifics.preference().name());
   EXPECT_EQ(kValue1, data.specifics.preference().value());

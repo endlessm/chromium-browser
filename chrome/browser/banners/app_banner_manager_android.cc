@@ -130,7 +130,7 @@ void AppBannerManagerAndroid::SendBannerDismissed() {
 
   // If we are dismissing the banner, the site can't be installed.
   if (IsExperimentalAppBannersEnabled())
-    ShowAmbientBadge(false /* is_installed */);
+    MaybeShowAmbientBadge();
 }
 
 void AppBannerManagerAndroid::AddToHomescreenFromBadge() {
@@ -141,6 +141,14 @@ void AppBannerManagerAndroid::AddToHomescreenFromBadge() {
   // cannot trigger add to home screen (which would cause a crash). If the
   // banner is dismissed, the event will be resent.
   ResetBindings();
+}
+
+void AppBannerManagerAndroid::BadgeDismissed() {
+  banners::TrackDismissEvent(banners::DISMISS_EVENT_AMBIENT_INFOBAR_DISMISSED);
+
+  AppBannerSettingsHelper::RecordBannerEvent(
+      web_contents(), validated_url_, GetAppIdentifier(),
+      AppBannerSettingsHelper::APP_BANNER_EVENT_DID_BLOCK, GetCurrentTime());
 }
 
 std::string AppBannerManagerAndroid::GetAppIdentifier() {
@@ -155,8 +163,8 @@ std::string AppBannerManagerAndroid::GetBannerType() {
 
 bool AppBannerManagerAndroid::CheckIfInstalled() {
   bool is_installed = AppBannerManager::CheckIfInstalled();
-  if (IsExperimentalAppBannersEnabled())
-    ShowAmbientBadge(is_installed);
+  if (IsExperimentalAppBannersEnabled() && !is_installed)
+    MaybeShowAmbientBadge();
 
   return is_installed;
 }
@@ -242,7 +250,7 @@ void AppBannerManagerAndroid::OnAppIconFetched(const SkBitmap& bitmap) {
   // We will not reach this point if the app is already installed since querying
   // for native app details will return nothing.
   if (IsExperimentalAppBannersEnabled())
-    ShowAmbientBadge(false /*is_installed*/);
+    MaybeShowAmbientBadge();
 
   // If we triggered the installability check on page load, then it's possible
   // we don't have enough engagement yet. If that's the case, return here but
@@ -372,13 +380,20 @@ base::string16 AppBannerManagerAndroid::GetAppName() const {
   return native_app_title_;
 }
 
-void AppBannerManagerAndroid::ShowAmbientBadge(bool is_installed) {
+void AppBannerManagerAndroid::MaybeShowAmbientBadge() {
+  // Do not show the ambient badge if it was recently dismissed.
+  if (AppBannerSettingsHelper::WasBannerRecentlyBlocked(
+          web_contents(), validated_url_, GetAppIdentifier(),
+          GetCurrentTime())) {
+    return;
+  }
+
   InfoBarService* infobar_service =
       InfoBarService::FromWebContents(web_contents());
   if (GetVisibleAmbientBadgeInfoBar(infobar_service) == nullptr) {
-    InstallableAmbientBadgeInfoBarDelegate::Create(
-        web_contents(), GetWeakPtr(), GetAppName(), primary_icon_,
-        manifest_.start_url, is_installed);
+    InstallableAmbientBadgeInfoBarDelegate::Create(web_contents(), GetWeakPtr(),
+                                                   GetAppName(), primary_icon_,
+                                                   manifest_.start_url);
   }
 }
 

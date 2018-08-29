@@ -11,13 +11,13 @@
 
 #include "ash/app_list/model/search/search_box_model.h"
 #include "ash/app_list/model/search/search_model.h"
+#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/vector_icons/vector_icons.h"
 #include "ash/public/cpp/wallpaper_types.h"
 #include "base/macros.h"
-#include "ui/app_list/app_list_constants.h"
 #include "ui/app_list/app_list_util.h"
 #include "ui/app_list/app_list_view_delegate.h"
 #include "ui/app_list/resources/grit/app_list_resources.h"
-#include "ui/app_list/vector_icons/vector_icons.h"
 #include "ui/app_list/views/app_list_view.h"
 #include "ui/app_list/views/contents_view.h"
 #include "ui/app_list/views/search_result_base_view.h"
@@ -52,7 +52,7 @@ constexpr int kPaddingSearchResult = 16;
 constexpr int kSearchBoxBorderWidth = 4;
 
 constexpr SkColor kSearchBoxBorderColor =
-    SkColorSetARGBMacro(0x3D, 0xFF, 0xFF, 0xFF);
+    SkColorSetARGB(0x3D, 0xFF, 0xFF, 0xFF);
 
 constexpr int kSearchBoxBorderCornerRadiusSearchResult = 4;
 constexpr int kCloseIconSize = 24;
@@ -80,12 +80,10 @@ SearchBoxView::SearchBoxView(search_box::SearchBoxViewDelegate* delegate,
       app_list_view_(app_list_view),
       weak_ptr_factory_(this) {
   set_is_tablet_mode(app_list_view->is_tablet_mode());
-  view_delegate_->AddObserver(this);
 }
 
 SearchBoxView::~SearchBoxView() {
   search_model_->search_box()->RemoveObserver(this);
-  view_delegate_->RemoveObserver(this);
 }
 
 void SearchBoxView::ClearSearch() {

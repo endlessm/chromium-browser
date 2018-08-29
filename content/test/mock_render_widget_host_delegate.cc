@@ -11,13 +11,14 @@
 
 namespace content {
 
-MockRenderWidgetHostDelegate::MockRenderWidgetHostDelegate() = default;
+MockRenderWidgetHostDelegate::MockRenderWidgetHostDelegate()
+    : text_input_manager_(false /* should_do_learning */) {}
+
 MockRenderWidgetHostDelegate::~MockRenderWidgetHostDelegate() = default;
 
 void MockRenderWidgetHostDelegate::ResizeDueToAutoResize(
     RenderWidgetHostImpl* render_widget_host,
-    const gfx::Size& new_size,
-    uint64_t sequence_number) {}
+    const gfx::Size& new_size) {}
 
 KeyboardEventProcessingResult
 MockRenderWidgetHostDelegate::PreHandleKeyboardEvent(

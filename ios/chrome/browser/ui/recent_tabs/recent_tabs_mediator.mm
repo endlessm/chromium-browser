@@ -9,12 +9,15 @@
 #include "components/sync_sessions/open_tabs_ui_delegate.h"
 #include "components/sync_sessions/synced_session.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/favicon/favicon_loader.h"
+#include "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
 #include "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_factory.h"
 #include "ios/chrome/browser/sync/ios_chrome_profile_sync_service_factory.h"
 #include "ios/chrome/browser/sync/sync_setup_service.h"
 #include "ios/chrome/browser/sync/sync_setup_service_factory.h"
 #import "ios/chrome/browser/ui/ntp/recent_tabs/recent_tabs_table_consumer.h"
 #import "ios/chrome/browser/ui/ntp/recent_tabs/sessions_sync_user_state.h"
+#include "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -102,6 +105,23 @@
   [self.consumer setTabRestoreService:nullptr];
 }
 
+#pragma mark - RecentTabsImageDataSource
+
+- (UIImage*)faviconForURL:(const GURL&)URL
+               completion:(void (^)(UIImage*))completion {
+  FaviconLoader* faviconLoader =
+      IOSChromeFaviconLoaderFactory::GetForBrowserState(self.browserState);
+  favicon_base::IconTypeSet faviconTypes = {
+      favicon_base::IconType::kFavicon, favicon_base::IconType::kTouchIcon,
+      favicon_base::IconType::kTouchPrecomposedIcon};
+  UIImage* cachedFavicon =
+      faviconLoader->ImageForURL(URL, faviconTypes, ^(UIImage* favicon) {
+        DCHECK(favicon);
+        completion(favicon);
+      });
+  return cachedFavicon;
+}
+
 #pragma mark - Private
 
 - (BOOL)isSignedIn {
@@ -152,6 +172,10 @@
 #pragma mark - RecentTabsTableViewControllerDelegate
 
 - (void)refreshSessionsView {
+  // This method is called from two places: 1) when this mediator observes a
+  // change in the synced session state, and 2) when the UI layer recognizes
+  // that the signin process has completed. The latter call is necessary because
+  // it can happen much more immediately than the former call.
   [self.consumer refreshUserState:[self userSignedInState]];
 }
 

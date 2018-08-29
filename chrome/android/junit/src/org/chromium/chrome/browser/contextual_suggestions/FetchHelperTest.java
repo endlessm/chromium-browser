@@ -46,6 +46,22 @@ public final class FetchHelperTest {
     private static final String STARTING_URL = "http://starting.url";
     private static final String DIFFERENT_URL = "http://different.url";
 
+    private class TestFetchHelper extends FetchHelper {
+        public TestFetchHelper(Delegate delegate, TabModelSelector tabModelSelector) {
+            super(delegate, tabModelSelector);
+        }
+
+        @Override
+        boolean requireCurrentPageFromSRP() {
+            return false;
+        }
+
+        @Override
+        boolean requireNavChainFromSRP() {
+            return false;
+        }
+    }
+
     @Mock
     private TabModelSelector mTabModelSelector;
     @Mock
@@ -190,15 +206,27 @@ public final class FetchHelperTest {
     }
 
     @Test
+    public void tabModelObserver_addTab_closeTab_isLoading() {
+        doReturn(true).when(mTab).isLoading();
+        addAndcloseNonSelectedTab(() -> closeTab(mTab));
+    }
+
+    @Test
     public void tabModelObserver_addTab_removeTab_isLoading() {
         doReturn(true).when(mTab).isLoading();
-        addAndRemoveNonSelectedTab();
+        addAndcloseNonSelectedTab(() -> removeTab(mTab));
+    }
+
+    @Test
+    public void tabModelObserver_addTab_closeTab_doneLoading() {
+        doReturn(false).when(mTab).isLoading();
+        addAndcloseNonSelectedTab(() -> closeTab(mTab));
     }
 
     @Test
     public void tabModelObserver_addTab_removeTab_doneLoading() {
         doReturn(false).when(mTab).isLoading();
-        addAndRemoveNonSelectedTab();
+        addAndcloseNonSelectedTab(() -> removeTab(mTab));
     }
 
     @Test
@@ -221,7 +249,7 @@ public final class FetchHelperTest {
     }
 
     @Test
-    public void secondTab_add_select_remove_whenDoneLoading() {
+    public void secondTab_add_select_close_whenDoneLoading() {
         FetchHelper helper = createFetchHelper();
         addTab(mTab2);
         verify(mTab2, times(1)).addObserver(eq(getTabObserver()));
@@ -234,7 +262,7 @@ public final class FetchHelperTest {
         verify(mDelegate, times(1)).clearState();
         verify(mDelegate, times(1)).reportFetchDelayed(eq(mWebContents2));
 
-        removeTab(mTab2);
+        closeTab(mTab2);
         assertFalse(helper.isObservingTab(mTab2));
         verify(mDelegate, times(2)).clearState();
         verify(mDelegate, times(1)).reportFetchDelayed(eq(mWebContents2));
@@ -242,7 +270,7 @@ public final class FetchHelperTest {
     }
 
     @Test
-    public void secondTab_select_remove_whenLoading() {
+    public void secondTab_select_close_whenLoading() {
         doReturn(true).when(mTab2).isLoading();
 
         FetchHelper helper = createFetchHelper();
@@ -252,7 +280,7 @@ public final class FetchHelperTest {
         verify(mDelegate, times(1)).clearState();
         verify(mDelegate, times(0)).reportFetchDelayed(eq(mWebContents2));
 
-        removeTab(mTab2);
+        closeTab(mTab2);
         assertFalse(helper.isObservingTab(mTab2));
         verify(mDelegate, times(2)).clearState();
         verify(mDelegate, times(0)).reportFetchDelayed(eq(mWebContents2));
@@ -260,28 +288,28 @@ public final class FetchHelperTest {
     }
 
     @Test
-    public void secondTab_add_select_fetch_remove_whenDoneLoading() {
+    public void secondTab_add_select_fetch_close_whenDoneLoading() {
         FetchHelper helper = createFetchHelper();
         addTab(mTab2);
         selectTab(mTab2);
         runUntilFetchPossible();
         verify(mDelegate, times(1)).requestSuggestions(eq(DIFFERENT_URL));
 
-        removeTab(mTab2);
+        closeTab(mTab2);
         verify(mDelegate, times(2)).clearState();
         verify(mDelegate, times(1)).reportFetchDelayed(eq(mWebContents2));
         verify(mDelegate, times(1)).requestSuggestions(any(String.class));
     }
 
     @Test
-    public void secondTab_add_select_fetch_remove_whenLoading() {
+    public void secondTab_add_select_fetch_close_whenLoading() {
         doReturn(true).when(mTab2).isLoading();
         FetchHelper helper = createFetchHelper();
         addTab(mTab2);
         selectTab(mTab2);
         runUntilFetchPossible();
 
-        removeTab(mTab2);
+        closeTab(mTab2);
         verify(mDelegate, times(2)).clearState();
         verify(mDelegate, times(0)).reportFetchDelayed(eq(mWebContents2));
         verify(mDelegate, times(0)).requestSuggestions(eq(DIFFERENT_URL));
@@ -303,7 +331,7 @@ public final class FetchHelperTest {
         verify(mDelegate, times(0)).reportFetchDelayed(eq(mWebContents));
         verify(mDelegate, times(0)).requestSuggestions(eq(STARTING_URL));
 
-        removeTab(mTab2);
+        closeTab(mTab2);
         verify(mDelegate, times(2)).clearState();
     }
 
@@ -333,12 +361,42 @@ public final class FetchHelperTest {
         verify(mDelegate, times(1)).requestSuggestions(eq(STARTING_URL));
     }
 
+    @Test
+    public void switchTabs_suggestionsDismissed() {
+        FetchHelper helper = createFetchHelper();
+        addTab(mTab2);
+
+        // Wait for the fetch delay and verify that suggestions are requested for the first tab.
+        verify(mDelegate, times(1)).reportFetchDelayed(eq(mWebContents));
+        runUntilFetchPossible();
+        verify(mDelegate, times(1)).requestSuggestions(eq(STARTING_URL));
+
+        // Simulate suggestions dismissed by user on the first tab.
+        helper.onSuggestionsDismissed(mTab);
+
+        // Switch to the second tab, and verify that suggestions are requested without a delay.
+        selectTab(mTab2);
+        verify(mDelegate, times(1)).clearState();
+        verify(mDelegate, times(0)).reportFetchDelayed(eq(mWebContents2));
+        verify(mDelegate, times(1)).requestSuggestions(eq(DIFFERENT_URL));
+
+        // Switch back to the first tab, and verify that fetch is not requested.
+        selectTab(mTab);
+        verify(mDelegate, times(2)).clearState();
+        verify(mDelegate, times(1)).reportFetchDelayed(eq(mWebContents));
+        verify(mDelegate, times(1)).requestSuggestions(eq(STARTING_URL));
+    }
+
     private void addTab(Tab tab) {
         getTabModelObserver().didAddTab(tab, TabLaunchType.FROM_LINK);
     }
 
     private void selectTab(Tab tab) {
         getTabModelObserver().didSelectTab(tab, TabSelectionType.FROM_USER, 0);
+    }
+
+    private void closeTab(Tab tab) {
+        getTabModelObserver().willCloseTab(tab, true);
     }
 
     private void removeTab(Tab tab) {
@@ -350,7 +408,9 @@ public final class FetchHelperTest {
     }
 
     private FetchHelper createFetchHelper() {
-        FetchHelper helper = new FetchHelper(mDelegate, mTabModelSelector);
+        FetchHelper helper = new TestFetchHelper(mDelegate, mTabModelSelector);
+        helper.initialize();
+
         if (mTabModelSelector.getCurrentTab() != null && !mTab.isIncognito()) {
             verify(mTab, times(1)).addObserver(mTabObserverCaptor.capture());
         }
@@ -359,7 +419,7 @@ public final class FetchHelperTest {
     }
 
     private void delayFetchExecutionTest(Consumer<TabObserver> consumer) {
-        FetchHelper helper = new FetchHelper(mDelegate, mTabModelSelector);
+        FetchHelper helper = createFetchHelper();
         verify(mTab, times(1)).addObserver(mTabObserverCaptor.capture());
         consumer.accept(getTabObserver());
         verify(mDelegate, times(0)).requestSuggestions(eq(STARTING_URL));
@@ -370,7 +430,7 @@ public final class FetchHelperTest {
     }
 
     private void delayFetchExecutionTest_updateUrl_toSame(Consumer<TabObserver> consumer) {
-        FetchHelper helper = new FetchHelper(mDelegate, mTabModelSelector);
+        FetchHelper helper = createFetchHelper();
         verify(mTab, times(1)).addObserver(mTabObserverCaptor.capture());
         consumer.accept(getTabObserver());
 
@@ -382,7 +442,7 @@ public final class FetchHelperTest {
     }
 
     private void delayFetchExecutionTest_updateUrl_toDifferent(Consumer<TabObserver> consumer) {
-        FetchHelper helper = new FetchHelper(mDelegate, mTabModelSelector);
+        FetchHelper helper = createFetchHelper();
         verify(mTab, times(1)).addObserver(mTabObserverCaptor.capture());
         consumer.accept(getTabObserver());
 
@@ -394,10 +454,10 @@ public final class FetchHelperTest {
         verify(mDelegate, times(0)).requestSuggestions(eq(STARTING_URL));
     }
 
-    private void addAndRemoveNonSelectedTab() {
+    private void addAndcloseNonSelectedTab(Runnable closeTabRunnable) {
         // Starting with null tab so we can add one.
         doReturn(null).when(mTabModelSelector).getCurrentTab();
-        FetchHelper helper = new FetchHelper(mDelegate, mTabModelSelector);
+        FetchHelper helper = createFetchHelper();
         verify(mTabModel, times(1)).addObserver(mTabModelObserverCaptor.capture());
 
         addTab(mTab);
@@ -405,7 +465,7 @@ public final class FetchHelperTest {
         verify(mDelegate, times(0)).requestSuggestions(eq(STARTING_URL));
         verify(mDelegate, times(0)).reportFetchDelayed(eq(mWebContents));
 
-        removeTab(mTab);
+        closeTabRunnable.run();
         assertFalse(helper.isObservingTab(mTab));
         verify(mDelegate, times(0)).requestSuggestions(eq(STARTING_URL));
         verify(mDelegate, times(0)).reportFetchDelayed(eq(mWebContents));

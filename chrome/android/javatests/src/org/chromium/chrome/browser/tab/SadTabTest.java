@@ -158,11 +158,12 @@ public class SadTabTest {
     /**
      * Helper method that kills the renderer on a UI thread.
      */
-    private void simulateRendererKilled(final Tab tab, final boolean wasOomProtected) {
+    private void simulateRendererKilled(final Tab tab, final boolean visible) {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                tab.simulateRendererKilledForTesting(wasOomProtected);
+                if (!visible) tab.hide();
+                tab.simulateRendererKilledForTesting(false);
             }
         });
     }
@@ -186,8 +187,7 @@ public class SadTabTest {
      *         doesn't exist.
      */
     private Button getSadTabButton(Tab tab) {
-        return (Button) tab.getContentViewCore().getContainerView().findViewById(
-                R.id.sad_tab_button);
+        return (Button) tab.getContentView().findViewById(R.id.sad_tab_button);
     }
 
 }

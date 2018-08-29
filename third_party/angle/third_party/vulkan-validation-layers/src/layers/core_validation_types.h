@@ -23,6 +23,7 @@
 #ifndef CORE_VALIDATION_TYPES_H_
 #define CORE_VALIDATION_TYPES_H_
 
+#include "hash_vk_types.h"
 #include "vk_safe_struct.h"
 #include "vulkan/vulkan.h"
 #include "vk_validation_error_messages.h"
@@ -39,8 +40,9 @@
 #include <memory>
 #include <list>
 
-// Fwd declarations
+// Fwd declarations -- including descriptor_set.h creates an ugly include loop
 namespace cvdescriptorset {
+class DescriptorSetLayoutDef;
 class DescriptorSetLayout;
 class DescriptorSet;
 }  // namespace cvdescriptorset
@@ -73,6 +75,22 @@ struct COMMAND_POOL_NODE : public BASE_NODE {
     // Cmd buffers allocated from this pool
     std::unordered_set<VkCommandBuffer> commandBuffers;
 };
+
+// Utilities for barriers and the commmand pool
+template <typename Barrier>
+static bool IsTransferOp(const Barrier *barrier) {
+    return barrier->srcQueueFamilyIndex != barrier->dstQueueFamilyIndex;
+}
+
+template <typename Barrier, bool assume_transfer = false>
+static bool IsReleaseOp(const COMMAND_POOL_NODE *pool, const Barrier *barrier) {
+    return (assume_transfer || IsTransferOp(barrier)) && (pool->queueFamilyIndex == barrier->srcQueueFamilyIndex);
+}
+
+template <typename Barrier, bool assume_transfer = false>
+static bool IsAcquireOp(const COMMAND_POOL_NODE *pool, const Barrier *barrier) {
+    return (assume_transfer || IsTransferOp(barrier)) && (pool->queueFamilyIndex == barrier->dstQueueFamilyIndex);
+}
 
 // Generic wrapper for vulkan objects
 struct VK_OBJECT {
@@ -486,9 +504,9 @@ enum CBStatusFlagBits {
 
 struct TEMPLATE_STATE {
     VkDescriptorUpdateTemplateKHR desc_update_template;
-    safe_VkDescriptorUpdateTemplateCreateInfoKHR create_info;
+    safe_VkDescriptorUpdateTemplateCreateInfo create_info;
 
-    TEMPLATE_STATE(VkDescriptorUpdateTemplateKHR update_template, safe_VkDescriptorUpdateTemplateCreateInfoKHR *pCreateInfo)
+    TEMPLATE_STATE(VkDescriptorUpdateTemplateKHR update_template, safe_VkDescriptorUpdateTemplateCreateInfo *pCreateInfo)
         : desc_update_template(update_template), create_info(*pCreateInfo) {}
 };
 
@@ -542,18 +560,50 @@ struct hash<ImageSubresourcePair> {
 };
 }  // namespace std
 
+// Canonical dictionary for PushConstantRanges
+using PushConstantRangesDict = hash_util::Dictionary<PushConstantRanges>;
+using PushConstantRangesId = PushConstantRangesDict::Id;
+
+// Canonical dictionary for the pipeline layout's layout of descriptorsetlayouts
+using DescriptorSetLayoutDef = cvdescriptorset::DescriptorSetLayoutDef;
+using DescriptorSetLayoutId = std::shared_ptr<const DescriptorSetLayoutDef>;
+using PipelineLayoutSetLayoutsDef = std::vector<DescriptorSetLayoutId>;
+using PipelineLayoutSetLayoutsDict =
+    hash_util::Dictionary<PipelineLayoutSetLayoutsDef, hash_util::IsOrderedContainer<PipelineLayoutSetLayoutsDef>>;
+using PipelineLayoutSetLayoutsId = PipelineLayoutSetLayoutsDict::Id;
+
+// Defines/stores a compatibility defintion for set N
+// The "layout layout" must store at least set+1 entries, but only the first set+1 are considered for hash and equality testing
+// Note: the "cannonical" data are referenced by Id, not including handle or device specific state
+// Note: hash and equality only consider layout_id entries [0, set] for determining uniqueness
+struct PipelineLayoutCompatDef {
+    uint32_t set;
+    PushConstantRangesId push_constant_ranges;
+    PipelineLayoutSetLayoutsId set_layouts_id;
+    PipelineLayoutCompatDef(const uint32_t set_index, const PushConstantRangesId pcr_id, const PipelineLayoutSetLayoutsId sl_id)
+        : set(set_index), push_constant_ranges(pcr_id), set_layouts_id(sl_id) {}
+    size_t hash() const;
+    bool operator==(const PipelineLayoutCompatDef &other) const;
+};
+
+// Canonical dictionary for PipelineLayoutCompat records
+using PipelineLayoutCompatDict = hash_util::Dictionary<PipelineLayoutCompatDef, hash_util::HasHashMember<PipelineLayoutCompatDef>>;
+using PipelineLayoutCompatId = PipelineLayoutCompatDict::Id;
+
 // Store layouts and pushconstants for PipelineLayout
 struct PIPELINE_LAYOUT_NODE {
     VkPipelineLayout layout;
     std::vector<std::shared_ptr<cvdescriptorset::DescriptorSetLayout const>> set_layouts;
-    std::vector<VkPushConstantRange> push_constant_ranges;
+    PushConstantRangesId push_constant_ranges;
+    std::vector<PipelineLayoutCompatId> compat_for_set;
 
-    PIPELINE_LAYOUT_NODE() : layout(VK_NULL_HANDLE), set_layouts{}, push_constant_ranges{} {}
+    PIPELINE_LAYOUT_NODE() : layout(VK_NULL_HANDLE), set_layouts{}, push_constant_ranges{}, compat_for_set{} {}
 
     void reset() {
         layout = VK_NULL_HANDLE;
         set_layouts.clear();
-        push_constant_ranges.clear();
+        push_constant_ranges.reset();
+        compat_for_set.clear();
     }
 };
 
@@ -574,6 +624,7 @@ class PIPELINE_STATE : public BASE_NODE {
     std::vector<VkPipelineColorBlendAttachmentState> attachments;
     bool blendConstantsEnabled;  // Blend constants enabled for any attachments
     PIPELINE_LAYOUT_NODE pipeline_layout;
+    VkPrimitiveTopology topology_at_rasterizer;
 
     // Default constructor
     PIPELINE_STATE()
@@ -587,7 +638,8 @@ class PIPELINE_STATE : public BASE_NODE {
           vertexBindingDescriptions(),
           attachments(),
           blendConstantsEnabled(false),
-          pipeline_layout() {}
+          pipeline_layout(),
+          topology_at_rasterizer{} {}
 
     void initGraphicsPipeline(const VkGraphicsPipelineCreateInfo *pCreateInfo, std::shared_ptr<RENDER_PASS_STATE> &&rpstate) {
         bool uses_color_attachment = false;
@@ -629,6 +681,9 @@ class PIPELINE_STATE : public BASE_NODE {
                                                                                      pCBCI->pAttachments + pCBCI->attachmentCount);
             }
         }
+        if (graphicsPipelineCI.pInputAssemblyState) {
+            topology_at_rasterizer = graphicsPipelineCI.pInputAssemblyState->topology;
+        }
         rp_state = rpstate;
     }
 
@@ -651,17 +706,18 @@ class PIPELINE_STATE : public BASE_NODE {
 // Track last states that are bound per pipeline bind point (Gfx & Compute)
 struct LAST_BOUND_STATE {
     PIPELINE_STATE *pipeline_state;
-    PIPELINE_LAYOUT_NODE pipeline_layout;
+    VkPipelineLayout pipeline_layout;
     // Track each set that has been bound
     // Ordered bound set tracking where index is set# that given set is bound to
     std::vector<cvdescriptorset::DescriptorSet *> boundDescriptorSets;
     std::unique_ptr<cvdescriptorset::DescriptorSet> push_descriptor_set;
     // one dynamic offset per dynamic descriptor bound to this CB
     std::vector<std::vector<uint32_t>> dynamicOffsets;
+    std::vector<PipelineLayoutCompatId> compat_id_for_set;
 
     void reset() {
         pipeline_state = nullptr;
-        pipeline_layout.reset();
+        pipeline_layout = VK_NULL_HANDLE;
         boundDescriptorSets.clear();
         push_descriptor_set = nullptr;
         dynamicOffsets.clear();
@@ -723,7 +779,7 @@ struct GLOBAL_CB_NODE : public BASE_NODE {
     // Validation functions run at primary CB queue submit time
     std::vector<std::function<bool()>> queue_submit_functions;
     // Validation functions run when secondary CB is executed in primary
-    std::vector<std::function<bool(VkFramebuffer)>> cmd_execute_commands_functions;
+    std::vector<std::function<bool(GLOBAL_CB_NODE *, VkFramebuffer)>> cmd_execute_commands_functions;
     std::unordered_set<VkDeviceMemory> memObjs;
     std::vector<std::function<bool(VkQueue)>> eventUpdates;
     std::vector<std::function<bool(VkQueue)>> queryUpdates;
@@ -836,6 +892,7 @@ shader_module const *GetShaderModuleState(layer_data const *dev_data, VkShaderMo
 const PHYS_DEV_PROPERTIES_NODE *GetPhysDevProperties(const layer_data *device_data);
 const VkPhysicalDeviceFeatures *GetEnabledFeatures(const layer_data *device_data);
 const DeviceExtensions *GetEnabledExtensions(const layer_data *device_data);
+const VkPhysicalDeviceDescriptorIndexingFeaturesEXT *GetEnabledDescriptorIndexingFeatures(const layer_data *device_data);
 
 void invalidateCommandBuffers(const layer_data *, std::unordered_set<GLOBAL_CB_NODE *> const &, VK_OBJECT);
 bool ValidateMemoryIsBoundToBuffer(const layer_data *, const BUFFER_STATE *, const char *, UNIQUE_VALIDATION_ERROR_CODE);

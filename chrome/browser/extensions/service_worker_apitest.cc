@@ -776,7 +776,7 @@ IN_PROC_BROWSER_TEST_P(ServiceWorkerTest, EventsToStoppedWorker) {
 // Tests that events to service worker arrives correctly event if the owner
 // extension of the worker is not running.
 IN_PROC_BROWSER_TEST_P(ServiceWorkerLazyBackgroundTest,
-                       EventsToStoppedExtension) {
+                       DISABLED_EventsToStoppedExtension) {
   LazyBackgroundObserver lazy_observer;
   ResultCatcher catcher;
   const Extension* extension = LoadExtensionWithFlags(
@@ -878,7 +878,9 @@ IN_PROC_BROWSER_TEST_P(ServiceWorkerLazyBackgroundTest,
   lazy_observer.Wait();
 }
 
-IN_PROC_BROWSER_TEST_P(ServiceWorkerLazyBackgroundTest, EventsAfterRestart) {
+// Flaky: http://crbug/834200.
+IN_PROC_BROWSER_TEST_P(ServiceWorkerLazyBackgroundTest,
+                       DISABLED_EventsAfterRestart) {
   ExtensionTestMessageListener newtab_listener("hello-newtab", false);
   content::WebContents* new_web_contents =
       AddTab(browser(), GURL(url::kAboutBlankURL));

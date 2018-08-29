@@ -11,11 +11,15 @@
 #include "chromeos/chromeos_export.h"
 #include "chromeos/login/auth/challenge_response_key.h"
 #include "chromeos/login/auth/key.h"
+#include "components/account_id/account_id.h"
 #include "components/password_manager/core/browser/hash_password_manager.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user_type.h"
 
 class AccountId;
+
+namespace user_manager {
+class User;
+}
 
 namespace chromeos {
 
@@ -42,7 +46,7 @@ class CHROMEOS_EXPORT UserContext {
 
   UserContext();
   UserContext(const UserContext& other);
-  explicit UserContext(const AccountId& account_id);
+  explicit UserContext(const user_manager::User& user);
   UserContext(user_manager::UserType user_type, const AccountId& account_id);
   ~UserContext();
 
@@ -79,7 +83,7 @@ class CHROMEOS_EXPORT UserContext {
   const std::string& GetPublicSessionInputMethod() const;
   const std::string& GetDeviceId() const;
   const std::string& GetGAPSCookie() const;
-  const base::Optional<password_manager::SyncPasswordData>&
+  const base::Optional<password_manager::PasswordHashData>&
   GetSyncPasswordData() const;
 
   bool HasCredentials() const;
@@ -95,13 +99,12 @@ class CHROMEOS_EXPORT UserContext {
   void SetIsUsingPin(bool is_using_pin);
   void SetIsForcingDircrypto(bool is_forcing_dircrypto);
   void SetAuthFlow(AuthFlow auth_flow);
-  void SetUserType(user_manager::UserType user_type);
   void SetPublicSessionLocale(const std::string& locale);
   void SetPublicSessionInputMethod(const std::string& input_method);
   void SetDeviceId(const std::string& device_id);
   void SetGAPSCookie(const std::string& gaps_cookie);
   void SetSyncPasswordData(
-      const password_manager::SyncPasswordData& sync_password_data);
+      const password_manager::PasswordHashData& sync_password_data);
 
   void ClearSecrets();
 
@@ -125,7 +128,7 @@ class CHROMEOS_EXPORT UserContext {
   std::string gaps_cookie_;
 
   // For password reuse detection use.
-  base::Optional<password_manager::SyncPasswordData> sync_password_data_;
+  base::Optional<password_manager::PasswordHashData> sync_password_data_;
 };
 
 }  // namespace chromeos

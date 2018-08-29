@@ -13,10 +13,14 @@ import org.chromium.chrome.browser.download.DownloadManagerService;
 import org.chromium.chrome.browser.download.DownloadNotifier;
 import org.chromium.chrome.browser.download.DownloadSharedPreferenceEntry;
 import org.chromium.chrome.browser.download.DownloadSharedPreferenceHelper;
+import org.chromium.chrome.browser.download.items.OfflineContentAggregatorFactory;
 import org.chromium.chrome.browser.offlinepages.OfflinePageOrigin;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.components.offline_items_collection.ContentId;
 import org.chromium.components.offline_items_collection.FailState;
 import org.chromium.components.offline_items_collection.LegacyHelpers;
+import org.chromium.components.offline_items_collection.OfflineContentProvider;
 import org.chromium.components.offline_items_collection.PendingState;
 import org.chromium.ui.widget.Toast;
 
@@ -28,12 +32,14 @@ public class OfflinePageNotificationBridge {
     /**
      * Update download notification to success.
      *
-     * @param guid        GUID of a request to download a page related to the notification.
-     * @param url         URL of the page to download.
-     * @param displayName Name to be displayed on notification.
+     * @param guid             GUID of a request to download a page related to the notification.
+     * @param url              URL of the page to download.
+     * @param displayName      Name to be displayed on notification.
+     * @param networkBytesUsed The total number of bytes downloaded for this item.
      */
     @CalledByNative
-    public static void notifyDownloadSuccessful(String guid, String url, String displayName) {
+    public static void notifyDownloadSuccessful(
+            String guid, String url, String displayName, long networkBytesUsed) {
         DownloadNotifier notifier = getDownloadNotifier();
         if (notifier == null) return;
 
@@ -43,6 +49,7 @@ public class OfflinePageNotificationBridge {
                                             .setFileName(displayName)
                                             .setIsResumable(false)
                                             .setIsOffTheRecord(false)
+                                            .setBytesTotalSize(networkBytesUsed)
                                             .build();
 
         notifier.notifyDownloadSuccessful(downloadInfo, -1, false, true);
@@ -201,9 +208,25 @@ public class OfflinePageNotificationBridge {
      */
     @CalledByNative
     public static void showDownloadingToast() {
-        Toast.makeText(ContextUtils.getApplicationContext(), R.string.download_started,
-                     Toast.LENGTH_SHORT)
-                .show();
+        if (FeatureUtilities.isDownloadProgressInfoBarEnabled()) {
+            intializeOfflineItemsCollection();
+            DownloadManagerService.getDownloadManagerService()
+                    .getInfoBarController(false)
+                    .onDownloadStarted();
+        } else {
+            Toast.makeText(ContextUtils.getApplicationContext(), R.string.download_started,
+                         Toast.LENGTH_SHORT)
+                    .show();
+        }
+    }
+
+    /**
+     * TODO(shaktisahu): Remove this function when offline pages backend cache loading is fixed.
+     */
+    private static void intializeOfflineItemsCollection() {
+        OfflineContentProvider offlineContentProvider = OfflineContentAggregatorFactory.forProfile(
+                Profile.getLastUsedProfile().getOriginalProfile());
+        offlineContentProvider.getAllItems(offlineItems -> {});
     }
 
     private static DownloadNotifier getDownloadNotifier() {

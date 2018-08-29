@@ -6,13 +6,14 @@
 
 #include <stddef.h>
 
+#include "ash/public/cpp/app_list/app_list_features.h"
+#include "ash/public/cpp/app_list/app_list_switches.h"
 #include "ash/public/cpp/shelf_item_delegate.h"
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/shelf/app_list_button.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_button.h"
-#include "ash/shelf/shelf_constants.h"
 #include "ash/shelf/shelf_view.h"
 #include "ash/shelf/shelf_view_test_api.h"
 #include "ash/shelf/shelf_widget.h"
@@ -21,6 +22,7 @@
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/bind_test_util.h"
 #include "chrome/browser/apps/app_browsertest_util.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -30,7 +32,6 @@
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
-#include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/browser/ui/ash/launcher/browser_shortcut_launcher_item_controller.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_test_util.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_util.h"
@@ -65,8 +66,6 @@
 #include "extensions/common/switches.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/app_list/app_list_features.h"
-#include "ui/app_list/app_list_switches.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/test/mus/change_completion_waiter.h"
 #include "ui/aura/window.h"
@@ -230,7 +229,7 @@ enum RipOffCommand {
   RIP_OFF_ITEM_AND_DONT_RELEASE_MOUSE,
 };
 
-class ShelfAppBrowserTest : public ExtensionBrowserTest {
+class ShelfAppBrowserTest : public extensions::ExtensionBrowserTest {
  protected:
   ShelfAppBrowserTest() {}
 
@@ -244,7 +243,7 @@ class ShelfAppBrowserTest : public ExtensionBrowserTest {
 
     controller_ = ChromeLauncherController::instance();
     ASSERT_TRUE(controller_);
-    ExtensionBrowserTest::SetUpOnMainThread();
+    extensions::ExtensionBrowserTest::SetUpOnMainThread();
   }
 
   size_t NumberOfDetectedLauncherBrowsers(bool show_all_tabs) {
@@ -341,8 +340,20 @@ class ShelfAppBrowserTest : public ExtensionBrowserTest {
     return LauncherContextMenu::Create(controller_, &item, display_id);
   }
 
-  bool IsItemPresentInMenu(LauncherContextMenu* menu, int command_id) {
-    return menu->GetIndexOfCommandId(command_id) != -1;
+  bool IsItemPresentInMenu(LauncherContextMenu* launcher_context_menu,
+                           int command_id) {
+    base::RunLoop run_loop;
+    std::unique_ptr<ui::MenuModel> menu;
+    launcher_context_menu->GetMenuModel(base::BindLambdaForTesting(
+        [&](std::unique_ptr<ui::MenuModel> created_menu) {
+          menu = std::move(created_menu);
+          run_loop.Quit();
+        }));
+    run_loop.Run();
+    ui::MenuModel* menu_ptr = menu.get();
+    int index = 0;
+    return ui::MenuModel::GetModelAndIndexForCommandId(command_id, &menu_ptr,
+                                                       &index);
   }
 
   ChromeLauncherController* controller_ = nullptr;
@@ -853,7 +864,7 @@ IN_PROC_BROWSER_TEST_F(LauncherPlatformAppBrowserTest, SetIcon) {
   // Ensure icon heights are correct (see test.js in app_icon/ test directory)
   // Note, images are no longer available in ChromeLauncherController. They are
   // are passed directly to the ShelfController.
-  EXPECT_EQ(ash::kShelfSize, app_item_image.height());
+  EXPECT_EQ(extension_misc::EXTENSION_ICON_MEDIUM, app_item_image.height());
   EXPECT_EQ(extension_misc::EXTENSION_ICON_LARGE,
             app_item_custom_image.height());
   EXPECT_EQ(64, panel_item_image.height());
@@ -1107,8 +1118,9 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, TabDragAndDrop) {
 
   // Detach a tab at index 1 (app1) from |tab_strip_model1| and insert it as an
   // active tab at index 1 to |tab_strip_model2|.
-  content::WebContents* detached_tab = tab_strip_model1->DetachWebContentsAt(1);
-  tab_strip_model2->InsertWebContentsAt(1, detached_tab,
+  std::unique_ptr<content::WebContents> detached_tab =
+      tab_strip_model1->DetachWebContentsAt(1);
+  tab_strip_model2->InsertWebContentsAt(1, std::move(detached_tab),
                                         TabStripModel::ADD_ACTIVE);
   EXPECT_EQ(1, tab_strip_model1->count());
   EXPECT_EQ(2, tab_strip_model2->count());
@@ -1858,7 +1870,8 @@ IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, MatchingShelfIDandActiveTab) {
 
 // Check that a windowed V1 application can navigate away from its domain, but
 // still gets detected properly.
-IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, V1AppNavigation) {
+// Disabled due to https://crbug.com/838743.
+IN_PROC_BROWSER_TEST_F(ShelfAppBrowserTest, DISABLED_V1AppNavigation) {
   // We assume that the web store is always there (which it apparently is).
   controller_->PinAppWithID(extensions::kWebStoreAppId);
   const ash::ShelfID id(extensions::kWebStoreAppId);

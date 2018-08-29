@@ -34,15 +34,11 @@ namespace chromeos {
 
 namespace {
 
-const char* kDefaultMountOptions[] = {
-    "nodev", "noexec", "nosuid",
-};
-const char kReadOnlyOption[] = "ro";
-const char kReadWriteOption[] = "rw";
-const char kRemountOption[] = "remount";
-const char kMountLabelOption[] = "mountlabel";
-
-const char kLazyUnmountOption[] = "lazy";
+constexpr char kReadOnlyOption[] = "ro";
+constexpr char kReadWriteOption[] = "rw";
+constexpr char kRemountOption[] = "remount";
+constexpr char kMountLabelOption[] = "mountlabel";
+constexpr char kLazyUnmountOption[] = "lazy";
 
 // Checks if retrieved media type is in boundaries of DeviceMediaType.
 bool IsValidMediaType(uint32_t type) {
@@ -112,6 +108,7 @@ class CrosDisksClientImpl : public CrosDisksClient {
   void Mount(const std::string& source_path,
              const std::string& source_format,
              const std::string& mount_label,
+             const std::vector<std::string>& mount_options,
              MountAccessMode access_mode,
              RemountOption remount,
              VoidDBusMethodCallback callback) override {
@@ -120,9 +117,9 @@ class CrosDisksClientImpl : public CrosDisksClient {
     dbus::MessageWriter writer(&method_call);
     writer.AppendString(source_path);
     writer.AppendString(source_format);
-    std::vector<std::string> mount_options =
-        ComposeMountOptions(mount_label, access_mode, remount);
-    writer.AppendArrayOfStrings(mount_options);
+    std::vector<std::string> options =
+        ComposeMountOptions(mount_options, mount_label, access_mode, remount);
+    writer.AppendArrayOfStrings(options);
     proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
         base::BindOnce(&CrosDisksClientImpl::OnVoidMethod,
@@ -674,12 +671,11 @@ base::FilePath CrosDisksClient::GetRemovableDiskMountPoint() {
 
 // static
 std::vector<std::string> CrosDisksClient::ComposeMountOptions(
+    const std::vector<std::string>& options,
     const std::string& mount_label,
     MountAccessMode access_mode,
     RemountOption remount) {
-  std::vector<std::string> mount_options(
-      kDefaultMountOptions,
-      kDefaultMountOptions + arraysize(kDefaultMountOptions));
+  std::vector<std::string> mount_options = options;
   switch (access_mode) {
     case MOUNT_ACCESS_MODE_READ_ONLY:
       mount_options.push_back(kReadOnlyOption);
@@ -697,6 +693,7 @@ std::vector<std::string> CrosDisksClient::ComposeMountOptions(
         base::StringPrintf("%s=%s", kMountLabelOption, mount_label.c_str());
     mount_options.push_back(mount_label_option);
   }
+
   return mount_options;
 }
 

@@ -8,17 +8,17 @@
 // DO NOT MODIFY!
 
 // clang-format off
-#include "v8_test_inherited_legacy_unenumerable_named_properties.h"
+#include "third_party/blink/renderer/bindings/tests/results/modules/v8_test_inherited_legacy_unenumerable_named_properties.h"
 
 #include "base/memory/scoped_refptr.h"
-#include "bindings/core/v8/exception_state.h"
-#include "bindings/core/v8/idl_types.h"
-#include "bindings/core/v8/native_value_traits_impl.h"
-#include "bindings/core/v8/v8_dom_configuration.h"
-#include "core/execution_context/execution_context.h"
-#include "platform/bindings/runtime_call_stats.h"
-#include "platform/bindings/v8_object_constructor.h"
-#include "platform/wtf/get_ptr.h"
+#include "third_party/blink/renderer/bindings/core/v8/exception_state.h"
+#include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
+#include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_dom_configuration.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
+#include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
+#include "third_party/blink/renderer/platform/wtf/get_ptr.h"
 
 namespace blink {
 
@@ -203,7 +203,7 @@ static void installV8TestInheritedLegacyUnenumerableNamedPropertiesTemplate(
   // Register IDL constants, attributes and operations.
   V8DOMConfiguration::InstallAccessors(
       isolate, world, instanceTemplate, prototypeTemplate, interfaceTemplate,
-      signature, V8TestInheritedLegacyUnenumerableNamedPropertiesAccessors, WTF_ARRAY_LENGTH(V8TestInheritedLegacyUnenumerableNamedPropertiesAccessors));
+      signature, V8TestInheritedLegacyUnenumerableNamedPropertiesAccessors, arraysize(V8TestInheritedLegacyUnenumerableNamedPropertiesAccessors));
 
   // Indexed properties
   v8::IndexedPropertyHandlerConfiguration indexedPropertyHandlerConfig(

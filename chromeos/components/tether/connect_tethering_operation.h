@@ -14,7 +14,7 @@
 #include "base/time/clock.h"
 #include "chromeos/components/tether/ble_connection_manager.h"
 #include "chromeos/components/tether/message_transfer_operation.h"
-#include "components/cryptauth/remote_device.h"
+#include "components/cryptauth/remote_device_ref.h"
 
 namespace chromeos {
 
@@ -28,10 +28,24 @@ class TetherHostResponseRecorder;
 // notifies observers when the RemoteDevice sends a response.
 class ConnectTetheringOperation : public MessageTransferOperation {
  public:
+  // Includes all error codes of ConnectTetheringResponse_ResponseCode, but
+  // includes extra values, |NO_RESPONSE| and |INVALID_HOTSPOT_CREDENTIALS|.
+  enum HostResponseErrorCode {
+    PROVISIONING_FAILED = 0,
+    TETHERING_TIMEOUT = 1,
+    TETHERING_UNSUPPORTED = 2,
+    NO_CELL_DATA = 3,
+    ENABLING_HOTSPOT_FAILED = 4,
+    ENABLING_HOTSPOT_TIMEOUT = 5,
+    UNKNOWN_ERROR = 6,
+    NO_RESPONSE = 7,
+    INVALID_HOTSPOT_CREDENTIALS = 8
+  };
+
   class Factory {
    public:
     static std::unique_ptr<ConnectTetheringOperation> NewInstance(
-        const cryptauth::RemoteDevice& device_to_connect,
+        cryptauth::RemoteDeviceRef device_to_connect,
         BleConnectionManager* connection_manager,
         TetherHostResponseRecorder* tether_host_response_recorder,
         bool setup_required);
@@ -40,7 +54,7 @@ class ConnectTetheringOperation : public MessageTransferOperation {
 
    protected:
     virtual std::unique_ptr<ConnectTetheringOperation> BuildInstance(
-        const cryptauth::RemoteDevice& devices_to_connect,
+        cryptauth::RemoteDeviceRef devices_to_connect,
         BleConnectionManager* connection_manager,
         TetherHostResponseRecorder* tether_host_response_recorder,
         bool setup_required);
@@ -52,14 +66,14 @@ class ConnectTetheringOperation : public MessageTransferOperation {
   class Observer {
    public:
     virtual void OnConnectTetheringRequestSent(
-        const cryptauth::RemoteDevice& remote_device) = 0;
+        cryptauth::RemoteDeviceRef remote_device) = 0;
     virtual void OnSuccessfulConnectTetheringResponse(
-        const cryptauth::RemoteDevice& remote_device,
+        cryptauth::RemoteDeviceRef remote_device,
         const std::string& ssid,
         const std::string& password) = 0;
     virtual void OnConnectTetheringFailure(
-        const cryptauth::RemoteDevice& remote_device,
-        ConnectTetheringResponse_ResponseCode error_code) = 0;
+        cryptauth::RemoteDeviceRef remote_device,
+        HostResponseErrorCode error_code) = 0;
   };
 
   ~ConnectTetheringOperation() override;
@@ -69,16 +83,15 @@ class ConnectTetheringOperation : public MessageTransferOperation {
 
  protected:
   ConnectTetheringOperation(
-      const cryptauth::RemoteDevice& device_to_connect,
+      cryptauth::RemoteDeviceRef device_to_connect,
       BleConnectionManager* connection_manager,
       TetherHostResponseRecorder* tether_host_response_recorder,
       bool setup_required);
 
   // MessageTransferOperation:
-  void OnDeviceAuthenticated(
-      const cryptauth::RemoteDevice& remote_device) override;
+  void OnDeviceAuthenticated(cryptauth::RemoteDeviceRef remote_device) override;
   void OnMessageReceived(std::unique_ptr<MessageWrapper> message_wrapper,
-                         const cryptauth::RemoteDevice& remote_device) override;
+                         cryptauth::RemoteDeviceRef remote_device) override;
   void OnOperationFinished() override;
   MessageType GetMessageTypeForConnection() override;
   void OnMessageSent(int sequence_number) override;
@@ -87,13 +100,15 @@ class ConnectTetheringOperation : public MessageTransferOperation {
   void NotifyConnectTetheringRequestSent();
   void NotifyObserversOfSuccessfulResponse(const std::string& ssid,
                                            const std::string& password);
-  void NotifyObserversOfConnectionFailure(
-      ConnectTetheringResponse_ResponseCode error_code);
+  void NotifyObserversOfConnectionFailure(HostResponseErrorCode error_code);
 
  private:
   friend class ConnectTetheringOperationTest;
   FRIEND_TEST_ALL_PREFIXES(ConnectTetheringOperationTest,
                            TestOperation_SetupRequired);
+
+  HostResponseErrorCode ConnectTetheringResponseCodeToHostResponseErrorCode(
+      ConnectTetheringResponse_ResponseCode error_code);
 
   void SetClockForTest(base::Clock* clock_for_test);
 
@@ -102,7 +117,7 @@ class ConnectTetheringOperation : public MessageTransferOperation {
   static const uint32_t kSetupNotRequiredResponseTimeoutSeconds;
   static const uint32_t kSetupRequiredResponseTimeoutSeconds;
 
-  cryptauth::RemoteDevice remote_device_;
+  cryptauth::RemoteDeviceRef remote_device_;
   TetherHostResponseRecorder* tether_host_response_recorder_;
   base::Clock* clock_;
   int connect_message_sequence_number_ = -1;
@@ -112,7 +127,7 @@ class ConnectTetheringOperation : public MessageTransferOperation {
   // OnOperationFinished().
   std::string ssid_to_return_;
   std::string password_to_return_;
-  ConnectTetheringResponse_ResponseCode error_code_to_return_;
+  HostResponseErrorCode error_code_to_return_;
   base::Time connect_tethering_request_start_time_;
 
   base::ObserverList<Observer> observer_list_;

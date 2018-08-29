@@ -11,6 +11,7 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/field_trial.h"
@@ -28,6 +29,7 @@
 #include "chrome/browser/net/chrome_network_delegate.h"
 #include "chrome/browser/net/predictor.h"
 #include "chrome/browser/net/quota_policy_channel_id_store.h"
+#include "chrome/browser/net/reporting_permissions_checker.h"
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_io_data.h"
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings.h"
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings_factory.h"
@@ -35,6 +37,7 @@
 #include "chrome/browser/previews/previews_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_constants.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -143,6 +146,7 @@ void ProfileImplIOData::Handle::Init(
     const base::FilePath& profile_path,
     chrome_browser_net::Predictor* predictor,
     storage::SpecialStoragePolicy* special_storage_policy,
+    std::unique_ptr<ReportingPermissionsChecker> reporting_permissions_checker,
     std::unique_ptr<domain_reliability::DomainReliabilityMonitor>
         domain_reliability_monitor) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -159,10 +163,10 @@ void ProfileImplIOData::Handle::Init(
   lazy_params->persist_session_cookies =
       profile_->ShouldPersistSessionCookies();
   lazy_params->special_storage_policy = special_storage_policy;
+  lazy_params->reporting_permissions_checker =
+      std::move(reporting_permissions_checker);
   lazy_params->domain_reliability_monitor =
       std::move(domain_reliability_monitor);
-  lazy_params->reporting_permissions_checker =
-      std::make_unique<ReportingPermissionsChecker>(profile_);
 
   io_data_->lazy_params_.reset(lazy_params);
 
@@ -672,6 +676,8 @@ net::URLRequestContext* ProfileImplIOData::InitializeMediaRequestContext(
   // Copy most state from the original context.
   MediaRequestContext* context = new MediaRequestContext(name);
   context->CopyFrom(original_context);
+  if (base::FeatureList::IsEnabled(features::kUseSameCacheForMedia))
+    return context;
 
   // For in-memory context, return immediately after creating the new
   // context before attaching a separate cache. It is important to return

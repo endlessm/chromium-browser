@@ -20,9 +20,9 @@
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/bookmarks/managed_bookmark_service_factory.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/extensions/extension_commands_global_registry.h"
+#include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/permissions/permission_request_manager.h"
 #include "chrome/browser/profiles/avatar_menu.h"
 #include "chrome/browser/profiles/profile.h"
@@ -193,11 +193,19 @@ using content::WebContents;
 
 namespace {
 
+// Make |window| able to handle Browser commands.
 void SetUpBrowserWindowCommandHandler(NSWindow* window) {
-  // Make the window handle browser window commands.
   [base::mac::ObjCCastStrict<ChromeEventProcessingWindow>(window)
       setCommandHandler:[[[BrowserWindowCommandHandler alloc] init]
                             autorelease]];
+}
+
+// Decouples the command dispatcher associated with |window| from Browser
+// command handling. This prevents handlers with a reference to |window|
+// attempting to look up a Browser* for it.
+void ClearCommandHandler(NSWindow* window) {
+  [base::mac::ObjCCastStrict<ChromeEventProcessingWindow>(window)
+      setCommandHandler:nil];
 }
 
 // Returns true if the Tab Detaching in Fullscreen is enabled. It's enabled by
@@ -401,6 +409,9 @@ bool IsTabDetachingInFullscreenEnabled() {
 
 - (void)dealloc {
   browser_->tab_strip_model()->CloseAllTabs();
+
+  DCHECK([self window]);
+  ClearCommandHandler([self window]);
 
   // Explicitly release |fullscreenToolbarController_| here, as it may call
   // back to this BWC in |-dealloc|.
@@ -1128,7 +1139,11 @@ bool IsTabDetachingInFullscreenEnabled() {
 // put into a different tab strip, such as during a drop on another window.
 - (void)detachTabView:(NSView*)view {
   int index = [tabStripController_ modelIndexForTabView:view];
-  browser_->tab_strip_model()->DetachWebContentsAt(index);
+
+  // TODO(erikchen): While it might be nice to fix ownership semantics here,
+  // realistically the code is going to be deleted in the not-too-distant
+  // future.
+  browser_->tab_strip_model()->DetachWebContentsAt(index).release();
 }
 
 - (NSArray*)tabViews {
@@ -1216,25 +1231,17 @@ bool IsTabDetachingInFullscreenEnabled() {
     bool isActive = (index == model->active_index());
 
     TabStripModelDelegate::NewStripContents item;
-    item.web_contents = model->GetWebContentsAt(index);
+    item.web_contents = model->DetachWebContentsAt(index);
     item.add_types =
         (isActive ? TabStripModel::ADD_ACTIVE : TabStripModel::ADD_NONE) |
         (isPinned ? TabStripModel::ADD_PINNED : TabStripModel::ADD_NONE);
-    contentses.push_back(item);
-  }
-
-  for (TabView* tabView in tabViews) {
-    int index = [tabStripController_ modelIndexForTabView:tabView];
-    // Detach it from the source window, which just updates the model without
-    // deleting the tab contents. This needs to come before creating the new
-    // Browser because it clears the WebContents' delegate, which gets hooked
-    // up during creation of the new window.
-    model->DetachWebContentsAt(index);
+    contentses.push_back(std::move(item));
   }
 
   // Create a new window with the dragged tabs in its model.
-  Browser* newBrowser = browser_->tab_strip_model()->delegate()->
-      CreateNewStripWithContents(contentses, browserRect, false);
+  Browser* newBrowser =
+      browser_->tab_strip_model()->delegate()->CreateNewStripWithContents(
+          std::move(contentses), browserRect, false);
 
   // Get the new controller by asking the new window for its delegate.
   BrowserWindowController* controller = [BrowserWindowController
@@ -1472,15 +1479,11 @@ bool IsTabDetachingInFullscreenEnabled() {
   if (change != TabChangeType::kLoadingOnly)
     windowShim_->UpdateTitleBar();
 
-  // Update the bookmark bar if this is the currently selected tab and if it
-  // isn't just the title which changed. This for transitions between the NTP
-  // (showing its floating bookmark bar) and normal web pages (showing no
-  // bookmark bar).
+  // Update the bookmark bar if this is the currently selected tab. This for
+  // transitions between the NTP (showing its floating bookmark bar) and normal
+  // web pages (showing no bookmark bar).
   // TODO(viettrungluu): perhaps update to not terminate running animations?
-  if (change != TabChangeType::kTitleNotLoading) {
-    windowShim_->BookmarkBarStateChanged(
-        BookmarkBar::DONT_ANIMATE_STATE_CHANGE);
-  }
+  windowShim_->BookmarkBarStateChanged(BookmarkBar::DONT_ANIMATE_STATE_CHANGE);
 }
 
 - (void)onTabDetachedWithContents:(WebContents*)contents {

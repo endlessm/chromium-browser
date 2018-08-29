@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_TEST_LAZY_THREAD_CONTROLLER_FOR_TEST_H_
 
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/threading/platform_thread.h"
 #include "third_party/blink/renderer/platform/scheduler/base/thread_controller_impl.h"
 
@@ -19,19 +20,19 @@ namespace scheduler {
 //
 // TODO(skyostil): Fix the relevant test suites and remove this class
 // (crbug.com/495659).
-class LazyThreadControllerForTest : public internal::ThreadControllerImpl {
+class LazyThreadControllerForTest
+    : public base::sequence_manager::internal::ThreadControllerImpl {
  public:
   LazyThreadControllerForTest();
-  ~LazyThreadControllerForTest();
+  ~LazyThreadControllerForTest() override;
 
   // internal::ThreadControllerImpl:
   void AddNestingObserver(base::RunLoop::NestingObserver* observer) override;
   void RemoveNestingObserver(base::RunLoop::NestingObserver* observer) override;
   bool RunsTasksInCurrentSequence() override;
   void ScheduleWork() override;
-  void ScheduleDelayedWork(base::TimeTicks now,
-                           base::TimeTicks run_time) override;
-  void CancelDelayedWork(base::TimeTicks run_time) override;
+  void SetNextDelayedDoWork(base::sequence_manager::LazyNow* lazy_now,
+                            base::TimeTicks run_time) override;
   void SetDefaultTaskRunner(
       scoped_refptr<base::SingleThreadTaskRunner> task_runner) override;
   void RestoreDefaultTaskRunner() override;

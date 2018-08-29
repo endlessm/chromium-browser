@@ -5,8 +5,8 @@
 package org.chromium.chrome.browser.download.ui;
 
 import android.content.Context;
-import android.support.v7.widget.AppCompatSpinner;
 import android.util.AttributeSet;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.Spinner;
 
@@ -26,6 +26,8 @@ public class DownloadManagerToolbar extends SelectableListToolbar<DownloadHistor
     private Spinner mSpinner;
     private DownloadManagerUi mManager;
 
+    private int mInfoMenuItemId;
+
     public DownloadManagerToolbar(Context context, AttributeSet attrs) {
         super(context, attrs);
         inflateMenu(R.menu.download_manager_menu);
@@ -39,14 +41,14 @@ public class DownloadManagerToolbar extends SelectableListToolbar<DownloadHistor
     }
 
     /**
-     * Initializes the spinner for the download filter.
+     * Initializes UI elements in download toolbar.
      * @param adapter The adapter associated with the spinner.
      */
-    public void initializeFilterSpinner(FilterAdapter adapter) {
-        mSpinner = new AppCompatSpinner(this.getContext());
+    public void initialize(FilterAdapter adapter) {
+        // Initialize the spinner.
+        mSpinner = findViewById(R.id.spinner);
         mSpinner.setAdapter(adapter);
         mSpinner.setOnItemSelectedListener(adapter);
-        addView(mSpinner);
     }
 
     /**
@@ -95,9 +97,8 @@ public class DownloadManagerToolbar extends SelectableListToolbar<DownloadHistor
     @Override
     protected void onDataChanged(int numItems) {
         super.onDataChanged(numItems);
-        getMenu()
-                .findItem(R.id.info_menu_id)
-                .setVisible(!mIsSearching && !mIsSelectionEnabled && numItems > 0);
+        MenuItem item = getMenu().findItem(mInfoMenuItemId);
+        if (item != null) item.setVisible(!mIsSearching && !mIsSelectionEnabled && numItems > 0);
     }
 
     @Override
@@ -121,6 +122,12 @@ public class DownloadManagerToolbar extends SelectableListToolbar<DownloadHistor
     public void hideSearchView() {
         super.hideSearchView();
         mSpinner.setVisibility(VISIBLE);
+    }
+
+    @Override
+    public void setInfoMenuItem(int infoMenuItemId) {
+        super.setInfoMenuItem(infoMenuItemId);
+        mInfoMenuItemId = infoMenuItemId;
     }
 
     /** Returns the {@link Spinner}. */

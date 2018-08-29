@@ -5,19 +5,65 @@
 var AutomationEvent = chrome.automation.AutomationEvent;
 var EventType = chrome.automation.EventType;
 var RoleType = chrome.automation.RoleType;
+var SelectToSpeakState = chrome.accessibilityPrivate.SelectToSpeakState;
 
-// CrosSelectToSpeakStartSpeechMethod enums.
-// These values are persited to logs and should not be renumbered or re-used.
-// See tools/metrics/histograms/enums.xml.
-const START_SPEECH_METHOD_MOUSE = 0;
-const START_SPEECH_METHOD_KEYSTROKE = 1;
-// The number of enum values in CrosSelectToSpeapStartSpeechMethod. This should
-// be kept in sync with the enum count in tools/metrics/histograms/enums.xml.
-const START_SPEECH_METHOD_COUNT = 2;
+/**
+ * CrosSelectToSpeakStartSpeechMethod enums.
+ * These values are persisted to logs and should not be renumbered or re-used.
+ * See tools/metrics/histograms/enums.xml.
+ * @enum {number}
+ */
+const StartSpeechMethod = {
+  MOUSE: 0,
+  KEYSTROKE: 1,
+};
+
+/**
+ * The number of enum values in CrosSelectToSpeakStartSpeechMethod. This should
+ * be kept in sync with the enum count in tools/metrics/histograms/enums.xml.
+ * @type {number}
+ */
+const START_SPEECH_METHOD_COUNT = Object.keys(StartSpeechMethod).length;
+
+/**
+ * CrosSelectToSpeakStateChangeEvent enums.
+ * These values are persisted to logs and should not be renumbered or re-used.
+ * See tools/metrics/histograms/enums.xml.
+ * @enum {number}
+ */
+const StateChangeEvent = {
+  START_SELECTION: 0,
+  CANCEL_SPEECH: 1,
+  CANCEL_SELECTION: 2,
+};
+
+/**
+ * The number of enum values in CrosSelectToSpeakStateChangeEvent. This should
+ * be kept in sync with the enum count in tools/metrics/histograms/enums.xml.
+ * @type {number}
+ */
+const STATE_CHANGE_EVENT_COUNT = Object.keys(StateChangeEvent).length;
+
+/**
+ * The name of the state change request metric.
+ * @type {string}
+ */
+const STATE_CHANGE_EVENT_METRIC_NAME =
+    'Accessibility.CrosSelectToSpeak.StateChangeEvent';
+
+// This must be the same as in ash/system/accessibility/select_to_speak_tray.cc:
+// ash::kSelectToSpeakTrayClassName.
+const SELECT_TO_SPEAK_TRAY_CLASS_NAME =
+    'tray/TrayBackgroundView/SelectToSpeakTray';
 
 // Number of milliseconds to wait after requesting a clipboard read
 // before clipboard change and paste events are ignored.
 const CLIPBOARD_READ_MAX_DELAY_MS = 1000;
+
+// Number of milliseconds to wait after requesting a clipboard copy
+// before clipboard copy events are ignored, used to clear the clipboard
+// after reading data in a paste event.
+const CLIPBOARD_CLEAR_MAX_DELAY_MS = 500;
 
 // Matches one of the known Drive apps which need the clipboard to find and read
 // selected text. Includes sandbox and non-sandbox versions.
@@ -47,8 +93,12 @@ function getDriveAppRoot(node) {
  * @constructor
  */
 var SelectToSpeak = function() {
-  /** @private {AutomationNode} */
-  this.node_ = null;
+  /**
+   * The current state of the SelectToSpeak extension, from
+   * SelectToSpeakState.
+   * @private {!SelectToSpeakState}
+   */
+  this.state_ = SelectToSpeakState.INACTIVE;
 
   /** @private {boolean} */
   this.trackingMouse_ = false;
@@ -186,8 +236,11 @@ SelectToSpeak.prototype = {
   onMouseDown_: function(evt) {
     // If the user hasn't clicked 'search', or if they are currently
     // trying to highlight a selection, don't track the mouse.
-    if (!this.isSearchKeyDown_ || this.isSelectionKeyDown_)
+    if (this.state_ != SelectToSpeakState.SELECTING &&
+        (!this.isSearchKeyDown_ || this.isSelectionKeyDown_))
       return false;
+
+    this.onStateChanged_(SelectToSpeakState.SELECTING);
 
     this.trackingMouse_ = true;
     this.didTrackMouse_ = true;
@@ -232,8 +285,12 @@ SelectToSpeak.prototype = {
       return false;
     this.onMouseMove_(evt);
     this.trackingMouse_ = false;
+    if (!this.keysCurrentlyDown_.has(SelectToSpeak.SEARCH_KEY_CODE)) {
+      // This is only needed to cancel something started with the search key.
+      this.didTrackMouse_ = false;
+    }
 
-    this.clearFocusRingAndNode_();
+    this.onStateChanged_(SelectToSpeakState.INACTIVE);
 
     this.mouseEnd_ = {x: evt.screenX, y: evt.screenY};
     var ctrX = Math.floor((this.mouseStart_.x + this.mouseEnd_.x) / 2);
@@ -264,6 +321,24 @@ SelectToSpeak.prototype = {
       evt.preventDefault();
       this.startSpeech_(evt.clipboardData.getData('text/plain'));
       this.readClipboardDataTimeMs_ = -1;
+      // Clear the clipboard data by copying nothing (the current document).
+      // Do this in a timeout to avoid a recursive warning per
+      // https://crbug.com/363288.
+      setTimeout(() => {
+        this.clearClipboardDataTimeMs_ = Date.now();
+        document.execCommand('copy');
+      }, 0);
+    }
+  },
+
+  onClipboardCopy_: function(evt) {
+    if (Date.now() - this.clearClipboardDataTimeMs_ <
+        CLIPBOARD_CLEAR_MAX_DELAY_MS) {
+      // onClipboardPaste has just completed reading the clipboard for speech.
+      // This is used to clear the clipboard.
+      evt.clipboardData.setData('text/plain', '');
+      evt.preventDefault();
+      this.clearClipboardDataTimeMs_ = -1;
     }
   },
 
@@ -298,10 +373,21 @@ SelectToSpeak.prototype = {
       // which is computed based on which window is the event handler for the
       // hit point, isn't the part of the tree that contains the actual
       // content. In such cases, use focus to get the root.
-      if (!findAllMatching(root, rect, nodes) && focusedNode)
+      // TODO(katie): Determine if this work-around needs to be ARC++ only. If
+      // so, look for classname exoshell on the root or root parent to confirm
+      // that a node is in ARC++.
+      if (!findAllMatching(root, rect, nodes) && focusedNode &&
+          focusedNode.root.role != RoleType.DESKTOP) {
         findAllMatching(focusedNode.root, rect, nodes);
+      }
+      if (nodes.length == 1 &&
+          nodes[0].className == SELECT_TO_SPEAK_TRAY_CLASS_NAME) {
+        // Don't read only the Select-to-Speak toggle button in the tray unless
+        // more items are being read.
+        return;
+      }
       this.startSpeechQueue_(nodes);
-      this.recordStartEvent_(START_SPEECH_METHOD_MOUSE);
+      this.recordStartEvent_(StartSpeechMethod.MOUSE);
     }.bind(this));
   },
 
@@ -513,7 +599,7 @@ SelectToSpeak.prototype = {
       return;
     }
     this.initializeScrollingToOffscreenNodes_(focusedNode.root);
-    this.recordStartEvent_(START_SPEECH_METHOD_KEYSTROKE);
+    this.recordStartEvent_(StartSpeechMethod.KEYSTROKE);
   },
 
   /**
@@ -559,6 +645,7 @@ SelectToSpeak.prototype = {
   stopAll_: function() {
     chrome.tts.stop();
     this.clearFocusRing_();
+    this.onStateChanged_(SelectToSpeakState.INACTIVE);
   },
 
   /**
@@ -600,6 +687,44 @@ SelectToSpeak.prototype = {
     chrome.clipboard.onClipboardDataChanged.addListener(
         this.onClipboardDataChanged_.bind(this));
     document.addEventListener('paste', this.onClipboardPaste_.bind(this));
+    chrome.accessibilityPrivate.onSelectToSpeakStateChangeRequested.addListener(
+        this.onStateChangeRequested_.bind(this));
+    document.addEventListener('copy', this.onClipboardCopy_.bind(this));
+    // Initialize the state to SelectToSpeakState.INACTIVE.
+    chrome.accessibilityPrivate.onSelectToSpeakStateChanged(this.state_);
+  },
+
+  /**
+   * Called when Chrome OS is requesting Select-to-Speak to switch states.
+   */
+  onStateChangeRequested_: function() {
+    // Switch Select-to-Speak states on request.
+    // We will need to track the current state and toggle from one state to
+    // the next when this function is called, and then call
+    // accessibilityPrivate.onSelectToSpeakStateChanged with the new state.
+    switch (this.state_) {
+      case SelectToSpeakState.INACTIVE:
+        // Start selection.
+        this.trackingMouse_ = true;
+        this.onStateChanged_(SelectToSpeakState.SELECTING);
+        this.recordSelectToSpeakStateChangeEvent_(
+            StateChangeEvent.START_SELECTION);
+        break;
+      case SelectToSpeakState.SPEAKING:
+        // Stop speaking.
+        this.cancelIfSpeaking_(true /* clear the focus ring */);
+        this.recordSelectToSpeakStateChangeEvent_(
+            StateChangeEvent.CANCEL_SPEECH);
+        break;
+      case SelectToSpeakState.SELECTING:
+        // Cancelled selection.
+        this.trackingMouse_ = false;
+        this.onStateChanged_(SelectToSpeakState.INACTIVE);
+        this.recordSelectToSpeakStateChangeEvent_(
+            StateChangeEvent.CANCEL_SELECTION);
+    }
+    this.onStateChangeRequestedCallbackForTest_ &&
+        this.onStateChangeRequestedCallbackForTest_();
   },
 
   /**
@@ -613,11 +738,12 @@ SelectToSpeak.prototype = {
     let options = this.speechOptions_();
     options.onEvent = (event) => {
       if (event.type == 'start') {
+        this.onStateChanged_(SelectToSpeakState.SPEAKING);
         this.testCurrentNode_();
       } else if (
           event.type == 'end' || event.type == 'interrupted' ||
           event.type == 'cancelled') {
-        this.clearFocusRingAndNode_();
+        this.onStateChanged_(SelectToSpeakState.INACTIVE);
       }
     };
     chrome.tts.speak(text, options);
@@ -679,6 +805,7 @@ SelectToSpeak.prototype = {
       let options = this.speechOptions_();
       options.onEvent = (event) => {
         if (event.type == 'start' && nodeGroup.nodes.length > 0) {
+          this.onStateChanged_(SelectToSpeakState.SPEAKING);
           this.currentBlockParent_ = nodeGroup.blockParent;
           this.currentNodeGroupIndex_ = 0;
           this.currentNode_ = nodeGroup.nodes[this.currentNodeGroupIndex_];
@@ -696,11 +823,10 @@ SelectToSpeak.prototype = {
             this.testCurrentNode_();
           }
         } else if (event.type == 'interrupted' || event.type == 'cancelled') {
-          this.clearFocusRingAndNode_();
+          this.onStateChanged_(SelectToSpeakState.INACTIVE);
         } else if (event.type == 'end') {
-          if (isLast) {
-            this.clearFocusRingAndNode_();
-          }
+          if (isLast)
+            this.onStateChanged_(SelectToSpeakState.INACTIVE);
         } else if (event.type == 'word') {
           console.debug(nodeGroup.text + ' (index ' + event.charIndex + ')');
           console.debug('-'.repeat(event.charIndex) + '^');
@@ -747,6 +873,29 @@ SelectToSpeak.prototype = {
     this.intervalRef_ = setInterval(
         this.testCurrentNode_.bind(this),
         SelectToSpeak.NODE_STATE_TEST_INTERVAL_MS);
+  },
+
+  /**
+   * Updates the state.
+   * @param {!SelectToSpeakState} state
+   */
+  onStateChanged_: function(state) {
+    if (this.state_ != state) {
+      if (this.state_ == SelectToSpeakState.SELECTING &&
+          state == SelectToSpeakState.INACTIVE && this.trackingMouse_) {
+        // If we are tracking the mouse actively, then we have requested tts
+        // to stop speaking just before mouse tracking began, so we
+        // shouldn't transition into the inactive state now: The call to stop
+        // speaking created an async 'cancel' event from the TTS engine that
+        // is now resulting in an attempt to set the state inactive.
+        return;
+      }
+      if (state == SelectToSpeakState.INACTIVE)
+        this.clearFocusRingAndNode_();
+      // Send state change event to Chrome.
+      chrome.accessibilityPrivate.onSelectToSpeakStateChanged(state);
+      this.state_ = state;
+    }
   },
 
   /**
@@ -861,6 +1010,15 @@ SelectToSpeak.prototype = {
   recordCancelEvent_: function() {
     chrome.metricsPrivate.recordUserAction(
         'Accessibility.CrosSelectToSpeak.CancelSpeech');
+  },
+
+  /**
+   * Records a user-requested state change event from a given state.
+   * @param {number} changeType
+   */
+  recordSelectToSpeakStateChangeEvent_: function(changeType) {
+    chrome.metricsPrivate.recordEnumerationValue(
+        STATE_CHANGE_EVENT_METRIC_NAME, changeType, STATE_CHANGE_EVENT_COUNT);
   },
 
   /**
@@ -1175,4 +1333,11 @@ SelectToSpeak.prototype = {
   fireMockMouseUpEvent: function(event) {
     this.onMouseUp_(event);
   },
+
+  /**
+   * Function to be called when a state change request is received from the
+   * accessibilityPrivate API.
+   * @type {?function()}
+   */
+  onStateChangeRequestedCallbackForTest_: null,
 };

@@ -12,12 +12,15 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string16.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/win/scoped_hstring.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/notifications/mock_itoastnotification.h"
+#include "chrome/browser/notifications/mock_itoastnotifier.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
+#include "chrome/browser/notifications/notification_launch_id.h"
 #include "chrome/browser/notifications/notification_platform_bridge_win.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -39,6 +42,12 @@ const char kLaunchIdButtonClick[] =
 const char kLaunchIdSettings[] =
     "2|0|Default|0|https://example.com/|notification_id";
 
+// Windows native notification have a dependency on WinRT (Win 8+) and the
+// built in Notification Center. Although native notifications in Chrome are
+// only available in Win 10+ we keep the minimum test coverage at Win 8 in case
+// we decide to backport.
+constexpr int kMinimumWindowsVersion = base::win::VERSION_WIN8;
+
 Profile* CreateTestingProfile(const base::FilePath& path) {
   base::ScopedAllowBlockingForTesting allow_blocking;
   ProfileManager* profile_manager = g_browser_process->profile_manager();
@@ -57,7 +66,7 @@ Profile* CreateTestingProfile(const base::FilePath& path) {
 
 Profile* CreateTestingProfile(const std::string& profile_name) {
   base::FilePath path;
-  PathService::Get(chrome::DIR_USER_DATA, &path);
+  base::PathService::Get(chrome::DIR_USER_DATA, &path);
   path = path.AppendASCII(profile_name);
   return CreateTestingProfile(path);
 }
@@ -116,6 +125,14 @@ class NotificationPlatformBridgeWinUITest : public InProcessBrowserTest {
     quit_task.Run();
   }
 
+  void ValidateLaunchId(const std::string& expected_launch_id,
+                        const base::RepeatingClosure& quit_task,
+                        const NotificationLaunchId& launch_id) {
+    ASSERT_TRUE(launch_id.is_valid());
+    ASSERT_STREQ(expected_launch_id.c_str(), launch_id.Serialize().c_str());
+    quit_task.Run();
+  }
+
  protected:
   void ProcessLaunchIdViaCmdLine(const std::string& launch_id) {
     base::RunLoop run_loop;
@@ -125,12 +142,9 @@ class NotificationPlatformBridgeWinUITest : public InProcessBrowserTest {
             base::Unretained(this), run_loop.QuitClosure()));
 
     // Simulate clicks on the toast.
-    NotificationPlatformBridgeWin* bridge = GetBridge();
-    ASSERT_TRUE(bridge);
-
     base::CommandLine command_line = base::CommandLine::FromString(L"");
     command_line.AppendSwitchASCII(switches::kNotificationLaunchId, launch_id);
-    ASSERT_TRUE(bridge->HandleActivation(command_line));
+    ASSERT_TRUE(NotificationPlatformBridgeWin::HandleActivation(command_line));
 
     run_loop.Run();
   }
@@ -171,7 +185,6 @@ class MockIToastActivatedEventArgs
       : arguments_(args) {}
   virtual ~MockIToastActivatedEventArgs() = default;
 
-  // TODO(finnur): Would also like to remove these 6 functions...
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid,
                                            void** ppvObject) override {
     return E_NOTIMPL;
@@ -202,9 +215,7 @@ class MockIToastActivatedEventArgs
 };
 
 IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, HandleEvent) {
-  // This test exercises a feature that is not enabled in older versions of
-  // Windows.
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < kMinimumWindowsVersion)
     return;
 
   const wchar_t kXmlDoc[] =
@@ -248,9 +259,7 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, HandleEvent) {
 }
 
 IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, HandleActivation) {
-  // This test exercises a feature that is not enabled in older versions of
-  // Windows.
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < kMinimumWindowsVersion)
     return;
 
   base::RunLoop run_loop;
@@ -277,9 +286,7 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, HandleActivation) {
 }
 
 IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, HandleSettings) {
-  // This test exercises a feature that is not enabled in older versions of
-  // Windows.
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < kMinimumWindowsVersion)
     return;
 
   const wchar_t kXmlDoc[] =
@@ -323,9 +330,7 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, HandleSettings) {
 }
 
 IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, GetDisplayed) {
-  // This test requires WinRT core functions, which are not available in
-  // older versions of Windows.
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < kMinimumWindowsVersion)
     return;
 
   NotificationPlatformBridgeWin* bridge = GetBridge();
@@ -421,10 +426,46 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, GetDisplayed) {
   bridge->SetDisplayedNotificationsForTesting(nullptr);
 }
 
+// Test calling Display with a mock implementation of the Action Center
+// and validate it gets the values expected.
+IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, DisplayWithMockAC) {
+  if (base::win::GetVersion() < kMinimumWindowsVersion)
+    return;
+
+  NotificationPlatformBridgeWin* bridge = GetBridge();
+  ASSERT_TRUE(bridge);
+
+  MockIToastNotifier notifier;
+  bridge->SetNotifierForTesting(&notifier);
+
+  std::string launch_id_value = "0|0|P1|0|https://example.com/|notification_id";
+  NotificationLaunchId launch_id(launch_id_value);
+  ASSERT_TRUE(launch_id.is_valid());
+
+  auto notification = std::make_unique<message_center::Notification>(
+      message_center::NOTIFICATION_TYPE_SIMPLE, "notification_id", L"Text1",
+      L"Text2", gfx::Image(), base::string16(), GURL("https://example.com/"),
+      message_center::NotifierId(), message_center::RichNotificationData(),
+      nullptr);
+
+  std::unique_ptr<NotificationCommon::Metadata> metadata;
+  Profile* profile = CreateTestingProfile("P1");
+
+  {
+    base::RunLoop run_loop;
+    notifier.SetNotificationShownCallback(base::BindRepeating(
+        &NotificationPlatformBridgeWinUITest::ValidateLaunchId,
+        base::Unretained(this), launch_id_value, run_loop.QuitClosure()));
+    bridge->Display(NotificationHandler::Type::WEB_PERSISTENT, profile,
+                    *notification, std::move(metadata));
+    run_loop.Run();
+  }
+
+  bridge->SetNotifierForTesting(nullptr);
+}
+
 IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, CmdLineClick) {
-  // This test exercises a feature that is not enabled in older versions of
-  // Windows.
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < kMinimumWindowsVersion)
     return;
 
   ASSERT_NO_FATAL_FAILURE(ProcessLaunchIdViaCmdLine(kLaunchId));
@@ -440,9 +481,7 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, CmdLineClick) {
 }
 
 IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, CmdLineButton) {
-  // This test exercises a feature that is not enabled in older versions of
-  // Windows.
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < kMinimumWindowsVersion)
     return;
 
   ASSERT_NO_FATAL_FAILURE(ProcessLaunchIdViaCmdLine(kLaunchIdButtonClick));
@@ -458,9 +497,7 @@ IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, CmdLineButton) {
 }
 
 IN_PROC_BROWSER_TEST_F(NotificationPlatformBridgeWinUITest, CmdLineSettings) {
-  // This test exercises a feature that is not enabled in older versions of
-  // Windows.
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < kMinimumWindowsVersion)
     return;
 
   ASSERT_NO_FATAL_FAILURE(ProcessLaunchIdViaCmdLine(kLaunchIdSettings));

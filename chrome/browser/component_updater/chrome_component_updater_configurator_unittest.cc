@@ -9,6 +9,7 @@
 #include "base/command_line.h"
 #include "base/memory/ref_counted.h"
 #include "chrome/browser/component_updater/chrome_component_updater_configurator.h"
+#include "components/component_updater/component_updater_command_line_config_policy.h"
 #include "components/component_updater/component_updater_switches.h"
 #include "components/component_updater/component_updater_url_constants.h"
 #include "components/component_updater/configurator_impl.h"
@@ -121,27 +122,29 @@ TEST_F(ChromeComponentUpdaterConfiguratorTest, TestUseEncryption) {
 
   const auto urls = config->UpdateUrl();
   ASSERT_EQ(2u, urls.size());
-  ASSERT_STREQ(kUpdaterDefaultUrlAlt, urls[0].spec().c_str());
-  ASSERT_STREQ(kUpdaterFallbackUrlAlt, urls[1].spec().c_str());
+  ASSERT_STREQ(kUpdaterDefaultUrl, urls[0].spec().c_str());
+  ASSERT_STREQ(kUpdaterFallbackUrl, urls[1].spec().c_str());
 
   ASSERT_EQ(config->UpdateUrl(), config->PingUrl());
 
   // Use the configurator implementation to test the filtering of
   // unencrypted URLs.
   {
-    const ConfiguratorImpl config(cmdline, true);
+    const ConfiguratorImpl config(
+        ComponentUpdaterCommandLineConfigPolicy(cmdline), true);
     const auto urls = config.UpdateUrl();
     ASSERT_EQ(1u, urls.size());
-    ASSERT_STREQ(kUpdaterDefaultUrlAlt, urls[0].spec().c_str());
+    ASSERT_STREQ(kUpdaterDefaultUrl, urls[0].spec().c_str());
     ASSERT_EQ(config.UpdateUrl(), config.PingUrl());
   }
 
   {
-    const ConfiguratorImpl config(cmdline, false);
+    const ConfiguratorImpl config(
+        ComponentUpdaterCommandLineConfigPolicy(cmdline), false);
     const auto urls = config.UpdateUrl();
     ASSERT_EQ(2u, urls.size());
-    ASSERT_STREQ(kUpdaterDefaultUrlAlt, urls[0].spec().c_str());
-    ASSERT_STREQ(kUpdaterFallbackUrlAlt, urls[1].spec().c_str());
+    ASSERT_STREQ(kUpdaterDefaultUrl, urls[0].spec().c_str());
+    ASSERT_STREQ(kUpdaterFallbackUrl, urls[1].spec().c_str());
     ASSERT_EQ(config.UpdateUrl(), config.PingUrl());
   }
 }

@@ -6,11 +6,7 @@
   -->
 <html i18n-values="dir:textdirection;lang:language">
   <head>
-    <!-- We have to set some default title, or chrome will use the page name.
-      -- As soon as we init and change to a directory, we'll show the directory
-      -- path. Until then, use an invisible non-whitespace character.
-      -->
-    <title>&#xFEFF;</title>
+    <title></title>
 
     <meta name="google" value="notranslate">
 
@@ -107,6 +103,11 @@
                shortcut="e|Ctrl">
       <command id="new-window" i18n-values="label:NEW_WINDOW_BUTTON_LABEL"
                shortcut="n|Ctrl">
+      <!-- Note that actual shortcut Ctrl/Meta+A is handled in
+               ListSelectionController.handleKeyDown -->
+      <command id="select-all"
+               i18n-values="label:SELECT_ALL_COMMAND_LABEL"
+               shortcut="a|Ctrl">
       <command id="drive-sync-settings"
                i18n-values="label:DRIVE_MOBILE_CONNECTION_OPTION">
       <command id="drive-hosted-settings"
@@ -152,6 +153,8 @@
 
       <command id="share" i18n-values="label:SHARE_BUTTON_LABEL" disabled hidden
                shortcut="." hide-shortcut-text>
+      <command id="manage-in-drive"
+               i18n-values="label:MANAGE_IN_DRIVE_BUTTON_LABEL" disabled hidden>
 
       <command id="zoom-in" shortcut="=|Ctrl">
       <command id="zoom-out" shortcut="-|Ctrl">
@@ -172,6 +175,7 @@
                i18n-values="label:INSTALL_NEW_EXTENSION_LABEL">
       <command id="open-gear-menu" shortcut="e|Alt f|Alt">
       <command id="browser-back" shortcut="BrowserBack">
+      <command id="focus-action-bar" shortcut="a|Alt">
     </commands>
 
     <cr-menu id="file-context-menu" class="chrome-menu files-menu"
@@ -242,6 +246,8 @@
       <cr-menu-item id="gear-menu-newfolder" command="#new-folder"></cr-menu-item>
       <hr>
       <cr-menu-item command="#configure"></cr-menu-item>
+      <cr-menu-item id="gear-menu-select-all"
+                    command="#select-all"></cr-menu-item>
       <cr-menu-item id="gear-menu-toggle-hidden-files"
                     command="#toggle-hidden-files"></cr-menu-item>
       <cr-menu-item id="gear-menu-drive-sync-settings"
@@ -292,7 +298,7 @@
     <div class="dialog-header">
       <div id="location-breadcrumbs" class="breadcrumbs"></div>
       <div id="cancel-selection-button-wrapper">
-        <paper-button id="cancel-selection-button" tabindex="8"
+        <paper-button id="cancel-selection-button" class="menu-button" tabindex="8"
               i18n-values="aria-label:CANCEL_SELECTION_BUTTON_LABEL">
           <span class="icon-arrow-back"></span>
           <span id="cancel-selection-label" i18n-content="CANCEL_SELECTION_BUTTON_LABEL"></span>
@@ -300,98 +306,101 @@
       </div>
       <div id="files-selected-label"></div>
       <div class="spacer"></div>
-      <button id="tasks" class="combobutton" menu="#tasks-menu"
-              tabindex="10" hidden
-              i18n-values="aria-label:TASKS_BUTTON_LABEL">
-      </button>
-      <button id="share-menu-button" class="icon-button" tabindex="11" hidden
-              menu="#share-menu"
-              i18n-values="aria-label:SHARE_BUTTON_TOOLTIP"
-              aria-activedescendant="share-menu"
-              has-tooltip>
-        <files-toggle-ripple></files-toggle-ripple>
-        <div class="icon"></div>
-      </button>
-      <button id="delete-button" class="icon-button" tabindex="12" hidden
-              i18n-values="aria-label:DELETE_BUTTON_LABEL"
-              visibleif="full-page"
-              has-tooltip>
-        <files-ripple></files-ripple>
-        <div class="icon"></div>
-      </button>
-      <button id="search-button" class="icon-button" tabindex="13"
-              i18n-values="aria-label:SEARCH_TEXT_LABEL"
-              has-tooltip>
-        <files-toggle-ripple></files-toggle-ripple>
-        <div class="icon"></div>
-      </button>
-      <div id="search-box">
-        <paper-input-container no-label-float>
-          <input is="iron-input" type="search" tabindex="14" slot="input"
-                 i18n-values="aria-label:SEARCH_TEXT_LABEL;placeholder:SEARCH_TEXT_LABEL">
-          <span class="clear" slot="suffix"></span>
-        </paper-input-container>
-      </div>
-      <button id="refresh-button" class="icon-button" tabindex="15" hidden
-              i18n-values="aria-label:REFRESH_BUTTON_LABEL"
-              command="#refresh" has-tooltip>
-        <files-ripple></files-ripple>
-        <div class="icon"></div>
-      </button>
-      <div id="cloud-import-combo-button"
-           class="cloud-import-combo-button"
-           hidden>
-        <div class="buttons">
-          <button id="cloud-import-button"
-                  class="icon-button"
-                  tabindex="16"
-                  i18n-values="aria-label:CLOUD_IMPORT_COMMAND"
-                  has-tooltip>
-            <iron-icon icon="files:cloud-queue"></iron-icon>
-          </button>
-          <button id="cloud-import-details-button"
-                  class="icon-button"
-                  tabindex="16"
-                  i18n-values="aria-label:CLOUD_IMPORT_SHOW_DETAILS"
-                  has-tooltip>
-            <iron-icon icon="files:arrow-drop-down"></iron-icon>
-          </button>
-        </div>
-        <div class="ripples">
-          <paper-ripple></paper-ripple>
+      <div id="action-bar">
+        <button id="tasks" class="combobutton menu-button" menu="#tasks-menu"
+                tabindex="10" hidden
+                i18n-values="aria-label:TASKS_BUTTON_LABEL">
+        </button>
+        <button id="share-menu-button" class="icon-button menu-button" tabindex="11" hidden
+                menu="#share-menu"
+                i18n-values="aria-label:SHARE_BUTTON_TOOLTIP"
+                aria-activedescendant="share-menu"
+                has-tooltip>
           <files-toggle-ripple></files-toggle-ripple>
+          <div class="icon"></div>
+        </button>
+        <button id="delete-button" class="icon-button menu-button" tabindex="12" hidden
+                i18n-values="aria-label:DELETE_BUTTON_LABEL"
+                visibleif="full-page"
+                has-tooltip>
+          <files-ripple></files-ripple>
+          <div class="icon"></div>
+        </button>
+        <button id="search-button" class="icon-button menu-button" tabindex="13"
+                i18n-values="aria-label:SEARCH_TEXT_LABEL"
+                has-tooltip>
+          <files-toggle-ripple></files-toggle-ripple>
+          <div class="icon"></div>
+        </button>
+        <div id="search-box">
+          <paper-input-container no-label-float>
+            <input is="iron-input" type="search" tabindex="14" slot="input"
+                   i18n-values="aria-label:SEARCH_TEXT_LABEL;placeholder:SEARCH_TEXT_LABEL"
+                   hidden>
+            <span class="clear" slot="suffix"></span>
+          </paper-input-container>
         </div>
+        <button id="refresh-button" class="icon-button menu-button" tabindex="15" hidden
+                i18n-values="aria-label:REFRESH_BUTTON_LABEL"
+                command="#refresh" has-tooltip>
+          <files-ripple></files-ripple>
+          <div class="icon"></div>
+        </button>
+        <div id="cloud-import-combo-button"
+             class="cloud-import-combo-button"
+             hidden>
+          <div class="buttons">
+            <button id="cloud-import-button"
+                    class="icon-button menu-button"
+                    tabindex="16"
+                    i18n-values="aria-label:CLOUD_IMPORT_COMMAND"
+                    has-tooltip>
+              <iron-icon icon="files:cloud-queue"></iron-icon>
+            </button>
+            <button id="cloud-import-details-button"
+                    class="icon-button menu-button"
+                    tabindex="16"
+                    i18n-values="aria-label:CLOUD_IMPORT_SHOW_DETAILS"
+                    has-tooltip>
+              <iron-icon icon="files:arrow-drop-down"></iron-icon>
+            </button>
+          </div>
+          <div class="ripples">
+            <paper-ripple></paper-ripple>
+            <files-toggle-ripple></files-toggle-ripple>
+          </div>
+        </div>
+        <button id="view-button" class="icon-button menu-button" tabindex="17"
+                i18n-values="aria-label:CHANGE_TO_THUMBNAILVIEW_BUTTON_LABEL"
+                has-tooltip>
+          <files-ripple></files-ripple>
+          <div class="icon"></div>
+        </button>
+        <button id="sort-button" class="icon-button menu-button" tabindex="18"
+                menu="#sort-menu"
+                i18n-values="aria-label:SORT_BUTTON_TOOLTIP"
+                aria-activedescendant="sort-menu"
+                has-tooltip>
+          <files-toggle-ripple></files-toggle-ripple>
+          <div class="icon"></div>
+        </button>
+        <button id="gear-button" class="icon-button menu-button" tabindex="19"
+                menu="#gear-menu"
+                i18n-values="aria-label:GEAR_BUTTON_TOOLTIP"
+                aria-activedescendant="gear-menu"
+                has-tooltip>
+          <files-toggle-ripple></files-toggle-ripple>
+          <div class="icon"></div>
+        </button>
+        <button id="selection-menu-button" class="icon-button menu-button" tabindex="19"
+                menu="#file-context-menu"
+                i18n-values="aria-label:SELECTION_MENU_BUTTON_TOOLTIP"
+                aria-activedescendant="file-context-menu"
+                has-tooltip hidden>
+          <files-toggle-ripple></files-toggle-ripple>
+          <div class="icon"></div>
+        </button>
       </div>
-      <button id="view-button" class="icon-button" tabindex="17"
-              i18n-values="aria-label:CHANGE_TO_THUMBNAILVIEW_BUTTON_LABEL"
-              has-tooltip>
-        <files-ripple></files-ripple>
-        <div class="icon"></div>
-      </button>
-      <button id="sort-button" class="icon-button" tabindex="18"
-              menu="#sort-menu"
-              i18n-values="aria-label:SORT_BUTTON_TOOLTIP"
-              aria-activedescendant="sort-menu"
-              has-tooltip>
-        <files-toggle-ripple></files-toggle-ripple>
-        <div class="icon"></div>
-      </button>
-      <button id="gear-button" class="icon-button" tabindex="19"
-              menu="#gear-menu"
-              i18n-values="aria-label:GEAR_BUTTON_TOOLTIP"
-              aria-activedescendant="gear-menu"
-              has-tooltip>
-        <files-toggle-ripple></files-toggle-ripple>
-        <div class="icon"></div>
-      </button>
-      <button id="selection-menu-button" class="icon-button" tabindex="19"
-              menu="#file-context-menu"
-              i18n-values="aria-label:SELECTION_MENU_BUTTON_TOOLTIP"
-              aria-activedescendant="file-context-menu"
-              has-tooltip hidden>
-        <files-toggle-ripple></files-toggle-ripple>
-        <div class="icon"></div>
-      </button>
     </div>
 
     <div id="cloud-import-details" class="hidden" hidden>
@@ -417,7 +426,7 @@
     <div class="dialog-container">
       <div class="dialog-navigation-list">
         <div class="dialog-navigation-list-contents">
-          <tree id="directory-tree" tabindex="21"></tree>
+          <tree id="directory-tree" role="navigation" tabindex="21"></tree>
         </div>
         <div class="dialog-navigation-list-footer">
           <div id="progress-center" hidden>
@@ -458,6 +467,7 @@
                 Welcome to the new epic photo importer!
               </div>
               <div id="list-container">
+                <div id="more-actions-info" i18n-content="SEE_MENU_FOR_ACTIONS" hidden></div>
                 <div id="empty-folder" hidden>
                   <div class="image"></div>
                   <span id="empty-folder-label" class="label" i18n-content="EMPTY_FOLDER"></span>

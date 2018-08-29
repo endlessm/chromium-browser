@@ -35,8 +35,7 @@ class ServiceProcessControlBrowserTest
  public:
   ServiceProcessControlBrowserTest() {
   }
-  virtual ~ServiceProcessControlBrowserTest() {
-  }
+  ~ServiceProcessControlBrowserTest() override {}
 
   void HistogramsCallback() {
     MockHistogramsCallback();
@@ -119,14 +118,14 @@ class ServiceProcessControlBrowserTest
     // because this can get invoked in the context of a Launch() call and we
     // may not be in Run() yet.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+        FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
   }
 
   void ProcessControlLaunchFailed() {
     ADD_FAILURE();
     // Quit the current message.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+        FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
   }
 
  private:
@@ -139,7 +138,7 @@ class RealServiceProcessControlBrowserTest
   void SetUpCommandLine(base::CommandLine* command_line) override {
     ServiceProcessControlBrowserTest::SetUpCommandLine(command_line);
     base::FilePath exe;
-    PathService::Get(base::DIR_EXE, &exe);
+    base::PathService::Get(base::DIR_EXE, &exe);
 #if defined(OS_MACOSX)
     exe = exe.DirName().DirName().DirName();
 #endif
@@ -253,7 +252,7 @@ static void DecrementUntilZero(int* count) {
   (*count)--;
   if (!(*count))
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+        FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
 }
 
 // Flaky on Mac. http://crbug.com/517420
@@ -271,7 +270,7 @@ IN_PROC_BROWSER_TEST_F(ServiceProcessControlBrowserTest,
   for (int i = 0; i < launch_count; i++) {
     // Launch the process asynchronously.
     process->Launch(base::Bind(&DecrementUntilZero, &launch_count),
-                    base::MessageLoop::QuitWhenIdleClosure());
+                    base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
   }
   // Then run the message loop to keep things running.
   content::RunMessageLoop();

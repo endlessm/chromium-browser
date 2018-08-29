@@ -93,7 +93,6 @@ class ASH_EXPORT WindowSelector : public display::DisplayObserver,
   void WindowClosing(WindowSelectorItem* window);
 
   // Called to set bounds for window grids. Used for split view.
-  void SetBoundsForWindowGridsInScreen(const gfx::Rect& bounds);
   void SetBoundsForWindowGridsInScreenIgnoringWindow(
       const gfx::Rect& bounds,
       WindowSelectorItem* ignored_item);
@@ -120,11 +119,17 @@ class ASH_EXPORT WindowSelector : public display::DisplayObserver,
   void Drag(WindowSelectorItem* item, const gfx::Point& location_in_screen);
   void CompleteDrag(WindowSelectorItem* item,
                     const gfx::Point& location_in_screen);
+  void StartSplitViewDragMode(const gfx::Point& location_in_screen);
+  void Fling(WindowSelectorItem* item,
+             const gfx::Point& location_in_screen,
+             float velocity_x,
+             float velocity_y);
   void ActivateDraggedWindow();
   void ResetDraggedWindowGesture();
 
-  // Positions all of the windows in the overview.
-  void PositionWindows(bool animate);
+  // Positions all of the windows in the overview, except |ignored_item|.
+  void PositionWindows(bool animate,
+                       WindowSelectorItem* ignored_item = nullptr);
 
   // If we are in middle of ending overview mode.
   bool IsShuttingDown() const;
@@ -133,6 +138,8 @@ class ASH_EXPORT WindowSelector : public display::DisplayObserver,
   // wallpaper animated. Returns false if one of the grids windows covers the
   // the entire workspace, true otherwise.
   bool ShouldAnimateWallpaper(aura::Window* root_window);
+
+  bool IsWindowInOverview(const aura::Window* window);
 
   WindowSelectorDelegate* delegate() { return delegate_; }
 

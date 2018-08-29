@@ -6,8 +6,6 @@
 
 #include "content/common/accessibility_messages.h"
 #include "content/common/frame_messages.h"
-#include "content/common/input/sync_compositor_messages.h"
-#include "content/common/input_messages.h"
 #include "content/common/view_messages.h"
 #include "content/public/common/content_client.h"
 
@@ -18,10 +16,6 @@ bool SwappedOutMessages::CanSendWhileSwappedOut(const IPC::Message* msg) {
   // important (e.g., ACKs) for keeping the browser and renderer state
   // consistent in case we later return to the same renderer.
   switch (msg->type()) {
-    // Handled by RenderWidgetHost.
-    case InputHostMsg_HandleInputEvent_ACK::ID:
-    case SyncCompositorHostMsg_SetNeedsBeginFrames::ID:
-    case ViewHostMsg_ResizeOrRepaint_ACK::ID:
     // Handled by RenderViewHost.
     case FrameHostMsg_RenderProcessGone::ID:
     case ViewHostMsg_ClosePage_ACK::ID:
@@ -33,6 +27,8 @@ bool SwappedOutMessages::CanSendWhileSwappedOut(const IPC::Message* msg) {
     case ViewHostMsg_RouteCloseEvent::ID:
     // Send page scale factor reset notification upon cross-process navigations.
     case ViewHostMsg_PageScaleFactorChanged::ID:
+    // Allow history.back() in OOPIFs - https://crbug.com/845923.
+    case ViewHostMsg_GoToEntryAtOffset::ID:
       return true;
     default:
       break;

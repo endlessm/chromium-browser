@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -203,6 +204,7 @@ ManagePasswordsBubbleModel::ManagePasswordsBubbleModel(
     DisplayReason display_reason)
     : delegate_(std::move(delegate)),
       interaction_reported_(false),
+      are_passwords_revealed_when_bubble_is_opened_(false),
       metrics_recorder_(delegate_->GetPasswordFormMetricsRecorder()) {
   origin_ = delegate_->GetOrigin();
   state_ = delegate_->GetState();
@@ -222,8 +224,11 @@ ManagePasswordsBubbleModel::ManagePasswordsBubbleModel(
         interaction_stats.dismissal_count = stats->dismissal_count;
       }
     }
-    are_passwords_revealed_when_bubble_is_opened_ =
-        delegate_->ArePasswordsRevealedWhenBubbleIsOpened();
+
+    if (delegate_->ArePasswordsRevealedWhenBubbleIsOpened()) {
+      are_passwords_revealed_when_bubble_is_opened_ = true;
+      delegate_->OnPasswordsRevealed();
+    }
     password_revealing_requires_reauth_ =
         !are_passwords_revealed_when_bubble_is_opened_ &&
         (delegate_->BubbleIsManualFallbackForSaving()
@@ -375,20 +380,6 @@ void ManagePasswordsBubbleModel::OnSaveClicked() {
   }
 }
 
-void ManagePasswordsBubbleModel::OnUpdateClicked(
-    const autofill::PasswordForm& password_form) {
-  if (delegate_)
-    delegate_->UpdatePassword(password_form);
-}
-
-void ManagePasswordsBubbleModel::OnDoneClicked() {
-  interaction_keeper_->set_dismissal_reason(metrics_util::CLICKED_DONE);
-}
-
-void ManagePasswordsBubbleModel::OnOKClicked() {
-  interaction_keeper_->set_dismissal_reason(metrics_util::CLICKED_OK);
-}
-
 void ManagePasswordsBubbleModel::OnManageClicked() {
   interaction_keeper_->set_dismissal_reason(metrics_util::CLICKED_MANAGE);
   if (delegate_)
@@ -461,11 +452,6 @@ content::WebContents* ManagePasswordsBubbleModel::GetWebContents() const {
   return delegate_ ? delegate_->GetWebContents() : nullptr;
 }
 
-bool ManagePasswordsBubbleModel::ShouldShowMultipleAccountUpdateUI() const {
-  return state_ == password_manager::ui::PENDING_PASSWORD_UPDATE_STATE &&
-         local_credentials_.size() > 1;
-}
-
 bool ManagePasswordsBubbleModel::IsCurrentStateUpdate() const {
   DCHECK(state_ == password_manager::ui::PENDING_PASSWORD_UPDATE_STATE ||
          state_ == password_manager::ui::PENDING_PASSWORD_STATE);
@@ -481,9 +467,12 @@ const base::string16& ManagePasswordsBubbleModel::GetCurrentUsername() const {
 }
 
 bool ManagePasswordsBubbleModel::ReplaceToShowPromotionIfNeeded() {
-  PrefService* prefs = GetProfile()->GetPrefs();
+  Profile* profile = GetProfile();
+  if (!profile)
+    return false;
+  PrefService* prefs = profile->GetPrefs();
   const browser_sync::ProfileSyncService* sync_service =
-      ProfileSyncServiceFactory::GetForProfile(GetProfile());
+      ProfileSyncServiceFactory::GetForProfile(profile);
   // Signin promotion.
   if (password_bubble_experiment::ShouldShowChromeSignInPasswordPromo(
           prefs, sync_service)) {
@@ -503,7 +492,7 @@ bool ManagePasswordsBubbleModel::ReplaceToShowPromotionIfNeeded() {
 #if defined(OS_WIN)
   // Desktop to mobile promotion only enabled on windows.
   if (desktop_ios_promotion::IsEligibleForIOSPromotion(
-          GetProfile(),
+          profile,
           desktop_ios_promotion::PromotionEntryPoint::SAVE_PASSWORD_BUBBLE)) {
     interaction_keeper_->ReportInteractions(this);
     title_brand_link_range_ = gfx::Range();
@@ -521,8 +510,11 @@ void ManagePasswordsBubbleModel::SetClockForTesting(base::Clock* clock) {
 }
 
 bool ManagePasswordsBubbleModel::RevealPasswords() {
-  return !password_revealing_requires_reauth_ ||
-         (delegate_ && delegate_->AuthenticateUser());
+  bool reveal_immediately = !password_revealing_requires_reauth_ ||
+                            (delegate_ && delegate_->AuthenticateUser());
+  if (reveal_immediately)
+    delegate_->OnPasswordsRevealed();
+  return reveal_immediately;
 }
 
 void ManagePasswordsBubbleModel::UpdatePendingStateTitle() {

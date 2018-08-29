@@ -6,6 +6,9 @@
 
 #include <stddef.h>
 
+#include "ash/public/cpp/app_list/app_list_constants.h"
+#include "ash/public/cpp/app_list/app_list_features.h"
+#include "ash/public/cpp/app_list/vector_icons/vector_icons.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
@@ -16,9 +19,6 @@
 #include "components/omnibox/browser/autocomplete_controller.h"
 #include "components/omnibox/browser/autocomplete_match_type.h"
 #include "components/omnibox/browser/vector_icons.h"
-#include "ui/app_list/app_list_constants.h"
-#include "ui/app_list/app_list_features.h"
-#include "ui/app_list/vector_icons/vector_icons.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "url/gurl.h"
 #include "url/url_canon.h"
@@ -30,7 +30,7 @@ namespace app_list {
 namespace {
 
 // #000 at 87% opacity.
-constexpr SkColor kListIconColor = SkColorSetARGBMacro(0xDE, 0x00, 0x00, 0x00);
+constexpr SkColor kListIconColor = SkColorSetARGB(0xDE, 0x00, 0x00, 0x00);
 
 int ACMatchStyleToTagStyle(int styles) {
   int tag_styles = 0;
@@ -85,8 +85,8 @@ const gfx::VectorIcon& TypeToVectorIcon(AutocompleteMatchType::Type type) {
     case AutocompleteMatchType::BOOKMARK_TITLE:
     case AutocompleteMatchType::NAVSUGGEST_PERSONALIZED:
     case AutocompleteMatchType::CLIPBOARD:
-    case AutocompleteMatchType::PHYSICAL_WEB:
-    case AutocompleteMatchType::PHYSICAL_WEB_OVERFLOW:
+    case AutocompleteMatchType::PHYSICAL_WEB_DEPRECATED:
+    case AutocompleteMatchType::PHYSICAL_WEB_OVERFLOW_DEPRECATED:
     case AutocompleteMatchType::TAB_SEARCH_DEPRECATED:
       return kIcDomainIcon;
 
@@ -107,7 +107,7 @@ const gfx::VectorIcon& TypeToVectorIcon(AutocompleteMatchType::Type type) {
     case AutocompleteMatchType::CALCULATOR:
       return kIcEqualIcon;
 
-    case AutocompleteMatchType::EXTENSION_APP:
+    case AutocompleteMatchType::EXTENSION_APP_DEPRECATED:
     case AutocompleteMatchType::NUM_TYPES:
       NOTREACHED();
       break;
@@ -133,6 +133,7 @@ OmniboxResult::OmniboxResult(Profile* profile,
   }
   set_id(match_.destination_url.spec());
   set_comparable_id(match_.stripped_destination_url.spec());
+  SetResultType(ash::SearchResultType::kOmnibox);
 
   // Derive relevance from omnibox relevance and normalize it to [0, 1].
   // The magic number 1500 is the highest score of an omnibox result.
@@ -140,7 +141,7 @@ OmniboxResult::OmniboxResult(Profile* profile,
   set_relevance(match_.relevance / 1500.0);
 
   if (AutocompleteMatch::IsSearchType(match_.type))
-    set_is_omnibox_search(true);
+    SetIsOmniboxSearch(true);
 
   UpdateIcon();
   UpdateTitleAndDetails();
@@ -152,11 +153,6 @@ void OmniboxResult::Open(int event_flags) {
   RecordHistogram(OMNIBOX_SEARCH_RESULT);
   list_controller_->OpenURL(profile_, match_.destination_url, match_.transition,
                             ui::DispositionFromEventFlags(event_flags));
-}
-
-std::unique_ptr<ChromeSearchResult> OmniboxResult::Duplicate() const {
-  return std::make_unique<OmniboxResult>(profile_, list_controller_,
-                                         autocomplete_controller_, match_);
 }
 
 void OmniboxResult::UpdateIcon() {
@@ -177,27 +173,27 @@ void OmniboxResult::UpdateTitleAndDetails() {
   const bool use_directly = !IsUrlResultWithDescription();
   ChromeSearchResult::Tags title_tags;
   if (use_directly) {
-    set_title(match_.contents);
+    SetTitle(match_.contents);
     ACMatchClassificationsToTags(match_.contents, match_.contents_class,
                                  &title_tags);
   } else {
-    set_title(match_.description);
+    SetTitle(match_.description);
     ACMatchClassificationsToTags(match_.description, match_.description_class,
                                  &title_tags);
   }
-  set_title_tags(title_tags);
+  SetTitleTags(title_tags);
 
   ChromeSearchResult::Tags details_tags;
   if (use_directly) {
-    set_details(match_.description);
+    SetDetails(match_.description);
     ACMatchClassificationsToTags(match_.description, match_.description_class,
                                  &details_tags);
   } else {
-    set_details(match_.contents);
+    SetDetails(match_.contents);
     ACMatchClassificationsToTags(match_.contents, match_.contents_class,
                                  &details_tags);
   }
-  set_details_tags(details_tags);
+  SetDetailsTags(details_tags);
 }
 
 bool OmniboxResult::IsUrlResultWithDescription() const {

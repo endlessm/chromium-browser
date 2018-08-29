@@ -19,6 +19,7 @@ import sys
 import traceback
 import urllib
 import urllib2
+import zlib
 
 from core import path_util
 
@@ -129,7 +130,6 @@ def _SendResultsFromCache(cache_file_name, url, oauth_token):
     line = line.strip()
     if not line:
       continue
-    print 'Sending result %d of %d to dashboard.' % (index + 1, total_results)
     # We need to check whether we're trying to upload histograms. If the JSON
     # is invalid, we should not try to send this data or re-try it later.
     # Instead, we'll print an error.
@@ -140,6 +140,8 @@ def _SendResultsFromCache(cache_file_name, url, oauth_token):
       continue
 
     data_type = ('histogram' if is_histogramset else 'chartjson')
+    print 'Sending %s result %d of %d to dashboard.' % (
+        data_type, index + 1, total_results)
 
     try:
       if is_histogramset:
@@ -203,7 +205,8 @@ def MakeHistogramSetWithDiagnostics(histograms_file,
 
   url = _MakeStdioUrl(test_name, buildername, buildnumber)
   if url:
-    add_diagnostics_args.extend(['--log_urls', url])
+    add_diagnostics_args.extend(['--log_urls_k', 'Buildbot stdio'])
+    add_diagnostics_args.extend(['--log_urls_v', url])
 
   for k, v in revisions_dict.iteritems():
     add_diagnostics_args.extend((k, v))
@@ -488,10 +491,10 @@ def _SendResultsJson(url, results_json):
       # If the remote app rejects the JSON, it's probably malformed,
       # so we don't want to retry it.
       raise SendResultsFatalException('Discarding JSON, error:\n%s' % error)
-    raise SendResultsRetryException()
+    raise SendResultsRetryException(error)
 
 def _Httplib2Request(url, data, oauth_token):
-  data = urllib.urlencode({'data': data})
+  data = zlib.compress(data)
   headers = {
       'Authorization': 'Bearer %s' % oauth_token,
       'User-Agent': 'perf-uploader/1.0'

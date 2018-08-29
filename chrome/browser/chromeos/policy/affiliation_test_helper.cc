@@ -27,12 +27,12 @@
 #include "chromeos/dbus/session_manager_client.h"
 #include "chromeos/login/auth/key.h"
 #include "chromeos/login/auth/user_context.h"
+#include "components/account_id/account_id.h"
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
 #include "components/policy/core/common/cloud/policy_builder.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/notification_service.h"
@@ -52,7 +52,8 @@ void SetUserKeys(policy::UserPolicyBuilder* user_policy) {
   const AccountId account_id =
       AccountId::FromUserEmail(user_policy->policy_data().username());
   base::FilePath user_keys_dir;
-  ASSERT_TRUE(PathService::Get(chromeos::DIR_USER_POLICY_KEYS, &user_keys_dir));
+  ASSERT_TRUE(
+      base::PathService::Get(chromeos::DIR_USER_POLICY_KEYS, &user_keys_dir));
   const std::string sanitized_username =
       chromeos::CryptohomeClient::GetStubSanitizedUsername(
           cryptohome::Identification(account_id));
@@ -116,7 +117,8 @@ void LoginUser(const AccountId& account_id) {
       chromeos::UserSessionManager::GetInstance());
   session_manager_test_api.SetShouldObtainTokenHandleInTests(false);
 
-  chromeos::UserContext user_context(account_id);
+  chromeos::UserContext user_context(user_manager::UserType::USER_TYPE_REGULAR,
+                                     account_id);
   user_context.SetKey(chromeos::Key("password"));
   if (account_id.GetUserEmail() == kEnterpriseUserEmail) {
     user_context.SetRefreshToken(kFakeRefreshToken);

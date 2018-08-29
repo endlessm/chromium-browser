@@ -4,6 +4,8 @@
 
 #include "chromeos/services/assistant/platform/system_provider_impl.h"
 
+#include <utility>
+
 #include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -13,50 +15,52 @@
 namespace chromeos {
 namespace assistant {
 
-SystemProviderImpl::SystemProviderImpl()
-    : board_name_(base::SysInfo::GetLsbReleaseBoard()),
-      device_model_id_(base::StringPrintf("cros-%s", board_name_.c_str())) {
-  embedder_build_info_ = chromeos::version_loader::GetVersion(
-      chromeos::version_loader::VERSION_FULL);
+SystemProviderImpl::SystemProviderImpl(
+    device::mojom::BatteryMonitorPtr battery_monitor)
+    : battery_monitor_(std::move(battery_monitor)) {
+  battery_monitor_->QueryNextStatus(base::BindOnce(
+      &SystemProviderImpl::OnBatteryStatus, base::Unretained(this)));
 }
 
 SystemProviderImpl::~SystemProviderImpl() = default;
 
-std::string SystemProviderImpl::GetDeviceModelId() {
-  return device_model_id_;
+assistant_client::MicMuteState SystemProviderImpl::GetMicMuteState() {
+  // CRAS input is never muted.
+  return assistant_client::MicMuteState::MICROPHONE_ENABLED;
 }
 
-int SystemProviderImpl::GetDeviceModelRevision() {
-  return 0;
+void SystemProviderImpl::RegisterMicMuteChangeCallback(
+    ConfigChangeCallback callback) {
+  // No need to register since it will never change.
 }
 
-std::string SystemProviderImpl::GetEmbedderBuildInfo() {
-  return embedder_build_info_;
+assistant_client::PowerManagerProvider*
+SystemProviderImpl::GetPowerManagerProvider() {
+  // TODO(xiaohuic): implement power manager provider
+  return nullptr;
 }
 
-std::string SystemProviderImpl::GetBoardName() {
-  return board_name_;
+bool SystemProviderImpl::GetBatteryState(BatteryState* state) {
+  if (!current_battery_status_)
+    return false;
+
+  state->is_charging = current_battery_status_->charging;
+  state->charge_percentage =
+      static_cast<int>(current_battery_status_->level * 100);
+  return true;
 }
 
-std::string SystemProviderImpl::GetBoardRevision() {
-  return "0";
-}
+void SystemProviderImpl::UpdateTimezoneAndLocale(const std::string& timezone,
+                                                 const std::string& locale) {}
 
-int SystemProviderImpl::GetDebugServerPort() {
-#if DCHECK_IS_ON()
-  return 8007;
-#else   // DCHECK_IS_ON()
-  // -1 disables debug server.
-  return -1;
-#endif  // DCHECK_IS_ON()
-}
+void SystemProviderImpl::OnBatteryStatus(
+    device::mojom::BatteryStatusPtr battery_status) {
+  current_battery_status_ = std::move(battery_status);
 
-std::string SystemProviderImpl::GetOemDeviceId() {
-  return board_name_;
-}
-
-std::string SystemProviderImpl::GetDisplayName() {
-  return board_name_;
+  // Battery monitor is one shot, send another query to get battery status
+  // updates. This query will only return when a status changes.
+  battery_monitor_->QueryNextStatus(base::BindOnce(
+      &SystemProviderImpl::OnBatteryStatus, base::Unretained(this)));
 }
 
 }  // namespace assistant

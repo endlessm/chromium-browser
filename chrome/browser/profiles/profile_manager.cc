@@ -69,6 +69,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/account_id/account_id.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/startup_task_runner_service.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
@@ -127,6 +128,9 @@
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "components/arc/arc_features.h"
+#include "components/arc/arc_prefs.h"
+#include "components/arc/arc_supervision_transition.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
@@ -576,8 +580,9 @@ void ProfileManager::CreateProfileAsync(
     DCHECK(base::IsStringASCII(icon_url));
     if (profiles::IsDefaultAvatarIconUrl(icon_url, &icon_index)) {
       // add profile to cache with user selected name and avatar
-      GetProfileAttributesStorage().AddProfile(profile_path, name,
-          std::string(), base::string16(), icon_index, supervised_user_id);
+      GetProfileAttributesStorage().AddProfile(
+          profile_path, name, std::string(), base::string16(), icon_index,
+          supervised_user_id, EmptyAccountId());
     }
 
     if (!supervised_user_id.empty()) {
@@ -985,15 +990,23 @@ void ProfileManager::InitProfileUserPrefs(Profile* profile) {
   const user_manager::User* user =
       chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
   if (user) {
-    if (profile->IsChild() !=
-        (user->GetType() == user_manager::USER_TYPE_CHILD)) {
+    const bool user_is_child =
+        (user->GetType() == user_manager::USER_TYPE_CHILD);
+    const bool profile_is_child = profile->IsChild();
+    if (profile_is_child != user_is_child) {
       ProfileAttributesEntry* entry;
       if (storage.GetProfileAttributesWithPath(profile->GetPath(), &entry)) {
         LOG(WARNING) << "Profile child status has changed.";
         storage.RemoveProfile(profile->GetPath());
       }
+      // Notify ARC about user type change via prefs.
+      const arc::ArcSupervisionTransition supervisionTransition =
+          user_is_child ? arc::ArcSupervisionTransition::REGULAR_TO_CHILD
+                        : arc::ArcSupervisionTransition::CHILD_TO_REGULAR;
+      profile->GetPrefs()->SetInteger(arc::prefs::kArcSupervisionTransition,
+                                      static_cast<int>(supervisionTransition));
     }
-    if (user->GetType() == user_manager::USER_TYPE_CHILD) {
+    if (user_is_child) {
       profile->GetPrefs()->SetString(prefs::kSupervisedUserId,
                                      supervised_users::kChildAccountSUID);
     } else {
@@ -1676,8 +1689,16 @@ void ProfileManager::AddProfileToStorage(Profile* profile) {
   std::string supervised_user_id =
       profile->GetPrefs()->GetString(prefs::kSupervisedUserId);
 
+  AccountId account_id(EmptyAccountId());
+#if defined(OS_CHROMEOS)
+  user_manager::User* user =
+      chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
+  if (user)
+    account_id = user->GetAccountId();
+#endif
+
   storage.AddProfile(profile->GetPath(), profile_name, account_info.gaia,
-                     username, icon_index, supervised_user_id);
+                     username, icon_index, supervised_user_id, account_id);
 
   if (profile->GetPrefs()->GetBoolean(prefs::kForceEphemeralProfiles)) {
     ProfileAttributesEntry* entry;

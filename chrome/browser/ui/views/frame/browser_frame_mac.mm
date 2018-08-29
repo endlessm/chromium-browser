@@ -4,6 +4,7 @@
 
 #import "chrome/browser/ui/views/frame/browser_frame_mac.h"
 
+#import "base/mac/foundation_util.h"
 #include "chrome/browser/global_keyboard_shortcuts_mac.h"
 #include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -90,23 +91,39 @@ NativeWidgetMacNSWindow* BrowserFrameMac::CreateNSWindow(
     const views::Widget::InitParams& params) {
   NSUInteger style_mask = NSTitledWindowMask | NSClosableWindowMask |
                           NSMiniaturizableWindowMask | NSResizableWindowMask;
-  if (@available(macOS 10.10, *)) {
-    style_mask |= NSFullSizeContentViewWindowMask;
+
+  base::scoped_nsobject<NativeWidgetMacNSWindow> ns_window;
+  if (browser_view_->IsBrowserTypeNormal()) {
+    if (@available(macOS 10.10, *))
+      style_mask |= NSFullSizeContentViewWindowMask;
+    ns_window.reset([[BrowserNativeWidgetWindow alloc]
+        initWithContentRect:ui::kWindowSizeDeterminedLater
+                  styleMask:style_mask
+                    backing:NSBackingStoreBuffered
+                      defer:NO]);
+    // Ensure tabstrip/profile button are visible.
+    if (@available(macOS 10.10, *))
+      [ns_window setTitlebarAppearsTransparent:YES];
+  } else {
+    ns_window.reset([[NativeWidgetMacNSWindow alloc]
+        initWithContentRect:ui::kWindowSizeDeterminedLater
+                  styleMask:style_mask
+                    backing:NSBackingStoreBuffered
+                      defer:NO]);
   }
-  base::scoped_nsobject<BrowserNativeWidgetWindow> ns_window(
-      [[BrowserNativeWidgetWindow alloc]
-          initWithContentRect:ui::kWindowSizeDeterminedLater
-                    styleMask:style_mask
-                      backing:NSBackingStoreBuffered
-                        defer:NO]);
   [ns_window setCommandDispatcherDelegate:command_dispatcher_delegate_];
   [ns_window setCommandHandler:[[[BrowserWindowCommandHandler alloc] init]
                                    autorelease]];
-  // Ensure tabstrip/profile button are visible.
-  if (@available(macOS 10.10, *)) {
-    [ns_window setTitlebarAppearsTransparent:YES];
-  }
   return ns_window.autorelease();
+}
+
+void BrowserFrameMac::OnWindowDestroying(NSWindow* window) {
+  // Clear delegates set in CreateNSWindow() to prevent objects with a reference
+  // to |window| attempting to validate commands by looking for a Browser*.
+  NativeWidgetMacNSWindow* ns_window =
+      base::mac::ObjCCastStrict<NativeWidgetMacNSWindow>(window);
+  [ns_window setCommandHandler:nil];
+  [ns_window setCommandDispatcherDelegate:nil];
 }
 
 int BrowserFrameMac::GetMinimizeButtonOffset() const {

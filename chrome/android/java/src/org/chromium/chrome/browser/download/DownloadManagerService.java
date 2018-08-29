@@ -20,6 +20,7 @@ import android.text.TextUtils;
 import android.util.Pair;
 
 import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.ObserverList;
@@ -36,7 +37,11 @@ import org.chromium.chrome.browser.download.ui.DownloadHistoryAdapter;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationDelegateImpl;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.media.MediaViewerUtils;
+import org.chromium.chrome.browser.preferences.Pref;
+import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.util.FeatureUtilities;
+import org.chromium.components.download.DownloadState;
 import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.offline_items_collection.ContentId;
@@ -142,6 +147,8 @@ public class DownloadManagerService
 
     private OMADownloadHandler mOMADownloadHandler;
     private DownloadSnackbarController mDownloadSnackbarController;
+    private DownloadInfoBarController mInfoBarController;
+    private DownloadInfoBarController mIncognitoInfoBarController;
     private long mNativeDownloadManagerService;
     private DownloadManagerDelegate mDownloadManagerDelegate;
     private NetworkChangeNotifierAutoDetect mNetworkChangeNotifier;
@@ -245,6 +252,8 @@ public class DownloadManagerService
         mUpdateDelayInMillis = updateDelayInMillis;
         mHandler = handler;
         mDownloadSnackbarController = new DownloadSnackbarController(context);
+        mInfoBarController = new DownloadInfoBarController(false);
+        mIncognitoInfoBarController = new DownloadInfoBarController(true);
         mDownloadManagerDelegate = new DownloadManagerDelegate(mContext);
         mOMADownloadHandler = new OMADownloadHandler(
                 context, mDownloadManagerDelegate, mDownloadSnackbarController);
@@ -287,6 +296,11 @@ public class DownloadManagerService
 
     public DownloadNotifier getDownloadNotifier() {
         return mDownloadNotifier;
+    }
+
+    /** @return The {@link DownloadInfoBarController} controller associated with the profile. */
+    public DownloadInfoBarController getInfoBarController(boolean isIncognito) {
+        return isIncognito ? mIncognitoInfoBarController : mInfoBarController;
     }
 
     @Override
@@ -370,7 +384,6 @@ public class DownloadManagerService
      * will not be called.
      */
     public void onActivityLaunched() {
-        // TODO(jming): Remove this after M-62.
         DownloadNotificationService.clearResumptionAttemptLeft();
 
         DownloadManagerService.getDownloadManagerService().checkForExternallyRemovedDownloads(
@@ -452,7 +465,7 @@ public class DownloadManagerService
                 // TODO(cmsy): Use correct FailState.
                 mDownloadNotifier.notifyDownloadFailed(info, FailState.CANNOT_DOWNLOAD);
                 Log.w(TAG, "Download failed: " + info.getFilePath());
-                onDownloadFailed(info.getFileName(), DownloadManager.ERROR_UNKNOWN);
+                onDownloadFailed(item, DownloadManager.ERROR_UNKNOWN);
                 break;
             case DOWNLOAD_STATUS_IN_PROGRESS:
                 if (info.isPaused()) {
@@ -513,7 +526,7 @@ public class DownloadManagerService
                     // TODO(cmsy): Use correct FailState.
                     mDownloadNotifier.notifyDownloadFailed(info, FailState.CANNOT_DOWNLOAD);
                     // TODO(qinmin): get the failure message from native.
-                    onDownloadFailed(info.getFileName(), DownloadManager.ERROR_UNKNOWN);
+                    onDownloadFailed(item, DownloadManager.ERROR_UNKNOWN);
                 }
             }
         };
@@ -726,7 +739,7 @@ public class DownloadManagerService
     public void onDownloadEnqueued(
             boolean result, int failureReason, DownloadItem downloadItem, long downloadId) {
         if (!result) {
-            onDownloadFailed(downloadItem.getDownloadInfo().getFileName(), failureReason);
+            onDownloadFailed(downloadItem, failureReason);
             recordDownloadCompletionStats(
                     true, DownloadManagerService.DOWNLOAD_STATUS_FAILED, 0, 0, 0, 0);
             return;
@@ -879,8 +892,12 @@ public class DownloadManagerService
      * @param reason Reason of failure reported by android DownloadManager
      */
     @VisibleForTesting
-    protected void onDownloadFailed(String fileName, int reason) {
-        String failureMessage = getDownloadFailureMessage(fileName, reason);
+    protected void onDownloadFailed(DownloadItem item, int reason) {
+        String failureMessage =
+                getDownloadFailureMessage(item.getDownloadInfo().getFileName(), reason);
+        // TODO(shaktisahu): Notify infobar controller of the failure.
+        if (FeatureUtilities.isDownloadProgressInfoBarEnabled()) return;
+
         if (mDownloadSnackbarController.getSnackbarManager() != null) {
             mDownloadSnackbarController.onDownloadFailed(
                     failureMessage,
@@ -1088,6 +1105,8 @@ public class DownloadManagerService
             item.setSystemDownloadId(systemDownloadId);
             handleAutoOpenAfterDownload(item);
         } else {
+            getInfoBarController(info.isOffTheRecord())
+                    .onNotificationShown(info.getContentId(), notificationId);
             mDownloadSnackbarController.onDownloadSucceeded(
                     info, notificationId, systemDownloadId, canResolve, false);
         }
@@ -1209,8 +1228,7 @@ public class DownloadManagerService
                     }
                     break;
                 case DOWNLOAD_STATUS_FAILED:
-                    onDownloadFailed(
-                            result.item.getDownloadInfo().getFileName(), result.failureReason);
+                    onDownloadFailed(result.item, result.failureReason);
                     break;
                 default:
                     break;
@@ -1492,6 +1510,78 @@ public class DownloadManagerService
         for (DownloadHistoryAdapter adapter : mHistoryAdapters) {
             adapter.onAllDownloadsRetrieved(list, isOffTheRecord);
         }
+        maybeShowMissingSdCardError(list);
+    }
+
+    /**
+     * Shows a snackbar that tells the user that files may be missing because no SD card was found
+     * in the case that the error was not shown before and at least one of the items was
+     * externally removed and has a path that points to a missing external drive.
+     *
+     * @param list  List of DownloadItems to check.
+     */
+    private void maybeShowMissingSdCardError(List<DownloadItem> list) {
+        PrefServiceBridge prefServiceBridge = PrefServiceBridge.getInstance();
+        // Only show the missing directory snackbar once.
+        if (!prefServiceBridge.getBoolean(Pref.SHOW_MISSING_SD_CARD_ERROR_ANDROID)) return;
+
+        DownloadDirectoryProvider provider = DownloadDirectoryProvider.getInstance();
+        provider.getAllDirectoriesOptions((ArrayList<DirectoryOption> dirs) -> {
+            if (dirs.size() > 1) return;
+            String externalStorageDir = provider.getExternalStorageDirectory();
+
+            for (DownloadItem item : list) {
+                boolean missingOnSDCard = isFilePathOnMissingExternalDrive(
+                        item.getDownloadInfo().getFilePath(), externalStorageDir, dirs);
+                if (!isUnresumableOrCancelled(item) && missingOnSDCard) {
+                    mHandler.post(() -> {
+                        // TODO(shaktisahu): Show it on infobar in the right way.
+                        mDownloadSnackbarController.onDownloadDirectoryNotFound();
+                    });
+                    prefServiceBridge.setBoolean(Pref.SHOW_MISSING_SD_CARD_ERROR_ANDROID, false);
+                    break;
+                }
+            }
+        });
+    }
+
+    /**
+     * Checks to see if the item is either unresumable or cancelled.
+     *
+     * @param downloadItem  Item to check.
+     * @return              Whether the item is unresumable or cancelled.
+     */
+    private boolean isUnresumableOrCancelled(DownloadItem downloadItem) {
+        @DownloadState
+        int state = downloadItem.getDownloadInfo().state();
+        return (state == DownloadState.INTERRUPTED && !downloadItem.getDownloadInfo().isResumable())
+                || state == DownloadState.CANCELLED;
+    }
+
+    /**
+     * Returns whether a given file path is in a directory that is no longer available, most likely
+     * because it is on an SD card that was removed.
+     *
+     * @param filePath  The file path to check.
+     * @param externalStorageDir  The absolute path of external storage directory for primary
+     * storage.
+     * @param directoryOptions  All available download directories including primary storage and
+     * secondary storage.
+     *
+     * @return          Whether this file path is in a directory that is no longer available.
+     */
+    private boolean isFilePathOnMissingExternalDrive(String filePath, String externalStorageDir,
+            ArrayList<DirectoryOption> directoryOptions) {
+        if (filePath.contains(externalStorageDir)) {
+            return false;
+        }
+
+        for (DirectoryOption directory : directoryOptions) {
+            if (TextUtils.isEmpty(directory.location)) continue;
+            if (filePath.contains(directory.location)) return false;
+        }
+
+        return true;
     }
 
     @CalledByNative
@@ -1499,6 +1589,8 @@ public class DownloadManagerService
         for (DownloadHistoryAdapter adapter : mHistoryAdapters) {
             adapter.onDownloadItemCreated(item);
         }
+
+        getInfoBarController(item.getDownloadInfo().isOffTheRecord()).onDownloadItemUpdated(item);
     }
 
     @CalledByNative
@@ -1506,27 +1598,90 @@ public class DownloadManagerService
         for (DownloadHistoryAdapter adapter : mHistoryAdapters) {
             adapter.onDownloadItemUpdated(item);
         }
+
+        getInfoBarController(item.getDownloadInfo().isOffTheRecord()).onDownloadItemUpdated(item);
     }
 
     @CalledByNative
     private void onDownloadItemRemoved(String guid, boolean isOffTheRecord) {
+        getInfoBarController(isOffTheRecord)
+                .onDownloadItemRemoved(LegacyHelpers.buildLegacyContentId(false, guid));
+
         for (DownloadHistoryAdapter adapter : mHistoryAdapters) {
             adapter.onDownloadItemRemoved(guid, isOffTheRecord);
+        }
+    }
+
+    @CalledByNative
+    private void openDownloadItem(
+            DownloadItem downloadItem, @DownloadMetrics.DownloadOpenSource int source) {
+        DownloadInfo downloadInfo = downloadItem.getDownloadInfo();
+        boolean canOpen = DownloadUtils.openFile(new File(downloadInfo.getFilePath()),
+                downloadInfo.getMimeType(), downloadInfo.getDownloadGuid(),
+                downloadInfo.isOffTheRecord(), downloadInfo.getOriginalUrl(),
+                downloadInfo.getReferrer(), source);
+        if (!canOpen) {
+            openDownloadsPage(ContextUtils.getApplicationContext());
+        }
+    }
+
+    /**
+     * Opens a download. If the download cannot be opened, download home will be opened instead.
+     * @param id The {@link ContentId} of the download to be opened.
+     * @param source The source where the user opened this download.
+     */
+    public void openDownload(
+            ContentId id, boolean isOffTheRecord, @DownloadMetrics.DownloadOpenSource int source) {
+        nativeOpenDownload(getNativeDownloadManagerService(), id.id, isOffTheRecord, source);
+    }
+
+    /**
+     * Checks whether the download will be immediately opened after completion.
+     * @param downloadItem The download item to be opened.
+     * @return True if the download will be auto-opened, false otherwise.
+     */
+    public void checkIfDownloadWillAutoOpen(DownloadItem downloadItem, Callback<Boolean> callback) {
+        assert(downloadItem.getDownloadInfo().state() == DownloadState.COMPLETE);
+
+        AsyncTask<Void, Void, Boolean> task = new AsyncTask<Void, Void, Boolean>() {
+            @Override
+            public Boolean doInBackground(Void... params) {
+                boolean isSupportedMimeType =
+                        isSupportedMimeType(downloadItem.getDownloadInfo().getMimeType());
+                boolean canResolve = isOMADownloadDescription(downloadItem.getDownloadInfo())
+                        || canResolveDownloadItem(mContext, downloadItem, isSupportedMimeType);
+                return canResolve && shouldOpenAfterDownload(downloadItem.getDownloadInfo());
+            }
+
+            @Override
+            protected void onPostExecute(Boolean result) {
+                callback.onResult(result);
+            }
+        };
+
+        try {
+            task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+        } catch (RejectedExecutionException e) {
+            // Reaching thread limit, update will be reschduled for the next run.
+            Log.e(TAG, "Thread limit reached, reschedule notification update later.");
         }
     }
 
     /**
      * Called when a download is canceled before download target is determined.
      *
-     * @param fileName Name of the download file.
-     * @param reason Reason of failure reported by android DownloadManager.
+     * @param item The download item.
+     * @param isExternalStorageMissing Whether the reason for failure is missing external storage.
      */
     @CalledByNative
-    private static void onDownloadItemCanceled(String fileName, boolean isExternalStorageMissing) {
+    private static void onDownloadItemCanceled(
+            DownloadItem item, boolean isExternalStorageMissing) {
         DownloadManagerService service = getDownloadManagerService();
         int reason = isExternalStorageMissing ? DownloadManager.ERROR_DEVICE_NOT_FOUND
                 : DownloadManager.ERROR_FILE_ALREADY_EXISTS;
-        service.onDownloadFailed(fileName, reason);
+        service.onDownloadFailed(item, reason);
+
+        // TODO(shaktisahu): Notify infobar controller.
     }
 
     /**
@@ -1682,6 +1837,8 @@ public class DownloadManagerService
     private static native int nativeGetAutoResumptionLimit();
 
     private native long nativeInit();
+    private native void nativeOpenDownload(long nativeDownloadManagerService, String downloadGuid,
+            boolean isOffTheRecord, int source);
     private native void nativeResumeDownload(
             long nativeDownloadManagerService, String downloadGuid, boolean isOffTheRecord);
     private native void nativeCancelDownload(

@@ -12,7 +12,6 @@ package org.webrtc.audio;
 
 import android.media.AudioManager;
 import android.content.Context;
-import org.webrtc.JNINamespace;
 import org.webrtc.JniCommon;
 import org.webrtc.Logging;
 
@@ -20,7 +19,6 @@ import org.webrtc.Logging;
  * AudioDeviceModule implemented using android.media.AudioRecord as input and
  * android.media.AudioTrack as output.
  */
-@JNINamespace("webrtc::jni")
 public class JavaAudioDeviceModule implements AudioDeviceModule {
   private static final String TAG = "JavaAudioDeviceModule";
 
@@ -53,6 +51,7 @@ public class JavaAudioDeviceModule implements AudioDeviceModule {
      * return invalid results.
      */
     public Builder setSampleRate(int sampleRate) {
+      Logging.d(TAG, "Sample rate overridden to: " + sampleRate);
       this.sampleRate = sampleRate;
       return this;
     }
@@ -96,7 +95,7 @@ public class JavaAudioDeviceModule implements AudioDeviceModule {
      */
     public Builder setUseHardwareNoiseSuppressor(boolean useHardwareNoiseSuppressor) {
       if (useHardwareNoiseSuppressor && !isBuiltInNoiseSuppressorSupported()) {
-        Logging.e(TAG, "HW noise suppressor not supported");
+        Logging.e(TAG, "HW NS not supported");
         useHardwareNoiseSuppressor = false;
       }
       this.useHardwareNoiseSuppressor = useHardwareNoiseSuppressor;
@@ -110,7 +109,7 @@ public class JavaAudioDeviceModule implements AudioDeviceModule {
      */
     public Builder setUseHardwareAcousticEchoCanceler(boolean useHardwareAcousticEchoCanceler) {
       if (useHardwareAcousticEchoCanceler && !isBuiltInAcousticEchoCancelerSupported()) {
-        Logging.e(TAG, "HW acoustic echo canceler not supported");
+        Logging.e(TAG, "HW AEC not supported");
         useHardwareAcousticEchoCanceler = false;
       }
       this.useHardwareAcousticEchoCanceler = useHardwareAcousticEchoCanceler;
@@ -138,14 +137,30 @@ public class JavaAudioDeviceModule implements AudioDeviceModule {
      * and is responsible for calling release().
      */
     public AudioDeviceModule createAudioDeviceModule() {
+      Logging.d(TAG, "createAudioDeviceModule");
+      if (useHardwareNoiseSuppressor) {
+        Logging.d(TAG, "HW NS will be used.");
+      } else {
+        if (isBuiltInNoiseSuppressorSupported()) {
+          Logging.d(TAG, "Overriding default behavior; now using WebRTC NS!");
+        }
+        Logging.d(TAG, "HW NS will not be used.");
+      }
+      if (useHardwareAcousticEchoCanceler) {
+        Logging.d(TAG, "HW AEC will be used.");
+      } else {
+        if (isBuiltInAcousticEchoCancelerSupported()) {
+          Logging.d(TAG, "Overriding default behavior; now using WebRTC AEC!");
+        }
+        Logging.d(TAG, "HW AEC will not be used.");
+      }
       final WebRtcAudioRecord audioInput =
           new WebRtcAudioRecord(context, audioManager, audioSource, audioRecordErrorCallback,
               samplesReadyCallback, useHardwareAcousticEchoCanceler, useHardwareNoiseSuppressor);
       final WebRtcAudioTrack audioOutput =
           new WebRtcAudioTrack(context, audioManager, audioTrackErrorCallback);
-      final long nativeAudioDeviceModule = nativeCreateAudioDeviceModule(context, audioManager,
-          audioInput, audioOutput, sampleRate, useStereoInput, useStereoOutput);
-      return new JavaAudioDeviceModule(audioInput, audioOutput, nativeAudioDeviceModule);
+      return new JavaAudioDeviceModule(context, audioManager, audioInput, audioOutput, sampleRate,
+          useStereoInput, useStereoOutput);
     }
   }
 
@@ -233,37 +248,59 @@ public class JavaAudioDeviceModule implements AudioDeviceModule {
     return WebRtcAudioEffects.isNoiseSuppressorSupported();
   }
 
+  private final Context context;
+  private final AudioManager audioManager;
   private final WebRtcAudioRecord audioInput;
   private final WebRtcAudioTrack audioOutput;
+  private final int sampleRate;
+  private final boolean useStereoInput;
+  private final boolean useStereoOutput;
+
+  private final Object nativeLock = new Object();
   private long nativeAudioDeviceModule;
 
-  private JavaAudioDeviceModule(
-      WebRtcAudioRecord audioInput, WebRtcAudioTrack audioOutput, long nativeAudioDeviceModule) {
+  private JavaAudioDeviceModule(Context context, AudioManager audioManager,
+      WebRtcAudioRecord audioInput, WebRtcAudioTrack audioOutput, int sampleRate,
+      boolean useStereoInput, boolean useStereoOutput) {
+    this.context = context;
+    this.audioManager = audioManager;
     this.audioInput = audioInput;
     this.audioOutput = audioOutput;
-    this.nativeAudioDeviceModule = nativeAudioDeviceModule;
+    this.sampleRate = sampleRate;
+    this.useStereoInput = useStereoInput;
+    this.useStereoOutput = useStereoOutput;
   }
 
   @Override
   public long getNativeAudioDeviceModulePointer() {
-    return nativeAudioDeviceModule;
+    synchronized (nativeLock) {
+      if (nativeAudioDeviceModule == 0) {
+        nativeAudioDeviceModule = nativeCreateAudioDeviceModule(context, audioManager, audioInput,
+            audioOutput, sampleRate, useStereoInput, useStereoOutput);
+      }
+      return nativeAudioDeviceModule;
+    }
   }
 
   @Override
   public void release() {
-    if (nativeAudioDeviceModule != 0) {
-      JniCommon.nativeReleaseRef(nativeAudioDeviceModule);
-      nativeAudioDeviceModule = 0;
+    synchronized (nativeLock) {
+      if (nativeAudioDeviceModule != 0) {
+        JniCommon.nativeReleaseRef(nativeAudioDeviceModule);
+        nativeAudioDeviceModule = 0;
+      }
     }
   }
 
   @Override
   public void setSpeakerMute(boolean mute) {
+    Logging.d(TAG, "setSpeakerMute: " + mute);
     audioOutput.setSpeakerMute(mute);
   }
 
   @Override
   public void setMicrophoneMute(boolean mute) {
+    Logging.d(TAG, "setMicrophoneMute: " + mute);
     audioInput.setMicrophoneMute(mute);
   }
 

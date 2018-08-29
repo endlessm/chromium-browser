@@ -20,7 +20,6 @@
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/app_list/app_list_service.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -244,7 +243,7 @@ WebContents* OpenApplicationTab(const AppLaunchParams& launch_params,
     contents = existing_tab;
   } else {
     Navigate(&params);
-    contents = params.target_contents;
+    contents = params.navigated_or_inserted_contents;
   }
 
 #if defined(OS_CHROMEOS)
@@ -343,10 +342,13 @@ WebContents* OpenApplicationWindow(const AppLaunchParams& params,
   Profile* const profile = params.profile;
   const Extension* const extension = GetExtension(params);
 
-  std::string app_name =
-      extension
-          ? web_app::GenerateApplicationNameFromExtensionId(extension->id())
-          : web_app::GenerateApplicationNameFromURL(url);
+  std::string app_name;
+  if (!params.override_app_name.empty())
+    app_name = params.override_app_name;
+  else if (extension)
+    app_name = web_app::GenerateApplicationNameFromExtensionId(extension->id());
+  else
+    app_name = web_app::GenerateApplicationNameFromURL(url);
 
   gfx::Rect initial_bounds;
   if (!params.override_bounds.IsEmpty()) {
@@ -376,7 +378,7 @@ WebContents* OpenApplicationWindow(const AppLaunchParams& params,
   nav_params.opener = params.opener;
   Navigate(&nav_params);
 
-  WebContents* web_contents = nav_params.target_contents;
+  WebContents* web_contents = nav_params.navigated_or_inserted_contents;
   extensions::HostedAppBrowserController::SetAppPrefsForWebContents(
       browser->hosted_app_controller(), web_contents);
 

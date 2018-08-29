@@ -10,9 +10,9 @@
 #include "base/logging.h"
 #include "base/metrics/user_metrics.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -31,6 +31,15 @@ BrowserList::BrowserVector GetBrowsersToClose(Profile* profile) {
   for (auto* browser : *BrowserList::GetInstance()) {
     if (browser->profile()->GetOriginalProfile() ==
         profile->GetOriginalProfile())
+      browsers_to_close.push_back(browser);
+  }
+  return browsers_to_close;
+}
+
+BrowserList::BrowserVector GetIncognitoBrowsersToClose(Profile* profile) {
+  BrowserList::BrowserVector browsers_to_close;
+  for (auto* browser : *BrowserList::GetInstance()) {
+    if (browser->profile() == profile)
       browsers_to_close.push_back(browser);
   }
   return browsers_to_close;
@@ -149,6 +158,18 @@ void BrowserList::CloseAllBrowsersWithProfile(
     const CloseCallback& on_close_aborted,
     bool skip_beforeunload) {
   TryToCloseBrowserList(GetBrowsersToClose(profile), on_close_success,
+                        on_close_aborted, profile->GetPath(),
+                        skip_beforeunload);
+}
+
+// static
+void BrowserList::CloseAllBrowsersWithIncognitoProfile(
+    Profile* profile,
+    const CloseCallback& on_close_success,
+    const CloseCallback& on_close_aborted,
+    bool skip_beforeunload) {
+  DCHECK(profile->IsOffTheRecord());
+  TryToCloseBrowserList(GetIncognitoBrowsersToClose(profile), on_close_success,
                         on_close_aborted, profile->GetPath(),
                         skip_beforeunload);
 }

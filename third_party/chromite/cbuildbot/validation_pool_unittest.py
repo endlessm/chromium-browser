@@ -65,8 +65,8 @@ def GetTestJson(change_id=None):
   return data
 
 def MakePool(overlays=constants.PUBLIC_OVERLAYS, build_number=1,
-             builder_name='foon', is_master=True, dryrun=True,
-             fake_db=None, **kwargs):
+             builder_name='foon', buildbucket_id='bb_id', is_master=True,
+             dryrun=True, fake_db=None, **kwargs):
   """Helper for creating ValidationPool objects for tests."""
   kwargs.setdefault('candidates', [])
   build_root = kwargs.pop('build_root', '/fake_root')
@@ -75,13 +75,14 @@ def MakePool(overlays=constants.PUBLIC_OVERLAYS, build_number=1,
   if fake_db:
     build_id = fake_db.InsertBuild(
         builder_name, waterfall.WATERFALL_INTERNAL, build_number,
-        'build-config', 'bot hostname')
+        'build-config', 'bot hostname', buildbucket_id=buildbucket_id)
     builder_run.attrs.metadata.UpdateWithDict({'build_id': build_id})
 
 
   pool = validation_pool.ValidationPool(
-      overlays, build_root, build_number, builder_name, is_master,
-      dryrun, builder_run=builder_run, **kwargs)
+      overlays, build_root, build_number, builder_name,
+      is_master, dryrun, buildbucket_id=buildbucket_id,
+      builder_run=builder_run, **kwargs)
   return pool
 
 
@@ -220,6 +221,7 @@ class TestSubmitChange(_Base):
         build_root=None,
         build_number=0,
         builder_name='',
+        buildbucket_id=None,
         is_master=False,
         dryrun=False)
     pool._run = FakeBuilderRun(self.fake_db)
@@ -285,8 +287,9 @@ class ValidationFailureOrTimeout(_Base):
     self.PatchObject(
         triage_lib.CalculateSuspects, 'FindSuspects',
         return_value=suspects)
-    self.PatchObject(validation_pool.ValidationPool, 'SendNotification')
-    self.remove = self.PatchObject(gerrit.GerritHelper, 'RemoveReady')
+    self._send_notification = self.PatchObject(
+        validation_pool.ValidationPool, 'SendNotification')
+    self._remove_ready = self.PatchObject(gerrit.GerritHelper, 'RemoveReady')
     self.PatchObject(gerrit, 'GetGerritPatchInfoWithPatchQueries',
                      lambda x: x)
     self.PatchObject(triage_lib.CalculateSuspects, 'OnlyLabFailures',
@@ -314,18 +317,21 @@ class ValidationFailureOrTimeout(_Base):
   def testPatchesWereRejectedByFailure(self):
     """Tests that all patches are rejected by failure."""
     self._pool.HandleValidationFailure([self._BUILD_MESSAGE])
-    self.assertEqual(len(self._patches), self.remove.call_count)
+    self.assertEqual(len(self._patches), self._send_notification.call_count)
+    self.assertEqual(len(self._patches), self._remove_ready.call_count)
     self._AssertActions(self._patches, [constants.CL_ACTION_KICKED_OUT])
 
   def testPatchesWereRejectedByTimeout(self):
     self._pool.HandleValidationTimeout()
-    self.assertEqual(len(self._patches), self.remove.call_count)
+    self.assertEqual(len(self._patches), self._send_notification.call_count)
+    self.assertEqual(len(self._patches), self._remove_ready.call_count)
     self._AssertActions(self._patches, [constants.CL_ACTION_KICKED_OUT])
 
   def testOnlyChromitePatchesWereRejectedByTimeout(self):
     self._patches[-1].project = 'chromiumos/tacos'
     self._pool.HandleValidationTimeout()
-    self.assertEqual(len(self._patches) - 1, self.remove.call_count)
+    self.assertEqual(len(self._patches) - 1, self._remove_ready.call_count)
+    self.assertEqual(len(self._patches), self._send_notification.call_count)
     self._AssertActions(self._patches[:-1], [constants.CL_ACTION_KICKED_OUT])
     self._AssertActions(self._patches[-1:], [constants.CL_ACTION_FORGIVEN])
 
@@ -334,7 +340,8 @@ class ValidationFailureOrTimeout(_Base):
     self.PatchObject(triage_lib.CalculateSuspects, 'FindSuspects',
                      return_value=triage_lib.SuspectChanges())
     self._pool.HandleValidationFailure([self._BUILD_MESSAGE])
-    self.assertEqual(0, self.remove.call_count)
+    self.assertEqual(0, self._remove_ready.call_count)
+    self.assertEqual(len(self._patches), self._send_notification.call_count)
     self._AssertActions(self._patches, [constants.CL_ACTION_FORGIVEN])
 
   def testPassedPreCQ(self):
@@ -343,7 +350,8 @@ class ValidationFailureOrTimeout(_Base):
       self._pool.UpdateCLPreCQStatus(change, constants.CL_STATUS_PASSED)
     self._pool.pre_cq_trybot = True
     self._pool.HandleValidationFailure([self._BUILD_MESSAGE])
-    self.assertEqual(0, self.remove.call_count)
+    self.assertEqual(0, self._remove_ready.call_count)
+    self.assertEqual(0, self._send_notification.call_count)
     self._AssertActions(self._patches, [constants.CL_ACTION_PRE_CQ_PASSED])
 
   def testCancelledPreCQ(self):
@@ -357,13 +365,53 @@ class ValidationFailureOrTimeout(_Base):
 
     self._pool.pre_cq_trybot = True
     self._pool.HandleValidationFailure([self._BUILD_MESSAGE])
-    self.assertEqual(0, self.remove.call_count)
+    self.assertEqual(0, self._remove_ready.call_count)
+    self.assertEqual(0, self._send_notification.call_count)
     self._AssertActions(self._patches, [constants.CL_ACTION_TRYBOT_CANCELLED])
 
   def testPatchesWereNotRejectedByInsaneFailure(self):
     self._pool.HandleValidationFailure([self._BUILD_MESSAGE], sanity=False)
-    self.assertEqual(0, self.remove.call_count)
+    self.assertEqual(0, self._remove_ready.call_count)
+    self.assertEqual(len(self._patches), self._send_notification.call_count)
     self._AssertActions(self._patches, [constants.CL_ACTION_FORGIVEN])
+
+  def testFirstFailureInPreCQ(self):
+    """Tests that the first failure in pre-CQ is notified."""
+    build_id, _ = self._pool._run.GetCIDBHandle()
+    for change in self._patches:
+      self.fake_db.InsertCLActions(
+          build_id,
+          [clactions.CLAction.FromGerritPatchAndAction(
+              change, constants.CL_ACTION_VERIFIED)])
+
+    self._pool.pre_cq_trybot = True
+    self._pool.HandleValidationFailure([self._BUILD_MESSAGE])
+    self.assertEqual(len(self._patches), self._send_notification.call_count)
+    self.assertEqual(len(self._patches), self._remove_ready.call_count)
+    self._AssertActions(
+        self._patches,
+        [constants.CL_ACTION_VERIFIED,
+         constants.CL_ACTION_KICKED_OUT,
+         constants.CL_ACTION_PRE_CQ_FAILED])
+
+  def testSecondFailureInPreCQ(self):
+    """Tests that the second failure in pre-CQ is NOT notified."""
+    build_id, _ = self._pool._run.GetCIDBHandle()
+    for change in self._patches:
+      self.fake_db.InsertCLActions(
+          build_id,
+          [clactions.CLAction.FromGerritPatchAndAction(
+              change, constants.CL_ACTION_PRE_CQ_FAILED)])
+
+    self._pool.pre_cq_trybot = True
+    self._pool.HandleValidationFailure([self._BUILD_MESSAGE])
+    self.assertEqual(0, self._send_notification.call_count)
+    self.assertEqual(len(self._patches), self._remove_ready.call_count)
+    self._AssertActions(
+        self._patches,
+        [constants.CL_ACTION_PRE_CQ_FAILED,
+         constants.CL_ACTION_KICKED_OUT,
+         constants.CL_ACTION_PRE_CQ_FAILED])
 
 
 class TestCoreLogic(_Base, cros_test_lib.MoxTestCase):
@@ -687,8 +735,8 @@ class TestCoreLogic(_Base, cros_test_lib.MoxTestCase):
 
     query = constants.CQ_READY_QUERY
     pool = validation_pool.ValidationPool.AcquirePool(
-        constants.PUBLIC_OVERLAYS, repo, 1, 'buildname', query, dryrun=False,
-        check_tree_open=True, builder_run=builder_run)
+        constants.PUBLIC_OVERLAYS, repo, 1, 'buildname', 'bb_id', query,
+        dryrun=False, check_tree_open=True, builder_run=builder_run)
 
     self.assertTrue(pool.tree_was_open)
     tree_status_mock.assert_called()
@@ -700,8 +748,8 @@ class TestCoreLogic(_Base, cros_test_lib.MoxTestCase):
 
     query = constants.CQ_READY_QUERY
     pool = validation_pool.ValidationPool.AcquirePool(
-        constants.PUBLIC_OVERLAYS, repo, 1, 'buildname', query, dryrun=False,
-        check_tree_open=True, builder_run=builder_run)
+        constants.PUBLIC_OVERLAYS, repo, 1, 'buildname', 'bb_id', query,
+        dryrun=False, check_tree_open=True, builder_run=builder_run)
 
     self.assertTrue(pool.tree_was_open)
     self.assertEqual(acquire_changes_mock.call_count, 2)
@@ -713,8 +761,8 @@ class TestCoreLogic(_Base, cros_test_lib.MoxTestCase):
 
     query = constants.CQ_READY_QUERY
     pool = validation_pool.ValidationPool.AcquirePool(
-        constants.PUBLIC_OVERLAYS, repo, 1, 'buildname', query, dryrun=False,
-        check_tree_open=True, builder_run=builder_run)
+        constants.PUBLIC_OVERLAYS, repo, 1, 'buildname', 'bb_id', query,
+        dryrun=False, check_tree_open=True, builder_run=builder_run)
 
     self.assertFalse(pool.tree_was_open)
 
@@ -1216,6 +1264,7 @@ sys.stdout.write(validation_pool_unittest.TestPickling.%s)
         constants.PUBLIC_OVERLAYS,
         '/fake/pathway', 1,
         'testing', True, True,
+        buildbucket_id='bb_id',
         candidates=changes, non_os_changes=non_os,
         conflicting_changes=conflicting)
     return pickle.dumps([pool, changes, non_os, conflicting])

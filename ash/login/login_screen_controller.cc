@@ -11,27 +11,16 @@
 #include "ash/session/session_controller.h"
 #include "ash/shell.h"
 #include "ash/system/status_area_widget.h"
+#include "base/debug/alias.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/cryptohome/system_salt_getter.h"
-#include "chromeos/login/auth/authpolicy_login_helper.h"
-#include "chromeos/login/auth/user_context.h"
-#include "components/password_manager/core/browser/hash_password_manager.h"
 #include "components/prefs/pref_registry_simple.h"
-#include "components/prefs/pref_service.h"
 #include "components/session_manager/session_manager_types.h"
 
 namespace ash {
 
 namespace {
-
-std::string CalculateHash(const std::string& password,
-                          const std::string& salt,
-                          chromeos::Key::KeyType key_type) {
-  chromeos::Key key(password);
-  key.Transform(key_type, salt);
-  return key.GetSecret();
-}
 
 enum class SystemTrayVisibility {
   kNone,     // Tray not visible anywhere.
@@ -87,7 +76,7 @@ void LoginScreenController::AuthenticateUser(const AccountId& account_id,
                                              OnAuthenticateCallback callback) {
   // It is an error to call this function while an authentication is in
   // progress.
-  LOG_IF(ERROR, authentication_stage_ == AuthenticationStage::kIdle)
+  LOG_IF(ERROR, authentication_stage_ != AuthenticationStage::kIdle)
       << "Authentication stage is " << static_cast<int>(authentication_stage_);
   CHECK_EQ(authentication_stage_, AuthenticationStage::kIdle);
 
@@ -193,10 +182,11 @@ void LoginScreenController::FocusLockScreenApps(bool reverse) {
   login_screen_client_->FocusLockScreenApps(reverse);
 }
 
-void LoginScreenController::ShowGaiaSignin() {
+void LoginScreenController::ShowGaiaSignin(
+    const base::Optional<AccountId>& account_id) {
   if (!login_screen_client_)
     return;
-  login_screen_client_->ShowGaiaSignin();
+  login_screen_client_->ShowGaiaSignin(account_id);
 }
 
 void LoginScreenController::OnRemoveUserWarningShown() {
@@ -218,6 +208,14 @@ void LoginScreenController::LaunchPublicSession(
   if (!login_screen_client_)
     return;
   login_screen_client_->LaunchPublicSession(account_id, locale, input_method);
+}
+
+void LoginScreenController::RequestPublicSessionKeyboardLayouts(
+    const AccountId& account_id,
+    const std::string& locale) {
+  if (!login_screen_client_)
+    return;
+  login_screen_client_->RequestPublicSessionKeyboardLayouts(account_id, locale);
 }
 
 void LoginScreenController::AddObserver(
@@ -291,6 +289,8 @@ void LoginScreenController::SetAuthType(
   if (auth_type == proximity_auth::mojom::AuthType::USER_CLICK) {
     DataDispatcher()->SetClickToUnlockEnabledForUser(account_id,
                                                      true /*enabled*/);
+  } else if (auth_type == proximity_auth::mojom::AuthType::ONLINE_SIGN_IN) {
+    DataDispatcher()->SetForceOnlineSignInForUser(account_id);
   } else {
     NOTIMPLEMENTED();
   }
@@ -310,6 +310,22 @@ void LoginScreenController::SetPinEnabledForUser(const AccountId& account_id,
   // LockScreen is destroyed in the case of authentication success.
   if (DataDispatcher())
     DataDispatcher()->SetPinEnabledForUser(account_id, is_enabled);
+}
+
+void LoginScreenController::SetAvatarForUser(const AccountId& account_id,
+                                             mojom::UserAvatarPtr avatar) {
+  for (auto& observer : observers_)
+    observer.SetAvatarForUser(account_id, avatar);
+}
+
+void LoginScreenController::SetAuthEnabledForUser(
+    const AccountId& account_id,
+    bool is_enabled,
+    base::Optional<base::Time> auth_reenabled_time) {
+  if (DataDispatcher()) {
+    DataDispatcher()->SetAuthEnabledForUser(account_id, is_enabled,
+                                            auth_reenabled_time);
+  }
 }
 
 void LoginScreenController::HandleFocusLeavingLockScreenApps(bool reverse) {
@@ -342,13 +358,30 @@ void LoginScreenController::SetPublicSessionDisplayName(
 
 void LoginScreenController::SetPublicSessionLocales(
     const AccountId& account_id,
-    std::unique_ptr<base::ListValue> locales,
+    std::vector<mojom::LocaleItemPtr> locales,
     const std::string& default_locale,
     bool show_advanced_view) {
   if (DataDispatcher()) {
     DataDispatcher()->SetPublicSessionLocales(
-        account_id, std::move(locales), default_locale, show_advanced_view);
+        account_id, locales, default_locale, show_advanced_view);
   }
+}
+
+void LoginScreenController::SetPublicSessionKeyboardLayouts(
+    const AccountId& account_id,
+    const std::string& locale,
+    std::vector<mojom::InputMethodItemPtr> keyboard_layouts) {
+  if (DataDispatcher()) {
+    DataDispatcher()->SetPublicSessionKeyboardLayouts(account_id, locale,
+                                                      keyboard_layouts);
+  }
+}
+
+void LoginScreenController::SetFingerprintUnlockState(
+    const AccountId& account_id,
+    mojom::FingerprintUnlockState state) {
+  if (DataDispatcher())
+    DataDispatcher()->SetFingerprintUnlockState(account_id, state);
 }
 
 void LoginScreenController::DoAuthenticateUser(const AccountId& account_id,
@@ -361,36 +394,13 @@ void LoginScreenController::DoAuthenticateUser(const AccountId& account_id,
   int dummy_value;
   bool is_pin =
       authenticated_by_pin && base::StringToInt(password, &dummy_value);
-  std::string hashed_password = CalculateHash(
-      password, system_salt, chromeos::Key::KEY_TYPE_SALTED_SHA256_TOP_HALF);
-
-  // Used for GAIA password reuse detection.
-  password_manager::SyncPasswordData sync_password_data(
-      base::UTF8ToUTF16(password), false /*force_update*/);
-
-  PrefService* prefs =
-      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
-  if (is_pin && prefs) {
-    hashed_password =
-        CalculateHash(password, prefs->GetString(prefs::kQuickUnlockPinSalt),
-                      chromeos::Key::KEY_TYPE_SALTED_PBKDF2_AES256_1234);
-  }
-
-  if (account_id.GetAccountType() == AccountType::ACTIVE_DIRECTORY && !is_pin) {
-    // Try to get kerberos TGT while we have user's password typed on the lock
-    // screen. Using invalid/bad password is fine. Failure to get TGT here is OK
-    // - that could mean e.g. Active Directory server is not reachable.
-    // AuthPolicyCredentialsManager regularly checks TGT status inside the user
-    // session.
-    chromeos::AuthPolicyLoginHelper::TryAuthenticateUser(
-        account_id.GetUserEmail(), account_id.GetObjGuid(), password);
-  }
 
   Shell::Get()->metrics()->login_metrics_recorder()->SetAuthMethod(
       is_pin ? LoginMetricsRecorder::AuthMethod::kPin
              : LoginMetricsRecorder::AuthMethod::kPassword);
+
   login_screen_client_->AuthenticateUser(
-      account_id, hashed_password, sync_password_data, is_pin,
+      account_id, password, is_pin,
       base::BindOnce(&LoginScreenController::OnAuthenticateComplete,
                      weak_factory_.GetWeakPtr(), base::Passed(&callback)));
 }
@@ -411,7 +421,12 @@ LoginDataDispatcher* LoginScreenController::DataDispatcher() const {
 
 void LoginScreenController::OnShow() {
   SetSystemTrayVisibility(SystemTrayVisibility::kPrimary);
-  CHECK_EQ(authentication_stage_, AuthenticationStage::kIdle);
+  if (authentication_stage_ != AuthenticationStage::kIdle) {
+    AuthenticationStage authentication_stage = authentication_stage_;
+    base::debug::Alias(&authentication_stage);
+    LOG(FATAL) << "Unexpected authentication stage "
+               << static_cast<int>(authentication_stage_);
+  }
 }
 
 }  // namespace ash

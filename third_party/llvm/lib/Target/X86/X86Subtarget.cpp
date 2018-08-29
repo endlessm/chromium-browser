@@ -219,8 +219,6 @@ void X86Subtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
   // micro-architectures respectively.
   if (hasSSE42() || hasSSE4A())
     IsUAMem16Slow = false;
-  
-  InstrItins = getInstrItineraryForCPU(CPUName);
 
   // It's important to keep the MCSubtargetInfo feature bits in sync with
   // target data structure which is shared with MC code emitter, etc.
@@ -233,9 +231,9 @@ void X86Subtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
   else
     llvm_unreachable("Not 16-bit, 32-bit or 64-bit mode!");
 
-  DEBUG(dbgs() << "Subtarget features: SSELevel " << X86SSELevel
-               << ", 3DNowLevel " << X863DNowLevel
-               << ", 64bit " << HasX86_64 << "\n");
+  LLVM_DEBUG(dbgs() << "Subtarget features: SSELevel " << X86SSELevel
+                    << ", 3DNowLevel " << X863DNowLevel << ", 64bit "
+                    << HasX86_64 << "\n");
   assert((!In64BitMode || HasX86_64) &&
          "64-bit code requested on a subtarget that doesn't support it!");
 
@@ -318,13 +316,19 @@ void X86Subtarget::initializeEnvironment() {
   HasLAHFSAHF = false;
   HasMWAITX = false;
   HasCLZERO = false;
+  HasCLDEMOTE = false;
+  HasMOVDIRI = false;
+  HasMOVDIR64B = false;
+  HasPTWRITE = false;
   HasMPX = false;
   HasSHSTK = false;
-  HasIBT = false;
   HasSGX = false;
+  HasPCONFIG = false;
   HasCLFLUSHOPT = false;
   HasCLWB = false;
+  HasWBNOINVD = false;
   HasRDPID = false;
+  HasWAITPKG = false;
   UseRetpoline = false;
   UseRetpolineExternalThunk = false;
   IsPMULLDSlow = false;

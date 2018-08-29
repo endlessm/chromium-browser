@@ -8,11 +8,15 @@
 
 #include "base/bind.h"
 #include "base/memory/ref_counted.h"
+#include "chrome/browser/chromeos/apps/intent_helper/apps_navigation_throttle.h"
 #include "chrome/browser/chromeos/apps/intent_helper/apps_navigation_types.h"
+#include "chrome/browser/chromeos/arc/arc_web_contents_data.h"
 #include "chrome/browser/chromeos/arc/intent_helper/arc_navigation_throttle.h"
 #include "chrome/browser/chromeos/external_protocol_dialog.h"
 #include "chrome/browser/tab_contents/tab_util.h"
-#include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/intent_helper/page_transition_util.h"
@@ -21,6 +25,7 @@
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/referrer.h"
+#include "third_party/blink/public/platform/web_referrer_policy.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/image/image.h"
@@ -29,9 +34,6 @@
 using content::WebContents;
 
 namespace arc {
-
-// static
-const char ArcWebContentsData::kArcTransitionFlag[] = "ArcTransition";
 
 namespace {
 
@@ -44,11 +46,18 @@ void ShowFallbackExternalProtocolDialog(int render_process_host_id,
   new ExternalProtocolDialog(web_contents, url);
 }
 
-void CloseTabIfNeeded(int render_process_host_id, int routing_id) {
+void CloseTabIfNeeded(int render_process_host_id,
+                      int routing_id,
+                      bool safe_to_bypass_ui) {
   WebContents* web_contents =
       tab_util::GetWebContentsByID(render_process_host_id, routing_id);
-  if (web_contents && web_contents->GetController().IsInitialNavigation())
+  if (!web_contents)
+    return;
+
+  if (web_contents->GetController().IsInitialNavigation() ||
+      safe_to_bypass_ui) {
     web_contents->Close();
+  }
 }
 
 // Tells whether or not Chrome is an app candidate for the current navigation.
@@ -70,14 +79,15 @@ void OpenUrlInChrome(int render_process_host_id,
   if (!web_contents)
     return;
 
-  // TODO(djacobo): Decide whether or not we should propagate FROM_API here.
-  const ui::PageTransition page_transition_type = ui::PageTransitionFromInt(
-      ui::PAGE_TRANSITION_LINK | ui::PAGE_TRANSITION_FROM_API);
+  const ui::PageTransition page_transition_type =
+      ui::PageTransitionFromInt(ui::PAGE_TRANSITION_LINK);
   constexpr bool kIsRendererInitiated = false;
   const content::OpenURLParams params(
-      // TODO(djacobo): Send a non-empty referrer.
-      url, content::Referrer(), WindowOpenDisposition::CURRENT_TAB,
-      page_transition_type, kIsRendererInitiated);
+      url,
+      content::Referrer(web_contents->GetLastCommittedURL(),
+                        blink::kWebReferrerPolicyDefault),
+      WindowOpenDisposition::CURRENT_TAB, page_transition_type,
+      kIsRendererInitiated);
   web_contents->OpenURL(params);
 }
 
@@ -85,7 +95,8 @@ mojom::IntentInfoPtr CreateIntentInfo(const GURL& url, bool ui_bypassed) {
   // Create an intent with action VIEW, the |url| we are redirecting the user to
   // and a flag that tells whether or not the user interacted with the picker UI
   arc::mojom::IntentInfoPtr intent = arc::mojom::IntentInfo::New();
-  intent->action = "org.chromium.arc.intent.action.VIEW";
+  constexpr char kArcIntentActionView[] = "org.chromium.arc.intent.action.VIEW";
+  intent->action = kArcIntentActionView;
   intent->data = url.spec();
   intent->ui_bypassed = ui_bypassed;
 
@@ -95,8 +106,7 @@ mojom::IntentInfoPtr CreateIntentInfo(const GURL& url, bool ui_bypassed) {
 // Sends |url| to ARC.
 void HandleUrlInArc(int render_process_host_id,
                     int routing_id,
-                    const std::pair<GURL, ArcIntentHelperBridge::ActivityName>&
-                        url_and_activity,
+                    const GurlAndActivityInfo& url_and_activity,
                     bool ui_bypassed) {
   auto* arc_service_manager = ArcServiceManager::Get();
   if (!arc_service_manager)
@@ -116,20 +126,19 @@ void HandleUrlInArc(int render_process_host_id,
 
   instance->HandleIntent(CreateIntentInfo(url_and_activity.first, ui_bypassed),
                          std::move(activity));
-  CloseTabIfNeeded(render_process_host_id, routing_id);
+  CloseTabIfNeeded(render_process_host_id, routing_id, ui_bypassed);
 }
 
 // A helper function called by GetAction().
 GetActionResult GetActionInternal(
     const GURL& original_url,
     const mojom::IntentHandlerInfoPtr& handler,
-    std::pair<GURL, ArcIntentHelperBridge::ActivityName>*
-        out_url_and_activity_name) {
+    GurlAndActivityInfo* out_url_and_activity_name) {
   if (handler->fallback_url.has_value()) {
     *out_url_and_activity_name =
-        std::make_pair(GURL(*handler->fallback_url),
-                       ArcIntentHelperBridge::ActivityName(
-                           handler->package_name, handler->activity_name));
+        GurlAndActivityInfo(GURL(*handler->fallback_url),
+                            ArcIntentHelperBridge::ActivityName(
+                                handler->package_name, handler->activity_name));
     if (ArcIntentHelperBridge::IsIntentHelperPackage(handler->package_name)) {
       // Since |package_name| is "Chrome", and |fallback_url| is not null, the
       // URL must be either http or https. Check it just in case, and if not,
@@ -146,7 +155,7 @@ GetActionResult GetActionInternal(
 
   // Unlike |handler->fallback_url|, the |original_url| should always be handled
   // in ARC since it's external to Chrome.
-  *out_url_and_activity_name = std::make_pair(
+  *out_url_and_activity_name = GurlAndActivityInfo(
       original_url, ArcIntentHelperBridge::ActivityName(
                         handler->package_name, handler->activity_name));
   return GetActionResult::HANDLE_URL_IN_ARC;
@@ -168,8 +177,7 @@ GetActionResult GetAction(
     const GURL& original_url,
     const std::vector<mojom::IntentHandlerInfoPtr>& handlers,
     size_t selected_app_index,
-    std::pair<GURL, ArcIntentHelperBridge::ActivityName>*
-        out_url_and_activity_name,
+    GurlAndActivityInfo* out_url_and_activity_name,
     bool* in_out_safe_to_bypass_ui) {
   DCHECK(out_url_and_activity_name);
   if (!handlers.size()) {
@@ -234,15 +242,16 @@ GetActionResult GetAction(
 //
 // Mark as not "safe" (aka return false) on the contrary, most likely those
 // cases will require the user to pass thru the intent picker UI.
-bool IsSafeToRedirectToArcWithoutUserConfirmation(content::WebContents* tab) {
+bool GetAndResetSafeToRedirectToArcWithoutUserConfirmationFlag(
+    WebContents* web_contents) {
   const char* key =
       arc::ArcWebContentsData::ArcWebContentsData::kArcTransitionFlag;
   arc::ArcWebContentsData* arc_data =
-      static_cast<arc::ArcWebContentsData*>(tab->GetUserData(key));
+      static_cast<arc::ArcWebContentsData*>(web_contents->GetUserData(key));
   if (!arc_data)
     return false;
 
-  tab->RemoveUserData(key);
+  web_contents->RemoveUserData(key);
   return true;
 }
 
@@ -252,18 +261,11 @@ bool HandleUrl(int render_process_host_id,
                const GURL& url,
                const std::vector<mojom::IntentHandlerInfoPtr>& handlers,
                size_t selected_app_index,
-               GetActionResult* out_result) {
-  auto url_and_activity_name = std::make_pair(
-      GURL(),
-      ArcIntentHelperBridge::ActivityName{"" /* package */, "" /* activity */});
-
-  // TODO(djacobo): Evaluate if passing around WebContents instead of
-  // |render_process_host_id| and |rounting_id| would be equivalent.
-  WebContents* tab =
-      tab_util::GetWebContentsByID(render_process_host_id, routing_id);
-  DCHECK(tab);
-
-  bool safe_to_bypass_ui = IsSafeToRedirectToArcWithoutUserConfirmation(tab);
+               GetActionResult* out_result,
+               bool safe_to_bypass_ui) {
+  GurlAndActivityInfo url_and_activity_name(
+      GURL(), ArcIntentHelperBridge::ActivityName{/*package=*/std::string(),
+                                                  /*activity=*/std::string()});
 
   const GetActionResult result =
       GetAction(url, handlers, selected_app_index, &url_and_activity_name,
@@ -296,9 +298,10 @@ GURL GetUrlToNavigateOnDeactivate(
     const std::vector<mojom::IntentHandlerInfoPtr>& handlers) {
   const GURL empty_url;
   for (size_t i = 0; i < handlers.size(); ++i) {
-    auto url_and_package =
-        std::make_pair(GURL(), ArcIntentHelperBridge::ActivityName{
-                                   "" /* package */, "" /* activity */});
+    GurlAndActivityInfo url_and_package(
+        GURL(),
+        ArcIntentHelperBridge::ActivityName{/*package=*/std::string(),
+                                            /*activity=*/std::string()});
     if (GetActionInternal(empty_url, handlers[i], &url_and_package) ==
         GetActionResult::OPEN_URL_IN_CHROME) {
       DCHECK(url_and_package.first.SchemeIsHTTPOrHTTPS());
@@ -313,10 +316,11 @@ GURL GetUrlToNavigateOnDeactivate(
 void OnIntentPickerDialogDeactivated(
     int render_process_host_id,
     int routing_id,
+    bool safe_to_bypass_ui,
     const std::vector<mojom::IntentHandlerInfoPtr>& handlers) {
   const GURL url_to_open_in_chrome = GetUrlToNavigateOnDeactivate(handlers);
   if (url_to_open_in_chrome.is_empty())
-    CloseTabIfNeeded(render_process_host_id, routing_id);
+    CloseTabIfNeeded(render_process_host_id, routing_id, safe_to_bypass_ui);
   else
     OpenUrlInChrome(render_process_host_id, routing_id, url_to_open_in_chrome);
 }
@@ -326,12 +330,26 @@ void OnIntentPickerDialogDeactivated(
 void OnIntentPickerClosed(int render_process_host_id,
                           int routing_id,
                           const GURL& url,
+                          bool safe_to_bypass_ui,
                           std::vector<mojom::IntentHandlerInfoPtr> handlers,
                           const std::string& selected_app_package,
                           chromeos::AppType app_type,
                           chromeos::IntentPickerCloseReason reason,
                           bool should_persist) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  // Even if ArcExternalProtocolDialog shares the same icon on the omnibox as an
+  // http(s) request (via AppsNavigationThrottle), the UI here shouldn't stay in
+  // the omnibox since the decision should be taken right away in a kind of
+  // blocking fashion.
+  WebContents* web_contents =
+      tab_util::GetWebContentsByID(render_process_host_id, routing_id);
+
+  Browser* browser =
+      web_contents ? chrome::FindBrowserWithWebContents(web_contents) : nullptr;
+
+  if (browser)
+    browser->window()->SetIntentPickerViewVisibility(/*visible=*/false);
 
   // If the user selected an app to continue the navigation, confirm that the
   // |package_name| matches a valid option and return the index.
@@ -374,7 +392,7 @@ void OnIntentPickerClosed(int render_process_host_id,
 
       // Launch the selected app.
       HandleUrl(render_process_host_id, routing_id, url, handlers,
-                selected_app_index, nullptr);
+                selected_app_index, /*out_result=*/nullptr, safe_to_bypass_ui);
       break;
     case chromeos::IntentPickerCloseReason::PREFERRED_APP_FOUND:
       // We shouldn't be here if a preferred app was found.
@@ -393,12 +411,12 @@ void OnIntentPickerClosed(int render_process_host_id,
     case chromeos::IntentPickerCloseReason::DIALOG_DEACTIVATED:
       // The user didn't select any ARC activity.
       OnIntentPickerDialogDeactivated(render_process_host_id, routing_id,
-                                      handlers);
+                                      safe_to_bypass_ui, handlers);
       break;
   }
 
-  ArcNavigationThrottle::RecordUma(selected_app_package, app_type, reason,
-                                   should_persist);
+  chromeos::AppsNavigationThrottle::RecordUma(selected_app_package, app_type,
+                                              reason, should_persist);
 }
 
 // Called when ARC returned activity icons for the |handlers|.
@@ -406,6 +424,7 @@ void OnAppIconsReceived(
     int render_process_host_id,
     int routing_id,
     const GURL& url,
+    bool safe_to_bypass_ui,
     std::vector<mojom::IntentHandlerInfoPtr> handlers,
     std::unique_ptr<ArcIntentHelperBridge::ActivityToIconsMap> icons) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -422,19 +441,27 @@ void OnAppIconsReceived(
                           handler->package_name, handler->name);
   }
 
-  auto show_bubble_cb = base::Bind(ShowIntentPickerBubble());
   WebContents* web_contents =
       tab_util::GetWebContentsByID(render_process_host_id, routing_id);
-  show_bubble_cb.Run(nullptr /* anchor_view */, web_contents,
-                     std::move(app_info), !IsChromeAnAppCandidate(handlers),
-                     base::Bind(OnIntentPickerClosed, render_process_host_id,
-                                routing_id, url, base::Passed(&handlers)));
+
+  Browser* browser =
+      web_contents ? chrome::FindBrowserWithWebContents(web_contents) : nullptr;
+
+  if (!browser)
+    return;
+
+  browser->window()->SetIntentPickerViewVisibility(/*visible=*/true);
+  browser->window()->ShowIntentPickerBubble(
+      std::move(app_info), !IsChromeAnAppCandidate(handlers),
+      base::Bind(OnIntentPickerClosed, render_process_host_id, routing_id, url,
+                 safe_to_bypass_ui, base::Passed(&handlers)));
 }
 
 // Called when ARC returned a handler list for the |url|.
 void OnUrlHandlerList(int render_process_host_id,
                       int routing_id,
                       const GURL& url,
+                      bool safe_to_bypass_ui,
                       std::vector<mojom::IntentHandlerInfoPtr> handlers) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
@@ -463,12 +490,12 @@ void OnUrlHandlerList(int render_process_host_id,
   // Check if the |url| should be handled right away without showing the UI.
   GetActionResult result;
   if (HandleUrl(render_process_host_id, routing_id, url, handlers,
-                handlers.size(), &result)) {
+                handlers.size(), &result, safe_to_bypass_ui)) {
     if (result == GetActionResult::HANDLE_URL_IN_ARC) {
-      ArcNavigationThrottle::RecordUma(
+      chromeos::AppsNavigationThrottle::RecordUma(
           std::string(), chromeos::AppType::ARC,
           chromeos::IntentPickerCloseReason::PREFERRED_APP_FOUND,
-          false /* should_persist */);
+          /*should_persist=*/false);
     }
     return;  // the |url| has been handled.
   }
@@ -481,8 +508,9 @@ void OnUrlHandlerList(int render_process_host_id,
     activities.emplace_back(handler->package_name, handler->activity_name);
   }
   intent_helper_bridge->GetActivityIcons(
-      activities, base::BindOnce(OnAppIconsReceived, render_process_host_id,
-                                 routing_id, url, std::move(handlers)));
+      activities,
+      base::BindOnce(OnAppIconsReceived, render_process_host_id, routing_id,
+                     url, safe_to_bypass_ui, std::move(handlers)));
 }
 
 }  // namespace
@@ -500,8 +528,8 @@ bool RunArcExternalProtocolDialog(const GURL& url,
       MaskOutPageTransition(page_transition, ui::PAGE_TRANSITION_FROM_API);
 
   if (ShouldIgnoreNavigation(masked_page_transition,
-                             true /* allow_form_submit */,
-                             true /* allow_client_redirect */)) {
+                             /*allow_form_submit=*/true,
+                             /*allow_client_redirect=*/true)) {
     LOG(WARNING) << "RunArcExternalProtocolDialog: ignoring " << url
                  << " with PageTransition=" << masked_page_transition;
     return false;
@@ -524,11 +552,14 @@ bool RunArcExternalProtocolDialog(const GURL& url,
     return false;
   }
 
+  const bool safe_to_bypass_ui =
+      GetAndResetSafeToRedirectToArcWithoutUserConfirmationFlag(web_contents);
+
   // Show ARC version of the dialog, which is IntentPickerBubbleView. To show
   // the bubble view, we need to ask ARC for a handler list first.
   instance->RequestUrlHandlerList(
       url.spec(), base::BindOnce(OnUrlHandlerList, render_process_host_id,
-                                 routing_id, url));
+                                 routing_id, url, safe_to_bypass_ui));
   return true;
 }
 
@@ -536,8 +567,7 @@ GetActionResult GetActionForTesting(
     const GURL& original_url,
     const std::vector<mojom::IntentHandlerInfoPtr>& handlers,
     size_t selected_app_index,
-    std::pair<GURL, ArcIntentHelperBridge::ActivityName>*
-        out_url_and_activity_name,
+    GurlAndActivityInfo* out_url_and_activity_name,
     bool* safe_to_bypass_ui) {
   return GetAction(original_url, handlers, selected_app_index,
                    out_url_and_activity_name, safe_to_bypass_ui);
@@ -548,9 +578,10 @@ GURL GetUrlToNavigateOnDeactivateForTesting(
   return GetUrlToNavigateOnDeactivate(handlers);
 }
 
-bool IsSafeToRedirectToArcWithoutUserConfirmationForTesting(
-    content::WebContents* tab) {
-  return IsSafeToRedirectToArcWithoutUserConfirmation(tab);
+bool GetAndResetSafeToRedirectToArcWithoutUserConfirmationFlagForTesting(
+    WebContents* web_contents) {
+  return GetAndResetSafeToRedirectToArcWithoutUserConfirmationFlag(
+      web_contents);
 }
 
 bool IsChromeAnAppCandidateForTesting(

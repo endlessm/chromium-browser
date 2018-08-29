@@ -6,8 +6,8 @@
 
 #include <memory>
 
-#include "ash/ash_constants.h"
 #include "ash/login/ui/login_button.h"
+#include "ash/public/cpp/ash_constants.h"
 #include "ash/public/cpp/login_constants.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
@@ -30,12 +30,11 @@ namespace ash {
 namespace {
 
 // Color of the ink drop ripple.
-constexpr SkColor kInkDropRippleColor =
-    SkColorSetARGBMacro(0x0F, 0xFF, 0xFF, 0xFF);
+constexpr SkColor kInkDropRippleColor = SkColorSetARGB(0x0F, 0xFF, 0xFF, 0xFF);
 
 // Color of the ink drop highlight.
 constexpr SkColor kInkDropHighlightColor =
-    SkColorSetARGBMacro(0x14, 0xFF, 0xFF, 0xFF);
+    SkColorSetARGB(0x14, 0xFF, 0xFF, 0xFF);
 
 constexpr const char* kPinLabels[] = {
     "+",      // 0

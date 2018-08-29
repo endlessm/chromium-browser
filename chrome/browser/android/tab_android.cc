@@ -301,8 +301,8 @@ void TabAndroid::SetSyncId(int sync_id) {
 
 void TabAndroid::HandlePopupNavigation(NavigateParams* params) {
   DCHECK(params->source_contents == web_contents());
-  DCHECK(params->target_contents == NULL ||
-         params->target_contents == web_contents());
+  DCHECK(!params->contents_to_insert);
+  DCHECK(!params->switch_to_singleton_tab);
 
   WindowOpenDisposition disposition = params->disposition;
   const GURL& url = params->url;
@@ -349,14 +349,17 @@ bool TabAndroid::HasPrerenderedUrl(GURL gurl) {
   return false;
 }
 
-void TabAndroid::SwapTabContents(content::WebContents* old_contents,
-                                 content::WebContents* new_contents,
-                                 bool did_start_load,
-                                 bool did_finish_load) {
+std::unique_ptr<content::WebContents> TabAndroid::SwapTabContents(
+    content::WebContents* old_contents,
+    std::unique_ptr<content::WebContents> new_contents,
+    bool did_start_load,
+    bool did_finish_load) {
   JNIEnv* env = base::android::AttachCurrentThread();
   Java_Tab_swapWebContents(env, weak_java_tab_.get(env),
                            new_contents->GetJavaWebContents(), did_start_load,
                            did_finish_load);
+  new_contents.release();
+  return base::WrapUnique(old_contents);
 }
 
 void TabAndroid::Observe(int type,
@@ -592,7 +595,9 @@ TabAndroid::TabLoadStatus TabAndroid::LoadUrl(
   if (prerender_manager) {
     bool prefetched_page_loaded = HasPrerenderedUrl(gurl);
     // Getting the load status before MaybeUsePrerenderedPage() b/c it resets.
-    NavigateParams params(web_contents());
+    prerender::PrerenderManager::Params params(
+        /*uses_post=*/false, /*extra_headers=*/std::string(),
+        /*should_replace_current_entry=*/false, web_contents());
     if (prerender_manager->MaybeUsePrerenderedPage(gurl, &params)) {
       return prefetched_page_loaded ?
           FULL_PRERENDERED_PAGE_LOAD : PARTIAL_PRERENDERED_PAGE_LOAD;
@@ -947,7 +952,7 @@ jint TabAndroid::GetCurrentRenderProcessId(JNIEnv* env,
   content::RenderProcessHost* render_process = host->GetProcess();
   DCHECK(render_process);
   if (render_process->HasConnection())
-    return render_process->GetHandle();
+    return render_process->GetProcess().Handle();
   return 0;
 }
 

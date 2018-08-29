@@ -61,26 +61,13 @@ static ToolChain::RTTIMode CalculateRTTIMode(const ArgList &Args,
   // Explicit rtti/no-rtti args
   if (CachedRTTIArg) {
     if (CachedRTTIArg->getOption().matches(options::OPT_frtti))
-      return ToolChain::RM_EnabledExplicitly;
+      return ToolChain::RM_Enabled;
     else
-      return ToolChain::RM_DisabledExplicitly;
+      return ToolChain::RM_Disabled;
   }
 
   // -frtti is default, except for the PS4 CPU.
-  if (!Triple.isPS4CPU())
-    return ToolChain::RM_EnabledImplicitly;
-
-  // On the PS4, turning on c++ exceptions turns on rtti.
-  // We're assuming that, if we see -fexceptions, rtti gets turned on.
-  Arg *Exceptions = Args.getLastArgNoClaim(
-      options::OPT_fcxx_exceptions, options::OPT_fno_cxx_exceptions,
-      options::OPT_fexceptions, options::OPT_fno_exceptions);
-  if (Exceptions &&
-      (Exceptions->getOption().matches(options::OPT_fexceptions) ||
-       Exceptions->getOption().matches(options::OPT_fcxx_exceptions)))
-    return ToolChain::RM_EnabledImplicitly;
-
-  return ToolChain::RM_DisabledImplicitly;
+  return (Triple.isPS4CPU()) ? ToolChain::RM_Disabled : ToolChain::RM_Enabled;
 }
 
 ToolChain::ToolChain(const Driver &D, const llvm::Triple &T,
@@ -166,7 +153,7 @@ static const DriverSuffix *FindDriverSuffix(StringRef ProgName, size_t &Pos) {
 /// present and lower-casing the string on Windows.
 static std::string normalizeProgramName(llvm::StringRef Argv0) {
   std::string ProgName = llvm::sys::path::stem(Argv0);
-#ifdef LLVM_ON_WIN32
+#ifdef _WIN32
   // Transform to lowercase for case insensitive file systems.
   std::transform(ProgName.begin(), ProgName.end(), ProgName.begin(), ::tolower);
 #endif
@@ -685,7 +672,7 @@ ToolChain::CXXStdlibType ToolChain::GetCXXStdlibType(const ArgList &Args) const{
   return GetDefaultCXXStdlibType();
 }
 
-/// \brief Utility function to add a system include directory to CC1 arguments.
+/// Utility function to add a system include directory to CC1 arguments.
 /*static*/ void ToolChain::addSystemInclude(const ArgList &DriverArgs,
                                             ArgStringList &CC1Args,
                                             const Twine &Path) {
@@ -693,7 +680,7 @@ ToolChain::CXXStdlibType ToolChain::GetCXXStdlibType(const ArgList &Args) const{
   CC1Args.push_back(DriverArgs.MakeArgString(Path));
 }
 
-/// \brief Utility function to add a system include directory with extern "C"
+/// Utility function to add a system include directory with extern "C"
 /// semantics to CC1 arguments.
 ///
 /// Note that this should be used rarely, and only for directories that
@@ -715,7 +702,7 @@ void ToolChain::addExternCSystemIncludeIfExists(const ArgList &DriverArgs,
     addExternCSystemInclude(DriverArgs, CC1Args, Path);
 }
 
-/// \brief Utility function to add a list of system include directories to CC1.
+/// Utility function to add a list of system include directories to CC1.
 /*static*/ void ToolChain::addSystemIncludes(const ArgList &DriverArgs,
                                              ArgStringList &CC1Args,
                                              ArrayRef<StringRef> Paths) {
@@ -814,6 +801,9 @@ SanitizerMask ToolChain::getSupportedSanitizers() const {
       getTriple().getArch() == llvm::Triple::wasm32 ||
       getTriple().getArch() == llvm::Triple::wasm64)
     Res |= CFIICall;
+  if (getTriple().getArch() == llvm::Triple::x86_64 ||
+      getTriple().getArch() == llvm::Triple::aarch64)
+    Res |= ShadowCallStack;
   return Res;
 }
 

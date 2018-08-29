@@ -32,6 +32,7 @@
 #include "ash/system/ime/tray_ime_chromeos.h"
 #include "ash/system/keyboard_brightness/tray_keyboard_brightness.h"
 #include "ash/system/media_security/multi_profile_media_tray_item.h"
+#include "ash/system/message_center/notification_tray.h"
 #include "ash/system/model/clock_model.h"
 #include "ash/system/model/system_tray_model.h"
 #include "ash/system/network/tray_network.h"
@@ -58,7 +59,6 @@
 #include "ash/system/unified/unified_system_tray.h"
 #include "ash/system/update/tray_update.h"
 #include "ash/system/user/tray_user.h"
-#include "ash/system/web_notification/web_notification_tray.h"
 #include "ash/wm/container_finder.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/widget_finder.h"
@@ -79,11 +79,8 @@
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
-#include "ui/views/controls/message_box_view.h"
-#include "ui/views/layout/fill_layout.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
-#include "ui/views/window/dialog_delegate.h"
 #include "ui/wm/core/window_util.h"
 #include "ui/wm/public/activation_change_observer.h"
 #include "ui/wm/public/activation_client.h"
@@ -93,49 +90,6 @@ using views::TrayBubbleView;
 namespace ash {
 
 namespace {
-
-// Dialog that confirms the user wants to stop screen share/cast. Calls a
-// callback with the result.
-class CancelCastingDialog : public views::DialogDelegateView {
- public:
-  explicit CancelCastingDialog(base::OnceCallback<void(bool)> callback)
-      : callback_(std::move(callback)) {
-    AddChildView(new views::MessageBoxView(views::MessageBoxView::InitParams(
-        l10n_util::GetStringUTF16(IDS_DESKTOP_CASTING_ACTIVE_MESSAGE))));
-    SetLayoutManager(std::make_unique<views::FillLayout>());
-  }
-  ~CancelCastingDialog() override = default;
-
-  base::string16 GetWindowTitle() const override {
-    return l10n_util::GetStringUTF16(IDS_DESKTOP_CASTING_ACTIVE_TITLE);
-  }
-
-  int GetDialogButtons() const override {
-    return ui::DIALOG_BUTTON_OK | ui::DIALOG_BUTTON_CANCEL;
-  }
-
-  bool Cancel() override {
-    std::move(callback_).Run(false);
-    return true;
-  }
-
-  bool Accept() override {
-    // Stop screen sharing and capturing.
-    SystemTray* system_tray = Shell::Get()->GetPrimarySystemTray();
-    if (system_tray->GetScreenShareItem()->is_started())
-      system_tray->GetScreenShareItem()->Stop();
-    if (system_tray->GetScreenCaptureItem()->is_started())
-      system_tray->GetScreenCaptureItem()->Stop();
-
-    std::move(callback_).Run(true);
-    return true;
-  }
-
- private:
-  base::OnceCallback<void(bool)> callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(CancelCastingDialog);
-};
 
 // A tray item that just reserves space in the tray.
 class PaddingTrayItem : public SystemTrayItem {
@@ -236,17 +190,16 @@ SystemTray::~SystemTray() {
     item->OnTrayViewDestroyed();
 }
 
-void SystemTray::InitializeTrayItems(
-    WebNotificationTray* web_notification_tray) {
-  DCHECK(web_notification_tray || features::IsSystemTrayUnifiedEnabled());
-  web_notification_tray_ = web_notification_tray;
+void SystemTray::InitializeTrayItems(NotificationTray* notification_tray) {
+  DCHECK(notification_tray || features::IsSystemTrayUnifiedEnabled());
+  notification_tray_ = notification_tray;
   TrayBackgroundView::Initialize();
   CreateItems();
 }
 
 void SystemTray::Shutdown() {
-  DCHECK(web_notification_tray_ || features::IsSystemTrayUnifiedEnabled());
-  web_notification_tray_ = nullptr;
+  DCHECK(notification_tray_ || features::IsSystemTrayUnifiedEnabled());
+  notification_tray_ = nullptr;
 }
 
 void SystemTray::CreateItems() {
@@ -268,8 +221,7 @@ void SystemTray::CreateItems() {
   AddTrayItem(base::WrapUnique(tray_accessibility_));
   tray_tracing_ = new TrayTracing(this);
   AddTrayItem(base::WrapUnique(tray_tracing_));
-  AddTrayItem(
-      std::make_unique<TrayPower>(this, message_center::MessageCenter::Get()));
+  AddTrayItem(std::make_unique<TrayPower>(this));
   tray_network_ = new TrayNetwork(this);
   AddTrayItem(base::WrapUnique(tray_network_));
   tray_vpn_ = new TrayVPN(this);
@@ -278,10 +230,8 @@ void SystemTray::CreateItems() {
   AddTrayItem(base::WrapUnique(tray_bluetooth_));
   tray_cast_ = new TrayCast(this);
   AddTrayItem(base::WrapUnique(tray_cast_));
-  screen_capture_tray_item_ = new ScreenCaptureTrayItem(this);
-  AddTrayItem(base::WrapUnique(screen_capture_tray_item_));
-  screen_share_tray_item_ = new ScreenShareTrayItem(this);
-  AddTrayItem(base::WrapUnique(screen_share_tray_item_));
+  AddTrayItem(std::make_unique<ScreenCaptureTrayItem>(this));
+  AddTrayItem(std::make_unique<ScreenShareTrayItem>(this));
   AddTrayItem(std::make_unique<MultiProfileMediaTrayItem>(this));
   tray_audio_ = new TrayAudio(this);
   AddTrayItem(base::WrapUnique(tray_audio_));
@@ -414,6 +364,10 @@ TrayBluetooth* SystemTray::GetTrayBluetooth() const {
   return tray_bluetooth_;
 }
 
+TrayCast* SystemTray::GetTrayCast() const {
+  return tray_cast_;
+}
+
 TrayAccessibility* SystemTray::GetTrayAccessibility() const {
   return tray_accessibility_;
 }
@@ -426,20 +380,15 @@ TrayIME* SystemTray::GetTrayIME() const {
   return tray_ime_;
 }
 
-void SystemTray::CanSwitchAwayFromActiveUser(
-    base::OnceCallback<void(bool)> callback) {
-  // If neither screen sharing nor capturing is going on we can immediately
-  // switch users.
-  if (!GetScreenShareItem()->is_started() &&
-      !GetScreenCaptureItem()->is_started()) {
-    std::move(callback).Run(true);
+void SystemTray::RecordTimeToClick() {
+  // Ignore if the tray bubble is not opened by click.
+  if (!last_button_clicked_)
     return;
-  }
 
-  views::DialogDelegate::CreateDialogWidget(
-      new CancelCastingDialog(std::move(callback)),
-      Shell::GetPrimaryRootWindow(), nullptr)
-      ->Show();
+  UMA_HISTOGRAM_TIMES("ChromeOS.SystemTray.TimeToClick",
+                      base::TimeTicks::Now() - last_button_clicked_.value());
+
+  last_button_clicked_.reset();
 }
 
 // Private methods.
@@ -451,7 +400,7 @@ bool SystemTray::HasSystemTrayType(SystemTrayView::SystemTrayType type) {
 void SystemTray::DestroySystemBubble() {
   CloseSystemBubbleAndDeactivateSystemTray();
   detailed_item_ = NULL;
-  UpdateWebNotifications();
+  UpdateNotificationTrayBubblePosition();
 }
 
 base::string16 SystemTray::GetAccessibleNameForTray() {
@@ -526,16 +475,21 @@ void SystemTray::ShowItems(const std::vector<SystemTrayItem*>& items,
   else
     detailed_item_ = NULL;
 
-  UpdateWebNotifications();
+  UpdateNotificationTrayBubblePosition();
   shelf()->UpdateAutoHideState();
 
   // When we show the system menu in our alternate shelf layout, we need to
   // tint the background.
   if (full_system_tray_menu_)
     SetIsActive(true);
+
+  // If the current view is not the default view or opened by click, reset the
+  // last button click time.
+  if (detailed || !show_by_click)
+    last_button_clicked_.reset();
 }
 
-void SystemTray::UpdateWebNotifications() {
+void SystemTray::UpdateNotificationTrayBubblePosition() {
   TrayBubbleView* bubble_view = NULL;
   if (system_bubble_)
     bubble_view = system_bubble_->bubble_view();
@@ -549,8 +503,8 @@ void SystemTray::UpdateWebNotifications() {
     height =
         std::max(0, work_area.bottom() - bubble_view->GetBoundsInScreen().y());
   }
-  if (web_notification_tray_)
-    web_notification_tray_->SetTrayBubbleHeight(height);
+  if (notification_tray_)
+    notification_tray_->SetTrayBubbleHeight(height);
 }
 
 base::string16 SystemTray::GetAccessibleTimeString(
@@ -567,7 +521,7 @@ void SystemTray::UpdateAfterShelfAlignmentChange() {
   // Destroy any existing bubble so that it is rebuilt correctly.
   CloseSystemBubbleAndDeactivateSystemTray();
   // Rebuild any notification bubble.
-  UpdateWebNotifications();
+  UpdateNotificationTrayBubblePosition();
 }
 
 void SystemTray::AnchorUpdated() {
@@ -585,7 +539,7 @@ void SystemTray::AnchorUpdated() {
 }
 
 void SystemTray::BubbleResized(const TrayBubbleView* bubble_view) {
-  UpdateWebNotifications();
+  UpdateNotificationTrayBubblePosition();
 }
 
 void SystemTray::HideBubbleWithView(const TrayBubbleView* bubble_view) {
@@ -609,6 +563,8 @@ bool SystemTray::PerformAction(const ui::Event& event) {
     return shelf()->GetStatusAreaWidget()->unified_system_tray()->PerformAction(
         event);
   }
+
+  last_button_clicked_ = base::TimeTicks::Now();
 
   // If we're already showing a full system tray menu, either default or
   // detailed menu, hide it; otherwise, show it (and hide any popup that's
@@ -639,6 +595,14 @@ views::TrayBubbleView* SystemTray::GetBubbleView() {
   return system_bubble_ && full_system_tray_menu_
              ? system_bubble_->bubble_view()
              : nullptr;
+}
+
+void SystemTray::SetVisible(bool visible) {
+  // TODO(tetsui): Port logic in SystemTrayItems that is unrelated to SystemTray
+  // UI, and stop instantiating SystemTray instead of hiding it when
+  // UnifiedSystemTray is enabled.
+  TrayBackgroundView::SetVisible(!features::IsSystemTrayUnifiedEnabled() &&
+                                 visible);
 }
 
 void SystemTray::BubbleViewDestroyed() {

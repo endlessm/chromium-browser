@@ -15,6 +15,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "components/sync/base/extensions_activity.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/weak_handle.h"
@@ -23,7 +24,7 @@
 #include "components/sync/engine/model_type_configurer.h"
 #include "components/sync/engine/shutdown_reason.h"
 #include "components/sync/engine/sync_backend_registrar.h"
-#include "components/sync/engine/sync_manager.h"
+#include "components/sync/engine/sync_credentials.h"
 #include "components/sync/engine/sync_manager_factory.h"
 
 class GURL;
@@ -75,6 +76,10 @@ class SyncEngine : public ModelTypeConfigurer {
     base::Closure report_unrecoverable_error_function;
     std::unique_ptr<SyncEncryptionHandler::NigoriState> saved_nigori_state;
     std::map<ModelType, int64_t> invalidation_versions;
+
+    // Define the polling intervals. Must not be zero.
+    base::TimeDelta short_poll_interval;
+    base::TimeDelta long_poll_interval;
 
    private:
     DISALLOW_COPY_AND_ASSIGN(InitParams);
@@ -153,7 +158,8 @@ class SyncEngine : public ModelTypeConfigurer {
   // Determines if the underlying sync engine has made any local changes to
   // items that have not yet been synced with the server.
   // ONLY CALL THIS IF OnInitializationComplete was called!
-  virtual bool HasUnsyncedItems() const = 0;
+  virtual void HasUnsyncedItemsForTest(
+      base::OnceCallback<void(bool)> cb) const = 0;
 
   // True if the cryptographer has any keys available to attempt decryption.
   // Could mean we've downloaded and loaded Nigori objects, or we bootstrapped

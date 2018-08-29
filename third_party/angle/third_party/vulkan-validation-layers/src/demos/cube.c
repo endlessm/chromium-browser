@@ -56,6 +56,7 @@
 
 #include <vulkan/vk_sdk_platform.h>
 #include "linmath.h"
+#include "vk_enum_string_helper.h"
 
 #include "gettime.h"
 #include "inttypes.h"
@@ -290,18 +291,6 @@ void dumpVec4(const char *note, vec4 vector) {
     fflush(stdout);
 }
 
-VKAPI_ATTR VkBool32 VKAPI_CALL BreakCallback(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t srcObject,
-                                             size_t location, int32_t msgCode, const char *pLayerPrefix, const char *pMsg,
-                                             void *pUserData) {
-#ifndef WIN32
-    raise(SIGTRAP);
-#else
-    DebugBreak();
-#endif
-
-    return false;
-}
-
 typedef struct {
     VkImage image;
     VkCommandBuffer cmd;
@@ -342,7 +331,7 @@ struct demo {
     struct wl_keyboard *keyboard;
 #elif defined(VK_USE_PLATFORM_MIR_KHR)
 #elif defined(VK_USE_PLATFORM_ANDROID_KHR)
-    ANativeWindow *window;
+    struct ANativeWindow *window;
 #elif (defined(VK_USE_PLATFORM_IOS_MVK) || defined(VK_USE_PLATFORM_MACOS_MVK))
     void *window;
 #endif
@@ -447,62 +436,111 @@ struct demo {
     bool validate_checks_disabled;
     bool use_break;
     bool suppress_popups;
-    PFN_vkCreateDebugReportCallbackEXT CreateDebugReportCallback;
-    PFN_vkDestroyDebugReportCallbackEXT DestroyDebugReportCallback;
-    VkDebugReportCallbackEXT msg_callback;
-    PFN_vkDebugReportMessageEXT DebugReportMessage;
+
+    PFN_vkCreateDebugUtilsMessengerEXT CreateDebugUtilsMessengerEXT;
+    PFN_vkDestroyDebugUtilsMessengerEXT DestroyDebugUtilsMessengerEXT;
+    PFN_vkSubmitDebugUtilsMessageEXT SubmitDebugUtilsMessageEXT;
+    PFN_vkCmdBeginDebugUtilsLabelEXT CmdBeginDebugUtilsLabelEXT;
+    PFN_vkCmdEndDebugUtilsLabelEXT CmdEndDebugUtilsLabelEXT;
+    PFN_vkCmdInsertDebugUtilsLabelEXT CmdInsertDebugUtilsLabelEXT;
+    PFN_vkSetDebugUtilsObjectNameEXT SetDebugUtilsObjectNameEXT;
+    VkDebugUtilsMessengerEXT dbg_messenger;
 
     uint32_t current_buffer;
     uint32_t queue_family_count;
 };
 
-VKAPI_ATTR VkBool32 VKAPI_CALL dbgFunc(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t srcObject, size_t location,
-                                       int32_t msgCode, const char *pLayerPrefix, const char *pMsg, void *pUserData) {
-    // clang-format off
-    char *message = (char *)malloc(strlen(pMsg) + 100);
-
+VKAPI_ATTR VkBool32 VKAPI_CALL debug_messenger_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+                                                        VkDebugUtilsMessageTypeFlagsEXT messageType,
+                                                        const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+                                                        void *pUserData) {
+    char prefix[64] = "";
+    char *message = (char *)malloc(strlen(pCallbackData->pMessage) + 5000);
     assert(message);
+    struct demo *demo = (struct demo *)pUserData;
 
-    if (msgFlags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT) {
-        sprintf(message, "INFORMATION: [%s] Code %d : %s", pLayerPrefix, msgCode, pMsg);
-        validation_error = 1;
-    } else if (msgFlags & VK_DEBUG_REPORT_WARNING_BIT_EXT) {
-        sprintf(message, "WARNING: [%s] Code %d : %s", pLayerPrefix, msgCode, pMsg);
-        validation_error = 1;
-    } else if (msgFlags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT) {
-        sprintf(message, "PERFORMANCE WARNING: [%s] Code %d : %s", pLayerPrefix, msgCode, pMsg);
-        validation_error = 1;
-    } else if (msgFlags & VK_DEBUG_REPORT_ERROR_BIT_EXT) {
-        sprintf(message, "ERROR: [%s] Code %d : %s", pLayerPrefix, msgCode, pMsg);
-        validation_error = 1;
-    } else if (msgFlags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) {
-        sprintf(message, "DEBUG: [%s] Code %d : %s", pLayerPrefix, msgCode, pMsg);
-        validation_error = 1;
+    if (demo->use_break) {
+#ifndef WIN32
+        raise(SIGTRAP);
+#else
+        DebugBreak();
+#endif
+    }
+
+    if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
+        strcat(prefix, "VERBOSE : ");
+    } else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+        strcat(prefix, "INFO : ");
+    } else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+        strcat(prefix, "WARNING : ");
+    } else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+        strcat(prefix, "ERROR : ");
+    }
+
+    if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT) {
+        strcat(prefix, "GENERAL");
     } else {
-        sprintf(message, "INFORMATION: [%s] Code %d : %s", pLayerPrefix, msgCode, pMsg);
-        validation_error = 1;
+        if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) {
+            strcat(prefix, "VALIDATION");
+            validation_error = 1;
+        }
+        if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) {
+            if (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) {
+                strcat(prefix, "|");
+            }
+            strcat(prefix, "PERFORMANCE");
+        }
+    }
+
+    sprintf(message, "%s - Message Id Number: %d | Message Id Name: %s\n\t%s\n", prefix, pCallbackData->messageIdNumber,
+            pCallbackData->pMessageIdName, pCallbackData->pMessage);
+    if (pCallbackData->objectCount > 0) {
+        char tmp_message[500];
+        sprintf(tmp_message, "\n\tObjects - %d\n", pCallbackData->objectCount);
+        strcat(message, tmp_message);
+        for (uint32_t object = 0; object < pCallbackData->objectCount; ++object) {
+            if (NULL != pCallbackData->pObjects[object].pObjectName && strlen(pCallbackData->pObjects[object].pObjectName) > 0) {
+                sprintf(tmp_message, "\t\tObject[%d] - %s, Handle %p, Name \"%s\"\n", object,
+                        string_VkObjectType(pCallbackData->pObjects[object].objectType),
+                        (void *)(pCallbackData->pObjects[object].objectHandle), pCallbackData->pObjects[object].pObjectName);
+            } else {
+                sprintf(tmp_message, "\t\tObject[%d] - %s, Handle %p\n", object,
+                        string_VkObjectType(pCallbackData->pObjects[object].objectType),
+                        (void *)(pCallbackData->pObjects[object].objectHandle));
+            }
+            strcat(message, tmp_message);
+        }
+    }
+    if (pCallbackData->cmdBufLabelCount > 0) {
+        char tmp_message[500];
+        sprintf(tmp_message, "\n\tCommand Buffer Labels - %d\n", pCallbackData->cmdBufLabelCount);
+        strcat(message, tmp_message);
+        for (uint32_t cmd_buf_label = 0; cmd_buf_label < pCallbackData->cmdBufLabelCount; ++cmd_buf_label) {
+            sprintf(tmp_message, "\t\tLabel[%d] - %s { %f, %f, %f, %f}\n", cmd_buf_label,
+                    pCallbackData->pCmdBufLabels[cmd_buf_label].pLabelName, pCallbackData->pCmdBufLabels[cmd_buf_label].color[0],
+                    pCallbackData->pCmdBufLabels[cmd_buf_label].color[1], pCallbackData->pCmdBufLabels[cmd_buf_label].color[2],
+                    pCallbackData->pCmdBufLabels[cmd_buf_label].color[3]);
+            strcat(message, tmp_message);
+        }
     }
 
 #ifdef _WIN32
 
     in_callback = true;
-    struct demo *demo = (struct demo*) pUserData;
     if (!demo->suppress_popups)
         MessageBox(NULL, message, "Alert", MB_OK);
     in_callback = false;
 
 #elif defined(ANDROID)
 
-    if (msgFlags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT) {
+    if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
         __android_log_print(ANDROID_LOG_INFO,  APP_SHORT_NAME, "%s", message);
-    } else if (msgFlags & VK_DEBUG_REPORT_WARNING_BIT_EXT) {
+    } else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
         __android_log_print(ANDROID_LOG_WARN,  APP_SHORT_NAME, "%s", message);
-    } else if (msgFlags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT) {
-        __android_log_print(ANDROID_LOG_WARN,  APP_SHORT_NAME, "%s", message);
-    } else if (msgFlags & VK_DEBUG_REPORT_ERROR_BIT_EXT) {
+    } else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
         __android_log_print(ANDROID_LOG_ERROR, APP_SHORT_NAME, "%s", message);
-    } else if (msgFlags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) {
-        __android_log_print(ANDROID_LOG_DEBUG, APP_SHORT_NAME, "%s", message);
+    } else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
+        __android_log_print(ANDROID_LOG_VERBOSE, APP_SHORT_NAME, "%s", message);
     } else {
         __android_log_print(ANDROID_LOG_INFO,  APP_SHORT_NAME, "%s", message);
     }
@@ -516,15 +554,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL dbgFunc(VkFlags msgFlags, VkDebugReportObjectType
 
     free(message);
 
-    // clang-format on
-
-    /*
-     * false indicates that layer should not bail-out of an
-     * API call that had validation failures. This may mean that the
-     * app dies inside the driver due to invalid parameter(s).
-     * That's what would happen without validation layers, so we'll
-     * keep that behavior here.
-     */
+    // Don't bail out, but keep going.
     return false;
 }
 
@@ -669,6 +699,8 @@ static void demo_set_image_layout(struct demo *demo, VkImage image, VkImageAspec
 }
 
 static void demo_draw_build_cmd(struct demo *demo, VkCommandBuffer cmd_buf) {
+    VkDebugUtilsLabelEXT label;
+    memset(&label, 0, sizeof(label));
     const VkCommandBufferBeginInfo cmd_buf_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .pNext = NULL,
@@ -694,8 +726,42 @@ static void demo_draw_build_cmd(struct demo *demo, VkCommandBuffer cmd_buf) {
     VkResult U_ASSERT_ONLY err;
 
     err = vkBeginCommandBuffer(cmd_buf, &cmd_buf_info);
+
+    if (demo->validate) {
+        // Set a name for the command buffer
+        VkDebugUtilsObjectNameInfoEXT cmd_buf_name = {
+            .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+            .pNext = NULL,
+            .objectType = VK_OBJECT_TYPE_COMMAND_BUFFER,
+            .objectHandle = (uint64_t)cmd_buf,
+            .pObjectName = "CubeDrawCommandBuf",
+        };
+        demo->SetDebugUtilsObjectNameEXT(demo->device, &cmd_buf_name);
+
+        label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+        label.pNext = NULL;
+        label.pLabelName = "DrawBegin";
+        label.color[0] = 0.4f;
+        label.color[1] = 0.3f;
+        label.color[2] = 0.2f;
+        label.color[3] = 0.1f;
+        demo->CmdBeginDebugUtilsLabelEXT(cmd_buf, &label);
+    }
+
     assert(!err);
     vkCmdBeginRenderPass(cmd_buf, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
+
+    if (demo->validate) {
+        label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+        label.pNext = NULL;
+        label.pLabelName = "InsideRenderPass";
+        label.color[0] = 8.4f;
+        label.color[1] = 7.3f;
+        label.color[2] = 6.2f;
+        label.color[3] = 7.1f;
+        demo->CmdBeginDebugUtilsLabelEXT(cmd_buf, &label);
+    }
+
     vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, demo->pipeline);
     vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, demo->pipeline_layout, 0, 1,
                             &demo->swapchain_image_resources[demo->current_buffer].descriptor_set, 0, NULL);
@@ -714,10 +780,29 @@ static void demo_draw_build_cmd(struct demo *demo, VkCommandBuffer cmd_buf) {
     scissor.offset.x = 0;
     scissor.offset.y = 0;
     vkCmdSetScissor(cmd_buf, 0, 1, &scissor);
+
+    if (demo->validate) {
+        label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+        label.pNext = NULL;
+        label.pLabelName = "ActualDraw";
+        label.color[0] = -0.4f;
+        label.color[1] = -0.3f;
+        label.color[2] = -0.2f;
+        label.color[3] = -0.1f;
+        demo->CmdBeginDebugUtilsLabelEXT(cmd_buf, &label);
+    }
+
     vkCmdDraw(cmd_buf, 12 * 3, 1, 0, 0);
+    if (demo->validate) {
+        demo->CmdEndDebugUtilsLabelEXT(cmd_buf);
+    }
+
     // Note that ending the renderpass changes the image's layout from
     // COLOR_ATTACHMENT_OPTIMAL to PRESENT_SRC_KHR
     vkCmdEndRenderPass(cmd_buf);
+    if (demo->validate) {
+        demo->CmdEndDebugUtilsLabelEXT(cmd_buf);
+    }
 
     if (demo->separate_present_queue) {
         // We have to transfer ownership from the graphics queue family to the
@@ -738,6 +823,9 @@ static void demo_draw_build_cmd(struct demo *demo, VkCommandBuffer cmd_buf) {
 
         vkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0,
                              NULL, 0, NULL, 1, &image_ownership_barrier);
+    }
+    if (demo->validate) {
+        demo->CmdEndDebugUtilsLabelEXT(cmd_buf);
     }
     err = vkEndCommandBuffer(cmd_buf);
     assert(!err);
@@ -2213,7 +2301,7 @@ static void demo_cleanup(struct demo *demo) {
     vkDeviceWaitIdle(demo->device);
     vkDestroyDevice(demo->device, NULL);
     if (demo->validate) {
-        demo->DestroyDebugReportCallback(demo->inst, demo->msg_callback, NULL);
+        demo->DestroyDebugUtilsMessengerEXT(demo->inst, demo->dbg_messenger, NULL);
     }
     vkDestroySurfaceKHR(demo->inst, demo->surface, NULL);
 
@@ -2625,6 +2713,14 @@ static void demo_run(struct demo *demo) {
     demo_draw(demo);
     demo->curFrame++;
 }
+#elif defined(VK_USE_PLATFORM_MACOS_MVK)
+static void demo_run(struct demo *demo) {
+    demo_draw(demo);
+    demo->curFrame++;
+    if (demo->frameCount != INT32_MAX && demo->curFrame == demo->frameCount) {
+        demo->quit = TRUE;
+    }
+}
 #elif defined(VK_USE_PLATFORM_MIR_KHR)
 #elif defined(VK_USE_PLATFORM_DISPLAY_KHR)
 static VkResult demo_create_display_surface(struct demo *demo) {
@@ -2735,8 +2831,8 @@ static VkResult demo_create_display_surface(struct demo *demo) {
     VkDisplayPlaneCapabilitiesKHR planeCaps;
     vkGetDisplayPlaneCapabilitiesKHR(demo->gpu, mode_props.displayMode, plane_index, &planeCaps);
     // Find a supported alpha mode
-    VkDisplayPlaneAlphaFlagBitsKHR alphaMode = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR;
-    VkDisplayPlaneAlphaFlagBitsKHR alphaModes[4] = {
+    VkCompositeAlphaFlagBitsKHR alphaMode = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR;
+    VkCompositeAlphaFlagBitsKHR alphaModes[4] = {
         VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR,
         VK_DISPLAY_PLANE_ALPHA_GLOBAL_BIT_KHR,
         VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR,
@@ -2919,6 +3015,11 @@ static void demo_init_vk(struct demo *demo) {
                     demo->extension_names[demo->enabled_extension_count++] = VK_EXT_DEBUG_REPORT_EXTENSION_NAME;
                 }
             }
+            if (!strcmp(VK_EXT_DEBUG_UTILS_EXTENSION_NAME, instance_extensions[i].extensionName)) {
+                if (demo->validate) {
+                    demo->extension_names[demo->enabled_extension_count++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
+                }
+            }
             assert(demo->enabled_extension_count < 64);
         }
 
@@ -3008,23 +3109,20 @@ static void demo_init_vk(struct demo *demo) {
      * After the instance is created, we use the instance-based
      * function to register the final callback.
      */
-    VkDebugReportCallbackCreateInfoEXT dbgCreateInfoTemp;
-    VkValidationFlagsEXT val_flags;
+    VkDebugUtilsMessengerCreateInfoEXT dbg_messenger_create_info;
     if (demo->validate) {
-        dbgCreateInfoTemp.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT;
-        dbgCreateInfoTemp.pNext = NULL;
-        dbgCreateInfoTemp.pfnCallback = demo->use_break ? BreakCallback : dbgFunc;
-        dbgCreateInfoTemp.pUserData = demo;
-        dbgCreateInfoTemp.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT;
-        if (demo->validate_checks_disabled) {
-            val_flags.sType = VK_STRUCTURE_TYPE_VALIDATION_FLAGS_EXT;
-            val_flags.pNext = NULL;
-            val_flags.disabledValidationCheckCount = 1;
-            VkValidationCheckEXT disabled_check = VK_VALIDATION_CHECK_ALL_EXT;
-            val_flags.pDisabledValidationChecks = &disabled_check;
-            dbgCreateInfoTemp.pNext = (void *)&val_flags;
-        }
-        inst_info.pNext = &dbgCreateInfoTemp;
+        // VK_EXT_debug_utils style
+        dbg_messenger_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        dbg_messenger_create_info.pNext = NULL;
+        dbg_messenger_create_info.flags = 0;
+        dbg_messenger_create_info.messageSeverity =
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        dbg_messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                                                VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                                VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        dbg_messenger_create_info.pfnUserCallback = debug_messenger_callback;
+        dbg_messenger_create_info.pUserData = demo;
+        inst_info.pNext = &dbg_messenger_create_info;
     }
 
     uint32_t gpu_count;
@@ -3050,7 +3148,7 @@ static void demo_init_vk(struct demo *demo) {
 
     /* Make initial call to query gpu_count, then second call for gpu info*/
     err = vkEnumeratePhysicalDevices(demo->inst, &gpu_count, NULL);
-    assert(!err && gpu_count > 0);
+    assert(!err);
 
     if (gpu_count > 0) {
         VkPhysicalDevice *physical_devices = malloc(sizeof(VkPhysicalDevice) * gpu_count);
@@ -3138,38 +3236,38 @@ static void demo_init_vk(struct demo *demo) {
     }
 
     if (demo->validate) {
-        demo->CreateDebugReportCallback =
-            (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(demo->inst, "vkCreateDebugReportCallbackEXT");
-        demo->DestroyDebugReportCallback =
-            (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(demo->inst, "vkDestroyDebugReportCallbackEXT");
-        if (!demo->CreateDebugReportCallback) {
-            ERR_EXIT("GetProcAddr: Unable to find vkCreateDebugReportCallbackEXT\n", "vkGetProcAddr Failure");
-        }
-        if (!demo->DestroyDebugReportCallback) {
-            ERR_EXIT("GetProcAddr: Unable to find vkDestroyDebugReportCallbackEXT\n", "vkGetProcAddr Failure");
-        }
-        demo->DebugReportMessage = (PFN_vkDebugReportMessageEXT)vkGetInstanceProcAddr(demo->inst, "vkDebugReportMessageEXT");
-        if (!demo->DebugReportMessage) {
-            ERR_EXIT("GetProcAddr: Unable to find vkDebugReportMessageEXT\n", "vkGetProcAddr Failure");
+        // Setup VK_EXT_debug_utils function pointers always (we use them for
+        // debug labels and names).
+        demo->CreateDebugUtilsMessengerEXT =
+            (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(demo->inst, "vkCreateDebugUtilsMessengerEXT");
+        demo->DestroyDebugUtilsMessengerEXT =
+            (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(demo->inst, "vkDestroyDebugUtilsMessengerEXT");
+        demo->SubmitDebugUtilsMessageEXT =
+            (PFN_vkSubmitDebugUtilsMessageEXT)vkGetInstanceProcAddr(demo->inst, "vkSubmitDebugUtilsMessageEXT");
+        demo->CmdBeginDebugUtilsLabelEXT =
+            (PFN_vkCmdBeginDebugUtilsLabelEXT)vkGetInstanceProcAddr(demo->inst, "vkCmdBeginDebugUtilsLabelEXT");
+        demo->CmdEndDebugUtilsLabelEXT =
+            (PFN_vkCmdEndDebugUtilsLabelEXT)vkGetInstanceProcAddr(demo->inst, "vkCmdEndDebugUtilsLabelEXT");
+        demo->CmdInsertDebugUtilsLabelEXT =
+            (PFN_vkCmdInsertDebugUtilsLabelEXT)vkGetInstanceProcAddr(demo->inst, "vkCmdInsertDebugUtilsLabelEXT");
+        demo->SetDebugUtilsObjectNameEXT =
+            (PFN_vkSetDebugUtilsObjectNameEXT)vkGetInstanceProcAddr(demo->inst, "vkSetDebugUtilsObjectNameEXT");
+        if (NULL == demo->CreateDebugUtilsMessengerEXT || NULL == demo->DestroyDebugUtilsMessengerEXT ||
+            NULL == demo->SubmitDebugUtilsMessageEXT || NULL == demo->CmdBeginDebugUtilsLabelEXT ||
+            NULL == demo->CmdEndDebugUtilsLabelEXT || NULL == demo->CmdInsertDebugUtilsLabelEXT ||
+            NULL == demo->SetDebugUtilsObjectNameEXT) {
+            ERR_EXIT("GetProcAddr: Failed to init VK_EXT_debug_utils\n", "GetProcAddr: Failure");
         }
 
-        VkDebugReportCallbackCreateInfoEXT dbgCreateInfo;
-        PFN_vkDebugReportCallbackEXT callback;
-        callback = demo->use_break ? BreakCallback : dbgFunc;
-        dbgCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT;
-        dbgCreateInfo.pNext = NULL;
-        dbgCreateInfo.pfnCallback = callback;
-        dbgCreateInfo.pUserData = demo;
-        dbgCreateInfo.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT;
-        err = demo->CreateDebugReportCallback(demo->inst, &dbgCreateInfo, NULL, &demo->msg_callback);
+        err = demo->CreateDebugUtilsMessengerEXT(demo->inst, &dbg_messenger_create_info, NULL, &demo->dbg_messenger);
         switch (err) {
             case VK_SUCCESS:
                 break;
             case VK_ERROR_OUT_OF_HOST_MEMORY:
-                ERR_EXIT("CreateDebugReportCallback: out of host memory\n", "CreateDebugReportCallback Failure");
+                ERR_EXIT("CreateDebugUtilsMessengerEXT: out of host memory\n", "CreateDebugUtilsMessengerEXT Failure");
                 break;
             default:
-                ERR_EXIT("CreateDebugReportCallback: unknown failure\n", "CreateDebugReportCallback Failure");
+                ERR_EXIT("CreateDebugUtilsMessengerEXT: unknown failure\n", "CreateDebugUtilsMessengerEXT Failure");
                 break;
         }
     }
@@ -3258,7 +3356,7 @@ static void demo_init_vk_swapchain(struct demo *demo) {
     createInfo.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
     createInfo.pNext = NULL;
     createInfo.flags = 0;
-    createInfo.window = (ANativeWindow *)(demo->window);
+    createInfo.window = (struct ANativeWindow *)(demo->window);
 
     err = vkCreateAndroidSurfaceKHR(demo->inst, &createInfo, NULL, &demo->surface);
 #elif defined(VK_USE_PLATFORM_XLIB_KHR)
@@ -3618,16 +3716,13 @@ static void demo_init(struct demo *demo, int argc, char **argv) {
         ERR_EXIT("Usage: cube [--validate]\n", "Usage");
 #else
         fprintf(stderr,
-                "Usage:\n  %s [--use_staging] [--validate] [--validate-checks-disabled]\n"
-                "       [--break] [--c <framecount>] [--suppress_popups]\n"
-                "       [--incremental_present] [--display_timing]\n"
-                "       [--present_mode {0,1,2,3}]\n"
-                "\n"
-                "Options for --present_mode:\n"
-                "  %d: VK_PRESENT_MODE_IMMEDIATE_KHR\n"
-                "  %d: VK_PRESENT_MODE_MAILBOX_KHR\n"
-                "  %d: VK_PRESENT_MODE_FIFO_KHR (default)\n"
-                "  %d: VK_PRESENT_MODE_FIFO_RELAXED_KHR\n",
+                "Usage:\n  %s\t[--use_staging] [--validate] [--validate-checks-disabled] [--break]\n"
+                "\t[--c <framecount>] [--suppress_popups] [--incremental_present] [--display_timing]\n"
+                "\t[--present_mode <present mode enum>]\n"
+                "\t <present_mode_enum>\tVK_PRESENT_MODE_IMMEDIATE_KHR = %d\n"
+                "\t\t\t\tVK_PRESENT_MODE_MAILBOX_KHR = %d\n"
+                "\t\t\t\tVK_PRESENT_MODE_FIFO_KHR = %d\n"
+                "\t\t\t\tVK_PRESENT_MODE_FIFO_RELAXED_KHR = %d\n",
                 APP_SHORT_NAME, VK_PRESENT_MODE_IMMEDIATE_KHR, VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_FIFO_KHR,
                 VK_PRESENT_MODE_FIFO_RELAXED_KHR);
         fflush(stderr);
@@ -3737,23 +3832,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine,
 }
 
 #elif defined(VK_USE_PLATFORM_IOS_MVK) || defined(VK_USE_PLATFORM_MACOS_MVK)
-static void demo_main(struct demo *demo, void *view) {
-    const char *argv[] = {"CubeSample"};
-    int argc = sizeof(argv) / sizeof(char *);
+static void demo_main(struct demo *demo, void *view, int argc, const char *argv[]) {
 
     demo_init(demo, argc, (char **)argv);
     demo->window = view;
     demo_init_vk_swapchain(demo);
     demo_prepare(demo);
     demo->spin_angle = 0.4f;
-}
-
-static void demo_update_and_draw(struct demo *demo) {
-    // Wait for work to finish before updating MVP.
-    vkDeviceWaitIdle(demo->device);
-    demo_update_data_buffer(demo);
-
-    demo_draw(demo);
 }
 
 #elif defined(VK_USE_PLATFORM_ANDROID_KHR)

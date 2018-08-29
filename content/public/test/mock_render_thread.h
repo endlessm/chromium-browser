@@ -13,7 +13,6 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
-#include "components/viz/test/test_shared_bitmap_manager.h"
 #include "content/public/renderer/render_thread.h"
 #include "ipc/ipc_test_sink.h"
 #include "ipc/message_filter.h"
@@ -75,7 +74,6 @@ class MockRenderThread : public RenderThread {
   void RecordComputedAction(const std::string& action) override;
   std::unique_ptr<base::SharedMemory> HostAllocateSharedMemoryBuffer(
       size_t buffer_size) override;
-  viz::SharedBitmapManager* GetSharedBitmapManager() override;
   void RegisterExtension(v8::Extension* extension) override;
   void ScheduleIdleHandler(int64_t initial_delay_ms) override;
   void IdleHandler() override;
@@ -88,6 +86,7 @@ class MockRenderThread : public RenderThread {
   int32_t GetClientId() override;
   void SetRendererProcessType(
       blink::scheduler::RendererProcessType type) override;
+  blink::WebString GetUserAgent() const override;
 #if defined(OS_WIN)
   void PreCacheFont(const LOGFONT& log_font) override;
   void ReleaseCachedFonts() override;
@@ -170,7 +169,6 @@ class MockRenderThread : public RenderThread {
   // Observers to notify.
   base::ObserverList<RenderThreadObserver> observers_;
 
-  viz::TestSharedBitmapManager shared_bitmap_manager_;
   std::unique_ptr<service_manager::Connector> connector_;
   service_manager::mojom::ConnectorRequest pending_connector_request_;
 

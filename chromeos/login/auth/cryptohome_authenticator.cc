@@ -27,8 +27,8 @@
 #include "chromeos/login/auth/user_context.h"
 #include "chromeos/login/login_state.h"
 #include "chromeos/login_event_recorder.h"
+#include "components/account_id/account_id.h"
 #include "components/device_event_log/device_event_log.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_names.h"
 #include "components/user_manager/user_type.h"
@@ -179,6 +179,11 @@ void DoMount(const base::WeakPtr<AuthAttemptState>& attempt,
   // necessary because cryptohomes created by Chrome OS M38 and older will have
   // a legacy key with no label while those created by Chrome OS M39 and newer
   // will have a key with the label kCryptohomeGAIAKeyLabel.
+  //
+  // This logic does not apply to PIN and weak keys in general, as those do not
+  // authenticate against a wildcard label.
+  if (attempt->user_context.IsUsingPin())
+    auth_key->mutable_data()->set_label(key->GetLabel());
   auth_key->set_secret(key->GetSecret());
   DBusThreadManager::Get()->GetCryptohomeClient()->MountEx(
       cryptohome::Identification(attempt->user_context.GetAccountId()), auth,
@@ -550,6 +555,11 @@ void CryptohomeAuthenticator::CompleteLogin(content::BrowserContext* context,
 
   // Reset the verified flag.
   owner_is_verified_ = false;
+  if (!user_manager::known_user::FindPrefs(user_context.GetAccountId(),
+                                           nullptr)) {
+    // Save logged in user into local state as early as possible.
+    user_manager::known_user::SaveKnownUser(user_context.GetAccountId());
+  }
 
   StartMount(current_state_->AsWeakPtr(),
              scoped_refptr<CryptohomeAuthenticator>(this),
@@ -906,6 +916,12 @@ void CryptohomeAuthenticator::Resolve() {
           base::BindOnce(&CryptohomeAuthenticator::OnOldEncryptionDetected,
                          this, state == FAILED_PREVIOUS_MIGRATION_INCOMPLETE));
       break;
+    case OFFLINE_NO_MOUNT:
+      task_runner_->PostTask(
+          FROM_HERE,
+          base::BindOnce(&CryptohomeAuthenticator::OnAuthFailure, this,
+                         AuthFailure(AuthFailure::MISSING_CRYPTOHOME)));
+      break;
     default:
       NOTREACHED();
       break;
@@ -1004,6 +1020,11 @@ CryptohomeAuthenticator::ResolveCryptohomeFailureState() {
       // for online login to succeed and try again with the "create" flag set.
       return NO_MOUNT;
     }
+  } else if (current_state_->cryptohome_code() ==
+             cryptohome::MOUNT_ERROR_USER_DOES_NOT_EXIST) {
+    // If we tried a mount but the user did not exist in the offline flow,
+    // surface this as an error.
+    return OFFLINE_NO_MOUNT;
   }
 
   if (!current_state_->username_hash_valid())

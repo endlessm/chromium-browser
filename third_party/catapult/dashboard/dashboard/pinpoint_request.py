@@ -21,6 +21,9 @@ _ISOLATE_TARGETS = [
     'load_library_perf_tests', 'media_perftests', 'net_perftests',
     'performance_browser_tests', 'telemetry_perf_tests',
     'telemetry_perf_webview_tests', 'tracing_perftests']
+_BOTS_USING_PERFORMANCE_TEST_SUITES = [
+    'linux-perf', 'mac-10_12_laptop_low_end-perf'
+]
 
 
 class InvalidParamsError(Exception):
@@ -110,6 +113,24 @@ def ResolveToGitHash(commit_position):
   return commit_position
 
 
+def _GetIsolateTarget(bot_name, suite, only_telemetry=False):
+  target = 'telemetry_perf_tests'
+
+  # TODO(simonhatch): Remove this once the waterfall has fully migrated to
+  # the new isolate target.
+  if bot_name in _BOTS_USING_PERFORMANCE_TEST_SUITES:
+    target = 'performance_test_suite'
+
+  if suite in _ISOLATE_TARGETS:
+    if only_telemetry:
+      raise InvalidParamsError('Only telemetry is supported at the moment.')
+    else:
+      target = suite
+  elif 'webview' in bot_name:
+    target = 'telemetry_perf_webview_tests'
+  return target
+
+
 def ParseTIRLabelChartNameAndTraceName(test_path_parts):
   """Returns tir_label, chart_name, trace_name from a test path."""
   test = ndb.Key('TestMetadata', '/'.join(test_path_parts)).get()
@@ -163,11 +184,7 @@ def PinpointParamsFromPerfTryParams(params):
   # Pinpoint also requires you specify which isolate target to run the
   # test, so we derive that from the suite name. Eventually, this would
   # ideally be stored in a SparesDiagnostic but for now we can guess.
-  target = 'telemetry_perf_tests'
-  if suite in _ISOLATE_TARGETS:
-    raise InvalidParamsError('Only telemetry is supported at the moment.')
-  elif 'webview' in bot_name:
-    target = 'telemetry_perf_webview_tests'
+  target = _GetIsolateTarget(bot_name, suite, only_telemetry=True)
 
   start_commit = params['start_commit']
   end_commit = params['end_commit']
@@ -185,7 +202,6 @@ def PinpointParamsFromPerfTryParams(params):
       'start_git_hash': start_git_hash,
       'end_git_hash': end_git_hash,
       'extra_test_args': extra_test_args,
-      'auto_explore': 'false',
       'target': target,
       'user': email,
       'name': job_name
@@ -218,6 +234,7 @@ def PinpointParamsFromBisectParams(params):
   bot_name = test_path_parts[1]
   suite = test_path_parts[2]
   story_filter = params['story_filter']
+  pin = params.get('pin')
 
   # If functional bisects are speciied, Pinpoint expects these parameters to be
   # empty.
@@ -235,11 +252,7 @@ def PinpointParamsFromBisectParams(params):
   # Pinpoint also requires you specify which isolate target to run the
   # test, so we derive that from the suite name. Eventually, this would
   # ideally be stored in a SparesDiagnostic but for now we can guess.
-  target = 'telemetry_perf_tests'
-  if suite in _ISOLATE_TARGETS:
-    target = suite
-  elif 'webview' in bot_name:
-    target = 'telemetry_perf_webview_tests'
+  target = _GetIsolateTarget(bot_name, suite)
 
   start_commit = params['start_commit']
   end_commit = params['end_commit']
@@ -258,18 +271,13 @@ def PinpointParamsFromBisectParams(params):
     if alert_keys:
       alert_key = alert_keys[0]
 
-  return {
+  pinpoint_params = {
       'configuration': bot_name,
       'benchmark': suite,
-      'trace': trace_name,
       'chart': chart_name,
-      'statistic': statistic_name,
-      'tir_label': tir_label,
-      'story': story_filter,
       'start_git_hash': start_git_hash,
       'end_git_hash': end_git_hash,
       'bug_id': params['bug_id'],
-      'auto_explore': 'true',
       'comparison_mode': bisect_mode,
       'target': target,
       'user': email,
@@ -279,3 +287,16 @@ def PinpointParamsFromBisectParams(params):
           'alert': alert_key
       }),
   }
+
+  if pin:
+    pinpoint_params['pin'] = pin
+  if statistic_name:
+    pinpoint_params['statistic'] = statistic_name
+  if story_filter:
+    pinpoint_params['story'] = story_filter
+  if tir_label:
+    pinpoint_params['tir_label'] = tir_label
+  if trace_name:
+    pinpoint_params['trace'] = trace_name
+
+  return pinpoint_params

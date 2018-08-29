@@ -14,6 +14,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
+#include "components/account_id/account_id.h"
 #include "components/policy/core/common/cloud/cloud_policy_client_registration_helper.h"
 #include "components/policy/core/common/cloud/user_cloud_policy_manager.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
@@ -171,15 +172,15 @@ void UserPolicySigninService::TryInitializeForSignedInUser() {
   }
 
   InitializeForSignedInUser(
-      signin_manager()->GetAuthenticatedAccountInfo().email,
+      signin_manager()->GetAuthenticatedAccountInfo().GetAccountId(),
       profile_->GetRequestContext());
 }
 
 void UserPolicySigninService::InitializeUserCloudPolicyManager(
-    const std::string& username,
+    const AccountId& account_id,
     std::unique_ptr<CloudPolicyClient> client) {
   UserPolicySigninServiceBase::InitializeUserCloudPolicyManager(
-      username, std::move(client));
+      account_id, std::move(client));
   ProhibitSignoutIfNeeded();
 }
 

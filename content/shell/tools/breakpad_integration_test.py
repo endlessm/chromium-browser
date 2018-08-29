@@ -29,7 +29,7 @@ def run_test(options, crash_dir, additional_arguments = []):
 
   print "# Run content_shell and make it crash."
   cmd = [options.binary,
-         '--run-layout-test',
+         '--run-web-tests',
          'chrome://crash',
          '--enable-crash-reporter',
          '--crash-dumps-dir=%s' % crash_dir]
@@ -50,7 +50,7 @@ def run_test(options, crash_dir, additional_arguments = []):
   # TODO(crbug.com/782923): This test should not reach directly into the
   # Crashpad database, but instead should use crashpad_database_util.
   if sys.platform == 'darwin':
-    dmp_dir = os.path.join(dmp_dir, 'completed')
+    dmp_dir = os.path.join(dmp_dir, 'pending')
   elif sys.platform == 'win32':
     dmp_dir = os.path.join(dmp_dir, 'reports')
   dmp_files = glob.glob(os.path.join(dmp_dir, '*.dmp'))

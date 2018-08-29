@@ -63,9 +63,10 @@ public class SelectPopupOtherContentViewTest {
 
         @Override
         public boolean isSatisfied() {
-            ContentViewCore contentViewCore =
-                    mActivityTestRule.getActivity().getCurrentContentViewCore();
-            return contentViewCore.isSelectPopupVisibleForTest();
+            return mActivityTestRule.getActivity()
+                    .getActivityTab()
+                    .getWebContents()
+                    .isSelectPopupVisibleForTesting();
         }
     }
 
@@ -83,11 +84,8 @@ public class SelectPopupOtherContentViewTest {
         // Load the test page.
         mActivityTestRule.startMainActivityWithURL(SELECT_URL);
 
-        final ContentViewCore viewCore =
-                mActivityTestRule.getActivity().getCurrentContentViewCore();
-
         // Once clicked, the popup should show up.
-        DOMUtils.clickNode(viewCore, "select");
+        DOMUtils.clickNode(mActivityTestRule.getActivity().getCurrentWebContents(), "select");
         CriteriaHelper.pollInstrumentationThread(new PopupShowingCriteria());
 
         // Now create and destroy a different ContentView.
@@ -109,7 +107,13 @@ public class SelectPopupOtherContentViewTest {
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
 
         // The popup should still be shown.
+        ContentViewCore viewCore =
+                mActivityTestRule.getActivity().getActivityTab().getContentViewCore();
+
         Assert.assertTrue("The select popup got hidden by destroying of unrelated ContentViewCore.",
-                viewCore.isSelectPopupVisibleForTest());
+                mActivityTestRule.getActivity()
+                        .getActivityTab()
+                        .getWebContents()
+                        .isSelectPopupVisibleForTesting());
     }
 }
