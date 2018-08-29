@@ -55,7 +55,6 @@ common_defines+=\
 	enable_mdns=true \
 	enable_nacl=false \
 	enable_wayland_server=false \
-	enable_webrtc=true \
 	enable_widevine=true \
 	fieldtrial_testing_like_official_build=true \
 	is_component_build=false \
@@ -197,11 +196,8 @@ override_dh_auto_configure: out/Release/gn
 # There are two things to build. Standard ffmpeg+browser, and full ffmpeg.
 override_dh_auto_build: BUILD_TARGETS := chrome chrome_sandbox chromedriver
 override_dh_auto_build:
-
-	while sleep 1200; do echo "#  I ATEN'T DEAD"; done& ninja -v -C out/Release $(BUILD_TARGETS) && { kill \%1; sleep 1; echo; true; } || { kill \%1; exit 1; sleep 2; echo; false; }
-
-	ninja -v -C out/ffmpeg-std libffmpeg.so
-
+	ninja -C out/Release $(BUILD_TARGETS)
+	ninja -C out/ffmpeg-std libffmpeg.so
 
 override_dh_fixperms:
 	dh_fixperms --exclude chrome-sandbox
@@ -434,7 +430,7 @@ debian/chromium-browser.sh: debian/chromium-browser.sh.in
     $< > $@
 
 out/Release/gn:
-	CC=clang-5.0 CXX=clang++-5.0 tools/gn/bootstrap/bootstrap.py --verbose --no-rebuild --gn-gen-args '$(common_defines)'
+	CC=clang-6.0 CXX=clang++-6.0 tools/gn/bootstrap/bootstrap.py --verbose --no-rebuild --gn-gen-args '$(common_defines)'
 	echo built $@
 
 

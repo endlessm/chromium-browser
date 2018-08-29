@@ -1,3 +1,95 @@
+chromium-browser (68.0.3440.106-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 68.0.3440.106
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 09 Aug 2018 00:10:42 +0200
+
+chromium-browser (68.0.3440.84-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 68.0.3440.84
+  * debian/patches/add-missing-base-namespace.patch: removed, no longer needed
+  * debian/patches/widevine-other-locations: updated
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 01 Aug 2018 09:09:41 +0200
+
+chromium-browser (68.0.3440.75-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 68.0.3440.75
+    - CVE-2018-6153: Stack buffer overflow in Skia.
+    - CVE-2018-6154: Heap buffer overflow in WebGL.
+    - CVE-2018-6155: Use after free in WebRTC.
+    - CVE-2018-6156: Heap buffer overflow in WebRTC.
+    - CVE-2018-6157: Type confusion in WebRTC.
+    - CVE-2018-6158: Use after free in Blink.
+    - CVE-2018-6159: Same origin policy bypass in ServiceWorker.
+    - CVE-2018-6160: URL spoof in Chrome on iOS.
+    - CVE-2018-6161: Same origin policy bypass in WebAudio.
+    - CVE-2018-6162: Heap buffer overflow in WebGL.
+    - CVE-2018-6163: URL spoof in Omnibox.
+    - CVE-2018-6164: Same origin policy bypass in ServiceWorker.
+    - CVE-2018-6165: URL spoof in Omnibox.
+    - CVE-2018-6166: URL spoof in Omnibox.
+    - CVE-2018-6167: URL spoof in Omnibox.
+    - CVE-2018-6168: CORS bypass in Blink.
+    - CVE-2018-6169: Permissions bypass in extension installation.
+    - CVE-2018-6170: Type confusion in PDFium.
+    - CVE-2018-6171: Use after free in WebBluetooth.
+    - CVE-2018-6172: URL spoof in Omnibox.
+    - CVE-2018-6173: URL spoof in Omnibox.
+    - CVE-2018-6174: Integer overflow in SwiftShader.
+    - CVE-2018-6175: URL spoof in Omnibox.
+    - CVE-2018-6176: Local user privilege escalation in Extensions.
+    - CVE-2018-6177: Cross origin information leak in Blink.
+    - CVE-2018-6178: UI spoof in Extensions.
+    - CVE-2018-6179: Local file information leak in Extensions.
+    - CVE-2018-6044: Request privilege escalation in Extensions.
+    - CVE-2018-4117: Cross origin information leak in Blink.
+  * debian/rules:
+    - remove enable_webrtc build flag
+    - make ninja less verbose to reduce build log size
+  * debian/chromium-browser.sh.in: parse flashplugin manifest with Python 3
+    (LP: #1772448)
+  * debian/patches/add-missing-base-namespace.patch: added
+  * debian/patches/chromium_useragent.patch: refreshed
+  * debian/patches/configuration-directory.patch: refreshed
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/enable-chromecast-by-default.patch: refreshed
+  * debian/patches/fix-crashpad-linux-compat.patch: removed, no longer needed
+  * debian/patches/fix-extra-arflags.patch: updated
+  * debian/patches/fix-ffmpeg-ia32-build.patch: updated
+  * debian/patches/last-commit-position: refreshed
+  * debian/patches/no-new-ninja-flag.patch: refreshed
+  * debian/patches/revert-Xclang-instcombine-lower-dbg-declare.patch: updated
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: updated
+  * debian/patches/title-bar-default-system.patch-v35: refreshed
+  * debian/patches/touch-v35: refreshed
+  * debian/patches/use-clang-versioned.patch: refreshed
+  * debian/known_gn_gen_args-*: remove enable_webrtc build flag
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 25 Jul 2018 10:51:24 +0200
+
+chromium-browser (67.0.3396.99-0ubuntu0.16.04.2) xenial; urgency=medium
+
+  * debian/patches/libcxxabi-arm-ehabi-fix.patch: removed, no longer needed
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 11 Jul 2018 10:22:52 +0200
+
+chromium-browser (67.0.3396.99-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 67.0.3396.99
+    - CVE-2018-6148: Incorrect handling of CSP header.
+    - CVE-2018-6149: Out of bounds write in V8.
+  * debian/control: build-depend on clang-6.0 and llvm-6.0, which are now in
+    xenial-updates
+  * debian/rules: build gn with clang 6.0
+  * debian/patches/revert-clang-nostdlib++.patch: removed, no longer needed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: updated
+  * debian/patches/use-clang-versioned.patch: updated
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Mon, 09 Jul 2018 23:51:26 +0200
+
 chromium-browser (67.0.3396.62-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 67.0.3396.62

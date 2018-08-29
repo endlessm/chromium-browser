@@ -99,7 +99,7 @@ fi
 
 if test -x /usr/bin/python3 -a -f "/usr/lib/adobe-flashplugin/manifest.json"; then
 	if echo "$CHROMIUM_FLAGS" |grep -E -- "--ppapi-flash-version=( |\$)"; then
-		ver=$(python -c 'import json,sys; print(json.load(open("/usr/lib/adobe-flashplugin/manifest.json"))["version"]);')
+		ver=$(python3 -c 'import json,sys; print(json.load(open("/usr/lib/adobe-flashplugin/manifest.json"))["version"]);')
 		CHROMIUM_FLAGS=${CHROMIUM_FLAGS/--ppapi-flash-version=/--ppapi-flash-version="${ver}" }
 	fi
 fi

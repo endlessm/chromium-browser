@@ -82,7 +82,6 @@ enable_vr_shell = false
 enable_vr_shell_ui_dev = false
 enable_vulkan = false
 enable_wayland_server = false
-enable_webrtc = true
 enable_websockets = true
 enable_webvr = false
 enable_widevine = false
