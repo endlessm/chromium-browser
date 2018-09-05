@@ -375,15 +375,6 @@ bool PathProvider(int key, base::FilePath* result) {
     // TODO(crbug.com/663554): Remove this after component updated CDM is
     // supported on Linux and ChromeOS.
     case chrome::FILE_WIDEVINE_CDM:
-      base::PathService::Get(base::DIR_HOME, &cur);
-      cur = cur.Append(FILE_PATH_LITERAL(".local/lib/libwidevinecdm.so"));
-      if (base::PathExists(cur)) {
-        break;
-      }
-      if (base::PathExists(base::FilePath(FILE_PATH_LITERAL("/opt/google/chrome/libwidevinecdm.so")))) {
-        cur = base::FilePath(FILE_PATH_LITERAL("/opt/google/chrome/libwidevinecdm.so"));
-        break;
-      }
       if (!GetComponentDirectory(&cur))
         return false;
       cur =
