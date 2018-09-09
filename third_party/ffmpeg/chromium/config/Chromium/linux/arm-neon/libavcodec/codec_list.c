@@ -5,7 +5,6 @@ static const AVCodec * const codec_list[] = {
     &ff_flac_decoder,
     &ff_mp3_decoder,
     &ff_libfdk_aac_decoder,
-    &ff_libopenh264_decoder,
     &ff_vorbis_decoder,
     &ff_pcm_alaw_decoder,
     &ff_pcm_f32le_decoder,
