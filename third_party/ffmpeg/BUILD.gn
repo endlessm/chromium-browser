@@ -398,7 +398,7 @@ if (is_component_ffmpeg) {
         rebase_path(target_gen_dir, root_build_dir),
       ]
 
-      # Need to link against some system libraries.
+      # Need to link against the system's libfdk-aac.
       if (current_cpu == "arm") {
         ldflags += [
           "-L",
@@ -411,7 +411,7 @@ if (is_component_ffmpeg) {
         ]
       }
       libs = [
-        "fdk-aac","openh264"
+        "fdk-aac",
       ]
 
     } else if (is_win) {
