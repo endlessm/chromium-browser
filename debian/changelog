@@ -1,3 +1,55 @@
+chromium-browser (69.0.3497.92-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 69.0.3497.92
+    - CVE-2018-XXXXX: Function signature mismatch in WebAssembly.
+    - CVE-2018-XXXXX: URL Spoofing in Omnibox.
+  * debian/rules: exclude more build artifacts from the binary package
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Tue, 11 Sep 2018 23:51:57 +0200
+
+chromium-browser (69.0.3497.81-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 69.0.3497.81
+    - CVE-2018-16065: Out of bounds write in V8.
+    - CVE-2018-16066: Out of bounds read in Blink.
+    - CVE-2018-16067: Out of bounds read in WebAudio.
+    - CVE-2018-16068: Out of bounds write in Mojo.
+    - CVE-2018-16069: Out of bounds read in SwiftShader.
+    - CVE-2018-16070: Integer overflow in Skia.
+    - CVE-2018-16071: Use after free in WebRTC.
+    - CVE-2018-16072: Cross origin pixel leak in Chrome's interaction with
+      Android's MediaPlayer.
+    - CVE-2018-16073: Site Isolation bypass after tab restore.
+    - CVE-2018-16074: Site Isolation bypass using Blob URLS.
+    - CVE-2018-16075: Local file access in Blink.
+    - CVE-2018-16076: Out of bounds read in PDFium.
+    - CVE-2018-16077: Content security policy bypass in Blink.
+    - CVE-2018-16078: Credit card information leak in Autofill.
+    - CVE-2018-16079: URL spoof in permission dialogs.
+    - CVE-2018-16080: URL spoof in full screen mode.
+    - CVE-2018-16081: Local file access in DevTools.
+    - CVE-2018-16082: Stack buffer overflow in SwiftShader.
+    - CVE-2018-16083: Out of bounds read in WebRTC.
+    - CVE-2018-16084: User confirmation bypass in external protocol handling.
+    - CVE-2018-16085: Use after free in Memory Instrumentation.
+  * debian/control: add uuid-dev as a build dependency (needed by fontconfig)
+  * debian/rules: specify AR=llvm-ar-6.0 to build gn
+  * debian/patches/additional-search-engines.patch: refreshed
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/fix-extra-arflags.patch: refreshed
+  * debian/patches/gn-add-missing-arm-impl-files.patch: added
+  * debian/patches/last-commit-position: replaced by
+    debian/patches/gn-no-last-commit-position.patch
+  * debian/patches/no-new-ninja-flag.patch: updated
+  * debian/patches/relax-ninja-version-requirement.patch: updated
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/skia-undef-HWCAP_CRC32.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: updated
+  * debian/patches/title-bar-default-system.patch-v35: refreshed
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 05 Sep 2018 13:47:36 +0200
+
 chromium-browser (68.0.3440.106-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 68.0.3440.106

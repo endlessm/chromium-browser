@@ -37,6 +37,7 @@ Build-Depends:
 	libxkbcommon-dev,
 	libpam0g-dev,
 	libffi-dev,
+	uuid-dev,
 	chrpath,
 	yasm
 Standards-Version: 4.1.1

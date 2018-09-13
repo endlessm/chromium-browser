@@ -238,6 +238,7 @@ override_dh_install-arch: TRASH := \
 	v8_context_snapshot_generator \
 	args.gn \
 	gn \
+	gn_build \
 	\*.ninja \
 	.ninja\* \
 	angledata \
@@ -430,7 +431,7 @@ debian/chromium-browser.sh: debian/chromium-browser.sh.in
     $< > $@
 
 out/Release/gn:
-	CC=clang-6.0 CXX=clang++-6.0 tools/gn/bootstrap/bootstrap.py --verbose --no-rebuild --gn-gen-args '$(common_defines)'
+	CC=clang-6.0 CXX=clang++-6.0 AR=llvm-ar-6.0 tools/gn/bootstrap/bootstrap.py --verbose --no-rebuild --gn-gen-args '$(common_defines)'
 	echo built $@
 
 
